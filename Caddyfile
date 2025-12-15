@@ -2,7 +2,7 @@
     root * /app/public
 
     @php {
-        path /health /healthz /api/*
+        path /health* /healthz* /api/*
     }
 
     handle @php {

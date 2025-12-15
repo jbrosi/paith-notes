@@ -1,12 +1,14 @@
 services:
   app:
-    image: dunglas/frankenphp:latest
+    build: .
     environment:
       # Bind HTTP only on port 8000 (no HTTPS, no domain)
       SERVER_NAME: ":8000"
       FRANKENPHP_WATCH: "1"
+      DATABASE_URL: "postgresql://paith:paith@db:5432/paith"
     depends_on:
       - frontend
+      - db
     volumes:
       - ./app:/app
       - ./Caddyfile:/etc/frankenphp/Caddyfile:ro
@@ -22,3 +24,29 @@ services:
     expose:
       - "5173"
 
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    command: ["php", "/app/worker.php"]
+    environment:
+      DATABASE_URL: "postgresql://paith:paith@db:5432/paith"
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./app:/app
+
+  db:
+    image: postgres:17-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: paith
+      POSTGRES_USER: paith
+      POSTGRES_PASSWORD: paith
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
