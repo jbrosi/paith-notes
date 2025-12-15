@@ -1,0 +1,13 @@
+services:
+  app:
+    image: dunglas/frankenphp:latest
+    environment:
+      # Bind HTTP only on port 8000 (no HTTPS, no domain)
+      SERVER_NAME: ":8000"
+      FRANKENPHP_WATCH: "1"
+    volumes:
+      - ./app:/app
+      - ./Caddyfile:/etc/frankenphp/Caddyfile:ro
+    ports:
+      - "8000:8000"
+
