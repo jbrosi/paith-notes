@@ -5,9 +5,20 @@ services:
       # Bind HTTP only on port 8000 (no HTTPS, no domain)
       SERVER_NAME: ":8000"
       FRANKENPHP_WATCH: "1"
+    depends_on:
+      - frontend
     volumes:
       - ./app:/app
       - ./Caddyfile:/etc/frankenphp/Caddyfile:ro
     ports:
       - "8000:8000"
+
+  frontend:
+    image: node:24
+    working_dir: /app/frontend
+    command: sh -lc "corepack enable && yarn install && yarn run dev"
+    volumes:
+      - ./app/frontend:/app/frontend
+    expose:
+      - "5173"
 

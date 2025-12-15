@@ -1,13 +1,23 @@
 :8000 {
     root * /app/public
 
-    php_server {
-        # Worker mode for the front controller
-        worker {
-            file /app/public/index.php
-            num 5
-            watch /app/public/index.php
-            watch /app/src/**/*.php
+    @php {
+        path /health /healthz /api/*
+    }
+
+    handle @php {
+        php_server {
+            # Worker mode for the front controller
+            worker {
+                file /app/public/index.php
+                num 5
+                watch /app/public/index.php
+                watch /app/src/**/*.php
+            }
         }
+    }
+
+    handle {
+        reverse_proxy frontend:5173
     }
 }
