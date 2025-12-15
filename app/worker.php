@@ -1,10 +1,50 @@
 <?php
 declare(strict_types=1);
 
+$s3Endpoint = getenv('S3_ENDPOINT') ?: '';
+$s3AccessKey = getenv('S3_ACCESS_KEY') ?: '';
+$s3SecretKey = getenv('S3_SECRET_KEY') ?: '';
+$s3Bucket = getenv('S3_BUCKET') ?: '';
+
 $databaseUrl = getenv('DATABASE_URL') ?: '';
 if ($databaseUrl === '') {
     fwrite(STDERR, "DATABASE_URL is not set\n");
     exit(1);
+}
+
+if ($s3Endpoint !== '' && $s3AccessKey !== '' && $s3SecretKey !== '' && $s3Bucket !== '') {
+    $endpoint = preg_replace('#/+$#', '', $s3Endpoint) ?? $s3Endpoint;
+
+    $autoload = '/app/worker/vendor/autoload.php';
+    if (!is_file($autoload)) {
+        fwrite(STDERR, "warning: AWS SDK autoload not found; skipping bucket setup\n");
+    } else {
+        require_once $autoload;
+
+        try {
+            $s3 = new Aws\S3\S3Client([
+                'version' => 'latest',
+                'region' => 'us-east-1',
+                'endpoint' => $endpoint,
+                'use_path_style_endpoint' => true,
+                'credentials' => [
+                    'key' => $s3AccessKey,
+                    'secret' => $s3SecretKey,
+                ],
+            ]);
+
+            $exists = $s3->doesBucketExist($s3Bucket);
+            if (!$exists) {
+                $s3->createBucket(['Bucket' => $s3Bucket]);
+            }
+
+            fwrite(STDOUT, sprintf("ensured S3 bucket exists: %s (%s)\n", $s3Bucket, $endpoint));
+        } catch (Throwable $e) {
+            fwrite(STDERR, sprintf("warning: failed to ensure S3 bucket exists: %s (%s)\n", $e->getMessage(), get_class($e)));
+        }
+    }
+} else {
+    fwrite(STDERR, "warning: S3 env not fully set; skipping bucket setup\n");
 }
 
 $parts = parse_url($databaseUrl);
@@ -87,8 +127,8 @@ while (true) {
             update jobs
             set status = 'processing',
                 locked_at = now(),
-                locked_by = :locked_by
-                attempts = attempts + 1
+                locked_by = :locked_by,
+                attempts = attempts + 1,
                 updated_at = now()
             where id = :id
         ");

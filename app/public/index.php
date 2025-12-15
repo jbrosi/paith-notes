@@ -1,6 +1,11 @@
 <?php
 declare(strict_types=1);
 
+$autoload = '/app/api/vendor/autoload.php';
+if (is_file($autoload)) {
+    require_once $autoload;
+}
+
 // Prevent the worker from terminating when a client disconnects mid-request
 ignore_user_abort(true);
 static $pid;

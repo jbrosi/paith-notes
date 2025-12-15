@@ -1,0 +1,7 @@
+{
+  "name": "paith-notes/worker",
+  "type": "project",
+  "require": {
+    "aws/aws-sdk-php": "^3"
+  }
+}

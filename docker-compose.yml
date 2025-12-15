@@ -6,9 +6,14 @@ services:
       SERVER_NAME: ":8000"
       FRANKENPHP_WATCH: "1"
       DATABASE_URL: "postgresql://paith:paith@db:5432/paith"
+      S3_ENDPOINT: "http://rustfs:9000"
+      S3_ACCESS_KEY: "rustfsadmin"
+      S3_SECRET_KEY: "rustfsadmin"
+      S3_BUCKET: "paith"
     depends_on:
       - frontend
       - db
+      - rustfs
     volumes:
       - ./app:/app
       - ./Caddyfile:/etc/frankenphp/Caddyfile:ro
@@ -28,12 +33,18 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.worker
-    command: ["php", "/app/worker.php"]
+    command: sh -lc "if [ ! -f /app/worker/vendor/autoload.php ]; then composer install --working-dir=/app/worker --no-interaction --no-progress; fi; php /app/worker.php"
     environment:
       DATABASE_URL: "postgresql://paith:paith@db:5432/paith"
+      S3_ENDPOINT: "http://rustfs:9000"
+      S3_ACCESS_KEY: "rustfsadmin"
+      S3_SECRET_KEY: "rustfsadmin"
+      S3_BUCKET: "paith"
     depends_on:
       db:
         condition: service_healthy
+      rustfs:
+        condition: service_started
     volumes:
       - ./app:/app
 
@@ -50,3 +61,15 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+
+  rustfs:
+    image: rustfs/rustfs:latest
+    command: ["/data"]
+    environment:
+      RUSTFS_ADDRESS: ":9000"
+      RUSTFS_CONSOLE_ENABLE: "true"
+      RUSTFS_ACCESS_KEY: "rustfsadmin"
+      RUSTFS_SECRET_KEY: "rustfsadmin"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
