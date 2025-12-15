@@ -33,7 +33,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.worker
-    command: sh -lc "if [ ! -f /app/worker/vendor/autoload.php ]; then composer install --working-dir=/app/worker --no-interaction --no-progress; fi; php /app/worker.php"
+    command: ["php", "/app/worker/worker.php"]
     environment:
       DATABASE_URL: "postgresql://paith:paith@db:5432/paith"
       S3_ENDPOINT: "http://rustfs:9000"

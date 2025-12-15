@@ -1,5 +1,11 @@
 {
   "name": "paith-notes/api",
   "type": "project",
-  "require": {}
+  "require": {},
+  "autoload": {
+    "psr-4": {
+      "Paith\\Notes\\Api\\": "src/",
+      "Paith\\Notes\\Shared\\": "../backend-shared/src/"
+    }
+  }
 }

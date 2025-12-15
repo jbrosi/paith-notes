@@ -1,0 +1,15 @@
+.git
+.idea
+**/.DS_Store
+
+# Frontend (not needed for PHP images)
+app/frontend
+app/frontend/node_modules
+
+# Dependencies built on host
+**/node_modules
+app/worker/vendor
+app/api/vendor
+
+# Misc
+**/*.log

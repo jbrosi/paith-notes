@@ -1,5 +1,5 @@
 :8000 {
-    root * /app/public
+    root * /app/api
 
     @php {
         path /health* /healthz* /api/*
@@ -7,12 +7,14 @@
 
     handle @php {
         php_server {
+            file_server off
             # Worker mode for the front controller
             worker {
-                file /app/public/index.php
+                file /app/api/index.php
                 num 5
-                watch /app/public/index.php
-                watch /app/src/**/*.php
+                watch /app/api/index.php
+                watch /app/api/src/**/*.php
+                watch /app/backend-shared/src/**/*.php
             }
         }
     }

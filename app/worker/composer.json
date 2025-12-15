@@ -3,5 +3,11 @@
   "type": "project",
   "require": {
     "aws/aws-sdk-php": "^3"
+  },
+  "autoload": {
+    "psr-4": {
+      "Paith\\Notes\\Worker\\": "src/",
+      "Paith\\Notes\\Shared\\": "../backend-shared/src/"
+    }
   }
 }
