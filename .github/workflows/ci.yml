@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  lint-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build worker image
+        run: docker compose build worker
+
+      - name: Start services
+        run: docker compose up -d db rustfs
+
+      - name: Install PHP dependencies (worker)
+        run: docker compose run --rm --no-deps worker composer install --working-dir=/app/worker --no-interaction --prefer-dist
+
+      - name: Install PHP dependencies (api)
+        run: docker compose run --rm --no-deps worker composer install --working-dir=/app/api --no-interaction --prefer-dist
+
+      - name: PHPCS
+        run: docker compose run --rm --no-deps worker composer phpcs --working-dir=/app/worker
+
+      - name: PHPStan
+        run: docker compose run --rm --no-deps worker composer phpstan --working-dir=/app/worker
+
+      - name: Pest (with coverage)
+        run: docker compose run --rm worker sh -lc "mkdir -p /app/api/coverage && cd /app/api && phpdbg -qrr vendor/bin/pest --coverage --coverage-clover=/app/api/coverage/clover.xml"
+
+      - name: Frontend lint (Biome)
+        run: docker compose run --rm --no-deps frontend sh -lc "corepack enable && yarn install && yarn verify"
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-coverage-clover
+          path: app/api/coverage/clover.xml
+
+      - name: Cleanup
+        if: always()
+        run: docker compose down -v
