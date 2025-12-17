@@ -199,18 +199,21 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
       - name: Ensure SonarCloud configuration is present
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_ORGANIZATION: ${{ secrets.SONAR_ORGANIZATION }}
+          SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY }}
         run: |
-          if [ -z "${{ secrets.SONAR_TOKEN }}" ]; then
+          if [ -z "$SONAR_TOKEN" ]; then
             echo "Missing required secret: SONAR_TOKEN"
             exit 1
           fi
-          if [ -z "${{ vars.SONAR_ORGANIZATION }}" ]; then
+          if [ -z "$SONAR_ORGANIZATION" ]; then
             echo "Missing required repository variable: SONAR_ORGANIZATION"
             exit 1
           fi
-          if [ -z "${{ vars.SONAR_PROJECT_KEY }}" ]; then
+          if [ -z "$SONAR_PROJECT_KEY" ]; then
             echo "Missing required repository variable: SONAR_PROJECT_KEY"
             exit 1
           fi
@@ -225,10 +228,12 @@ jobs:
         uses: SonarSource/sonarcloud-github-action@v3
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_ORGANIZATION: ${{ secrets.SONAR_ORGANIZATION }}
+          SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY }}
         with:
           args: >
-            -Dsonar.organization=${{ vars.SONAR_ORGANIZATION }}
-            -Dsonar.projectKey=${{ vars.SONAR_PROJECT_KEY }}
+            -Dsonar.organization="$SONAR_ORGANIZATION"
+            -Dsonar.projectKey="$vars.SONAR_PROJECT_KEY"
             -Dsonar.sources=app/api/src,app/worker/src,app/backend-shared/src,app/frontend/src
             -Dsonar.php.coverage.reportPaths=app/api/coverage/clover.xml
             -Dsonar.exclusions=**/vendor/**,**/node_modules/**,**/coverage/**,app/frontend/dist/**
