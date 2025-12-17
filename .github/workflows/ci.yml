@@ -38,7 +38,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Pull worker image
-        run: docker compose pull worker
+        run: docker compose pull worker || docker compose build worker
 
       - name: Install PHP dependencies (worker)
         run: docker compose run --rm --no-deps -v ${{ github.workspace }}/.ci-cache/composer:/tmp/composer-cache -e COMPOSER_CACHE_DIR=/tmp/composer-cache worker composer install --working-dir=/app/worker --no-interaction --prefer-dist
@@ -68,7 +68,7 @@ jobs:
           key: yarn-${{ runner.os }}-${{ hashFiles('app/frontend/package.json', 'app/frontend/yarn.lock') }}
 
       - name: Install frontend dependencies
-        run: docker compose run --rm --no-deps -v ${{ github.workspace }}/.ci-cache/yarn:/tmp/yarn-cache -e YARN_CACHE_FOLDER=/tmp/yarn-cache frontend sh -lc "corepack enable && yarn install"
+        run: docker compose run --rm --no-deps -v ${{ github.workspace }}/.ci-cache/yarn:/tmp/yarn-cache -e YARN_CACHE_FOLDER=/tmp/yarn-cache frontend sh -lc "export COREPACK_ENABLE_DOWNLOAD_PROMPT=0 && corepack enable && yarn install"
 
       - name: Save Yarn cache
         uses: actions/cache/save@v4
@@ -104,7 +104,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Pull worker image
-        run: docker compose pull worker
+        run: docker compose pull worker || docker compose build worker
 
       - name: Install PHP dependencies (worker)
         run: docker compose run --rm --no-deps -v ${{ github.workspace }}/.ci-cache/composer:/tmp/composer-cache -e COMPOSER_CACHE_DIR=/tmp/composer-cache worker composer install --working-dir=/app/worker --no-interaction --prefer-dist
@@ -136,7 +136,7 @@ jobs:
           key: yarn-${{ runner.os }}-${{ hashFiles('app/frontend/package.json', 'app/frontend/yarn.lock') }}
 
       - name: Frontend lint (Biome)
-        run: docker compose run --rm --no-deps -v ${{ github.workspace }}/.ci-cache/yarn:/tmp/yarn-cache -e YARN_CACHE_FOLDER=/tmp/yarn-cache frontend sh -lc "corepack enable && yarn install && yarn verify"
+        run: docker compose run --rm --no-deps -v ${{ github.workspace }}/.ci-cache/yarn:/tmp/yarn-cache -e YARN_CACHE_FOLDER=/tmp/yarn-cache frontend sh -lc "export COREPACK_ENABLE_DOWNLOAD_PROMPT=0 && corepack enable && yarn install && yarn verify"
 
   test-php:
     runs-on: ubuntu-latest
@@ -166,7 +166,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Pull worker image
-        run: docker compose pull worker
+        run: docker compose pull worker || docker compose build worker
 
       - name: Start services
         run: docker compose up -d db rustfs
