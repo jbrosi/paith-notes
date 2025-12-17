@@ -202,8 +202,8 @@ jobs:
       - name: Ensure SonarCloud configuration is present
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_ORGANIZATION: ${{ secrets.SONAR_ORGANIZATION }}
-          SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY }}
+          SONAR_ORGANIZATION: ${{ vars.SONAR_ORGANIZATION }}
+          SONAR_PROJECT_KEY: ${{ vars.SONAR_PROJECT_KEY }}
         run: |
           if [ -z "$SONAR_TOKEN" ]; then
             echo "Missing required secret: SONAR_TOKEN"
@@ -228,12 +228,10 @@ jobs:
         uses: SonarSource/sonarcloud-github-action@v3
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_ORGANIZATION: ${{ secrets.SONAR_ORGANIZATION }}
-          SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY }}
         with:
           args: >
-            -Dsonar.organization="$SONAR_ORGANIZATION"
-            -Dsonar.projectKey="$SONAR_PROJECT_KEY"
+            -Dsonar.organization=${{ vars.SONAR_ORGANIZATION }}
+            -Dsonar.projectKey=${{ vars.SONAR_PROJECT_KEY }}
             -Dsonar.sources=app/api/src,app/worker/src,app/backend-shared/src,app/frontend/src
             -Dsonar.php.coverage.reportPaths=app/api/coverage/clover.xml
             -Dsonar.exclusions=**/vendor/**,**/node_modules/**,**/coverage/**,app/frontend/dist/**
