@@ -7,11 +7,134 @@ on:
       - main
 
 jobs:
-  lint-test:
+  install-php:
     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Prepare CI cache dirs
+        run: mkdir -p .ci-cache/composer
+
+      - name: Restore Composer cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .ci-cache/composer
+          key: composer-${{ runner.os }}-${{ hashFiles('app/api/composer.json', 'app/api/composer.lock', 'app/worker/composer.json', 'app/worker/composer.lock') }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build worker image
+        run: docker compose build worker
+
+      - name: Install PHP dependencies (worker)
+        run: docker compose run --rm --no-deps -v ${{ github.workspace }}/.ci-cache/composer:/tmp/composer-cache -e COMPOSER_CACHE_DIR=/tmp/composer-cache worker composer install --working-dir=/app/worker --no-interaction --prefer-dist
+
+      - name: Install PHP dependencies (api)
+        run: docker compose run --rm --no-deps -v ${{ github.workspace }}/.ci-cache/composer:/tmp/composer-cache -e COMPOSER_CACHE_DIR=/tmp/composer-cache worker composer install --working-dir=/app/api --no-interaction --prefer-dist
+
+      - name: Save Composer cache
+        uses: actions/cache/save@v4
+        with:
+          path: .ci-cache/composer
+          key: composer-${{ runner.os }}-${{ hashFiles('app/api/composer.json', 'app/api/composer.lock', 'app/worker/composer.json', 'app/worker/composer.lock') }}
+
+  install-frontend:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare CI cache dirs
+        run: mkdir -p .ci-cache/yarn
+
+      - name: Restore Yarn cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .ci-cache/yarn
+          key: yarn-${{ runner.os }}-${{ hashFiles('app/frontend/package.json', 'app/frontend/yarn.lock') }}
+
+      - name: Install frontend dependencies
+        run: docker compose run --rm --no-deps -v ${{ github.workspace }}/.ci-cache/yarn:/tmp/yarn-cache -e YARN_CACHE_FOLDER=/tmp/yarn-cache frontend sh -lc "corepack enable && yarn install"
+
+      - name: Save Yarn cache
+        uses: actions/cache/save@v4
+        with:
+          path: .ci-cache/yarn
+          key: yarn-${{ runner.os }}-${{ hashFiles('app/frontend/package.json', 'app/frontend/yarn.lock') }}
+
+  lint-php:
+    runs-on: ubuntu-latest
+    needs:
+      - install-php
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare CI cache dirs
+        run: mkdir -p .ci-cache/composer
+
+      - name: Restore Composer cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .ci-cache/composer
+          key: composer-${{ runner.os }}-${{ hashFiles('app/api/composer.json', 'app/api/composer.lock', 'app/worker/composer.json', 'app/worker/composer.lock') }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build worker image
+        run: docker compose build worker
+
+      - name: Install PHP dependencies (worker)
+        run: docker compose run --rm --no-deps -v ${{ github.workspace }}/.ci-cache/composer:/tmp/composer-cache -e COMPOSER_CACHE_DIR=/tmp/composer-cache worker composer install --working-dir=/app/worker --no-interaction --prefer-dist
+
+      - name: Install PHP dependencies (api)
+        run: docker compose run --rm --no-deps -v ${{ github.workspace }}/.ci-cache/composer:/tmp/composer-cache -e COMPOSER_CACHE_DIR=/tmp/composer-cache worker composer install --working-dir=/app/api --no-interaction --prefer-dist
+
+      - name: PHPCS
+        run: docker compose run --rm --no-deps worker composer phpcs --working-dir=/app/worker
+
+      - name: PHPStan
+        run: docker compose run --rm --no-deps worker composer phpstan --working-dir=/app/worker
+
+  lint-frontend:
+    runs-on: ubuntu-latest
+    needs:
+      - install-frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare CI cache dirs
+        run: mkdir -p .ci-cache/yarn
+
+      - name: Restore Yarn cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .ci-cache/yarn
+          key: yarn-${{ runner.os }}-${{ hashFiles('app/frontend/package.json', 'app/frontend/yarn.lock') }}
+
+      - name: Frontend lint (Biome)
+        run: docker compose run --rm --no-deps -v ${{ github.workspace }}/.ci-cache/yarn:/tmp/yarn-cache -e YARN_CACHE_FOLDER=/tmp/yarn-cache frontend sh -lc "corepack enable && yarn install && yarn verify"
+
+  test-php:
+    runs-on: ubuntu-latest
+    needs:
+      - install-php
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare CI cache dirs
+        run: mkdir -p .ci-cache/composer
+
+      - name: Restore Composer cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .ci-cache/composer
+          key: composer-${{ runner.os }}-${{ hashFiles('app/api/composer.json', 'app/api/composer.lock', 'app/worker/composer.json', 'app/worker/composer.lock') }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -23,22 +146,13 @@ jobs:
         run: docker compose up -d db rustfs
 
       - name: Install PHP dependencies (worker)
-        run: docker compose run --rm --no-deps worker composer install --working-dir=/app/worker --no-interaction --prefer-dist
+        run: docker compose run --rm --no-deps -v ${{ github.workspace }}/.ci-cache/composer:/tmp/composer-cache -e COMPOSER_CACHE_DIR=/tmp/composer-cache worker composer install --working-dir=/app/worker --no-interaction --prefer-dist
 
       - name: Install PHP dependencies (api)
-        run: docker compose run --rm --no-deps worker composer install --working-dir=/app/api --no-interaction --prefer-dist
-
-      - name: PHPCS
-        run: docker compose run --rm --no-deps worker composer phpcs --working-dir=/app/worker
-
-      - name: PHPStan
-        run: docker compose run --rm --no-deps worker composer phpstan --working-dir=/app/worker
+        run: docker compose run --rm --no-deps -v ${{ github.workspace }}/.ci-cache/composer:/tmp/composer-cache -e COMPOSER_CACHE_DIR=/tmp/composer-cache worker composer install --working-dir=/app/api --no-interaction --prefer-dist
 
       - name: Pest (with coverage)
         run: docker compose run --rm worker sh -lc "mkdir -p /app/api/coverage && cd /app/api && php -d pcov.enabled=1 vendor/bin/pest --coverage --coverage-clover=/app/api/coverage/clover.xml"
-
-      - name: Frontend lint (Biome)
-        run: docker compose run --rm --no-deps frontend sh -lc "corepack enable && yarn install && yarn verify"
 
       - name: Upload coverage artifact
         uses: actions/upload-artifact@v4
