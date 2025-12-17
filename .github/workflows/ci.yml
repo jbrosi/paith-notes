@@ -236,3 +236,30 @@ jobs:
             -Dsonar.sources=app/api/src,app/worker/src,app/backend-shared/src,app/frontend/src
             -Dsonar.php.coverage.reportPaths=app/api/coverage/clover.xml
             -Dsonar.exclusions=**/vendor/**,**/node_modules/**,**/coverage/**,app/frontend/dist/**
+
+  ci-success:
+    runs-on: ubuntu-latest
+    needs:
+      - lint-php
+      - lint-frontend
+      - test-php
+      - sonarcloud
+    if: always()
+
+    steps:
+      - name: Ensure required CI jobs succeeded
+        run: |
+          LINT_PHP_RESULT="${{ needs['lint-php'].result }}"
+          LINT_FRONTEND_RESULT="${{ needs['lint-frontend'].result }}"
+          TEST_PHP_RESULT="${{ needs['test-php'].result }}"
+          SONARCLOUD_RESULT="${{ needs.sonarcloud.result }}"
+
+          echo "lint-php: ${LINT_PHP_RESULT}"
+          echo "lint-frontend: ${LINT_FRONTEND_RESULT}"
+          echo "test-php: ${TEST_PHP_RESULT}"
+          echo "sonarcloud: ${SONARCLOUD_RESULT}"
+
+          if [ "${LINT_PHP_RESULT}" != "success" ]; then exit 1; fi
+          if [ "${LINT_FRONTEND_RESULT}" != "success" ]; then exit 1; fi
+          if [ "${TEST_PHP_RESULT}" != "success" ]; then exit 1; fi
+          if [ "${SONARCLOUD_RESULT}" != "success" ] && [ "${SONARCLOUD_RESULT}" != "skipped" ]; then exit 1; fi
