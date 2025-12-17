@@ -1,5 +1,12 @@
 # Paith Notes
 
+[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=jbrosi_paith-notes&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=jbrosi_paith-notes)
+[![Coverage](https://sonarcloud.io/api/project_badges/measure?project=jbrosi_paith-notes&metric=coverage)](https://sonarcloud.io/summary/new_code?id=jbrosi_paith-notes)
+[![Maintainability Rating](https://sonarcloud.io/api/project_badges/measure?project=jbrosi_paith-notes&metric=sqale_rating)](https://sonarcloud.io/summary/new_code?id=jbrosi_paith-notes)
+[![Reliability Rating](https://sonarcloud.io/api/project_badges/measure?project=jbrosi_paith-notes&metric=reliability_rating)](https://sonarcloud.io/summary/new_code?id=jbrosi_paith-notes)
+[![Security Rating](https://sonarcloud.io/api/project_badges/measure?project=jbrosi_paith-notes&metric=security_rating)](https://sonarcloud.io/summary/new_code?id=jbrosi_paith-notes)
+[![Duplicated Lines (%)](https://sonarcloud.io/api/project_badges/measure?project=jbrosi_paith-notes&metric=duplicated_lines_density)](https://sonarcloud.io/summary/new_code?id=jbrosi_paith-notes)
+
 Paith Notes is a self-hosted, markdown-first note system focused on small, linked documents, long-term portability, and honest trade-offs.
 
 It is inspired by tools like Obsidian, but designed for the web, self-hosting, and controlled environments — without pretending to be Google Docs.
