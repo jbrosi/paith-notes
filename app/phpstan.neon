@@ -1,5 +1,5 @@
 parameters:
-  level: 5
+  level: 10
   paths:
     - /app/api/src
     - /app/worker/src
@@ -14,5 +14,6 @@ parameters:
       - /app/**/vendor
 
   ignoreErrors:
+    - identifier: missingType.iterableValue
     - message: '#While loop condition is always true\.#'
       path: /app/worker/src/Runner.php

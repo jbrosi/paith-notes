@@ -16,14 +16,27 @@ final class App
         $handler = static function (): void {
             static $counter = 0;
 
-            $path = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?? '/';
+            if (!is_int($counter)) {
+                $counter = 0;
+            }
+
+            $requestUri = $_SERVER['REQUEST_URI'] ?? '/';
+            if (!is_string($requestUri)) {
+                $requestUri = '/';
+            }
+
+            $parsedPath = parse_url($requestUri, PHP_URL_PATH);
+            $path = is_string($parsedPath) ? $parsedPath : '/';
             if ($path === '/health' || $path === '/healthz') {
+                $currentCounter = $counter;
+                $counter++;
+
                 header('Content-Type: application/json; charset=utf-8');
                 echo json_encode([
                     'status'  => 'ok',
                     'service' => 'paith-notes',
                     'ts'      => gmdate('c'),
-                    'counter' => $counter++
+                    'counter' => $currentCounter,
                 ], JSON_UNESCAPED_SLASHES);
                 return;
             }
@@ -84,11 +97,21 @@ final class App
 
                     echo json_encode([
                         'status' => 'ok',
-                        'nooks' => array_map(static fn (array $r): array => [
-                            'id' => $r['id'],
-                            'name' => $r['name'],
-                            'role' => $r['role'],
-                        ], $rows),
+                        'nooks' => array_map(static function (mixed $r): array {
+                            if (!is_array($r)) {
+                                return ['id' => '', 'name' => '', 'role' => ''];
+                            }
+
+                            $id = $r['id'] ?? '';
+                            $name = $r['name'] ?? '';
+                            $role = $r['role'] ?? '';
+
+                            return [
+                                'id' => is_scalar($id) ? (string)$id : '',
+                                'name' => is_scalar($name) ? (string)$name : '',
+                                'role' => is_scalar($role) ? (string)$role : '',
+                            ];
+                        }, $rows),
                     ], JSON_UNESCAPED_SLASHES);
                 } catch (AuthError $e) {
                     http_response_code($e->statusCode);
@@ -111,6 +134,8 @@ final class App
             if ($path === '/api/nooks' && ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
                 header('Content-Type: application/json; charset=utf-8');
 
+                $pdo = null;
+
                 try {
                     $pdo = self::pdo();
                     $user = self::requireUser($pdo);
@@ -121,7 +146,8 @@ final class App
                         $data = [];
                     }
 
-                    $name = trim((string)($data['name'] ?? ''));
+                    $nameRaw = $data['name'] ?? '';
+                    $name = is_string($nameRaw) ? trim($nameRaw) : '';
                     if ($name === '') {
                         http_response_code(400);
                         echo json_encode([
@@ -157,17 +183,13 @@ final class App
                         ],
                     ], JSON_UNESCAPED_SLASHES);
                 } catch (AuthError $e) {
-                    if (isset($pdo) && $pdo instanceof PDO && $pdo->inTransaction()) {
-                        $pdo->rollBack();
-                    }
-
                     http_response_code($e->statusCode);
                     echo json_encode([
                         'status' => 'error',
                         'error' => $e->getMessage(),
                     ], JSON_UNESCAPED_SLASHES);
                 } catch (Throwable $e) {
-                    if (isset($pdo) && $pdo instanceof PDO && $pdo->inTransaction()) {
+                    if ($pdo instanceof PDO && $pdo->inTransaction()) {
                         $pdo->rollBack();
                     }
 
@@ -244,7 +266,12 @@ final class App
                         PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
                         PDO::ATTR_TIMEOUT => 2,
                     ]);
-                    $serverVersion = $pdo->query('select version()')->fetchColumn();
+
+                    $versionStmt = $pdo->query('select version()');
+                    $serverVersion = null;
+                    if ($versionStmt !== false) {
+                        $serverVersion = $versionStmt->fetchColumn();
+                    }
 
                     echo json_encode([
                         'status' => 'ok',
@@ -276,7 +303,6 @@ final class App
         while (frankenphp_handle_request($handler)) {
         }
     }
-
     public static function handle(string $method, string $path, array $headers = [], string $body = ''): array
     {
         $method = strtoupper($method);
@@ -334,11 +360,21 @@ final class App
                     'headers' => ['Content-Type' => 'application/json; charset=utf-8'],
                     'body' => (string)json_encode([
                         'status' => 'ok',
-                        'nooks' => array_map(static fn (array $r): array => [
-                            'id' => $r['id'],
-                            'name' => $r['name'],
-                            'role' => $r['role'],
-                        ], $rows),
+                        'nooks' => array_map(static function (mixed $r): array {
+                            if (!is_array($r)) {
+                                return ['id' => '', 'name' => '', 'role' => ''];
+                            }
+
+                            $id = $r['id'] ?? '';
+                            $name = $r['name'] ?? '';
+                            $role = $r['role'] ?? '';
+
+                            return [
+                                'id' => is_scalar($id) ? (string)$id : '',
+                                'name' => is_scalar($name) ? (string)$name : '',
+                                'role' => is_scalar($role) ? (string)$role : '',
+                            ];
+                        }, $rows),
                     ], JSON_UNESCAPED_SLASHES),
                 ];
             } catch (AuthError $e) {
@@ -375,7 +411,8 @@ final class App
                     $data = [];
                 }
 
-                $name = trim((string)($data['name'] ?? ''));
+                $nameRaw = $data['name'] ?? '';
+                $name = is_string($nameRaw) ? trim($nameRaw) : '';
                 if ($name === '') {
                     return [
                         'status' => 400,
@@ -417,10 +454,6 @@ final class App
                     ], JSON_UNESCAPED_SLASHES),
                 ];
             } catch (AuthError $e) {
-                if ($pdo instanceof PDO && $pdo->inTransaction()) {
-                    $pdo->rollBack();
-                }
-
                 return [
                     'status' => $e->statusCode,
                     'headers' => ['Content-Type' => 'application/json; charset=utf-8'],
@@ -495,11 +528,18 @@ final class App
                 if (!is_string($k)) {
                     continue;
                 }
+                if (!is_scalar($v)) {
+                    continue;
+                }
                 $lookup[strtolower($k)] = (string)$v;
             }
-            $id = trim((string)($lookup['x-nook-user'] ?? ''));
+            $id = trim($lookup['x-nook-user'] ?? '');
         } else {
-            $id = trim((string)($_SERVER['HTTP_X_NOOK_USER'] ?? ''));
+            $serverIdRaw = $_SERVER['HTTP_X_NOOK_USER'] ?? '';
+            if (!is_string($serverIdRaw)) {
+                $serverIdRaw = '';
+            }
+            $id = trim($serverIdRaw);
         }
 
         if ($id === '') {
@@ -514,7 +554,15 @@ final class App
         $stmt->execute([':id' => $id]);
         $user = $stmt->fetch(PDO::FETCH_ASSOC);
         if (is_array($user)) {
-            return $user;
+            $dbId = $user['id'] ?? '';
+            $dbFirst = $user['first_name'] ?? '';
+            $dbLast = $user['last_name'] ?? '';
+
+            return [
+                'id' => is_scalar($dbId) ? (string)$dbId : '',
+                'first_name' => is_scalar($dbFirst) ? (string)$dbFirst : '',
+                'last_name' => is_scalar($dbLast) ? (string)$dbLast : '',
+            ];
         }
 
         [$first, $last] = self::randomName();

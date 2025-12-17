@@ -73,6 +73,7 @@ final class Runner
                     for update skip locked limit 1
                 ");
                 $stmt->execute();
+                /** @var array{id: mixed, payload: mixed}|false $job */
                 $job = $stmt->fetch(PDO::FETCH_ASSOC);
 
                 if ($job === false) {
@@ -81,7 +82,12 @@ final class Runner
                     continue;
                 }
 
-                $jobId = (int)$job['id'];
+                $jobIdRaw = $job['id'];
+                if (!is_numeric($jobIdRaw)) {
+                    $pdo->rollBack();
+                    throw new \RuntimeException('job id is not numeric');
+                }
+                $jobId = (int)$jobIdRaw;
 
                 $lock = $pdo->prepare("
                     update global.jobs
