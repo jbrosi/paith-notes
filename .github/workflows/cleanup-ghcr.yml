@@ -1,0 +1,89 @@
+name: Cleanup GHCR images
+
+on:
+  schedule:
+    - cron: '41 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Ensure tools
+        run: |
+          set -eu
+          if ! command -v jq >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y jq
+          fi
+          if ! command -v gh >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y gh
+          fi
+
+      - name: Cleanup container package versions
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eu
+
+          cleanup_package() {
+            pkg="$1"
+
+            echo "==> cleaning package: $pkg"
+
+            versions_json=$(gh api --paginate "/user/packages/container/${pkg}/versions?per_page=100" 2>/dev/null | jq -s 'add' || true)
+            if [ -z "$versions_json" ]; then
+              echo "no versions found (or package does not exist): $pkg"
+              return 0
+            fi
+
+            echo "$versions_json" | jq -r '.[] | @base64' > /tmp/${pkg}-versions.b64
+
+            # delete untagged
+            while IFS= read -r row; do
+              v=$(printf '%s' "$row" | base64 -d)
+              id=$(echo "$v" | jq -r '.id')
+              tag_count=$(echo "$v" | jq -r '.metadata.container.tags | length')
+
+              if [ "$tag_count" = "0" ]; then
+                echo "deleting untagged version id=$id ($pkg)"
+                gh api -X DELETE "/user/packages/container/${pkg}/versions/${id}" >/dev/null
+              fi
+            done < /tmp/${pkg}-versions.b64
+
+            # keep newest 10 tagged versions
+            tagged_ids=$(cat /tmp/${pkg}-versions.b64 \
+              | while IFS= read -r row; do
+                  v=$(printf '%s' "$row" | base64 -d)
+                  id=$(echo "$v" | jq -r '.id')
+                  tag_count=$(echo "$v" | jq -r '.metadata.container.tags | length')
+                  created=$(echo "$v" | jq -r '.created_at')
+
+                  if [ "$tag_count" != "0" ]; then
+                    printf '%s %s\n' "$created" "$id"
+                  fi
+                done \
+              | sort -r \
+              | awk '{print $2}'
+            )
+
+            keep_ids=$(printf '%s\n' "$tagged_ids" | head -n 10 || true)
+            delete_ids=$(printf '%s\n' "$tagged_ids" | tail -n +11 || true)
+
+            echo "keeping tagged ids:" 
+            printf '%s\n' "$keep_ids" | sed '/^$/d' || true
+
+            printf '%s\n' "$delete_ids" | sed '/^$/d' | while IFS= read -r id; do
+              echo "deleting old tagged version id=$id ($pkg)"
+              gh api -X DELETE "/user/packages/container/${pkg}/versions/${id}" >/dev/null
+            done
+          }
+
+          cleanup_package app
+          cleanup_package worker
