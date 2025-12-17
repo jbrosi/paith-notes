@@ -1,4 +1,4 @@
-name: Publish worker image
+name: Publish app image
 
 on:
   push:
@@ -6,9 +6,9 @@ on:
       - main
       - dev
     paths:
-      - Dockerfile.worker
+      - Dockerfile
   schedule:
-    - cron: '17 3 * * *'
+    - cron: '23 3 * * *'
   workflow_dispatch:
 
 permissions:
@@ -48,9 +48,9 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: Dockerfile.worker
+          file: Dockerfile
           push: true
           tags: |
-            ghcr.io/${{ github.repository }}/worker:${{ matrix.tag }}
+            ghcr.io/${{ github.repository }}/app:${{ matrix.tag }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
