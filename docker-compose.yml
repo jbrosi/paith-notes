@@ -24,7 +24,7 @@ services:
   frontend:
     image: node:24
     working_dir: /app/frontend
-    command: sh -lc "corepack enable && yarn install && yarn run dev"
+    command: sh -lc "export COREPACK_ENABLE_DOWNLOAD_PROMPT=0 && corepack enable && yarn install && yarn run dev"
     volumes:
       - ./app/frontend:/app/frontend
     expose:
