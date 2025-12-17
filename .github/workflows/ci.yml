@@ -233,7 +233,7 @@ jobs:
         with:
           args: >
             -Dsonar.organization="$SONAR_ORGANIZATION"
-            -Dsonar.projectKey="$vars.SONAR_PROJECT_KEY"
+            -Dsonar.projectKey="$SONAR_PROJECT_KEY"
             -Dsonar.sources=app/api/src,app/worker/src,app/backend-shared/src,app/frontend/src
             -Dsonar.php.coverage.reportPaths=app/api/coverage/clover.xml
             -Dsonar.exclusions=**/vendor/**,**/node_modules/**,**/coverage/**,app/frontend/dist/**
