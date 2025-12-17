@@ -1,5 +1,6 @@
 services:
   app:
+    image: ${APP_IMAGE:-notes-app}
     build: .
     environment:
       # Bind HTTP only on port 8000 (no HTTPS, no domain)
