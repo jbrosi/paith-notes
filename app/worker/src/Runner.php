@@ -1,9 +1,11 @@
 <?php
+
 declare(strict_types=1);
 
 namespace Paith\Notes\Worker;
 
 use Aws\S3\S3Client;
+use Paith\Notes\Shared\Db\GlobalSchema;
 use Paith\Notes\Shared\Env;
 use PDO;
 use Throwable;
@@ -47,10 +49,7 @@ final class Runner
         };
 
         $ensureSchema = static function (PDO $pdo): void {
-            $pdo->exec("\n                create table if not exists jobs (\n                    id bigserial primary key,\n                    queue text not null default 'default',\n                    payload jsonb not null default '{}'::jsonb,\n                    status text not null default 'queued',\n                    available_at timestamptz not null default now(),\n                    locked_at timestamptz null,\n                    locked_by text null,\n                    attempts int not null default 0,\n                    last_error text null,\n                    created_at timestamptz not null default now(),\n                    updated_at timestamptz not null default now()\n                );\n            ");
-
-            $pdo->exec('create index if not exists jobs_status_available_idx on jobs (status, available_at)');
-            $pdo->exec('create index if not exists jobs_locked_at_idx on jobs (locked_at)');
+            GlobalSchema::ensure($pdo);
         };
 
         $workerId = sprintf('worker-%s-%d', gethostname() ?: 'unknown', getmypid());
@@ -62,7 +61,17 @@ final class Runner
 
                 $pdo->beginTransaction();
 
-                $stmt = $pdo->prepare("\n                    select id, payload\n                        from jobs\n                        where status = 'queued'\n                            and available_at <= now()\n                        order by id\n                        for update skip locked\n                        limit 1\n                ");
+                $stmt = $pdo->prepare("
+                    select 
+                        id, 
+                        payload 
+                    from global.jobs 
+                    where 
+                        status = 'queued' 
+                        and available_at <= now() 
+                    order by id
+                    for update skip locked limit 1
+                ");
                 $stmt->execute();
                 $job = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -74,7 +83,15 @@ final class Runner
 
                 $jobId = (int)$job['id'];
 
-                $lock = $pdo->prepare("\n                    update jobs\n                    set status = 'processing',\n                        locked_at = now(),\n                        locked_by = :locked_by,\n                        attempts = attempts + 1,\n                        updated_at = now()\n                    where id = :id\n                ");
+                $lock = $pdo->prepare("
+                    update global.jobs
+                        set status = 'processing',
+                        locked_at = now(),
+                        locked_by = :locked_by,
+                        attempts = attempts + 1,
+                        updated_at = now()
+                    where id = :id;
+                ");
                 $lock->execute([
                     ':locked_by' => $workerId,
                     ':id' => $jobId,
@@ -84,7 +101,12 @@ final class Runner
 
                 fwrite(STDOUT, sprintf("%s picked job %d\n", $workerId, $jobId));
 
-                $done = $connect()->prepare("\n                    update jobs\n                        set status = 'done',\n                            updated_at = now()\n                        where id = :id\n                ");
+                $done = $connect()->prepare("
+                    update global.jobs set 
+                        status = 'done',
+                        updated_at = now()
+                    where id = :id;
+                ");
                 $done->execute([':id' => $jobId]);
             } catch (Throwable $e) {
                 fwrite(STDERR, sprintf("worker error: %s (%s)\n", $e->getMessage(), get_class($e)));

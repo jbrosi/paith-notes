@@ -2,6 +2,17 @@
   "name": "paith-notes/api",
   "type": "project",
   "require": {},
+  "require-dev": {
+    "pestphp/pest": "^3.0"
+  },
+  "config": {
+    "allow-plugins": {
+      "pestphp/pest-plugin": true
+    }
+  },
+  "scripts": {
+    "test": "vendor/bin/pest"
+  },
   "autoload": {
     "psr-4": {
       "Paith\\Notes\\Api\\": "src/",

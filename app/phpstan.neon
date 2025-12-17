@@ -1,0 +1,18 @@
+parameters:
+  level: 5
+  paths:
+    - /app/api/src
+    - /app/worker/src
+    - /app/backend-shared/src
+  tmpDir: /tmp/phpstan
+  bootstrapFiles:
+    - /app/phpstan-bootstrap.php
+  reportUnmatchedIgnoredErrors: true
+
+  excludePaths:
+    analyse:
+      - /app/**/vendor
+
+  ignoreErrors:
+    - message: '#While loop condition is always true\.#'
+      path: /app/worker/src/Runner.php

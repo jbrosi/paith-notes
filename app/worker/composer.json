@@ -4,6 +4,15 @@
   "require": {
     "aws/aws-sdk-php": "^3"
   },
+  "require-dev": {
+    "phpstan/phpstan": "^1.11",
+    "squizlabs/php_codesniffer": "^3.10"
+  },
+  "scripts": {
+    "phpcs": "vendor/bin/phpcs --standard=/app/phpcs.xml",
+    "phpcbf": "vendor/bin/phpcbf --standard=/app/phpcs.xml",
+    "phpstan": "vendor/bin/phpstan analyse -c /app/phpstan.neon"
+  },
   "autoload": {
     "psr-4": {
       "Paith\\Notes\\Worker\\": "src/",
