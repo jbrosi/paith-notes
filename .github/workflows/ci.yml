@@ -35,7 +35,7 @@ jobs:
         run: docker compose run --rm --no-deps worker composer phpstan --working-dir=/app/worker
 
       - name: Pest (with coverage)
-        run: docker compose run --rm worker sh -lc "mkdir -p /app/api/coverage && cd /app/api && phpdbg -qrr vendor/bin/pest --coverage --coverage-clover=/app/api/coverage/clover.xml"
+        run: docker compose run --rm worker sh -lc "mkdir -p /app/api/coverage && cd /app/api && php -d pcov.enabled=1 vendor/bin/pest --coverage --coverage-clover=/app/api/coverage/clover.xml"
 
       - name: Frontend lint (Biome)
         run: docker compose run --rm --no-deps frontend sh -lc "corepack enable && yarn install && yarn verify"
