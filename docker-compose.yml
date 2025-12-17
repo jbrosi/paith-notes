@@ -30,6 +30,7 @@ services:
       - "5173"
 
   worker:
+    image: ${WORKER_IMAGE:-notes-worker}
     build:
       context: .
       dockerfile: Dockerfile.worker
