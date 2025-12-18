@@ -2,6 +2,18 @@
 
 This project uses Cypress for component testing with SolidJS.
 
+## Button Component Demo
+
+You can see the Button component in action by running the development server and visiting the demo page:
+
+```bash
+npm run dev
+```
+
+Then navigate to: `http://localhost:5173/?demo=button`
+
+![Button Component Demo](https://github.com/user-attachments/assets/ab587d97-85cf-4323-b125-a196c9e63a1a)
+
 ## Setup
 
 All dependencies are already installed. If you need to reinstall:
