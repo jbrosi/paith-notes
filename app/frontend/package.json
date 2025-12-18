@@ -16,14 +16,13 @@
     "test:ui": "playwright test --ui",
     "test:headed": "playwright test --headed",
     "test:e2e": "playwright test tests/e2e",
-    "test:component": "playwright test --config=playwright-ct.config.ts"
+    "test:component": "playwright test tests/component"
   },
   "dependencies": {
     "solid-js": "^1.9.0"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.0.0",
-    "@playwright/experimental-ct-core": "^1.57.0",
     "@playwright/test": "^1.57.0",
     "autoprefixer": "^10.4.20",
     "postcss": "^8.4.49",
