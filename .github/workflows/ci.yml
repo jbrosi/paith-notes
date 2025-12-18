@@ -190,6 +190,111 @@ jobs:
         if: always()
         run: docker compose down -v
 
+  test-e2e:
+    runs-on: ubuntu-latest
+    needs:
+      - install-frontend
+      - install-php
+
+    env:
+      WORKER_IMAGE: ghcr.io/${{ github.repository }}/worker:${{ github.ref == 'refs/heads/main' && 'latest' || 'test' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare CI cache dirs
+        run: mkdir -p .ci-cache/yarn .ci-cache/composer
+
+      - name: Restore Yarn cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .ci-cache/yarn
+          key: yarn-${{ runner.os }}-${{ hashFiles('app/frontend/package.json', 'app/frontend/yarn.lock') }}
+
+      - name: Restore Composer cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .ci-cache/composer
+          key: composer-${{ runner.os }}-${{ hashFiles('app/api/composer.json', 'app/api/composer.lock', 'app/worker/composer.json', 'app/worker/composer.lock') }}
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull worker image
+        run: docker compose pull worker || docker compose build worker
+
+      - name: Install frontend dependencies
+        run: docker compose run --rm --no-deps -v ${{ github.workspace }}/.ci-cache/yarn:/tmp/yarn-cache -e YARN_CACHE_FOLDER=/tmp/yarn-cache frontend sh -lc "export COREPACK_ENABLE_DOWNLOAD_PROMPT=0 && corepack enable && yarn install"
+
+      - name: Install PHP dependencies (worker)
+        run: docker compose run --rm --no-deps -v ${{ github.workspace }}/.ci-cache/composer:/tmp/composer-cache -e COMPOSER_CACHE_DIR=/tmp/composer-cache worker composer install --working-dir=/app/worker --no-interaction --prefer-dist
+
+      - name: Install PHP dependencies (api)
+        run: docker compose run --rm --no-deps -v ${{ github.workspace }}/.ci-cache/composer:/tmp/composer-cache -e COMPOSER_CACHE_DIR=/tmp/composer-cache worker composer install --working-dir=/app/api --no-interaction --prefer-dist
+
+      - name: Install Playwright browsers
+        run: docker compose run --rm --no-deps -v ${{ github.workspace }}/.ci-cache/yarn:/tmp/yarn-cache -e YARN_CACHE_FOLDER=/tmp/yarn-cache frontend sh -lc "export COREPACK_ENABLE_DOWNLOAD_PROMPT=0 && corepack enable && yarn install && npx playwright install --with-deps chromium"
+
+      - name: Start services
+        run: docker compose up -d
+
+      - name: Wait for services to be healthy
+        run: |
+          timeout 120 bash -c 'until curl -f http://localhost:8000/health; do sleep 2; done'
+
+      - name: Run E2E tests
+        run: docker compose run --rm --no-deps -v ${{ github.workspace }}/.ci-cache/yarn:/tmp/yarn-cache -e YARN_CACHE_FOLDER=/tmp/yarn-cache frontend sh -lc "export COREPACK_ENABLE_DOWNLOAD_PROMPT=0 && corepack enable && yarn install && yarn test:e2e"
+
+      - name: Upload E2E test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-e2e-report
+          path: app/frontend/playwright-report/
+          retention-days: 30
+
+      - name: Cleanup
+        if: always()
+        run: docker compose down -v
+
+  test-component:
+    runs-on: ubuntu-latest
+    needs:
+      - install-frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare CI cache dirs
+        run: mkdir -p .ci-cache/yarn
+
+      - name: Restore Yarn cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .ci-cache/yarn
+          key: yarn-${{ runner.os }}-${{ hashFiles('app/frontend/package.json', 'app/frontend/yarn.lock') }}
+
+      - name: Install frontend dependencies
+        run: docker compose run --rm --no-deps -v ${{ github.workspace }}/.ci-cache/yarn:/tmp/yarn-cache -e YARN_CACHE_FOLDER=/tmp/yarn-cache frontend sh -lc "export COREPACK_ENABLE_DOWNLOAD_PROMPT=0 && corepack enable && yarn install"
+
+      - name: Install Playwright browsers
+        run: docker compose run --rm --no-deps -v ${{ github.workspace }}/.ci-cache/yarn:/tmp/yarn-cache -e YARN_CACHE_FOLDER=/tmp/yarn-cache frontend sh -lc "export COREPACK_ENABLE_DOWNLOAD_PROMPT=0 && corepack enable && yarn install && npx playwright install --with-deps chromium"
+
+      - name: Run component tests
+        run: docker compose run --rm --no-deps -v ${{ github.workspace }}/.ci-cache/yarn:/tmp/yarn-cache -e YARN_CACHE_FOLDER=/tmp/yarn-cache frontend sh -lc "export COREPACK_ENABLE_DOWNLOAD_PROMPT=0 && corepack enable && yarn install && yarn test:component"
+
+      - name: Upload component test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-component-report
+          path: app/frontend/playwright-report/
+          retention-days: 30
+
   sonarcloud:
     runs-on: ubuntu-latest
     needs:
@@ -245,6 +350,8 @@ jobs:
       - lint-php
       - lint-frontend
       - test-php
+      - test-e2e
+      - test-component
       - sonarcloud
     if: always()
 
@@ -254,14 +361,20 @@ jobs:
           LINT_PHP_RESULT="${{ needs['lint-php'].result }}"
           LINT_FRONTEND_RESULT="${{ needs['lint-frontend'].result }}"
           TEST_PHP_RESULT="${{ needs['test-php'].result }}"
+          TEST_E2E_RESULT="${{ needs['test-e2e'].result }}"
+          TEST_COMPONENT_RESULT="${{ needs['test-component'].result }}"
           SONARCLOUD_RESULT="${{ needs.sonarcloud.result }}"
 
           echo "lint-php: ${LINT_PHP_RESULT}"
           echo "lint-frontend: ${LINT_FRONTEND_RESULT}"
           echo "test-php: ${TEST_PHP_RESULT}"
+          echo "test-e2e: ${TEST_E2E_RESULT}"
+          echo "test-component: ${TEST_COMPONENT_RESULT}"
           echo "sonarcloud: ${SONARCLOUD_RESULT}"
 
           if [ "${LINT_PHP_RESULT}" != "success" ]; then exit 1; fi
           if [ "${LINT_FRONTEND_RESULT}" != "success" ]; then exit 1; fi
           if [ "${TEST_PHP_RESULT}" != "success" ]; then exit 1; fi
+          if [ "${TEST_E2E_RESULT}" != "success" ]; then exit 1; fi
+          if [ "${TEST_COMPONENT_RESULT}" != "success" ]; then exit 1; fi
           if [ "${SONARCLOUD_RESULT}" != "success" ] && [ "${SONARCLOUD_RESULT}" != "skipped" ]; then exit 1; fi
