@@ -11,13 +11,19 @@
     "check": "biome check --write ./src",
     "verify": "biome check ./src && stylelint \"src/**/*.css\" && tsc --noEmit",
     "typecheck": "tsc --noEmit",
-    "preview": "vite preview --host 0.0.0.0 --port 4173 --strictPort"
+    "preview": "vite preview --host 0.0.0.0 --port 4173 --strictPort",
+    "test": "playwright test",
+    "test:ui": "playwright test --ui",
+    "test:headed": "playwright test --headed",
+    "test:e2e": "playwright test tests/e2e",
+    "test:component": "playwright test tests/component"
   },
   "dependencies": {
     "solid-js": "^1.9.0"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.0.0",
+    "@playwright/test": "^1.57.0",
     "autoprefixer": "^10.4.20",
     "postcss": "^8.4.49",
     "stylelint": "^16.0.0",
