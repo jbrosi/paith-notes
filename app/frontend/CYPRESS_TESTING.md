@@ -2,17 +2,21 @@
 
 This project uses Cypress for component testing with SolidJS.
 
-## Button Component Demo
+## Viewing Components (Like Storybook)
 
-You can see the Button component in action by running the development server and visiting the demo page:
+Cypress component tests work similarly to Storybook! When you open the interactive test runner, you can view and interact with components in isolation:
 
 ```bash
-npm run dev
+npm run test:component:open
 ```
 
-Then navigate to: `http://localhost:5173/?demo=button`
+This opens a browser UI where you can:
+- See all component tests
+- Click on any test to view the component rendered in isolation
+- Interact with the component in real-time
+- See test assertions pass/fail
 
-![Button Component Demo](https://github.com/user-attachments/assets/ab587d97-85cf-4323-b125-a196c9e63a1a)
+Each test in a component's `.cy.tsx` file acts as a different "story" showing various states and configurations of the component.
 
 ## Setup
 
@@ -55,7 +59,6 @@ src/
 ### Example Test
 
 ```tsx
-/// <reference types="../cypress" />
 import { Button } from "./Button";
 
 describe("Button Component", () => {
