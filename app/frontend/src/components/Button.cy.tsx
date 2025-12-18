@@ -1,4 +1,3 @@
-/// <reference types="../cypress" />
 import { Button } from "./Button";
 
 describe("Button Component", () => {
