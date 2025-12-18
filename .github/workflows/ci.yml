@@ -194,9 +194,9 @@ jobs:
     runs-on: ubuntu-latest
     needs:
       - test-php
+    if: github.actor != 'dependabot[bot]'
     env:
       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-    if: github.actor != 'dependabot[bot]' && secrets.SONAR_TOKEN
 
     steps:
       - uses: actions/checkout@v4
