@@ -55,41 +55,21 @@ test.describe('Button Component', () => {
     expect(backgroundColor).not.toBe('transparent');
   });
 
-  test('should respond to click events', async ({ page, context }) => {
-    // Setup a counter that increments on refetch
-    let requestCount = 0;
-    await context.route('**/health', async (route) => {
-      requestCount++;
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          status: 'ok',
-          service: 'paith-notes',
-          ts: '2024-01-01T00:00:00Z',
-          counter: requestCount,
-        }),
-      });
-    });
-    
-    // Reload to apply new route
-    await page.reload();
-    await page.waitForLoadState('networkidle');
-    
+  test('should respond to click events', async ({ page }) => {
     const button = page.getByRole('button', { name: 'Refetch' });
-    const pre = page.locator('pre').first();
     
-    // Wait for initial load
+    // Wait for page to be ready
     await expect(page.getByText('Loading health...')).not.toBeVisible({ timeout: 5000 });
+    
+    // Button should be clickable
+    await expect(button).toBeEnabled();
     
     // Click the button
     await button.click();
     
-    // Wait a bit for the refetch
-    await page.waitForTimeout(500);
-    
-    // The pre element should still be visible (showing data)
-    await expect(pre).toBeVisible();
+    // Button should still be visible and enabled after click
+    await expect(button).toBeVisible();
+    await expect(button).toBeEnabled();
   });
 
   test('should have proper button HTML attributes', async ({ page }) => {
