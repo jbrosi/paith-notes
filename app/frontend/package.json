@@ -11,7 +11,9 @@
     "check": "biome check --write ./src",
     "verify": "biome check ./src && stylelint \"src/**/*.css\" && tsc --noEmit",
     "typecheck": "tsc --noEmit",
-    "preview": "vite preview --host 0.0.0.0 --port 4173 --strictPort"
+    "preview": "vite preview --host 0.0.0.0 --port 4173 --strictPort",
+    "test:component": "cypress run --component",
+    "test:component:open": "cypress open --component"
   },
   "dependencies": {
     "solid-js": "^1.9.0"
@@ -19,6 +21,7 @@
   "devDependencies": {
     "@biomejs/biome": "^2.0.0",
     "autoprefixer": "^10.4.20",
+    "cypress": "^15.8.1",
     "postcss": "^8.4.49",
     "stylelint": "^16.0.0",
     "stylelint-config-standard": "^39.0.1",
