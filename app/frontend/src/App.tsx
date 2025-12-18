@@ -1,4 +1,5 @@
 import { createResource, Show } from "solid-js";
+import Button from "./components/Button";
 import styles from "./App.module.css";
 
 type HealthResponse = {
@@ -41,9 +42,7 @@ export default function App() {
 				</Show>
 			</Show>
 
-			<button type="button" onClick={() => refetch()} class={styles.button}>
-				Refetch
-			</button>
+			<Button onClick={() => refetch()}>Refetch</Button>
 		</main>
 	);
 }

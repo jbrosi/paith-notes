@@ -28,12 +28,3 @@
 .error {
 	color: #b00020;
 }
-
-.button {
-	margin: 16px 0 0;
-	padding: 8px 12px;
-	border: 1px solid #ccc;
-	border-radius: 8px;
-	background: white;
-	cursor: pointer;
-}
