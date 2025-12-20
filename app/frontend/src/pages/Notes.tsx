@@ -1,6 +1,7 @@
 import { createSignal, For } from "solid-js";
 import styles from "../App.module.css";
 import { Button } from "../components/Button";
+import notesStyles from "./Notes.module.css";
 
 type Note = {
 	id: number;
@@ -16,7 +17,7 @@ export default function Notes() {
 
 	const addNote = () => {
 		const newNote: Note = {
-			id: notes().length + 1,
+			id: Date.now(),
 			title: `Note ${notes().length + 1}`,
 			content: "New note content",
 		};
@@ -28,21 +29,14 @@ export default function Notes() {
 			<h1 class={styles.title}>My Notes</h1>
 			<p class={styles.subtitle}>Manage your notes here</p>
 
-			<div style={{ "margin-bottom": "1rem" }}>
+			<div class={notesStyles["add-note-container"]}>
 				<Button onClick={addNote}>Add Note</Button>
 			</div>
 
 			<div>
 				<For each={notes()}>
 					{(note) => (
-						<div
-							style={{
-								border: "1px solid #ccc",
-								padding: "1rem",
-								"margin-bottom": "1rem",
-								"border-radius": "4px",
-							}}
-						>
+						<div class={notesStyles["note-card"]}>
 							<h3>{note.title}</h3>
 							<p>{note.content}</p>
 						</div>
