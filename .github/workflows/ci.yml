@@ -147,7 +147,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Prepare CI cache dirs
-        run: mkdir -p .ci-cache/yarn
+        run: mkdir -p .ci-cache/yarn .ci-cache/cypress
 
       - name: Restore Yarn cache
         uses: actions/cache/restore@v4
@@ -155,8 +155,21 @@ jobs:
           path: .ci-cache/yarn
           key: yarn-${{ runner.os }}-${{ hashFiles('app/frontend/package.json', 'app/frontend/yarn.lock') }}
 
+      - name: Restore Cypress binary cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .ci-cache/cypress
+          key: cypress-${{ runner.os }}-${{ hashFiles('app/frontend/package.json', 'app/frontend/yarn.lock') }}
+
       - name: Run component tests
-        run: docker compose run --rm --no-deps -v ${{ github.workspace }}/.ci-cache/yarn:/tmp/yarn-cache -e YARN_CACHE_FOLDER=/tmp/yarn-cache frontend sh -lc "export COREPACK_ENABLE_DOWNLOAD_PROMPT=0 && corepack enable && yarn install && yarn test:component"
+        run: docker compose run --rm --no-deps -v ${{ github.workspace }}/.ci-cache/yarn:/tmp/yarn-cache -v ${{ github.workspace }}/.ci-cache/cypress:/root/.cache/Cypress -e YARN_CACHE_FOLDER=/tmp/yarn-cache -e CYPRESS_CACHE_FOLDER=/root/.cache/Cypress frontend sh -lc "export COREPACK_ENABLE_DOWNLOAD_PROMPT=0 && corepack enable && yarn install && yarn test:component"
+
+      - name: Save Cypress binary cache
+        uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: .ci-cache/cypress
+          key: cypress-${{ runner.os }}-${{ hashFiles('app/frontend/package.json', 'app/frontend/yarn.lock') }}
 
   test-frontend-e2e:
     runs-on: ubuntu-latest
@@ -171,13 +184,19 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Prepare CI cache dirs
-        run: mkdir -p .ci-cache/yarn .ci-cache/composer
+        run: mkdir -p .ci-cache/yarn .ci-cache/composer .ci-cache/cypress
 
       - name: Restore Yarn cache
         uses: actions/cache/restore@v4
         with:
           path: .ci-cache/yarn
           key: yarn-${{ runner.os }}-${{ hashFiles('app/frontend/package.json', 'app/frontend/yarn.lock') }}
+
+      - name: Restore Cypress binary cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .ci-cache/cypress
+          key: cypress-${{ runner.os }}-${{ hashFiles('app/frontend/package.json', 'app/frontend/yarn.lock') }}
 
       - name: Restore Composer cache
         uses: actions/cache/restore@v4
@@ -198,26 +217,45 @@ jobs:
       - name: Install PHP dependencies (api)
         run: docker compose run --rm --no-deps -v ${{ github.workspace }}/.ci-cache/composer:/tmp/composer-cache -e COMPOSER_CACHE_DIR=/tmp/composer-cache worker composer install --working-dir=/app/api --no-interaction --prefer-dist
 
-      - name: Start services
+      - name: Start services (frontend and backend)
         run: docker compose up -d db rustfs app
 
       - name: Wait for services to be ready
         run: |
-          echo "Waiting for app to be ready..."
-          for i in {1..30}; do
+          echo "Waiting for services to be ready..."
+          for i in {1..60}; do
             if curl -f http://localhost:8000/health > /dev/null 2>&1; then
-              echo "App is ready!"
-              exit 0
+              echo "API is ready!"
+              # Check if frontend is ready
+              if docker compose exec -T frontend sh -c "curl -f http://localhost:5173 > /dev/null 2>&1"; then
+                echo "Frontend is ready!"
+                exit 0
+              fi
             fi
-            echo "Waiting... ($i/30)"
+            echo "Waiting... ($i/60)"
             sleep 2
           done
-          echo "App failed to start"
-          docker compose logs app
+          echo "Services failed to start"
+          docker compose logs
           exit 1
 
-      - name: Run E2E tests
-        run: docker compose exec -T frontend sh -lc "export COREPACK_ENABLE_DOWNLOAD_PROMPT=0 && corepack enable && yarn install && yarn test:e2e"
+      - name: Install dependencies and run E2E tests in frontend container
+        run: |
+          docker compose run --rm \
+            --network paith-notes_default \
+            -v ${{ github.workspace }}/.ci-cache/yarn:/tmp/yarn-cache \
+            -v ${{ github.workspace }}/.ci-cache/cypress:/root/.cache/Cypress \
+            -e YARN_CACHE_FOLDER=/tmp/yarn-cache \
+            -e CYPRESS_CACHE_FOLDER=/root/.cache/Cypress \
+            -e CYPRESS_baseUrl=http://frontend:5173 \
+            frontend sh -lc "export COREPACK_ENABLE_DOWNLOAD_PROMPT=0 && corepack enable && yarn install && yarn test:e2e"
+
+      - name: Save Cypress binary cache
+        uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: .ci-cache/cypress
+          key: cypress-${{ runner.os }}-${{ hashFiles('app/frontend/package.json', 'app/frontend/yarn.lock') }}
 
       - name: Cleanup
         if: always()
