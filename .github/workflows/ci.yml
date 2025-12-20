@@ -224,10 +224,11 @@ jobs:
         run: |
           echo "Waiting for services to be ready..."
           for i in {1..60}; do
+            # Check API health endpoint
             if curl -f http://localhost:8000/health > /dev/null 2>&1; then
               echo "API is ready!"
-              # Check if frontend is ready
-              if docker compose exec -T frontend sh -c "curl -f http://localhost:5173 > /dev/null 2>&1"; then
+              # Check if frontend is serving (proxied through app service)
+              if curl -f http://localhost:8000 > /dev/null 2>&1; then
                 echo "Frontend is ready!"
                 exit 0
               fi
