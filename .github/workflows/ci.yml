@@ -242,8 +242,11 @@ jobs:
 
       - name: Install dependencies and run E2E tests in frontend container
         run: |
+          # Get the Docker Compose default network name dynamically
+          NETWORK_NAME=$(docker network ls --filter "name=default" --format "{{.Name}}" | grep default | head -n 1)
+          echo "Using Docker network: $NETWORK_NAME"
           docker compose run --rm \
-            --network paith-notes_default \
+            --network "$NETWORK_NAME" \
             -v ${{ github.workspace }}/.ci-cache/yarn:/tmp/yarn-cache \
             -v ${{ github.workspace }}/.ci-cache/cypress:/root/.cache/Cypress \
             -e YARN_CACHE_FOLDER=/tmp/yarn-cache \
