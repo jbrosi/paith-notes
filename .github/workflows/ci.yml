@@ -164,7 +164,7 @@ jobs:
       - name: Run component tests
         run: |
           # Use Cypress included image for running Cypress tests (has all dependencies like Xvfb)
-          docker compose run --rm \
+          docker run --rm \
             -v ${{ github.workspace }}/app/frontend:/app/frontend \
             -v ${{ github.workspace }}/.ci-cache/yarn:/tmp/yarn-cache \
             -v ${{ github.workspace }}/.ci-cache/cypress:/root/.cache/Cypress \
@@ -254,8 +254,11 @@ jobs:
       - name: Install dependencies and run E2E tests in frontend container
         run: |
           # Use Cypress included image for running E2E tests (has all dependencies like Xvfb)
-          # Note: docker compose run automatically connects to the compose network, no need for --network flag
-          docker compose run --rm \
+          # Get the Docker Compose network name to connect the Cypress container
+          NETWORK_NAME=$(docker network ls --filter "name=paith-notes" --format "{{.Name}}" | grep default | head -n 1)
+          echo "Using Docker network: $NETWORK_NAME"
+          docker run --rm \
+            --network "$NETWORK_NAME" \
             -v ${{ github.workspace }}/app/frontend:/app/frontend \
             -v ${{ github.workspace }}/.ci-cache/yarn:/tmp/yarn-cache \
             -v ${{ github.workspace }}/.ci-cache/cypress:/root/.cache/Cypress \
