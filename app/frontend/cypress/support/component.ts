@@ -19,7 +19,21 @@ import "./commands";
 // Alternatively you can use CommonJS syntax:
 // require('./commands')
 
-import { mount } from "cypress/solid";
+import { render } from "solid-js/web";
+import type { JSX } from "solid-js";
+
+// Custom mount function for SolidJS
+function mount(component: () => JSX.Element): Cypress.Chainable {
+	const root = document.getElementById("root");
+	if (!root) {
+		throw new Error("Root element not found");
+	}
+	// Clear previous content
+	root.innerHTML = "";
+	// Render the component
+	render(component, root);
+	return cy.wrap(root);
+}
 
 // Augment the Cypress namespace to include type definitions for
 // your custom command.
