@@ -68,7 +68,7 @@ jobs:
           key: yarn-${{ runner.os }}-${{ hashFiles('app/frontend/package.json', 'app/frontend/yarn.lock') }}
 
       - name: Install frontend dependencies
-        run: docker compose run --rm --no-deps -v ${{ github.workspace }}/.ci-cache/yarn:/tmp/yarn-cache -e YARN_CACHE_FOLDER=/tmp/yarn-cache frontend sh -lc "export COREPACK_ENABLE_DOWNLOAD_PROMPT=0 && corepack enable && yarn install"
+        run: docker compose run --rm --no-deps -v ${{ github.workspace }}/.ci-cache/yarn:/tmp/yarn-cache -e YARN_CACHE_FOLDER=/tmp/yarn-cache -e CYPRESS_INSTALL_BINARY=0 frontend sh -lc "export COREPACK_ENABLE_DOWNLOAD_PROMPT=0 && corepack enable && yarn install"
 
       - name: Save Yarn cache
         uses: actions/cache/save@v4
@@ -162,7 +162,7 @@ jobs:
           key: cypress-${{ runner.os }}-${{ hashFiles('app/frontend/package.json', 'app/frontend/yarn.lock') }}
 
       - name: Run component tests
-        run: docker compose run --rm --no-deps -v ${{ github.workspace }}/.ci-cache/yarn:/tmp/yarn-cache -v ${{ github.workspace }}/.ci-cache/cypress:/root/.cache/Cypress -e YARN_CACHE_FOLDER=/tmp/yarn-cache -e CYPRESS_CACHE_FOLDER=/root/.cache/Cypress frontend sh -lc "export COREPACK_ENABLE_DOWNLOAD_PROMPT=0 && corepack enable && yarn install && yarn test:component"
+        run: docker compose run --rm -v ${{ github.workspace }}/.ci-cache/yarn:/tmp/yarn-cache -v ${{ github.workspace }}/.ci-cache/cypress:/root/.cache/Cypress -e YARN_CACHE_FOLDER=/tmp/yarn-cache -e CYPRESS_CACHE_FOLDER=/root/.cache/Cypress frontend sh -lc "export COREPACK_ENABLE_DOWNLOAD_PROMPT=0 && corepack enable && yarn install && yarn test:component"
 
       - name: Save Cypress binary cache
         uses: actions/cache/save@v4
