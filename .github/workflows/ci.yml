@@ -15,9 +15,6 @@ jobs:
   install-php:
     runs-on: ubuntu-latest
 
-    env:
-      WORKER_IMAGE: ghcr.io/${{ github.repository }}/worker:${{ github.ref == 'refs/heads/main' && 'latest' || 'test' }}
-
     steps:
       - uses: actions/checkout@v4
 
@@ -30,15 +27,8 @@ jobs:
           path: .ci-cache/composer
           key: composer-${{ runner.os }}-${{ hashFiles('app/api/composer.json', 'app/api/composer.lock', 'app/worker/composer.json', 'app/worker/composer.lock') }}
 
-      - name: Login to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Pull worker image
-        run: docker compose pull worker || docker compose build worker
+      - name: Build worker image
+        run: docker compose build worker
 
       - name: Install PHP dependencies (worker)
         run: docker compose run --rm --no-deps -v ${{ github.workspace }}/.ci-cache/composer:/tmp/composer-cache -e COMPOSER_CACHE_DIR=/tmp/composer-cache worker composer install --working-dir=/app/worker --no-interaction --prefer-dist
@@ -68,7 +58,7 @@ jobs:
           key: yarn-${{ runner.os }}-${{ hashFiles('app/frontend/package.json', 'app/frontend/yarn.lock') }}
 
       - name: Install frontend dependencies
-        run: docker compose run --rm --no-deps -v ${{ github.workspace }}/.ci-cache/yarn:/tmp/yarn-cache -e YARN_CACHE_FOLDER=/tmp/yarn-cache frontend sh -lc "export COREPACK_ENABLE_DOWNLOAD_PROMPT=0 && corepack enable && yarn install"
+        run: docker compose run --rm --no-deps -v ${{ github.workspace }}/.ci-cache/yarn:/tmp/yarn-cache -e YARN_CACHE_FOLDER=/tmp/yarn-cache -e CYPRESS_INSTALL_BINARY=0 frontend sh -lc "export COREPACK_ENABLE_DOWNLOAD_PROMPT=0 && corepack enable && yarn install"
 
       - name: Save Yarn cache
         uses: actions/cache/save@v4
@@ -80,9 +70,6 @@ jobs:
     runs-on: ubuntu-latest
     needs:
       - install-php
-
-    env:
-      WORKER_IMAGE: ghcr.io/${{ github.repository }}/worker:${{ github.ref == 'refs/heads/main' && 'latest' || 'test' }}
 
     steps:
       - uses: actions/checkout@v4
@@ -96,15 +83,8 @@ jobs:
           path: .ci-cache/composer
           key: composer-${{ runner.os }}-${{ hashFiles('app/api/composer.json', 'app/api/composer.lock', 'app/worker/composer.json', 'app/worker/composer.lock') }}
 
-      - name: Login to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Pull worker image
-        run: docker compose pull worker || docker compose build worker
+      - name: Build worker image
+        run: docker compose build worker
 
       - name: Install PHP dependencies (worker)
         run: docker compose run --rm --no-deps -v ${{ github.workspace }}/.ci-cache/composer:/tmp/composer-cache -e COMPOSER_CACHE_DIR=/tmp/composer-cache worker composer install --working-dir=/app/worker --no-interaction --prefer-dist
@@ -138,13 +118,131 @@ jobs:
       - name: Frontend lint (Biome)
         run: docker compose run --rm --no-deps -v ${{ github.workspace }}/.ci-cache/yarn:/tmp/yarn-cache -e YARN_CACHE_FOLDER=/tmp/yarn-cache frontend sh -lc "export COREPACK_ENABLE_DOWNLOAD_PROMPT=0 && corepack enable && yarn install && yarn verify"
 
+  test-frontend-component:
+    runs-on: ubuntu-latest
+    needs:
+      - install-frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare CI cache dirs
+        run: mkdir -p .ci-cache/yarn .ci-cache/cypress
+
+      - name: Restore Yarn cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .ci-cache/yarn
+          key: yarn-${{ runner.os }}-${{ hashFiles('app/frontend/package.json', 'app/frontend/yarn.lock') }}
+
+      - name: Restore Cypress binary cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .ci-cache/cypress
+          key: cypress-${{ runner.os }}-${{ hashFiles('app/frontend/package.json', 'app/frontend/yarn.lock') }}
+
+      - name: Run component tests
+        run: |
+          # Use Cypress included image for running Cypress tests (has all dependencies like Xvfb)
+          sh scripts/run-frontend-component-tests.sh
+
+      - name: Save Cypress binary cache
+        uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: .ci-cache/cypress
+          key: cypress-${{ runner.os }}-${{ hashFiles('app/frontend/package.json', 'app/frontend/yarn.lock') }}
+
+  test-frontend-e2e:
+    runs-on: ubuntu-latest
+    needs:
+      - install-frontend
+      - install-php
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare CI cache dirs
+        run: mkdir -p .ci-cache/yarn .ci-cache/composer .ci-cache/cypress
+
+      - name: Restore Yarn cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .ci-cache/yarn
+          key: yarn-${{ runner.os }}-${{ hashFiles('app/frontend/package.json', 'app/frontend/yarn.lock') }}
+
+      - name: Restore Cypress binary cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .ci-cache/cypress
+          key: cypress-${{ runner.os }}-${{ hashFiles('app/frontend/package.json', 'app/frontend/yarn.lock') }}
+
+      - name: Restore Composer cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .ci-cache/composer
+          key: composer-${{ runner.os }}-${{ hashFiles('app/api/composer.json', 'app/api/composer.lock', 'app/worker/composer.json', 'app/worker/composer.lock') }}
+
+      - name: Build worker image
+        run: docker compose build worker
+
+      - name: Install PHP dependencies (api)
+        run: docker compose run --rm --no-deps -v ${{ github.workspace }}/.ci-cache/composer:/tmp/composer-cache -e COMPOSER_CACHE_DIR=/tmp/composer-cache worker composer install --working-dir=/app/api --no-interaction --prefer-dist
+
+      - name: Start services (frontend and backend)
+        run: docker compose up -d db rustfs app
+
+      - name: Wait for services to be ready
+        run: |
+          echo "Waiting for services to be ready..."
+          for i in {1..60}; do
+            # Check API health endpoint
+            if curl -f http://localhost:8000/health > /dev/null 2>&1; then
+              echo "API is ready!"
+              # Check if frontend is serving (proxied through app service)
+              if curl -f http://localhost:8000 > /dev/null 2>&1; then
+                echo "Frontend is ready!"
+                exit 0
+              fi
+            fi
+            echo "Waiting... ($i/60)"
+            sleep 2
+          done
+          echo "Services failed to start"
+          docker compose logs
+          exit 1
+
+      - name: Install dependencies and run E2E tests in frontend container
+        run: |
+          # Use Cypress included image for running E2E tests (has all dependencies like Xvfb)
+          docker run --rm \
+            --network host \
+            -v ${{ github.workspace }}/app/frontend:/app/frontend \
+            -v ${{ github.workspace }}/.ci-cache/yarn:/tmp/yarn-cache \
+            -v ${{ github.workspace }}/.ci-cache/cypress:/cypress-cache \
+            -e YARN_CACHE_FOLDER=/tmp/yarn-cache \
+            -e CYPRESS_CACHE_FOLDER=/cypress-cache \
+            -e CYPRESS_baseUrl=http://localhost:8000 \
+            -w /app/frontend \
+            --entrypoint sh \
+            docker.io/cypress/included:15.8.1 \
+            -lc "export COREPACK_ENABLE_DOWNLOAD_PROMPT=0 && corepack enable && yarn install && if [ -z \"$(ls -A /cypress-cache 2>/dev/null || true)\" ]; then cp -a /root/.cache/Cypress/. /cypress-cache/ 2>/dev/null || true; fi && yarn test:e2e"
+
+      - name: Save Cypress binary cache
+        uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: .ci-cache/cypress
+          key: cypress-${{ runner.os }}-${{ hashFiles('app/frontend/package.json', 'app/frontend/yarn.lock') }}
+
+      - name: Cleanup
+        if: always()
+        run: docker compose down -v
+
   test-php:
     runs-on: ubuntu-latest
     needs:
       - install-php
-
-    env:
-      WORKER_IMAGE: ghcr.io/${{ github.repository }}/worker:${{ github.ref == 'refs/heads/main' && 'latest' || 'test' }}
 
     steps:
       - uses: actions/checkout@v4
@@ -158,15 +256,8 @@ jobs:
           path: .ci-cache/composer
           key: composer-${{ runner.os }}-${{ hashFiles('app/api/composer.json', 'app/api/composer.lock', 'app/worker/composer.json', 'app/worker/composer.lock') }}
 
-      - name: Login to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Pull worker image
-        run: docker compose pull worker || docker compose build worker
+      - name: Build worker image
+        run: docker compose build worker
 
       - name: Start services
         run: docker compose up -d db rustfs
@@ -245,6 +336,8 @@ jobs:
       - lint-php
       - lint-frontend
       - test-php
+      - test-frontend-component
+      - test-frontend-e2e
       - sonarcloud
     if: always()
 
@@ -254,14 +347,20 @@ jobs:
           LINT_PHP_RESULT="${{ needs['lint-php'].result }}"
           LINT_FRONTEND_RESULT="${{ needs['lint-frontend'].result }}"
           TEST_PHP_RESULT="${{ needs['test-php'].result }}"
+          TEST_FRONTEND_COMPONENT_RESULT="${{ needs['test-frontend-component'].result }}"
+          TEST_FRONTEND_E2E_RESULT="${{ needs['test-frontend-e2e'].result }}"
           SONARCLOUD_RESULT="${{ needs.sonarcloud.result }}"
 
           echo "lint-php: ${LINT_PHP_RESULT}"
           echo "lint-frontend: ${LINT_FRONTEND_RESULT}"
           echo "test-php: ${TEST_PHP_RESULT}"
+          echo "test-frontend-component: ${TEST_FRONTEND_COMPONENT_RESULT}"
+          echo "test-frontend-e2e: ${TEST_FRONTEND_E2E_RESULT}"
           echo "sonarcloud: ${SONARCLOUD_RESULT}"
 
           if [ "${LINT_PHP_RESULT}" != "success" ]; then exit 1; fi
           if [ "${LINT_FRONTEND_RESULT}" != "success" ]; then exit 1; fi
           if [ "${TEST_PHP_RESULT}" != "success" ]; then exit 1; fi
+          if [ "${TEST_FRONTEND_COMPONENT_RESULT}" != "success" ]; then exit 1; fi
+          if [ "${TEST_FRONTEND_E2E_RESULT}" != "success" ]; then exit 1; fi
           if [ "${SONARCLOUD_RESULT}" != "success" ] && [ "${SONARCLOUD_RESULT}" != "skipped" ]; then exit 1; fi

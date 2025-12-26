@@ -2,6 +2,10 @@
 .idea
 **/.DS_Store
 
+# CI / local caches
+.ci-cache
+**/.cache
+
 # Frontend (not needed for PHP images)
 app/frontend
 app/frontend/node_modules
@@ -10,6 +14,11 @@ app/frontend/node_modules
 **/node_modules
 app/worker/vendor
 app/api/vendor
+
+# Build artifacts
+**/dist
+**/.vite
+**/coverage
 
 # Misc
 **/*.log

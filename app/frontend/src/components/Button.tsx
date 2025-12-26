@@ -27,7 +27,13 @@ export function Button(props: ButtonProps) {
 	};
 
 	return (
-		<button type="button" class={buttonClass()} {...others}>
+		<button
+			type="button"
+			class={buttonClass()}
+			data-variant={variant()}
+			data-size={size()}
+			{...others}
+		>
 			{local.children}
 		</button>
 	);

@@ -1,7 +1,8 @@
 services:
   app:
     image: ${APP_IMAGE:-notes-app}
-    build: .
+    build:
+      context: ./docker/app
     environment:
       # Bind HTTP only on port 8000 (no HTTPS, no domain)
       SERVER_NAME: ":8000"
@@ -24,17 +25,20 @@ services:
   frontend:
     image: node:24
     working_dir: /app/frontend
-    command: sh -lc "export COREPACK_ENABLE_DOWNLOAD_PROMPT=0 && corepack enable && yarn install && yarn run dev"
+    command: sh -lc "export COREPACK_ENABLE_DOWNLOAD_PROMPT=0 && corepack enable && if [ ! -d node_modules ] || [ -z \"$(ls -A node_modules 2>/dev/null || true)\" ]; then yarn install; fi && yarn run dev"
+    environment:
+      YARN_CACHE_FOLDER: "/tmp/yarn-cache"
     volumes:
       - ./app/frontend:/app/frontend
+      - frontend_node_modules:/app/frontend/node_modules
+      - ./.ci-cache/yarn:/tmp/yarn-cache
     expose:
       - "5173"
 
   worker:
     image: ${WORKER_IMAGE:-notes-worker}
     build:
-      context: .
-      dockerfile: Dockerfile.worker
+      context: ./docker/worker
     command: ["php", "/app/worker/worker.php"]
     environment:
       DATABASE_URL: "postgresql://paith:paith@db:5432/paith"
@@ -75,3 +79,6 @@ services:
     ports:
       - "9000:9000"
       - "9001:9001"
+
+volumes:
+  frontend_node_modules:
