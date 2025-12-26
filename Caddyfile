@@ -1,5 +1,4 @@
 :8000 {
-    auto_https off
     root * /app/api
 
     @php {

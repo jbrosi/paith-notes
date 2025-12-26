@@ -35,7 +35,7 @@ docker compose run --rm --no-deps \
 docker compose up -d db rustfs app
 
 echo "Waiting for services to be ready..."
-for i in $(seq 1 60); do
+for i in $(seq 1 150); do
 	if curl -f http://localhost:8000/health >/dev/null 2>&1; then
 		echo "API is ready!"
 		if curl -f http://localhost:8000 >/dev/null 2>&1; then
@@ -43,7 +43,7 @@ for i in $(seq 1 60); do
 			break
 		fi
 	fi
-	echo "Waiting... (${i}/60)"
+	echo "Waiting... (${i}/150)"
 	sleep 2
 done
 
