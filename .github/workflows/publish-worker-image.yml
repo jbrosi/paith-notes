@@ -6,7 +6,7 @@ on:
       - main
       - dev
     paths:
-      - Dockerfile.worker
+     - docker/worker/Dockerfile
       - .github/workflows/publish-worker-image.yml
   schedule:
     - cron: '17 3 * * *'
@@ -46,8 +46,8 @@ jobs:
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
-          context: .
-          file: Dockerfile.worker
+          context: docker/worker
+          file: docker/worker/Dockerfile
           push: true
           tags: |
             ghcr.io/${{ github.repository }}/worker:${{ steps.meta.outputs.tag }}
@@ -84,8 +84,8 @@ jobs:
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
-          context: .
-          file: Dockerfile.worker
+          context: docker/worker
+          file: docker/worker/Dockerfile
           push: true
           tags: |
             ghcr.io/${{ github.repository }}/worker:${{ matrix.tag }}

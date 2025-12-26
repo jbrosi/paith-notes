@@ -6,7 +6,7 @@ on:
       - main
       - dev
     paths:
-      - Dockerfile
+      - docker/app/Dockerfile
       - .github/workflows/publish-app-image.yml
   schedule:
     - cron: '23 3 * * *'
@@ -46,8 +46,8 @@ jobs:
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
-          context: .
-          file: Dockerfile
+          context: docker/app
+          file: docker/app/Dockerfile
           push: true
           tags: |
             ghcr.io/${{ github.repository }}/app:${{ steps.meta.outputs.tag }}
@@ -84,8 +84,8 @@ jobs:
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
-          context: .
-          file: Dockerfile
+          context: docker/app
+          file: docker/app/Dockerfile
           push: true
           tags: |
             ghcr.io/${{ github.repository }}/app:${{ matrix.tag }}
