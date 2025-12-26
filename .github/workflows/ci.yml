@@ -15,9 +15,6 @@ jobs:
   install-php:
     runs-on: ubuntu-latest
 
-    env:
-      WORKER_IMAGE: ghcr.io/${{ github.repository }}/worker:${{ github.ref == 'refs/heads/main' && 'latest' || 'test' }}
-
     steps:
       - uses: actions/checkout@v4
 
@@ -30,15 +27,8 @@ jobs:
           path: .ci-cache/composer
           key: composer-${{ runner.os }}-${{ hashFiles('app/api/composer.json', 'app/api/composer.lock', 'app/worker/composer.json', 'app/worker/composer.lock') }}
 
-      - name: Login to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Pull worker image
-        run: docker compose pull worker || docker compose build worker
+      - name: Build worker image
+        run: docker compose build worker
 
       - name: Install PHP dependencies (worker)
         run: docker compose run --rm --no-deps -v ${{ github.workspace }}/.ci-cache/composer:/tmp/composer-cache -e COMPOSER_CACHE_DIR=/tmp/composer-cache worker composer install --working-dir=/app/worker --no-interaction --prefer-dist
@@ -81,9 +71,6 @@ jobs:
     needs:
       - install-php
 
-    env:
-      WORKER_IMAGE: ghcr.io/${{ github.repository }}/worker:${{ github.ref == 'refs/heads/main' && 'latest' || 'test' }}
-
     steps:
       - uses: actions/checkout@v4
 
@@ -96,15 +83,8 @@ jobs:
           path: .ci-cache/composer
           key: composer-${{ runner.os }}-${{ hashFiles('app/api/composer.json', 'app/api/composer.lock', 'app/worker/composer.json', 'app/worker/composer.lock') }}
 
-      - name: Login to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Pull worker image
-        run: docker compose pull worker || docker compose build worker
+      - name: Build worker image
+        run: docker compose build worker
 
       - name: Install PHP dependencies (worker)
         run: docker compose run --rm --no-deps -v ${{ github.workspace }}/.ci-cache/composer:/tmp/composer-cache -e COMPOSER_CACHE_DIR=/tmp/composer-cache worker composer install --working-dir=/app/worker --no-interaction --prefer-dist
@@ -164,16 +144,7 @@ jobs:
       - name: Run component tests
         run: |
           # Use Cypress included image for running Cypress tests (has all dependencies like Xvfb)
-          docker run --rm \
-            -v ${{ github.workspace }}/app/frontend:/app/frontend \
-            -v ${{ github.workspace }}/.ci-cache/yarn:/tmp/yarn-cache \
-            -v ${{ github.workspace }}/.ci-cache/cypress:/root/.cache/Cypress \
-            -e YARN_CACHE_FOLDER=/tmp/yarn-cache \
-            -e CYPRESS_CACHE_FOLDER=/root/.cache/Cypress \
-            -w /app/frontend \
-            --entrypoint sh \
-            cypress/included:15.8.1 \
-            -lc "export COREPACK_ENABLE_DOWNLOAD_PROMPT=0 && corepack enable && yarn install && yarn test:component"
+          sh scripts/run-frontend-component-tests.sh
 
       - name: Save Cypress binary cache
         uses: actions/cache/save@v4
@@ -187,9 +158,6 @@ jobs:
     needs:
       - install-frontend
       - install-php
-
-    env:
-      WORKER_IMAGE: ghcr.io/${{ github.repository }}/worker:${{ github.ref == 'refs/heads/main' && 'latest' || 'test' }}
 
     steps:
       - uses: actions/checkout@v4
@@ -215,15 +183,8 @@ jobs:
           path: .ci-cache/composer
           key: composer-${{ runner.os }}-${{ hashFiles('app/api/composer.json', 'app/api/composer.lock', 'app/worker/composer.json', 'app/worker/composer.lock') }}
 
-      - name: Login to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Pull worker image
-        run: docker compose pull worker || docker compose build worker
+      - name: Build worker image
+        run: docker compose build worker
 
       - name: Install PHP dependencies (api)
         run: docker compose run --rm --no-deps -v ${{ github.workspace }}/.ci-cache/composer:/tmp/composer-cache -e COMPOSER_CACHE_DIR=/tmp/composer-cache worker composer install --working-dir=/app/api --no-interaction --prefer-dist
@@ -255,7 +216,20 @@ jobs:
         run: |
           # Use Cypress included image for running E2E tests (has all dependencies like Xvfb)
           # Get the Docker Compose network name to connect the Cypress container
-          NETWORK_NAME=$(docker network ls --filter "name=paith-notes" --format "{{.Name}}" | grep default | head -n 1)
+          APP_CID=$(docker compose ps -q app | head -n 1)
+          if [ -z "$APP_CID" ]; then
+            echo "Could not determine compose container id for 'app'"
+            docker compose ps
+            exit 1
+          fi
+
+          NETWORK_NAME=$(docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{println $k}}{{end}}' "$APP_CID" | grep -v '^$' | head -n 1)
+          if [ -z "$NETWORK_NAME" ]; then
+            echo "Could not determine network name for app container"
+            docker inspect "$APP_CID"
+            exit 1
+          fi
+
           echo "Using Docker network: $NETWORK_NAME"
           docker run --rm \
             --network "$NETWORK_NAME" \
@@ -264,7 +238,7 @@ jobs:
             -v ${{ github.workspace }}/.ci-cache/cypress:/root/.cache/Cypress \
             -e YARN_CACHE_FOLDER=/tmp/yarn-cache \
             -e CYPRESS_CACHE_FOLDER=/root/.cache/Cypress \
-            -e CYPRESS_baseUrl=http://frontend:5173 \
+            -e CYPRESS_baseUrl=http://app:8000 \
             -w /app/frontend \
             --entrypoint sh \
             cypress/included:15.8.1 \
@@ -286,9 +260,6 @@ jobs:
     needs:
       - install-php
 
-    env:
-      WORKER_IMAGE: ghcr.io/${{ github.repository }}/worker:${{ github.ref == 'refs/heads/main' && 'latest' || 'test' }}
-
     steps:
       - uses: actions/checkout@v4
 
@@ -301,15 +272,8 @@ jobs:
           path: .ci-cache/composer
           key: composer-${{ runner.os }}-${{ hashFiles('app/api/composer.json', 'app/api/composer.lock', 'app/worker/composer.json', 'app/worker/composer.lock') }}
 
-      - name: Login to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Pull worker image
-        run: docker compose pull worker || docker compose build worker
+      - name: Build worker image
+        run: docker compose build worker
 
       - name: Start services
         run: docker compose up -d db rustfs
