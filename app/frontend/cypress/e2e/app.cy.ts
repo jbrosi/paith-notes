@@ -25,6 +25,7 @@ describe("Paith Notes App E2E", () => {
 		// Wait for initial load
 		cy.contains("Loading health...").should("not.exist");
 		cy.contains("button", "Refetch").as("refetchButton");
+		cy.intercept("GET", "**/health*").as("health");
 
 		// Get the initial counter value
 		cy.get("pre")
@@ -35,9 +36,7 @@ describe("Paith Notes App E2E", () => {
 
 				// Click the refetch button
 				cy.get("@refetchButton").click();
-
-				// Wait a bit for the refetch
-				cy.wait(100);
+				cy.wait("@health");
 
 				// Verify the counter has changed (incremented)
 				cy.get("pre")

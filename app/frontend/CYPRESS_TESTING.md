@@ -9,7 +9,7 @@ This project uses Cypress for both component testing and end-to-end (e2e) testin
 Cypress component tests work similarly to Storybook! When you open the interactive test runner, you can view and interact with components in isolation:
 
 ```bash
-npm run test:component:open
+sh scripts/run-frontend-e2e-open.sh
 ```
 
 This opens a browser UI where you can:
@@ -22,11 +22,7 @@ Each test in a component's `.cy.tsx` file acts as a different "story" showing va
 
 ## Setup
 
-All dependencies are already installed. If you need to reinstall:
-
-```bash
-npm install
-```
+All dependencies are installed inside containers (no local Yarn/NPM required).
 
 ## Running Tests
 
@@ -36,14 +32,14 @@ npm install
 Open the Cypress Test Runner to run component tests interactively:
 
 ```bash
-npm run test:component:open
+sh scripts/run-frontend-e2e-open.sh
 ```
 
 #### Headless Mode
 Run component tests in headless mode (useful for CI/CD):
 
 ```bash
-npm run test:component
+sh scripts/run-frontend-component-tests.sh
 ```
 
 ### E2E Tests
@@ -52,27 +48,25 @@ npm run test:component
 Open the Cypress Test Runner to run e2e tests interactively:
 
 ```bash
-npm run test:e2e:open
-```
-
-**Note:** The dev server must be running before executing e2e tests:
-```bash
-npm run dev
-```
-
-Then in another terminal:
-```bash
-npm run test:e2e:open
+sh scripts/run-frontend-e2e-open.sh
 ```
 
 #### Headless Mode
 Run e2e tests in headless mode (useful for CI/CD):
 
 ```bash
-npm run test:e2e
+sh scripts/run-frontend-e2e-tests.sh
 ```
 
-**Note:** Make sure the dev server is running at `http://localhost:5173` before running e2e tests.
+**Note:** E2E tests target the monorepo entrypoint served by the `app` container at `http://localhost:8000`.
+
+## Cleanup
+
+If you want to stop the stack and remove volumes:
+
+```bash
+docker compose down -v
+```
 
 ## Writing Tests
 
