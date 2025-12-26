@@ -215,34 +215,18 @@ jobs:
       - name: Install dependencies and run E2E tests in frontend container
         run: |
           # Use Cypress included image for running E2E tests (has all dependencies like Xvfb)
-          # Get the Docker Compose network name to connect the Cypress container
-          APP_CID=$(docker compose ps -q app | head -n 1)
-          if [ -z "$APP_CID" ]; then
-            echo "Could not determine compose container id for 'app'"
-            docker compose ps
-            exit 1
-          fi
-
-          NETWORK_NAME=$(docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{println $k}}{{end}}' "$APP_CID" | grep -v '^$' | head -n 1)
-          if [ -z "$NETWORK_NAME" ]; then
-            echo "Could not determine network name for app container"
-            docker inspect "$APP_CID"
-            exit 1
-          fi
-
-          echo "Using Docker network: $NETWORK_NAME"
           docker run --rm \
-            --network "$NETWORK_NAME" \
+            --network host \
             -v ${{ github.workspace }}/app/frontend:/app/frontend \
             -v ${{ github.workspace }}/.ci-cache/yarn:/tmp/yarn-cache \
-            -v ${{ github.workspace }}/.ci-cache/cypress:/root/.cache/Cypress \
+            -v ${{ github.workspace }}/.ci-cache/cypress:/cypress-cache \
             -e YARN_CACHE_FOLDER=/tmp/yarn-cache \
-            -e CYPRESS_CACHE_FOLDER=/root/.cache/Cypress \
-            -e CYPRESS_baseUrl=http://app:8000 \
+            -e CYPRESS_CACHE_FOLDER=/cypress-cache \
+            -e CYPRESS_baseUrl=http://localhost:8000 \
             -w /app/frontend \
             --entrypoint sh \
-            cypress/included:15.8.1 \
-            -lc "export COREPACK_ENABLE_DOWNLOAD_PROMPT=0 && corepack enable && yarn install && yarn test:e2e"
+            docker.io/cypress/included:15.8.1 \
+            -lc "export COREPACK_ENABLE_DOWNLOAD_PROMPT=0 && corepack enable && yarn install && if [ -z \"$(ls -A /cypress-cache 2>/dev/null || true)\" ]; then cp -a /root/.cache/Cypress/. /cypress-cache/ 2>/dev/null || true; fi && yarn test:e2e"
 
       - name: Save Cypress binary cache
         uses: actions/cache/save@v4

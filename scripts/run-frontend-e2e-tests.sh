@@ -6,6 +6,10 @@ ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 mkdir -p "$ROOT_DIR/.ci-cache/yarn" "$ROOT_DIR/.ci-cache/cypress" "$ROOT_DIR/.ci-cache/composer"
 
 cleanup() {
+	if [ "${START_ONLY:-0}" = "1" ]; then
+		return 0
+	fi
+
 	if [ "${NO_CLEANUP:-0}" = "1" ]; then
 		return 0
 	fi
@@ -49,30 +53,19 @@ if ! curl -f http://localhost:8000/health >/dev/null 2>&1; then
 	exit 1
 fi
 
-APP_CID=$(docker compose ps -q app | head -n 1)
-if [ -z "$APP_CID" ]; then
-	echo "Could not determine compose container id for 'app'"
-	docker compose ps
-	exit 1
+if [ "${START_ONLY:-0}" = "1" ]; then
+	echo "Stack is running. You can now run Cypress in open mode from your host."
+	exit 0
 fi
-
-NETWORK_NAME=$(docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{println $k}}{{end}}' "$APP_CID" | head -n 1)
-if [ -z "$NETWORK_NAME" ]; then
-	echo "Could not determine network name for app container"
-	docker inspect "$APP_CID"
-	exit 1
-fi
-
-echo "Using Docker network: $NETWORK_NAME"
 
 docker run --rm \
-	--network "$NETWORK_NAME" \
+	--network host \
 	-v "$ROOT_DIR/app/frontend:/app/frontend" \
 	-v "$ROOT_DIR/.ci-cache/yarn:/tmp/yarn-cache" \
 	-v "$ROOT_DIR/.ci-cache/cypress:/cypress-cache" \
 	-e YARN_CACHE_FOLDER=/tmp/yarn-cache \
 	-e CYPRESS_CACHE_FOLDER=/cypress-cache \
-	-e CYPRESS_baseUrl=http://app:8000 \
+	-e CYPRESS_baseUrl=http://localhost:8000 \
 	-w /app/frontend \
 	--entrypoint sh \
 	docker.io/cypress/included:15.8.1 \
