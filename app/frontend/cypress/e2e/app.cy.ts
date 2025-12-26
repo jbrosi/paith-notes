@@ -24,6 +24,7 @@ describe("Paith Notes App E2E", () => {
 	it("has a refetch button that fetches health data", () => {
 		// Wait for initial load
 		cy.contains("Loading health...").should("not.exist");
+		cy.contains("button", "Refetch").as("refetchButton");
 
 		// Get the initial counter value
 		cy.get("pre")
@@ -33,7 +34,7 @@ describe("Paith Notes App E2E", () => {
 				const initialCounter = initialData.counter;
 
 				// Click the refetch button
-				cy.contains("button", "Refetch").click();
+				cy.get("@refetchButton").click();
 
 				// Wait a bit for the refetch
 				cy.wait(100);
@@ -49,14 +50,15 @@ describe("Paith Notes App E2E", () => {
 	});
 
 	it("displays the Button component with correct styling", () => {
-		cy.contains("button", "Refetch").should("be.visible");
-		cy.contains("button", "Refetch").should("have.class", "button");
-		cy.contains("button", "Refetch").should("have.class", "primary");
-		cy.contains("button", "Refetch").should("have.class", "medium");
+		cy.contains("button", "Refetch").as("refetchButton");
+		cy.get("@refetchButton").should("be.visible");
+		cy.get("@refetchButton").should("have.attr", "data-variant", "primary");
+		cy.get("@refetchButton").should("have.attr", "data-size", "medium");
 	});
 
 	it("button is clickable and not disabled", () => {
-		cy.contains("button", "Refetch").should("not.be.disabled");
-		cy.contains("button", "Refetch").should("have.attr", "type", "button");
+		cy.contains("button", "Refetch").as("refetchButton");
+		cy.get("@refetchButton").should("not.be.disabled");
+		cy.get("@refetchButton").should("have.attr", "type", "button");
 	});
 });
