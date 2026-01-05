@@ -6,6 +6,8 @@ namespace Paith\Notes\Api\Http;
 
 use FastRoute\Dispatcher;
 use FastRoute\RouteCollector;
+use Paith\Notes\Api\Http\Controller\HealthController;
+use Paith\Notes\Api\Http\Routes\ApiRoutes;
 
 use function FastRoute\simpleDispatcher;
 
@@ -16,25 +18,25 @@ final class Routes
         $prefixMiddlewares = [];
 
         $dispatcher = simpleDispatcher(static function (RouteCollector $r) use (&$prefixMiddlewares): void {
-            $prefixMiddlewares['/api/'] = [
-                new \Paith\Notes\Api\Http\Middleware\RequireUser(),
-            ];
+            $addPrefixMiddleware = static function (string $absolutePrefix, Middleware $middleware) use (&$prefixMiddlewares): void {
+                $prefixMiddlewares[$absolutePrefix] = $prefixMiddlewares[$absolutePrefix] ?? [];
+                $prefixMiddlewares[$absolutePrefix][] = $middleware;
+            };
 
-            $prefixMiddlewares['/api/module_1/'] = [
-                new \Paith\Notes\Api\Http\Middleware\RequireGroup('paith_module_1_users'),
-            ];
+            $scope = new RouteScope($r, $addPrefixMiddleware);
 
-            $r->addRoute('GET', '/health', [\Paith\Notes\Api\Http\Controller\HealthController::class, 'health']);
-            $r->addRoute('GET', '/healthz', [\Paith\Notes\Api\Http\Controller\HealthController::class, 'health']);
-            $r->addRoute('GET', '/health/db', [\Paith\Notes\Api\Http\Controller\HealthController::class, 'db']);
-
-            $r->addRoute('GET', '/api/me', [\Paith\Notes\Api\Http\Controller\MeController::class, 'me']);
-            $r->addRoute('GET', '/api/nooks', [\Paith\Notes\Api\Http\Controller\NooksController::class, 'list']);
-            $r->addRoute('POST', '/api/nooks', [\Paith\Notes\Api\Http\Controller\NooksController::class, 'create']);
-
-            $r->addRoute('GET', '/api/module_1/ping', [\Paith\Notes\Api\Http\Controller\Module1Controller::class, 'ping']);
+            self::registerRootRoutes($scope);
         });
 
         return [$dispatcher, $prefixMiddlewares];
+    }
+
+    public static function registerRootRoutes(RouteScope $r): void
+    {
+        $r->get('/health', [HealthController::class, 'health']);
+        $r->get('/healthz', [HealthController::class, 'health']);
+        $r->get('/health/db', [HealthController::class, 'db']);
+
+        $r->group('/api', [ApiRoutes::class, 'register']);
     }
 }
