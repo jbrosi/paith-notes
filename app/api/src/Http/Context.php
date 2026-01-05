@@ -8,12 +8,14 @@ use PDO;
 
 final class Context
 {
+    /** @var callable(): PDO */
     private $pdoFactory;
 
     private ?PDO $pdo;
 
     private ?array $user;
 
+    /** @param callable(): PDO $pdoFactory */
     public function __construct(callable $pdoFactory)
     {
         $this->pdoFactory = $pdoFactory;
@@ -28,9 +30,6 @@ final class Context
         }
 
         $pdo = ($this->pdoFactory)();
-        if (!$pdo instanceof PDO) {
-            throw new HttpError('PDO factory did not return a PDO instance', 500);
-        }
 
         $this->pdo = $pdo;
         return $pdo;

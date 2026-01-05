@@ -47,9 +47,6 @@ final class Request
         $qs = parse_url($requestUri, PHP_URL_QUERY);
         if (is_string($qs) && $qs !== '') {
             parse_str($qs, $query);
-            if (!is_array($query)) {
-                $query = [];
-            }
         }
 
         $headers = [];

@@ -39,7 +39,9 @@ final class App
             return $kernel;
         }
 
-        [$dispatcher, $prefixMiddlewares] = Routes::build();
+        /** @var array{0: \FastRoute\Dispatcher, 1: array<string, list<Middleware>>} $built */
+        $built = Routes::build();
+        [$dispatcher, $prefixMiddlewares] = $built;
         $kernel = new Kernel($dispatcher, $prefixMiddlewares);
         return $kernel;
     }

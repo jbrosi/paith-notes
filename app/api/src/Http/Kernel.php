@@ -42,21 +42,24 @@ final class Kernel
 
             $middlewares = $this->middlewaresForPath($request->path());
 
-            $core = function (Request $req, Context $ctx) use ($handler): Response {
+            /** @var \Closure(Request, Context): Response $next */
+            $next = function (Request $req, Context $ctx) use ($handler): Response {
                 return $this->invokeHandler($handler, $req, $ctx);
             };
 
-            $pipeline = array_reduce(
-                array_reverse($middlewares),
-                static function (callable $next, Middleware $mw): callable {
-                    return static function (Request $req, Context $ctx) use ($mw, $next): Response {
-                        return $mw->handle($req, $ctx, $next);
-                    };
-                },
-                $core
-            );
+            for ($i = count($middlewares) - 1; $i >= 0; $i--) {
+                $mw = $middlewares[$i] ?? null;
+                if (!$mw instanceof Middleware) {
+                    continue;
+                }
 
-            return $pipeline($request, $context);
+                $prev = $next;
+                $next = static function (Request $req, Context $ctx) use ($mw, $prev): Response {
+                    return $mw->handle($req, $ctx, $prev);
+                };
+            }
+
+            return $next($request, $context);
         } catch (HttpError $e) {
             return JsonResponse::error($e->getMessage(), $e->statusCode);
         } catch (Throwable $e) {

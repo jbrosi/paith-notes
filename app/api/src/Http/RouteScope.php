@@ -10,10 +10,12 @@ final class RouteScope
 {
     private RouteCollector $routes;
 
+    /** @var callable(string, Middleware): void */
     private $addPrefixMiddleware;
 
     private string $absolutePrefix;
 
+    /** @param callable(string, Middleware): void $addPrefixMiddleware */
     public function __construct(RouteCollector $routes, callable $addPrefixMiddleware, string $absolutePrefix = '')
     {
         $this->routes = $routes;

@@ -13,8 +13,10 @@ use function FastRoute\simpleDispatcher;
 
 final class Routes
 {
+    /** @return array{0: Dispatcher, 1: array<string, list<Middleware>>} */
     public static function build(): array
     {
+        /** @var array<string, list<Middleware>> $prefixMiddlewares */
         $prefixMiddlewares = [];
 
         $dispatcher = simpleDispatcher(static function (RouteCollector $r) use (&$prefixMiddlewares): void {
