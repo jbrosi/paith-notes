@@ -21,15 +21,32 @@ final class RequireGroup implements Middleware
 
     public function handle(Request $request, Context $context, callable $next): Response
     {
-        $raw = trim($request->header('X-Nook-Groups'));
-        if ($raw === '') {
-            throw new HttpError('missing group membership', 403);
+        $groups = [];
+        if ((string)getenv('KEYCLOAK_ENABLED') === '1') {
+            $user = $context->user();
+            $rawGroups = $user['groups'] ?? [];
+            if (is_array($rawGroups)) {
+                foreach ($rawGroups as $g) {
+                    if (is_string($g) && $g !== '') {
+                        $groups[] = $g;
+                    }
+                }
+            }
+        } else {
+            $raw = trim($request->header('X-Nook-Groups'));
+            if ($raw !== '') {
+                $groups = preg_split('/[\s,]+/', $raw) ?: [];
+            }
         }
 
-        $groups = preg_split('/[\s,]+/', $raw) ?: [];
+        $required = rtrim($this->group, '/');
         $found = false;
         foreach ($groups as $g) {
-            if ($g === $this->group) {
+            if ($g === '') {
+                continue;
+            }
+
+            if ($g === $required || str_starts_with($g, $required . '/')) {
                 $found = true;
                 break;
             }

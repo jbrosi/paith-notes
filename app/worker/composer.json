@@ -11,7 +11,7 @@
   "scripts": {
     "phpcs": "vendor/bin/phpcs --standard=/app/phpcs.xml",
     "phpcbf": "vendor/bin/phpcbf --standard=/app/phpcs.xml",
-    "phpstan": "vendor/bin/phpstan analyse -c /app/phpstan.neon"
+    "phpstan": "vendor/bin/phpstan analyse -c /app/phpstan.neon --memory-limit=512M"
   },
   "autoload": {
     "psr-4": {
