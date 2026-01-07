@@ -10,9 +10,15 @@ type KeycloakLike = {
 	onAuthSuccess?: () => void;
 	onAuthLogout?: () => void;
 	onTokenExpired?: () => void;
-	init: (options: Parameters<Keycloak["init"]>[0]) => ReturnType<Keycloak["init"]>;
-	login: (options: Parameters<Keycloak["login"]>[0]) => ReturnType<Keycloak["login"]>;
-	logout: (options: Parameters<Keycloak["logout"]>[0]) => ReturnType<Keycloak["logout"]>;
+	init: (
+		options: Parameters<Keycloak["init"]>[0],
+	) => ReturnType<Keycloak["init"]>;
+	login: (
+		options: Parameters<Keycloak["login"]>[0],
+	) => ReturnType<Keycloak["login"]>;
+	logout: (
+		options: Parameters<Keycloak["logout"]>[0],
+	) => ReturnType<Keycloak["logout"]>;
 	updateToken: (
 		minValidity: Parameters<Keycloak["updateToken"]>[0],
 	) => ReturnType<Keycloak["updateToken"]>;
