@@ -12,6 +12,10 @@ services:
       S3_ACCESS_KEY: "rustfsadmin"
       S3_SECRET_KEY: "rustfsadmin"
       S3_BUCKET: "paith"
+      KEYCLOAK_ENABLED: ${KEYCLOAK_ENABLED:-0}
+      KEYCLOAK_BASE_URL: ${KEYCLOAK_BASE_URL:-}
+      KEYCLOAK_REALM: ${KEYCLOAK_REALM:-}
+      KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:-}
     depends_on:
       - frontend
       - db
@@ -28,6 +32,9 @@ services:
     command: sh -lc "export COREPACK_ENABLE_DOWNLOAD_PROMPT=0 && corepack enable && if [ ! -d node_modules ] || [ -z \"$(ls -A node_modules 2>/dev/null || true)\" ]; then yarn install; fi && yarn run dev"
     environment:
       YARN_CACHE_FOLDER: "/tmp/yarn-cache"
+      VITE_KEYCLOAK_URL: ${KEYCLOAK_BASE_URL:-}
+      VITE_KEYCLOAK_REALM: ${KEYCLOAK_REALM:-}
+      VITE_KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:-}
     volumes:
       - ./app/frontend:/app/frontend
       - frontend_node_modules:/app/frontend/node_modules

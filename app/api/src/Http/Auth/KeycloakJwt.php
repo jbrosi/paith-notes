@@ -87,6 +87,12 @@ final class KeycloakJwt
 
         $audOk = $this->audContainsClientId($payload['aud'] ?? null);
         if (!$audOk) {
+            $azp = $payload['azp'] ?? '';
+            if (is_string($azp) && $azp !== '' && $azp === $this->clientId) {
+                $audOk = true;
+            }
+        }
+        if (!$audOk) {
             throw new RuntimeException('invalid JWT audience');
         }
 

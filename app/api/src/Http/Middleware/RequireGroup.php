@@ -19,6 +19,17 @@ final class RequireGroup implements Middleware
         $this->group = $group;
     }
 
+    private static function normalizeGroupPath(string $group): string
+    {
+        $trimmed = trim($group);
+        if ($trimmed === '') {
+            return '';
+        }
+
+        $trimmed = '/' . trim($trimmed, '/');
+        return $trimmed === '/' ? '' : $trimmed;
+    }
+
     public function handle(Request $request, Context $context, callable $next): Response
     {
         $groups = [];
@@ -39,10 +50,15 @@ final class RequireGroup implements Middleware
             }
         }
 
-        $required = rtrim($this->group, '/');
+        $required = self::normalizeGroupPath($this->group);
         $found = false;
         foreach ($groups as $g) {
-            if ($g === '') {
+            if (!is_string($g) || $g === '') {
+                continue;
+            }
+
+            $g = self::normalizeGroupPath($g);
+            if ($g === '' || $required === '') {
                 continue;
             }
 
