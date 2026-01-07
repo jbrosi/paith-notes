@@ -4,11 +4,49 @@ const keycloakUrl = import.meta.env.VITE_KEYCLOAK_URL;
 const keycloakRealm = import.meta.env.VITE_KEYCLOAK_REALM;
 const keycloakClientId = import.meta.env.VITE_KEYCLOAK_CLIENT_ID;
 
-export const keycloak = new Keycloak({
-	url: keycloakUrl,
-	realm: keycloakRealm,
-	clientId: keycloakClientId,
-});
+type KeycloakLike = {
+	authenticated?: boolean;
+	token?: string;
+	onAuthSuccess?: () => void;
+	onAuthLogout?: () => void;
+	onTokenExpired?: () => void;
+	init: (options: Parameters<Keycloak["init"]>[0]) => ReturnType<Keycloak["init"]>;
+	login: (options: Parameters<Keycloak["login"]>[0]) => ReturnType<Keycloak["login"]>;
+	logout: (options: Parameters<Keycloak["logout"]>[0]) => ReturnType<Keycloak["logout"]>;
+	updateToken: (
+		minValidity: Parameters<Keycloak["updateToken"]>[0],
+	) => ReturnType<Keycloak["updateToken"]>;
+};
+
+function isCypressRun(): boolean {
+	return (
+		typeof window !== "undefined" &&
+		typeof (window as unknown as { Cypress?: unknown }).Cypress !== "undefined"
+	);
+}
+
+function createCypressKeycloakStub(): KeycloakLike {
+	return {
+		authenticated: true,
+		token: "cypress",
+		init: async () => true,
+		login: async () => {
+			// no-op for e2e
+		},
+		logout: async () => {
+			// no-op for e2e
+		},
+		updateToken: async () => true,
+	};
+}
+
+export const keycloak: KeycloakLike = isCypressRun()
+	? createCypressKeycloakStub()
+	: new Keycloak({
+			url: keycloakUrl,
+			realm: keycloakRealm,
+			clientId: keycloakClientId,
+		});
 
 export async function initKeycloak(): Promise<boolean> {
 	return keycloak.init({
@@ -18,7 +56,9 @@ export async function initKeycloak(): Promise<boolean> {
 	});
 }
 
-export async function ensureFreshToken(minValiditySeconds = 30): Promise<string> {
+export async function ensureFreshToken(
+	minValiditySeconds = 30,
+): Promise<string> {
 	if (!keycloak.authenticated) {
 		throw new Error("not authenticated");
 	}

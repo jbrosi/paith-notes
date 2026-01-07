@@ -1,11 +1,11 @@
 import {
 	createContext,
 	createSignal,
+	type JSX,
 	onMount,
 	useContext,
-	type JSX,
 } from "solid-js";
-import { keycloak, initKeycloak } from "./keycloak";
+import { initKeycloak, keycloak } from "./keycloak";
 
 export type AuthState = {
 	ready: () => boolean;
@@ -67,7 +67,9 @@ export function AuthProvider(props: { children: JSX.Element }) {
 		token: () => keycloak.token ?? "",
 	};
 
-	return <AuthContext.Provider value={state}>{props.children}</AuthContext.Provider>;
+	return (
+		<AuthContext.Provider value={state}>{props.children}</AuthContext.Provider>
+	);
 }
 
 export function useAuth(): AuthState {

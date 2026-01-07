@@ -1,9 +1,12 @@
 import { type JSX, Show } from "solid-js";
 import styles from "../App.module.css";
-import { LoginNeeded } from "./LoginNeeded";
 import { useAuth } from "./AuthContext";
+import { LoginNeeded } from "./LoginNeeded";
 
-export function RequireAuth(props: { children: JSX.Element; redirectTo?: string }) {
+export function RequireAuth(props: {
+	children: JSX.Element;
+	redirectTo?: string;
+}) {
 	const auth = useAuth();
 
 	return (

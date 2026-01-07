@@ -15,9 +15,9 @@ cleanup() {
 	fi
 
 	if [ -n "${CI:-}" ]; then
-		docker compose down -v
+		docker compose down -v || true
 	else
-		docker compose down
+		docker compose down || true
 	fi
 }
 trap cleanup EXIT
@@ -36,9 +36,9 @@ docker compose up -d db rustfs app
 
 echo "Waiting for services to be ready..."
 for i in $(seq 1 150); do
-	if curl -f http://localhost:8000/health >/dev/null 2>&1; then
+	if curl -fsS --connect-timeout 2 --max-time 2 http://localhost:8000/health >/dev/null 2>&1; then
 		echo "API is ready!"
-		if curl -f http://localhost:8000 >/dev/null 2>&1; then
+		if curl -fsS --connect-timeout 2 --max-time 2 http://localhost:8000 >/dev/null 2>&1; then
 			echo "Frontend is ready!"
 			break
 		fi
@@ -47,7 +47,7 @@ for i in $(seq 1 150); do
 	sleep 2
 done
 
-if ! curl -f http://localhost:8000/health >/dev/null 2>&1; then
+if ! curl -fsS --connect-timeout 2 --max-time 2 http://localhost:8000/health >/dev/null 2>&1; then
 	echo "Services failed to start"
 	docker compose logs
 	exit 1
