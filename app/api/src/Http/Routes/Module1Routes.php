@@ -12,7 +12,7 @@ final class Module1Routes
 {
     public static function register(RouteScope $r): void
     {
-        $r->use('/', new RequireGroup('paith_module_1_users'));
+        $r->use('/', new RequireGroup('/paith/module_1'));
         $r->get('/ping', [Module1Controller::class, 'ping']);
     }
 }

@@ -8,7 +8,6 @@ use Paith\Notes\Api\Http\Context;
 use Paith\Notes\Api\Http\JsonResponse;
 use Paith\Notes\Api\Http\Request;
 use Paith\Notes\Api\Http\Response;
-use Paith\Notes\Shared\Env;
 use PDO;
 use Throwable;
 
@@ -34,11 +33,6 @@ final class HealthController
 
     public function db(Request $request, Context $context): Response
     {
-        $databaseUrl = Env::get('DATABASE_URL');
-        if ($databaseUrl === '') {
-            return JsonResponse::error('DATABASE_URL is not set', 500);
-        }
-
         $availableDrivers = [];
         try {
             $availableDrivers = PDO::getAvailableDrivers();
@@ -52,29 +46,8 @@ final class HealthController
             ]);
         }
 
-        $parts = parse_url($databaseUrl);
-        if ($parts === false) {
-            return JsonResponse::error('DATABASE_URL is invalid', 500);
-        }
-
-        $host = $parts['host'] ?? '';
-        $port = (int)($parts['port'] ?? 5432);
-        $user = $parts['user'] ?? '';
-        $pass = $parts['pass'] ?? '';
-        $dbName = ltrim((string)($parts['path'] ?? ''), '/');
-
-        if ($host === '' || $user === '' || $dbName === '') {
-            return JsonResponse::error('DATABASE_URL must include host, user, and database name', 500);
-        }
-
-        $dsn = sprintf('pgsql:host=%s;port=%d;dbname=%s', $host, $port, $dbName);
-
         try {
-            $pdo = new PDO($dsn, $user, $pass, [
-                PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-                PDO::ATTR_TIMEOUT => 2,
-            ]);
-
+            $pdo = $context->pdo();
             $versionStmt = $pdo->query('select version()');
             $serverVersion = null;
             if ($versionStmt !== false) {
@@ -84,9 +57,6 @@ final class HealthController
             return JsonResponse::ok([
                 'db' => [
                     'driver' => 'pgsql',
-                    'host' => $host,
-                    'port' => $port,
-                    'name' => $dbName,
                     'server_version' => $serverVersion,
                 ],
             ]);

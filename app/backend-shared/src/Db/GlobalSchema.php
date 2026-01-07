@@ -22,6 +22,14 @@ final class GlobalSchema
             );
         ");
 
+        $pdo->exec('alter table global.users add column if not exists keycloak_sub text');
+        $pdo->exec('alter table global.users add column if not exists username text');
+        $pdo->exec('alter table global.users add column if not exists email text');
+        $pdo->exec('alter table global.users add column if not exists email_verified boolean not null default false');
+        $pdo->exec('alter table global.users add column if not exists nickname text');
+
+        $pdo->exec('create unique index if not exists users_keycloak_sub_uidx on global.users (keycloak_sub)');
+
         $pdo->exec("
             create table if not exists global.nooks (
                 id uuid primary key default gen_random_uuid(),
