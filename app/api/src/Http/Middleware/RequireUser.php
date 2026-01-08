@@ -150,7 +150,9 @@ final class RequireUser implements Middleware
         $combined = [];
         foreach ([$groups, $realmRoles, $clientRoles] as $src) {
             foreach ($src as $v) {
-                $combined[] = $v;
+                if (is_string($v) && $v !== '') {
+                    $combined[] = $v;
+                }
             }
         }
         $combined = array_values(array_unique($combined));
