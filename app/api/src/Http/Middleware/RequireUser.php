@@ -51,40 +51,7 @@ final class RequireUser implements Middleware
                 throw new HttpError($e->getMessage(), 401);
             }
 
-            $rawGroups = $claims['groups'] ?? null;
-            $groupsClaim = is_array($rawGroups) ? $rawGroups : [];
-
-            $realmRoles = [];
-            $realmAccess = $claims['realm_access'] ?? null;
-            if (is_array($realmAccess)) {
-                $rr = $realmAccess['roles'] ?? null;
-                if (is_array($rr)) {
-                    $realmRoles = $rr;
-                }
-            }
-
-            $clientId = trim((string)getenv('KEYCLOAK_CLIENT_ID'));
-            $clientRoles = [];
-            $resourceAccess = $claims['resource_access'] ?? null;
-            if ($clientId !== '' && is_array($resourceAccess)) {
-                $client = $resourceAccess[$clientId] ?? null;
-                if (is_array($client)) {
-                    $cr = $client['roles'] ?? null;
-                    if (is_array($cr)) {
-                        $clientRoles = $cr;
-                    }
-                }
-            }
-
-            $combined = [];
-            foreach ([$groupsClaim, $realmRoles, $clientRoles] as $src) {
-                foreach ($src as $v) {
-                    if (is_string($v) && $v !== '') {
-                        $combined[] = $v;
-                    }
-                }
-            }
-            $combined = array_values(array_unique($combined));
+            $rolesInfo = $this->extractRolesFromClaims($claims);
 
             self::debugLog('RequireUser token claims (summary)', [
                 'iss' => is_string($claims['iss'] ?? null) ? (string)$claims['iss'] : null,
@@ -92,16 +59,16 @@ final class RequireUser implements Middleware
                 'azp' => $claims['azp'] ?? null,
                 'sub' => is_string($claims['sub'] ?? null) ? (string)$claims['sub'] : null,
                 'preferred_username' => $claims['preferred_username'] ?? null,
-                'client_id_env' => $clientId !== '' ? $clientId : null,
-                'groups_claim_type' => gettype($rawGroups),
-                'groups_claim_count' => count($groupsClaim),
-                'groups_claim_sample' => array_slice($groupsClaim, 0, 10),
-                'realm_roles_count' => count($realmRoles),
-                'realm_roles_sample' => array_slice($realmRoles, 0, 10),
-                'client_roles_count' => count($clientRoles),
-                'client_roles_sample' => array_slice($clientRoles, 0, 10),
-                'combined_membership_count' => count($combined),
-                'combined_membership_sample' => array_slice($combined, 0, 10),
+                'client_id_env' => $rolesInfo['clientId'] !== '' ? $rolesInfo['clientId'] : null,
+                'groups_claim_type' => $rolesInfo['groupsType'],
+                'groups_claim_count' => count($rolesInfo['groups']),
+                'groups_claim_sample' => array_slice($rolesInfo['groups'], 0, 10),
+                'realm_roles_count' => count($rolesInfo['realmRoles']),
+                'realm_roles_sample' => array_slice($rolesInfo['realmRoles'], 0, 10),
+                'client_roles_count' => count($rolesInfo['clientRoles']),
+                'client_roles_sample' => array_slice($rolesInfo['clientRoles'], 0, 10),
+                'combined_membership_count' => count($rolesInfo['combined']),
+                'combined_membership_sample' => array_slice($rolesInfo['combined'], 0, 10),
                 'claim_keys' => array_slice(array_keys($claims), 0, 30),
             ]);
 
@@ -125,6 +92,77 @@ final class RequireUser implements Middleware
         }
 
         return $next($request, $context);
+    }
+
+    /**
+     * Extract groups, realm roles, and client roles from JWT claims.
+     *
+     * @param array $claims The decoded JWT claims
+     * @return array An array containing:
+     *   - 'groups': array of group names from the groups claim
+     *   - 'realmRoles': array of realm role names
+     *   - 'clientRoles': array of client role names for the configured client
+     *   - 'combined': array of all unique roles/groups combined
+     *   - 'clientId': the client ID used for extracting client roles
+     *   - 'groupsType': the type of the raw groups claim (for debugging)
+     */
+    private function extractRolesFromClaims(array $claims): array
+    {
+        $rawGroups = $claims['groups'] ?? null;
+        $groupsClaim = is_array($rawGroups) ? $rawGroups : [];
+        $groups = [];
+        foreach ($groupsClaim as $g) {
+            if (is_string($g) && $g !== '') {
+                $groups[] = $g;
+            }
+        }
+
+        $realmRoles = [];
+        $realmAccess = $claims['realm_access'] ?? null;
+        if (is_array($realmAccess)) {
+            $rr = $realmAccess['roles'] ?? null;
+            if (is_array($rr)) {
+                foreach ($rr as $r) {
+                    if (is_string($r) && $r !== '') {
+                        $realmRoles[] = $r;
+                    }
+                }
+            }
+        }
+
+        $clientId = trim((string)getenv('KEYCLOAK_CLIENT_ID'));
+        $clientRoles = [];
+        $resourceAccess = $claims['resource_access'] ?? null;
+        if ($clientId !== '' && is_array($resourceAccess)) {
+            $client = $resourceAccess[$clientId] ?? null;
+            if (is_array($client)) {
+                $cr = $client['roles'] ?? null;
+                if (is_array($cr)) {
+                    foreach ($cr as $r) {
+                        if (is_string($r) && $r !== '') {
+                            $clientRoles[] = $r;
+                        }
+                    }
+                }
+            }
+        }
+
+        $combined = [];
+        foreach ([$groups, $realmRoles, $clientRoles] as $src) {
+            foreach ($src as $v) {
+                $combined[] = $v;
+            }
+        }
+        $combined = array_values(array_unique($combined));
+
+        return [
+            'groups' => $groups,
+            'realmRoles' => $realmRoles,
+            'clientRoles' => $clientRoles,
+            'combined' => $combined,
+            'clientId' => $clientId,
+            'groupsType' => gettype($rawGroups),
+        ];
     }
 
     private function findOrCreateUserFromKeycloak(PDO $pdo, array $claims): array
@@ -151,48 +189,8 @@ final class RequireUser implements Middleware
         $emailVerifiedRaw = $claims['email_verified'] ?? false;
         $emailVerified = is_bool($emailVerifiedRaw) ? $emailVerifiedRaw : false;
 
-        $groups = [];
-
-        $rawGroups = $claims['groups'] ?? null;
-        if (is_array($rawGroups)) {
-            foreach ($rawGroups as $g) {
-                if (is_string($g) && $g !== '') {
-                    $groups[] = $g;
-                }
-            }
-        }
-
-        $realmAccess = $claims['realm_access'] ?? null;
-        $realmRoles = null;
-        if (is_array($realmAccess)) {
-            $realmRoles = $realmAccess['roles'] ?? null;
-            if (is_array($realmRoles)) {
-                foreach ($realmRoles as $r) {
-                    if (is_string($r) && $r !== '') {
-                        $groups[] = $r;
-                    }
-                }
-            }
-        }
-
-        $clientId = trim((string)getenv('KEYCLOAK_CLIENT_ID'));
-        $resourceAccess = $claims['resource_access'] ?? null;
-        $clientRoles = null;
-        if ($clientId !== '' && is_array($resourceAccess)) {
-            $client = $resourceAccess[$clientId] ?? null;
-            if (is_array($client)) {
-                $clientRoles = $client['roles'] ?? null;
-                if (is_array($clientRoles)) {
-                    foreach ($clientRoles as $r) {
-                        if (is_string($r) && $r !== '') {
-                            $groups[] = $r;
-                        }
-                    }
-                }
-            }
-        }
-
-        $groups = array_values(array_unique($groups));
+        $rolesInfo = $this->extractRolesFromClaims($claims);
+        $groups = $rolesInfo['combined'];
 
         $stmt = $pdo->prepare('select id, first_name, last_name, username, email, email_verified from global.users where keycloak_sub = :sub');
         $stmt->execute([':sub' => $sub]);
