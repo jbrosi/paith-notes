@@ -352,13 +352,6 @@ final class RequireUser implements Middleware
 
     private function ensurePersonalNook(PDO $pdo, string $userId): void
     {
-        $stmt = $pdo->prepare('select id from global.nooks where personal_owner_id = :user_id limit 1');
-        $stmt->execute([':user_id' => $userId]);
-        $existing = $stmt->fetchColumn();
-        if (is_string($existing) && $existing !== '') {
-            return;
-        }
-
         $ownsTransaction = !$pdo->inTransaction();
         if ($ownsTransaction) {
             $pdo->beginTransaction();
@@ -366,7 +359,9 @@ final class RequireUser implements Middleware
 
         try {
             $create = $pdo->prepare(
-                "insert into global.nooks (name, created_by, is_personal, personal_owner_id) values (:name, :created_by, true, :personal_owner_id) returning id"
+                "insert into global.nooks (name, created_by, is_personal, personal_owner_id) 
+                 values (:name, :created_by, true, :personal_owner_id) 
+                 returning id"
             );
             $create->execute([
                 ':name' => 'Personal',
@@ -392,6 +387,11 @@ final class RequireUser implements Middleware
             if ($ownsTransaction && $pdo->inTransaction()) {
                 $pdo->rollBack();
             }
+            
+            if (str_contains($e->getMessage(), '23505') || str_contains($e->getMessage(), 'nooks_personal_owner_uidx')) {
+                return;
+            }
+            
             throw $e;
         }
     }
