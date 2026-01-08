@@ -11,6 +11,7 @@ use Paith\Notes\Api\Http\Middleware;
 use Paith\Notes\Api\Http\Request;
 use Paith\Notes\Api\Http\Response;
 use PDO;
+use PDOException;
 use RuntimeException;
 use Throwable;
 
@@ -359,9 +360,7 @@ final class RequireUser implements Middleware
 
         try {
             $create = $pdo->prepare(
-                "insert into global.nooks (name, created_by, is_personal, personal_owner_id) 
-                 values (:name, :created_by, true, :personal_owner_id) 
-                 returning id"
+                "insert into global.nooks (name, created_by, is_personal, personal_owner_id) values (:name, :created_by, true, :personal_owner_id) returning id"
             );
             $create->execute([
                 ':name' => 'Personal',
@@ -383,15 +382,23 @@ final class RequireUser implements Middleware
             if ($ownsTransaction) {
                 $pdo->commit();
             }
-        } catch (Throwable $e) {
+        } catch (PDOException $e) {
             if ($ownsTransaction && $pdo->inTransaction()) {
                 $pdo->rollBack();
             }
             
-            if (str_contains($e->getMessage(), '23505') || str_contains($e->getMessage(), 'nooks_personal_owner_uidx')) {
+            $errorInfo = $e->errorInfo ?? [];
+            $sqlState = $errorInfo[0] ?? '';
+            
+            if ($sqlState === '23505') {
                 return;
             }
             
+            throw $e;
+        } catch (Throwable $e) {
+            if ($ownsTransaction && $pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
             throw $e;
         }
     }
