@@ -11,7 +11,7 @@ type PersonalNookResponse = {
 	};
 };
 
-const CYPRESS_NOOK_ID = "00000000-0000-0000-0000-000000000000";
+export const CYPRESS_NOOK_ID = "00000000-0000-0000-0000-000000000000";
 
 function isCypressRun(): boolean {
 	return (
