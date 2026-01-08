@@ -5,7 +5,8 @@ import { AuthProvider } from "./auth/AuthContext";
 import { RequireAuth } from "./auth/RequireAuth";
 import About from "./pages/About.tsx";
 import Home from "./pages/Home.tsx";
-import Notes from "./pages/Notes.tsx";
+import Nook from "./pages/Nook.tsx";
+import NooksRedirect from "./pages/NooksRedirect.tsx";
 
 const root = document.getElementById("app");
 
@@ -20,7 +21,31 @@ if (root) {
 						path="/notes"
 						component={() => (
 							<RequireAuth redirectTo="/notes">
-								<Notes />
+								<NooksRedirect />
+							</RequireAuth>
+						)}
+					/>
+					<Route
+						path="/nooks"
+						component={() => (
+							<RequireAuth redirectTo="/nooks">
+								<NooksRedirect />
+							</RequireAuth>
+						)}
+					/>
+					<Route
+						path="/nooks/:nookId"
+						component={() => (
+							<RequireAuth redirectTo="/nooks">
+								<Nook />
+							</RequireAuth>
+						)}
+					/>
+					<Route
+						path="/nooks/:nookId/*path"
+						component={() => (
+							<RequireAuth redirectTo="/nooks">
+								<Nook />
 							</RequireAuth>
 						)}
 					/>

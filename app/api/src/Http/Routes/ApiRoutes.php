@@ -19,6 +19,7 @@ final class ApiRoutes
 
         $r->get('/me', [MeController::class, 'me']);
         $r->get('/nooks', [NooksController::class, 'list']);
+        $r->get('/nooks/personal', [NooksController::class, 'personal']);
         $r->post('/nooks', [NooksController::class, 'create']);
 
         $r->group('/module_1', [Module1Routes::class, 'register']);

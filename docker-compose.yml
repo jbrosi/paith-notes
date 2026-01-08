@@ -16,6 +16,7 @@ services:
       KEYCLOAK_BASE_URL: ${KEYCLOAK_BASE_URL:-}
       KEYCLOAK_REALM: ${KEYCLOAK_REALM:-}
       KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:-}
+      DEBUG_AUTH: ${DEBUG_AUTH:-0}
     depends_on:
       - frontend
       - db
