@@ -1,8 +1,10 @@
 import Keycloak from "keycloak-js";
 
-const keycloakUrl = import.meta.env.VITE_KEYCLOAK_URL;
-const keycloakRealm = import.meta.env.VITE_KEYCLOAK_REALM;
-const keycloakClientId = import.meta.env.VITE_KEYCLOAK_CLIENT_ID;
+const keycloakUrl = String(import.meta.env.VITE_KEYCLOAK_URL ?? "").trim();
+const keycloakRealm = String(import.meta.env.VITE_KEYCLOAK_REALM ?? "").trim();
+const keycloakClientId = String(
+	import.meta.env.VITE_KEYCLOAK_CLIENT_ID ?? "",
+).trim();
 
 type KeycloakLike = {
 	authenticated?: boolean;
@@ -46,19 +48,42 @@ function createCypressKeycloakStub(): KeycloakLike {
 	};
 }
 
+function createMissingConfigKeycloakStub(): KeycloakLike {
+	const error = new Error(
+		"Keycloak is not configured. Set VITE_KEYCLOAK_URL, VITE_KEYCLOAK_REALM, and VITE_KEYCLOAK_CLIENT_ID (or, when using docker-compose, set KEYCLOAK_BASE_URL, KEYCLOAK_REALM, KEYCLOAK_CLIENT_ID and restart the frontend container).",
+	);
+
+	return {
+		authenticated: false,
+		token: "",
+		init: async () => false,
+		login: async () => {
+			throw error;
+		},
+		logout: async () => {
+			// no-op
+		},
+		updateToken: async () => {
+			throw error;
+		},
+	};
+}
+
 export const keycloak: KeycloakLike = isCypressRun()
 	? createCypressKeycloakStub()
-	: new Keycloak({
-			url: keycloakUrl,
-			realm: keycloakRealm,
-			clientId: keycloakClientId,
-		});
+	: keycloakUrl === "" || keycloakRealm === "" || keycloakClientId === ""
+		? createMissingConfigKeycloakStub()
+		: new Keycloak({
+				url: keycloakUrl,
+				realm: keycloakRealm,
+				clientId: keycloakClientId,
+			});
 
 export async function initKeycloak(): Promise<boolean> {
 	return keycloak.init({
 		onLoad: "check-sso",
 		pkceMethod: "S256",
-		silentCheckSsoRedirectUri: `${window.location.origin}/silent-check-sso.html`,
+		checkLoginIframe: false,
 	});
 }
 

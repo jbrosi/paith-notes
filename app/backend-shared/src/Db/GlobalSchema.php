@@ -35,6 +35,8 @@ final class GlobalSchema
                 id uuid primary key default gen_random_uuid(),
                 name text not null,
                 created_by uuid not null references global.users(id) on delete restrict,
+                owner_id uuid not null references global.users(id) on delete restrict,
+                is_personal boolean not null default false,
                 created_at timestamptz not null default now()
             );
         ");
@@ -44,6 +46,9 @@ final class GlobalSchema
         exception
             when duplicate_object then null;
         end $$;");
+
+        $pdo->exec('create index if not exists nooks_owner_id_idx on global.nooks (owner_id)');
+        $pdo->exec("create unique index if not exists nooks_personal_owner_uidx on global.nooks (owner_id) where is_personal = true");
 
         $pdo->exec("
             create table if not exists global.nook_members (

@@ -12,12 +12,29 @@ use Paith\Notes\Api\Http\Request;
 use Paith\Notes\Api\Http\Response;
 use PDO;
 use RuntimeException;
+use Throwable;
 
 final class RequireUser implements Middleware
 {
+    private static function debugEnabled(): bool
+    {
+        return (string)getenv('DEBUG_AUTH') === '1';
+    }
+
+    private static function debugLog(string $message, array $data = []): void
+    {
+        if (!self::debugEnabled()) {
+            return;
+        }
+
+        $suffix = $data === [] ? '' : ' ' . (json_encode($data) ?: '');
+        @file_put_contents('php://stderr', '[auth] ' . $message . $suffix . "\n");
+    }
+
     public function handle(Request $request, Context $context, callable $next): Response
     {
         if ((string)getenv('KEYCLOAK_ENABLED') === '1') {
+            self::debugLog('RequireUser keycloak enabled');
             $auth = trim($request->header('Authorization'));
             if (!str_starts_with($auth, 'Bearer ')) {
                 throw new HttpError('Authorization bearer token is required', 401);
@@ -34,10 +51,65 @@ final class RequireUser implements Middleware
                 throw new HttpError($e->getMessage(), 401);
             }
 
+            $rawGroups = $claims['groups'] ?? null;
+            $groupsClaim = is_array($rawGroups) ? $rawGroups : [];
+
+            $realmRoles = [];
+            $realmAccess = $claims['realm_access'] ?? null;
+            if (is_array($realmAccess)) {
+                $rr = $realmAccess['roles'] ?? null;
+                if (is_array($rr)) {
+                    $realmRoles = $rr;
+                }
+            }
+
+            $clientId = trim((string)getenv('KEYCLOAK_CLIENT_ID'));
+            $clientRoles = [];
+            $resourceAccess = $claims['resource_access'] ?? null;
+            if ($clientId !== '' && is_array($resourceAccess)) {
+                $client = $resourceAccess[$clientId] ?? null;
+                if (is_array($client)) {
+                    $cr = $client['roles'] ?? null;
+                    if (is_array($cr)) {
+                        $clientRoles = $cr;
+                    }
+                }
+            }
+
+            $combined = [];
+            foreach ([$groupsClaim, $realmRoles, $clientRoles] as $src) {
+                foreach ($src as $v) {
+                    if (is_string($v) && $v !== '') {
+                        $combined[] = $v;
+                    }
+                }
+            }
+            $combined = array_values(array_unique($combined));
+
+            self::debugLog('RequireUser token claims (summary)', [
+                'iss' => is_string($claims['iss'] ?? null) ? (string)$claims['iss'] : null,
+                'aud' => $claims['aud'] ?? null,
+                'azp' => $claims['azp'] ?? null,
+                'sub' => is_string($claims['sub'] ?? null) ? (string)$claims['sub'] : null,
+                'preferred_username' => $claims['preferred_username'] ?? null,
+                'client_id_env' => $clientId !== '' ? $clientId : null,
+                'groups_claim_type' => gettype($rawGroups),
+                'groups_claim_count' => count($groupsClaim),
+                'groups_claim_sample' => array_slice($groupsClaim, 0, 10),
+                'realm_roles_count' => count($realmRoles),
+                'realm_roles_sample' => array_slice($realmRoles, 0, 10),
+                'client_roles_count' => count($clientRoles),
+                'client_roles_sample' => array_slice($clientRoles, 0, 10),
+                'combined_membership_count' => count($combined),
+                'combined_membership_sample' => array_slice($combined, 0, 10),
+                'claim_keys' => array_slice(array_keys($claims), 0, 30),
+            ]);
+
             $pdo = $context->pdo();
             $user = $this->findOrCreateUserFromKeycloak($pdo, $claims);
             $context->setUser($user);
         } else {
+            self::debugLog('RequireUser keycloak disabled');
             $id = trim($request->header('X-Nook-User'));
             if ($id === '') {
                 throw new HttpError('X-Nook-User header is required', 401);
@@ -80,7 +152,8 @@ final class RequireUser implements Middleware
         $emailVerified = is_bool($emailVerifiedRaw) ? $emailVerifiedRaw : false;
 
         $groups = [];
-        $rawGroups = $claims['groups'] ?? [];
+
+        $rawGroups = $claims['groups'] ?? null;
         if (is_array($rawGroups)) {
             foreach ($rawGroups as $g) {
                 if (is_string($g) && $g !== '') {
@@ -89,11 +162,49 @@ final class RequireUser implements Middleware
             }
         }
 
+        $realmAccess = $claims['realm_access'] ?? null;
+        $realmRoles = null;
+        if (is_array($realmAccess)) {
+            $realmRoles = $realmAccess['roles'] ?? null;
+            if (is_array($realmRoles)) {
+                foreach ($realmRoles as $r) {
+                    if (is_string($r) && $r !== '') {
+                        $groups[] = $r;
+                    }
+                }
+            }
+        }
+
+        $clientId = trim((string)getenv('KEYCLOAK_CLIENT_ID'));
+        $resourceAccess = $claims['resource_access'] ?? null;
+        $clientRoles = null;
+        if ($clientId !== '' && is_array($resourceAccess)) {
+            $client = $resourceAccess[$clientId] ?? null;
+            if (is_array($client)) {
+                $clientRoles = $client['roles'] ?? null;
+                if (is_array($clientRoles)) {
+                    foreach ($clientRoles as $r) {
+                        if (is_string($r) && $r !== '') {
+                            $groups[] = $r;
+                        }
+                    }
+                }
+            }
+        }
+
+        $groups = array_values(array_unique($groups));
+
         $stmt = $pdo->prepare('select id, first_name, last_name, username, email, email_verified from global.users where keycloak_sub = :sub');
         $stmt->execute([':sub' => $sub]);
         $existing = $stmt->fetch(PDO::FETCH_ASSOC);
 
         if (!is_array($existing)) {
+            if ($pdo->inTransaction()) {
+                throw new HttpError('unexpected nested transaction during user creation', 500);
+            }
+
+            $pdo->beginTransaction();
+
             if ($firstName === '' || $lastName === '') {
                 [$randFirst, $randLast] = self::randomName();
                 if ($firstName === '') {
@@ -104,37 +215,51 @@ final class RequireUser implements Middleware
                 }
             }
 
-            $ins = $pdo->prepare(
-                'insert into global.users (id, first_name, last_name, keycloak_sub, username, email, email_verified, nickname) ' .
-                'values (gen_random_uuid(), :first_name, :last_name, :sub, :username, :email, :email_verified, :nickname) ' .
-                'returning id, first_name, last_name, username, email, email_verified'
-            );
+            try {
+                $ins = $pdo->prepare(
+                    'insert into global.users (id, first_name, last_name, keycloak_sub, username, email, email_verified, nickname) ' .
+                    'values (gen_random_uuid(), :first_name, :last_name, :sub, :username, :email, :email_verified, :nickname) ' .
+                    'on conflict (keycloak_sub) do nothing ' .
+                    'returning id, first_name, last_name, username, email, email_verified'
+                );
 
-            $ins->execute([
-                ':first_name' => $firstName,
-                ':last_name' => $lastName,
-                ':sub' => $sub,
-                ':username' => $username !== '' ? $username : null,
-                ':email' => ($emailVerified && $email !== '') ? $email : null,
-                ':email_verified' => $emailVerified,
-                ':nickname' => $nickname !== '' ? $nickname : null,
-            ]);
+                $ins->execute([
+                    ':first_name' => $firstName,
+                    ':last_name' => $lastName,
+                    ':sub' => $sub,
+                    ':username' => $username !== '' ? $username : null,
+                    ':email' => ($emailVerified && $email !== '') ? $email : null,
+                    ':email_verified' => $emailVerified,
+                    ':nickname' => $nickname !== '' ? $nickname : null,
+                ]);
 
-            $created = $ins->fetch(PDO::FETCH_ASSOC);
-            if (!is_array($created)) {
-                throw new HttpError('failed to create user', 500);
+                $created = $ins->fetch(PDO::FETCH_ASSOC);
+                $didCreate = is_array($created);
+                if (!is_array($created)) {
+                    $stmt2 = $pdo->prepare('select id, first_name, last_name, username, email, email_verified from global.users where keycloak_sub = :sub');
+                    $stmt2->execute([':sub' => $sub]);
+                    $existing = $stmt2->fetch(PDO::FETCH_ASSOC);
+                    if (!is_array($existing)) {
+                        throw new HttpError('failed to create user', 500);
+                    }
+                } else {
+                    $existing = $created;
+                }
+
+                if ($didCreate && is_array($created)) {
+                    $createdUserId = is_scalar($created['id'] ?? null) ? (string)$created['id'] : '';
+                    if ($createdUserId !== '') {
+                        $this->ensurePersonalNook($pdo, $createdUserId);
+                    }
+                }
+
+                $pdo->commit();
+            } catch (Throwable $e) {
+                if ($pdo->inTransaction()) {
+                    $pdo->rollBack();
+                }
+                throw $e;
             }
-
-            return [
-                'id' => is_scalar($created['id'] ?? null) ? (string)$created['id'] : '',
-                'first_name' => is_scalar($created['first_name'] ?? null) ? (string)$created['first_name'] : '',
-                'last_name' => is_scalar($created['last_name'] ?? null) ? (string)$created['last_name'] : '',
-                'username' => is_scalar($created['username'] ?? null) ? (string)$created['username'] : '',
-                'email' => is_scalar($created['email'] ?? null) ? (string)$created['email'] : '',
-                'email_verified' => (bool)($created['email_verified'] ?? false),
-                'keycloak_sub' => $sub,
-                'groups' => $groups,
-            ];
         }
 
         $dbId = is_scalar($existing['id'] ?? null) ? (string)$existing['id'] : '';
@@ -199,18 +324,53 @@ final class RequireUser implements Middleware
 
         [$first, $last] = self::randomName();
 
-        $ins = $pdo->prepare('insert into global.users (id, first_name, last_name) values (:id, :first_name, :last_name)');
-        $ins->execute([
-            ':id' => $id,
-            ':first_name' => $first,
-            ':last_name' => $last,
-        ]);
+        if ($pdo->inTransaction()) {
+            throw new HttpError('unexpected nested transaction during user creation', 500);
+        }
 
-        return [
-            'id' => $id,
-            'first_name' => $first,
-            'last_name' => $last,
-        ];
+        $pdo->beginTransaction();
+
+        try {
+            $ins = $pdo->prepare(
+                'insert into global.users (id, first_name, last_name) ' .
+                'values (:id, :first_name, :last_name) ' .
+                'on conflict (id) do nothing ' .
+                'returning id, first_name, last_name'
+            );
+            $ins->execute([
+                ':id' => $id,
+                ':first_name' => $first,
+                ':last_name' => $last,
+            ]);
+
+            $created = $ins->fetch(PDO::FETCH_ASSOC);
+            $didCreate = is_array($created);
+            if (!is_array($created)) {
+                $stmt2 = $pdo->prepare('select id, first_name, last_name from global.users where id = :id');
+                $stmt2->execute([':id' => $id]);
+                $created = $stmt2->fetch(PDO::FETCH_ASSOC);
+                if (!is_array($created)) {
+                    throw new HttpError('failed to create user', 500);
+                }
+            }
+
+            if ($didCreate) {
+                $this->ensurePersonalNook($pdo, $id);
+            }
+
+            $pdo->commit();
+
+            return [
+                'id' => $id,
+                'first_name' => is_scalar($created['first_name'] ?? null) ? (string)$created['first_name'] : '',
+                'last_name' => is_scalar($created['last_name'] ?? null) ? (string)$created['last_name'] : '',
+            ];
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            throw $e;
+        }
     }
 
     private static function isUuid(string $value): bool
@@ -236,5 +396,45 @@ final class RequireUser implements Middleware
         $l = $last[random_int(0, count($last) - 1)];
 
         return [$f, $l];
+    }
+
+    private function ensurePersonalNook(PDO $pdo, string $userId): void
+    {
+        if (!$pdo->inTransaction()) {
+            throw new HttpError('ensurePersonalNook must run inside a transaction', 500);
+        }
+
+        try {
+            $create = $pdo->prepare(
+                "insert into global.nooks (name, created_by, is_personal, owner_id) 
+                 values (:name, :created_by, true, :owner_id) 
+                 on conflict (owner_id) where is_personal = true do nothing 
+                 returning id"
+            );
+            $create->execute([
+                ':name' => 'Personal',
+                ':created_by' => $userId,
+                ':owner_id' => $userId,
+            ]);
+            $nookId = $create->fetchColumn();
+
+            if (!$nookId) {
+                $existing = $pdo->prepare('select id from global.nooks where owner_id = :user_id and is_personal = true');
+                $existing->execute([':user_id' => $userId]);
+                $nookId = $existing->fetchColumn();
+            }
+
+            if ($nookId) {
+                $member = $pdo->prepare(
+                    "insert into global.nook_members (nook_id, user_id, role) values (:nook_id, :user_id, 'owner') on conflict (nook_id, user_id) do update set role = excluded.role"
+                );
+                $member->execute([
+                    ':nook_id' => (string)$nookId,
+                    ':user_id' => $userId,
+                ]);
+            }
+        } catch (Throwable $e) {
+            throw $e;
+        }
     }
 }

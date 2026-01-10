@@ -23,7 +23,9 @@ final class NooksController
             select 
                 n.id, 
                 n.name, 
-                nm.role
+                nm.role,
+                n.is_personal,
+                n.owner_id
             from global.nooks n
             join global.nook_members nm on nm.nook_id = n.id
             where 
@@ -33,22 +35,60 @@ final class NooksController
         $stmt->execute([':user_id' => $user['id']]);
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+        $userId = is_scalar($user['id'] ?? null) ? (string)$user['id'] : '';
+
+        $nooks = [];
+        foreach ($rows as $r) {
+            if (!is_array($r)) {
+                continue;
+            }
+
+            $id = $r['id'] ?? '';
+            $name = $r['name'] ?? '';
+            $role = $r['role'] ?? '';
+            $ownerId = $r['owner_id'] ?? null;
+
+            $isPersonal = (bool)($r['is_personal'] ?? false) && (is_scalar($ownerId) && (string)$ownerId === $userId);
+
+            $nooks[] = [
+                'id' => is_scalar($id) ? (string)$id : '',
+                'name' => is_scalar($name) ? (string)$name : '',
+                'role' => is_scalar($role) ? (string)$role : '',
+                'is_personal' => $isPersonal,
+            ];
+        }
+
         return JsonResponse::ok([
-            'nooks' => array_map(static function (mixed $r): array {
-                if (!is_array($r)) {
-                    return ['id' => '', 'name' => '', 'role' => ''];
-                }
+            'nooks' => $nooks,
+        ]);
+    }
 
-                $id = $r['id'] ?? '';
-                $name = $r['name'] ?? '';
-                $role = $r['role'] ?? '';
+    public function personal(Request $request, Context $context): Response
+    {
+        $pdo = $context->pdo();
+        $user = $context->user();
 
-                return [
-                    'id' => is_scalar($id) ? (string)$id : '',
-                    'name' => is_scalar($name) ? (string)$name : '',
-                    'role' => is_scalar($role) ? (string)$role : '',
-                ];
-            }, $rows),
+        $userId = is_scalar($user['id'] ?? null) ? (string)$user['id'] : '';
+        if ($userId === '') {
+            throw new HttpError('missing user id', 500);
+        }
+
+        $stmt = $pdo->prepare('select id, name from global.nooks where owner_id = :user_id and is_personal = true limit 1');
+        $stmt->execute([':user_id' => $userId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!is_array($row)) {
+            throw new HttpError('personal nook not found', 404);
+        }
+
+        $id = $row['id'] ?? '';
+        $name = $row['name'] ?? '';
+
+        return JsonResponse::ok([
+            'nook' => [
+                'id' => is_scalar($id) ? (string)$id : '',
+                'name' => is_scalar($name) ? (string)$name : '',
+                'is_personal' => true,
+            ],
         ]);
     }
 
@@ -68,10 +108,15 @@ final class NooksController
         try {
             $pdo->beginTransaction();
 
-            $create = $pdo->prepare("\n                insert into global.nooks (name, created_by)\n                values (:name, :created_by)\n                returning id\n            ");
+            $create = $pdo->prepare("
+                insert into global.nooks (name, created_by, owner_id)
+                values (:name, :created_by, :owner_id)
+                returning id
+            ");
             $create->execute([
                 ':name' => $name,
                 ':created_by' => $user['id'],
+                ':owner_id' => $user['id'],
             ]);
             $nookId = (string)$create->fetchColumn();
 
