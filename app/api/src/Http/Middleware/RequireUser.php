@@ -246,7 +246,7 @@ final class RequireUser implements Middleware
                     $existing = $created;
                 }
 
-                if ($didCreate) {
+                if ($didCreate && is_array($created)) {
                     $createdUserId = is_scalar($created['id'] ?? null) ? (string)$created['id'] : '';
                     if ($createdUserId !== '') {
                         $this->ensurePersonalNook($pdo, $createdUserId);
