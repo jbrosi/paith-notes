@@ -363,14 +363,20 @@ final class RequireUser implements Middleware
             ':created_by' => $userId,
             ':personal_owner_id' => $userId,
         ]);
-        $nookId = (string)$create->fetchColumn();
+        $nookId = $create->fetchColumn();
 
-        if ($nookId !== '') {
+        if ($nookId === false) {
+            $existing = $pdo->prepare('select id from global.nooks where personal_owner_id = :user_id and is_personal = true');
+            $existing->execute([':user_id' => $userId]);
+            $nookId = $existing->fetchColumn();
+        }
+
+        if ($nookId !== false && $nookId !== '') {
             $member = $pdo->prepare(
                 "insert into global.nook_members (nook_id, user_id, role) values (:nook_id, :user_id, 'owner') on conflict (nook_id, user_id) do update set role = excluded.role"
             );
             $member->execute([
-                ':nook_id' => $nookId,
+                ':nook_id' => (string)$nookId,
                 ':user_id' => $userId,
             ]);
         }
