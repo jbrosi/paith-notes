@@ -11,7 +11,6 @@ use Paith\Notes\Api\Http\Middleware;
 use Paith\Notes\Api\Http\Request;
 use Paith\Notes\Api\Http\Response;
 use PDO;
-use PDOException;
 use RuntimeException;
 use Throwable;
 
@@ -353,53 +352,27 @@ final class RequireUser implements Middleware
 
     private function ensurePersonalNook(PDO $pdo, string $userId): void
     {
-        $ownsTransaction = !$pdo->inTransaction();
-        if ($ownsTransaction) {
-            $pdo->beginTransaction();
-        }
+        $create = $pdo->prepare(
+            "insert into global.nooks (name, created_by, is_personal, personal_owner_id) 
+             values (:name, :created_by, true, :personal_owner_id) 
+             on conflict (personal_owner_id) where is_personal = true do nothing 
+             returning id"
+        );
+        $create->execute([
+            ':name' => 'Personal',
+            ':created_by' => $userId,
+            ':personal_owner_id' => $userId,
+        ]);
+        $nookId = (string)$create->fetchColumn();
 
-        try {
-            $create = $pdo->prepare(
-                "insert into global.nooks (name, created_by, is_personal, personal_owner_id) values (:name, :created_by, true, :personal_owner_id) returning id"
+        if ($nookId !== '') {
+            $member = $pdo->prepare(
+                "insert into global.nook_members (nook_id, user_id, role) values (:nook_id, :user_id, 'owner') on conflict (nook_id, user_id) do update set role = excluded.role"
             );
-            $create->execute([
-                ':name' => 'Personal',
-                ':created_by' => $userId,
-                ':personal_owner_id' => $userId,
+            $member->execute([
+                ':nook_id' => $nookId,
+                ':user_id' => $userId,
             ]);
-            $nookId = (string)$create->fetchColumn();
-
-            if ($nookId !== '') {
-                $member = $pdo->prepare(
-                    "insert into global.nook_members (nook_id, user_id, role) values (:nook_id, :user_id, 'owner') on conflict (nook_id, user_id) do update set role = excluded.role"
-                );
-                $member->execute([
-                    ':nook_id' => $nookId,
-                    ':user_id' => $userId,
-                ]);
-            }
-
-            if ($ownsTransaction) {
-                $pdo->commit();
-            }
-        } catch (PDOException $e) {
-            if ($ownsTransaction && $pdo->inTransaction()) {
-                $pdo->rollBack();
-            }
-            
-            $errorInfo = $e->errorInfo ?? [];
-            $sqlState = $errorInfo[0] ?? '';
-            
-            if ($sqlState === '23505') {
-                return;
-            }
-            
-            throw $e;
-        } catch (Throwable $e) {
-            if ($ownsTransaction && $pdo->inTransaction()) {
-                $pdo->rollBack();
-            }
-            throw $e;
         }
     }
 }

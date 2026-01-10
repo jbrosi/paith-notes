@@ -53,7 +53,7 @@ final class GlobalSchema
             when duplicate_object then null;
         end $$;");
 
-        $pdo->exec("create unique index if not exists nooks_personal_owner_uidx on global.nooks (personal_owner_id) where personal_owner_id is not null");
+        $pdo->exec("create unique index if not exists nooks_personal_owner_uidx on global.nooks (personal_owner_id) where is_personal = true");
 
         $pdo->exec("
             create table if not exists global.nook_members (
