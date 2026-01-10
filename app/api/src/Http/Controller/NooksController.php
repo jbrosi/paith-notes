@@ -25,7 +25,7 @@ final class NooksController
                 n.name, 
                 nm.role,
                 n.is_personal,
-                n.personal_owner_id
+                n.owner_id
             from global.nooks n
             join global.nook_members nm on nm.nook_id = n.id
             where 
@@ -46,12 +46,9 @@ final class NooksController
             $id = $r['id'] ?? '';
             $name = $r['name'] ?? '';
             $role = $r['role'] ?? '';
-            $personalOwnerId = $r['personal_owner_id'] ?? null;
+            $ownerId = $r['owner_id'] ?? null;
 
-            $isPersonal = (bool)($r['is_personal'] ?? false);
-            if (is_scalar($personalOwnerId) && (string)$personalOwnerId === $userId) {
-                $isPersonal = true;
-            }
+            $isPersonal = (bool)($r['is_personal'] ?? false) && (is_scalar($ownerId) && (string)$ownerId === $userId);
 
             $nooks[] = [
                 'id' => is_scalar($id) ? (string)$id : '',
@@ -76,7 +73,7 @@ final class NooksController
             throw new HttpError('missing user id', 500);
         }
 
-        $stmt = $pdo->prepare('select id, name from global.nooks where personal_owner_id = :user_id limit 1');
+        $stmt = $pdo->prepare('select id, name from global.nooks where owner_id = :user_id and is_personal = true limit 1');
         $stmt->execute([':user_id' => $userId]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
         if (!is_array($row)) {
@@ -111,10 +108,15 @@ final class NooksController
         try {
             $pdo->beginTransaction();
 
-            $create = $pdo->prepare("\n                insert into global.nooks (name, created_by)\n                values (:name, :created_by)\n                returning id\n            ");
+            $create = $pdo->prepare("
+                insert into global.nooks (name, created_by, owner_id)
+                values (:name, :created_by, :owner_id)
+                returning id
+            ");
             $create->execute([
                 ':name' => $name,
                 ':created_by' => $user['id'],
+                ':owner_id' => $user['id'],
             ]);
             $nookId = (string)$create->fetchColumn();
 
