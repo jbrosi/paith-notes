@@ -1852,10 +1852,10 @@ jsprim@^2.0.2:
     json-schema "0.4.0"
     verror "1.10.0"
 
-keycloak-js@^26.2.0:
-  version "26.2.2"
-  resolved "https://registry.yarnpkg.com/keycloak-js/-/keycloak-js-26.2.2.tgz#857ea50b89d6c979870919d525991f6553a6edb0"
-  integrity sha512-ug7pNZ1xNkd7PPkerOJCEU2VnUhS7CYStDOCFJgqCNQ64h53ppxaKrh4iXH0xM8hFu5b1W6e6lsyYWqBMvaQFg==
+keycloak-js@^26.2.3:
+  version "26.2.3"
+  resolved "https://registry.yarnpkg.com/keycloak-js/-/keycloak-js-26.2.3.tgz#f68a7dae060de6a0f87bb6a378d57381cc617c5a"
+  integrity sha512-widjzw/9T6bHRgEp6H/Se3NCCarU7u5CwFKBcwtu7xfA1IfdZb+7Q7/KGusAnBo34Vtls8Oz9vzSqkQvQ7+b4Q==
 
 keyv@^5.5.4, keyv@^5.5.5:
   version "5.5.5"
