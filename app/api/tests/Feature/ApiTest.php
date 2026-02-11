@@ -90,6 +90,72 @@ it('auto-creates a user and can create/list nooks', function (): void {
     expect($created2[0]['is_personal'])->toBe(false);
 });
 
+it('can create a note in a nook', function (): void {
+    $userId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+    $headers = [
+        'X-Nook-User' => $userId,
+        'X-Nook-Groups' => 'paith/notes',
+    ];
+
+    App::handle('GET', '/api/me', $headers, '');
+
+    $createNook = App::handle('POST', '/api/nooks', $headers, json_encode(['name' => 'Work'], JSON_UNESCAPED_SLASHES));
+    expect($createNook['status'])->toBe(200);
+
+    $createNookData = json_decode($createNook['body'], true);
+    expect($createNookData)->toBeArray();
+    $nookId = (string)($createNookData['nook']['id'] ?? '');
+    expect($nookId)->not->toBe('');
+
+    $createNote = App::handle(
+        'POST',
+        '/api/nooks/' . $nookId . '/notes',
+        $headers,
+        json_encode(['title' => 'Hello', 'content' => 'World'], JSON_UNESCAPED_SLASHES)
+    );
+    expect($createNote['status'])->toBe(200);
+
+    $createNoteData = json_decode($createNote['body'], true);
+    expect($createNoteData)->toBeArray();
+    expect($createNoteData['note']['nook_id'])->toBe($nookId);
+    expect($createNoteData['note']['title'])->toBe('Hello');
+    expect($createNoteData['note']['content'])->toBe('World');
+    $noteId = (string)($createNoteData['note']['id'] ?? '');
+    expect($noteId)->not->toBe('');
+
+    $listNotes = App::handle('GET', '/api/nooks/' . $nookId . '/notes', $headers, '');
+    expect($listNotes['status'])->toBe(200);
+
+    $listNotesData = json_decode($listNotes['body'], true);
+    expect($listNotesData)->toBeArray();
+    expect($listNotesData['notes'])->toBeArray();
+    expect(count($listNotesData['notes']))->toBe(1);
+    expect($listNotesData['notes'][0]['id'])->toBe($noteId);
+    expect($listNotesData['notes'][0]['title'])->toBe('Hello');
+
+    $updateNote = App::handle(
+        'PUT',
+        '/api/nooks/' . $nookId . '/notes/' . $noteId,
+        $headers,
+        json_encode(['title' => 'Hello 2', 'content' => 'World 2'], JSON_UNESCAPED_SLASHES)
+    );
+    expect($updateNote['status'])->toBe(200);
+
+    $updateNoteData = json_decode($updateNote['body'], true);
+    expect($updateNoteData)->toBeArray();
+    expect($updateNoteData['note']['id'])->toBe($noteId);
+    expect($updateNoteData['note']['title'])->toBe('Hello 2');
+    expect($updateNoteData['note']['content'])->toBe('World 2');
+
+    $pdo = test_pdo();
+    $stmt = $pdo->prepare('select title, content from global.notes where id = :id and nook_id = :nook_id');
+    $stmt->execute([':id' => $noteId, ':nook_id' => $nookId]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    expect($row)->toBeArray();
+    expect((string)($row['title'] ?? ''))->toBe('Hello 2');
+    expect((string)($row['content'] ?? ''))->toBe('World 2');
+});
+
 it('exposes the personal nook via /api/nooks/personal', function (): void {
     $userId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
     $headers = [

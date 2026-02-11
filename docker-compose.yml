@@ -30,7 +30,7 @@ services:
   frontend:
     image: docker.io/node:24
     working_dir: /app/frontend
-    command: sh -lc "export COREPACK_ENABLE_DOWNLOAD_PROMPT=0 && corepack enable && if [ ! -d node_modules ] || [ -z \"$(ls -A node_modules 2>/dev/null || true)\" ]; then yarn install; fi && yarn run dev"
+    command: sh -lc "export COREPACK_ENABLE_DOWNLOAD_PROMPT=0 && corepack enable && HASH_FILE=node_modules/.yarn.lock.sha256 && LOCK_HASH=$$(sha256sum yarn.lock | awk '{print $$1}') && if [ ! -d node_modules ] || [ -z \"$$(ls -A node_modules 2>/dev/null || true)\" ] || [ ! -f \"$$HASH_FILE\" ] || [ \"$$(cat \"$$HASH_FILE\" 2>/dev/null || true)\" != \"$$LOCK_HASH\" ]; then yarn install; mkdir -p node_modules; echo \"$$LOCK_HASH\" > \"$$HASH_FILE\"; fi && yarn run dev"
     environment:
       YARN_CACHE_FOLDER: "/tmp/yarn-cache"
       VITE_KEYCLOAK_URL: ${KEYCLOAK_BASE_URL:-}

@@ -6,6 +6,7 @@ namespace Paith\Notes\Api\Http\Routes;
 
 use Paith\Notes\Api\Http\Controller\MeController;
 use Paith\Notes\Api\Http\Controller\NooksController;
+use Paith\Notes\Api\Http\Controller\NotesController;
 use Paith\Notes\Api\Http\Middleware\RequireGroup;
 use Paith\Notes\Api\Http\Middleware\RequireUser;
 use Paith\Notes\Api\Http\RouteScope;
@@ -21,6 +22,9 @@ final class ApiRoutes
         $r->get('/nooks', [NooksController::class, 'list']);
         $r->get('/nooks/personal', [NooksController::class, 'personal']);
         $r->post('/nooks', [NooksController::class, 'create']);
+        $r->get('/nooks/{nookId}/notes', [NotesController::class, 'list']);
+        $r->post('/nooks/{nookId}/notes', [NotesController::class, 'create']);
+        $r->add('PUT', '/nooks/{nookId}/notes/{noteId}', [NotesController::class, 'update']);
 
         $r->group('/module_1', [Module1Routes::class, 'register']);
     }
