@@ -37,7 +37,8 @@ docker compose -f "$COMPOSE_FILE" --project-name "$PROJECT" run --rm --no-deps \
 	worker composer install --working-dir=/app/api --no-interaction --prefer-dist
 
 # Start full stack (app will pull in frontend, db, rustfs)
-docker compose -f "$COMPOSE_FILE" --project-name "$PROJECT" up -d db rustfs app
+# Force recreate to ensure environment changes (e.g. auth mode) apply even if a previous run left containers behind.
+docker compose -f "$COMPOSE_FILE" --project-name "$PROJECT" up -d --force-recreate db rustfs app
 
 echo "Waiting for services to be ready..."
 for i in $(seq 1 150); do
@@ -57,6 +58,9 @@ if ! docker compose -f "$COMPOSE_FILE" --project-name "$PROJECT" run --rm --no-d
 	docker compose -f "$COMPOSE_FILE" --project-name "$PROJECT" logs
 	exit 1
 fi
+
+echo "Ensuring database schema..."
+docker compose -f "$COMPOSE_FILE" --project-name "$PROJECT" run --rm --no-deps worker php -r "require '/app/api/vendor/autoload.php'; Paith\\Notes\\Shared\\Db\\GlobalSchema::ensure(Paith\\Notes\\Api\\Http\\Db::pdoFromEnv());" >/dev/null
 
 if [ "${START_ONLY:-0}" = "1" ]; then
 	echo "Stack is running. You can now run Cypress in open mode from your host."

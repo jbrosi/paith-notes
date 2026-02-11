@@ -154,6 +154,30 @@ it('can create a note in a nook', function (): void {
     expect($row)->toBeArray();
     expect((string)($row['title'] ?? ''))->toBe('Hello 2');
     expect((string)($row['content'] ?? ''))->toBe('World 2');
+
+    $deleteNote = App::handle(
+        'DELETE',
+        '/api/nooks/' . $nookId . '/notes/' . $noteId,
+        $headers,
+        ''
+    );
+    expect($deleteNote['status'])->toBe(200);
+
+    $deleteNoteData = json_decode($deleteNote['body'], true);
+    expect($deleteNoteData)->toBeArray();
+    expect($deleteNoteData['deleted'])->toBe(true);
+    expect($deleteNoteData['note_id'])->toBe($noteId);
+
+    $listNotes2 = App::handle('GET', '/api/nooks/' . $nookId . '/notes', $headers, '');
+    expect($listNotes2['status'])->toBe(200);
+    $listNotesData2 = json_decode($listNotes2['body'], true);
+    expect($listNotesData2)->toBeArray();
+    expect($listNotesData2['notes'])->toBeArray();
+    expect(count($listNotesData2['notes']))->toBe(0);
+
+    $stmt2 = $pdo->prepare('select count(*) from global.notes where id = :id and nook_id = :nook_id');
+    $stmt2->execute([':id' => $noteId, ':nook_id' => $nookId]);
+    expect((int)$stmt2->fetchColumn())->toBe(0);
 });
 
 it('exposes the personal nook via /api/nooks/personal', function (): void {

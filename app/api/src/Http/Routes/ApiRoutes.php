@@ -25,6 +25,7 @@ final class ApiRoutes
         $r->get('/nooks/{nookId}/notes', [NotesController::class, 'list']);
         $r->post('/nooks/{nookId}/notes', [NotesController::class, 'create']);
         $r->add('PUT', '/nooks/{nookId}/notes/{noteId}', [NotesController::class, 'update']);
+        $r->add('DELETE', '/nooks/{nookId}/notes/{noteId}', [NotesController::class, 'delete']);
 
         $r->group('/module_1', [Module1Routes::class, 'register']);
     }

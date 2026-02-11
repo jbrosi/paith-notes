@@ -21,43 +21,21 @@ type NoteResponse = {
 	note: Note;
 };
 
-function isCypressRun(): boolean {
-	return (
-		typeof window !== "undefined" &&
-		typeof (window as unknown as { Cypress?: unknown }).Cypress !== "undefined"
-	);
-}
-
 export default function Nook() {
 	const params = useParams();
 	const nookId = createMemo(() => String(params.nookId ?? ""));
 
-	const [notes, setNotes] = createSignal<Note[]>(
-		isCypressRun()
-			? [
-					{
-						id: "1",
-						title: "First Note",
-						content: "This is my first note",
-					},
-					{
-						id: "2",
-						title: "Second Note",
-						content: "This is my second note",
-					},
-				]
-			: [],
-	);
+	const [notes, setNotes] = createSignal<Note[]>([]);
 	const [selectedId, setSelectedId] = createSignal<string>("");
 	const [title, setTitle] = createSignal<string>("");
 	const [content, setContent] = createSignal<string>("");
+	const [mode, setMode] = createSignal<"view" | "edit">("view");
 	const [loading, setLoading] = createSignal<boolean>(false);
 	const [error, setError] = createSignal<string>("");
 
+	const isEditing = () => mode() === "edit";
+
 	const loadNotes = async () => {
-		if (isCypressRun()) {
-			return;
-		}
 		if (nookId() === "") {
 			return;
 		}
@@ -93,6 +71,45 @@ export default function Nook() {
 		}
 	};
 
+	const deleteNote = async () => {
+		const id = selectedId();
+		if (id === "") {
+			return;
+		}
+		if (!window.confirm(`Delete this note?`)) {
+			return;
+		}
+
+		setLoading(true);
+		setError("");
+		try {
+			const res = await apiFetch(`/api/nooks/${nookId()}/notes/${id}`, {
+				method: "DELETE",
+			});
+			if (!res.ok) {
+				throw new Error(
+					`Failed to delete note: ${res.status} ${res.statusText}`,
+				);
+			}
+
+			const nextNotes = notes().filter((n) => n.id !== id);
+			setNotes(nextNotes);
+
+			if (nextNotes.length > 0) {
+				selectNote(nextNotes[0]);
+			} else {
+				setSelectedId("");
+				setTitle("");
+				setContent("");
+				setMode("view");
+			}
+		} catch (e) {
+			setError(String(e));
+		} finally {
+			setLoading(false);
+		}
+	};
+
 	createEffect(() => {
 		void nookId();
 		void loadNotes();
@@ -103,6 +120,7 @@ export default function Nook() {
 		setTitle("");
 		setContent("");
 		setError("");
+		setMode("edit");
 	};
 
 	const selectNote = (note: Note) => {
@@ -112,18 +130,10 @@ export default function Nook() {
 		setError("");
 	};
 
-	const addNote = async () => {
-		if (isCypressRun()) {
-			const current = notes();
-			const newItem: Note = {
-				id: String(Date.now()),
-				title: `Note ${current.length + 1}`,
-				content: "New note content",
-			};
-			setNotes([...current, newItem]);
+	const saveNote = async () => {
+		if (!isEditing()) {
 			return;
 		}
-
 		const t = title().trim();
 		if (t === "") {
 			setError("Title is required");
@@ -133,81 +143,50 @@ export default function Nook() {
 		setLoading(true);
 		setError("");
 		try {
-			const res = await apiFetch(`/api/nooks/${nookId()}/notes`, {
-				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-				},
-				body: JSON.stringify({ title: t, content: content() }),
-			});
-			if (!res.ok) {
-				throw new Error(
-					`Failed to create note: ${res.status} ${res.statusText}`,
-				);
-			}
-
-			const body = (await res.json()) as NoteResponse;
-			if (!body?.note?.id) {
-				throw new Error("Note creation response is missing id");
-			}
-
-			setNotes([body.note, ...notes()]);
-			selectNote(body.note);
-		} catch (e) {
-			setError(String(e));
-		} finally {
-			setLoading(false);
-		}
-	};
-
-	const saveNote = async () => {
-		if (isCypressRun()) {
 			const id = selectedId();
 			if (id === "") {
-				return;
+				const res = await apiFetch(`/api/nooks/${nookId()}/notes`, {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+					},
+					body: JSON.stringify({ title: t, content: content() }),
+				});
+				if (!res.ok) {
+					throw new Error(
+						`Failed to create note: ${res.status} ${res.statusText}`,
+					);
+				}
+
+				const body = (await res.json()) as NoteResponse;
+				if (!body?.note?.id) {
+					throw new Error("Note creation response is missing id");
+				}
+
+				setNotes([body.note, ...notes()]);
+				selectNote(body.note);
+			} else {
+				const res = await apiFetch(`/api/nooks/${nookId()}/notes/${id}`, {
+					method: "PUT",
+					headers: {
+						"Content-Type": "application/json",
+					},
+					body: JSON.stringify({ title: t, content: content() }),
+				});
+				if (!res.ok) {
+					throw new Error(
+						`Failed to update note: ${res.status} ${res.statusText}`,
+					);
+				}
+
+				const body = (await res.json()) as NoteResponse;
+				if (!body?.note?.id) {
+					throw new Error("Note update response is missing id");
+				}
+
+				setNotes(notes().map((n) => (n.id === body.note.id ? body.note : n)));
+				selectNote(body.note);
 			}
-			setNotes(
-				notes().map((n) =>
-					n.id === id ? { ...n, title: title(), content: content() } : n,
-				),
-			);
-			return;
-		}
-
-		const id = selectedId();
-		if (id === "") {
-			setError("Select a note to save (or create a new one)");
-			return;
-		}
-		const t = title().trim();
-		if (t === "") {
-			setError("Title is required");
-			return;
-		}
-
-		setLoading(true);
-		setError("");
-		try {
-			const res = await apiFetch(`/api/nooks/${nookId()}/notes/${id}`, {
-				method: "PUT",
-				headers: {
-					"Content-Type": "application/json",
-				},
-				body: JSON.stringify({ title: t, content: content() }),
-			});
-			if (!res.ok) {
-				throw new Error(
-					`Failed to update note: ${res.status} ${res.statusText}`,
-				);
-			}
-
-			const body = (await res.json()) as NoteResponse;
-			if (!body?.note?.id) {
-				throw new Error("Note update response is missing id");
-			}
-
-			setNotes(notes().map((n) => (n.id === body.note.id ? body.note : n)));
-			selectNote(body.note);
 		} catch (e) {
 			setError(String(e));
 		} finally {
@@ -226,23 +205,70 @@ export default function Nook() {
 				</p>
 			) : null}
 
-			<div class={notesStyles["add-note-container"]}>
-				{isCypressRun() ? (
-					<Button onClick={addNote}>Add Note</Button>
-				) : (
-					<>
+			<div style={{ display: "flex", gap: "16px", "align-items": "stretch" }}>
+				<div
+					style={{
+						width: "260px",
+						"flex-shrink": "0",
+						"border-right": "1px solid #eee",
+						padding: "0 16px 0 0",
+					}}
+				>
+					<div
+						style={{
+							display: "flex",
+							"justify-content": "space-between",
+							"align-items": "center",
+							"margin-bottom": "12px",
+						}}
+					>
+						<div style={{ "font-weight": "600" }}>Notes</div>
 						<Button onClick={newNote} variant="secondary">
 							New
 						</Button>
-						<Button onClick={addNote} disabled={loading()}>
-							Create
-						</Button>
+					</div>
+
+					<div>
+						<For each={notes()}>
+							{(note) => (
+								<button
+									type="button"
+									onClick={() => selectNote(note)}
+									style={{
+										width: "100%",
+										padding: "8px",
+										"text-align": "left",
+										"border-radius": "6px",
+										border: "1px solid #ddd",
+										background: note.id === selectedId() ? "#f6f8fa" : "white",
+										"margin-bottom": "8px",
+										cursor: "pointer",
+									}}
+								>
+									<div style={{ "font-weight": "600" }}>{note.title}</div>
+								</button>
+							)}
+						</For>
+					</div>
+				</div>
+
+				<div style={{ flex: "1", "min-width": "0" }}>
+					<div
+						class={notesStyles["add-note-container"]}
+						style={{
+							display: "flex",
+							gap: "8px",
+							"align-items": "center",
+						}}
+					>
 						<Button
-							onClick={saveNote}
-							disabled={loading() || selectedId() === ""}
+							onClick={() => setMode((m) => (m === "edit" ? "view" : "edit"))}
+							variant="secondary"
 						>
-							Save
+							Switch to {isEditing() ? "View" : "Edit"}
 						</Button>
+						<div style={{ color: "#666" }}>Mode: {mode()}</div>
+						<div style={{ flex: "1" }} />
 						<Button
 							onClick={loadNotes}
 							variant="secondary"
@@ -250,41 +276,40 @@ export default function Nook() {
 						>
 							Refresh
 						</Button>
-					</>
-				)}
-			</div>
+						<Button
+							onClick={saveNote}
+							disabled={loading() || !isEditing() || title().trim() === ""}
+						>
+							Save
+						</Button>
+						<Button
+							onClick={deleteNote}
+							variant="danger"
+							disabled={loading() || selectedId() === ""}
+						>
+							Delete
+						</Button>
+					</div>
 
-			<div style={{ "margin-bottom": "1rem" }}>
-				<div style={{ "margin-bottom": "0.5rem" }}>
-					<label>
-						Title
-						<input
-							type="text"
-							value={title()}
-							onInput={(e) => setTitle(e.currentTarget.value)}
-							style={{
-								width: "100%",
-								padding: "8px",
-								"box-sizing": "border-box",
-							}}
-						/>
-					</label>
-				</div>
-				<div>
-					<div>
-						<div style={{ "margin-bottom": "0.5rem" }}>Content</div>
-						{isCypressRun() ? (
-							<textarea
-								value={content()}
-								onInput={(e) => setContent(e.currentTarget.value)}
-								rows={6}
-								style={{
-									width: "100%",
-									padding: "8px",
-									"box-sizing": "border-box",
-								}}
-							/>
-						) : (
+					<div style={{ "margin-bottom": "1rem" }}>
+						<div style={{ "margin-bottom": "0.5rem" }}>
+							<label>
+								Title
+								<input
+									type="text"
+									value={title()}
+									onInput={(e) => setTitle(e.currentTarget.value)}
+									readOnly={!isEditing()}
+									style={{
+										width: "100%",
+										padding: "8px",
+										"box-sizing": "border-box",
+									}}
+								/>
+							</label>
+						</div>
+						<div>
+							<div style={{ "margin-bottom": "0.5rem" }}>Content</div>
 							<div
 								style={{
 									border: "1px solid #ccc",
@@ -292,38 +317,19 @@ export default function Nook() {
 									overflow: "hidden",
 								}}
 							>
-								<MilkdownEditor value={content()} onChange={setContent} />
+								<MilkdownEditor
+									value={content()}
+									onChange={setContent}
+									readonly={!isEditing()}
+								/>
 							</div>
-						)}
+						</div>
 					</div>
+
+					<Show when={error() !== ""}>
+						<pre class={styles.error}>{error()}</pre>
+					</Show>
 				</div>
-			</div>
-
-			<Show when={error() !== ""}>
-				<pre class={styles.error}>{error()}</pre>
-			</Show>
-
-			<div>
-				<For each={notes()}>
-					{(note) => (
-						<button
-							type="button"
-							class={notesStyles["note-card"]}
-							onClick={() => selectNote(note)}
-							style={{
-								cursor: "pointer",
-								width: "100%",
-								padding: "0",
-								background: "transparent",
-								"text-align": "left",
-								"border-color": note.id === selectedId() ? "#111" : undefined,
-							}}
-						>
-							<h3>{note.title}</h3>
-							<p>{note.content}</p>
-						</button>
-					)}
-				</For>
 			</div>
 		</main>
 	);
