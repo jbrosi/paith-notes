@@ -50,7 +50,29 @@ export function NookSidebar(props: NookSidebarProps) {
 								cursor: "pointer",
 							}}
 						>
-							<div style={{ "font-weight": "600" }}>{note.title}</div>
+							<div
+								style={{
+									display: "flex",
+									gap: "8px",
+									"align-items": "center",
+								}}
+							>
+								<div style={{ "font-weight": "600" }}>{note.title}</div>
+								{note.type === "person" ? (
+									<span
+										style={{
+											"font-size": "12px",
+											padding: "2px 6px",
+											"border-radius": "999px",
+											border: "1px solid #c9def7",
+											background: "#eef5ff",
+											color: "#1f5fbf",
+										}}
+									>
+										Person
+									</span>
+								) : null}
+							</div>
 						</button>
 					)}
 				</For>

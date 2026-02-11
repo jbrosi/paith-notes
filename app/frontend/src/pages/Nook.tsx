@@ -55,6 +55,90 @@ export default function Nook() {
 					<div style={{ "margin-bottom": "1rem" }}>
 						<div style={{ "margin-bottom": "0.5rem" }}>
 							<label>
+								Type
+								<select
+									value={store.type()}
+									onChange={(e) =>
+										store.setType(
+											e.currentTarget.value === "person"
+												? "person"
+												: "anything",
+										)
+									}
+									disabled={store.mode() !== "edit"}
+									style={{
+										width: "100%",
+										padding: "8px",
+										"box-sizing": "border-box",
+									}}
+								>
+									<option value="anything">Anything</option>
+									<option value="person">Person</option>
+								</select>
+							</label>
+						</div>
+
+						<Show when={store.type() === "person"}>
+							<div style={{ "margin-bottom": "0.5rem" }}>
+								<label>
+									First name
+									<input
+										type="text"
+										value={store.personFirstName()}
+										onInput={(e) =>
+											store.setPersonFirstName(e.currentTarget.value)
+										}
+										readOnly={store.mode() !== "edit"}
+										style={{
+											width: "100%",
+											padding: "8px",
+											"box-sizing": "border-box",
+										}}
+									/>
+								</label>
+							</div>
+
+							<div style={{ "margin-bottom": "0.5rem" }}>
+								<label>
+									Last name
+									<input
+										type="text"
+										value={store.personLastName()}
+										onInput={(e) =>
+											store.setPersonLastName(e.currentTarget.value)
+										}
+										readOnly={store.mode() !== "edit"}
+										style={{
+											width: "100%",
+											padding: "8px",
+											"box-sizing": "border-box",
+										}}
+									/>
+								</label>
+							</div>
+
+							<div style={{ "margin-bottom": "0.5rem" }}>
+								<label>
+									Date of birth
+									<input
+										type="text"
+										value={store.personDateOfBirth()}
+										onInput={(e) =>
+											store.setPersonDateOfBirth(e.currentTarget.value)
+										}
+										readOnly={store.mode() !== "edit"}
+										style={{
+											width: "100%",
+											padding: "8px",
+											"box-sizing": "border-box",
+										}}
+									/>
+								</label>
+							</div>
+						</Show>
+
+						<div style={{ "margin-bottom": "0.5rem" }}>
+							<label>
 								Title
 								<input
 									type="text"
@@ -89,6 +173,7 @@ export default function Nook() {
 					</div>
 
 					<NookMentionsPanel
+						notes={store.notes()}
 						outgoing={store.outgoingMentions()}
 						incoming={store.incomingMentions()}
 						onOpenNote={(id) => void store.onNoteLinkClick(id)}

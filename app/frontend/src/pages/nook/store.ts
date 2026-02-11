@@ -12,6 +12,13 @@ export function createNookStore(nookId: () => string) {
 	const [selectedId, setSelectedId] = createSignal<string>("");
 	const [title, setTitle] = createSignal<string>("");
 	const [content, setContent] = createSignal<string>("");
+	const [type, setType] = createSignal<"anything" | "person">("anything");
+	const [personFirstName, setPersonFirstName] = createSignal<string>("");
+	const [personLastName, setPersonLastName] = createSignal<string>("");
+	const [personDateOfBirth, setPersonDateOfBirth] = createSignal<string>("");
+	const [formerProperties, setFormerProperties] = createSignal<
+		Record<string, unknown>
+	>({});
 	const [mode, setMode] = createSignal<"view" | "edit">("view");
 	const [loading, setLoading] = createSignal<boolean>(false);
 	const [error, setError] = createSignal<string>("");
@@ -73,10 +80,7 @@ export function createNookStore(nookId: () => string) {
 			if (currentSelected === "" && (body?.notes?.length ?? 0) > 0) {
 				const first = body.notes[0];
 				if (first?.id) {
-					setSelectedId(first.id);
-					setTitle(first.title ?? "");
-					setContent(first.content ?? "");
-					await loadMentions();
+					selectNote(first);
 				}
 			}
 		} catch (e) {
@@ -90,6 +94,11 @@ export function createNookStore(nookId: () => string) {
 		setSelectedId("");
 		setTitle("");
 		setContent("");
+		setType("anything");
+		setPersonFirstName("");
+		setPersonLastName("");
+		setPersonDateOfBirth("");
+		setFormerProperties({});
 		setError("");
 		setMode("edit");
 	};
@@ -98,9 +107,37 @@ export function createNookStore(nookId: () => string) {
 		setSelectedId(note.id);
 		setTitle(note.title);
 		setContent(note.content);
+		setType(note.type === "person" ? "person" : "anything");
+		setPersonFirstName(String(note.properties?.first_name ?? ""));
+		setPersonLastName(String(note.properties?.last_name ?? ""));
+		setPersonDateOfBirth(String(note.properties?.date_of_birth ?? ""));
+		setFormerProperties(
+			(note as unknown as { formerProperties?: Record<string, unknown> })
+				.formerProperties ?? {},
+		);
 		setError("");
 		void loadMentions();
 	};
+
+	createEffect(() => {
+		if (type() !== "person") return;
+		if (
+			personFirstName() !== "" ||
+			personLastName() !== "" ||
+			personDateOfBirth() !== ""
+		) {
+			return;
+		}
+		const fp = formerProperties();
+		const person = fp.person;
+		if (!person || typeof person !== "object") return;
+		const p = person as Record<string, unknown>;
+		if (typeof p.first_name === "string") setPersonFirstName(p.first_name);
+		if (typeof p.last_name === "string") setPersonLastName(p.last_name);
+		if (typeof p.date_of_birth === "string") {
+			setPersonDateOfBirth(p.date_of_birth);
+		}
+	});
 
 	const onNoteLinkClick = async (noteId: string) => {
 		let found = notes().find((n) => n.id === noteId);
@@ -135,6 +172,16 @@ export function createNookStore(nookId: () => string) {
 			return;
 		}
 
+		const noteType = type();
+		const properties =
+			noteType === "person"
+				? {
+						first_name: personFirstName().trim(),
+						last_name: personLastName().trim(),
+						date_of_birth: personDateOfBirth().trim(),
+					}
+				: {};
+
 		setLoading(true);
 		setError("");
 		try {
@@ -145,7 +192,12 @@ export function createNookStore(nookId: () => string) {
 					headers: {
 						"Content-Type": "application/json",
 					},
-					body: JSON.stringify({ title: t, content: content() }),
+					body: JSON.stringify({
+						title: t,
+						content: content(),
+						type: noteType,
+						properties,
+					}),
 				});
 				if (!res.ok) {
 					throw new Error(
@@ -164,7 +216,12 @@ export function createNookStore(nookId: () => string) {
 					headers: {
 						"Content-Type": "application/json",
 					},
-					body: JSON.stringify({ title: t, content: content() }),
+					body: JSON.stringify({
+						title: t,
+						content: content(),
+						type: noteType,
+						properties,
+					}),
 				});
 				if (!res.ok) {
 					throw new Error(
@@ -233,6 +290,11 @@ export function createNookStore(nookId: () => string) {
 		selectedId,
 		title,
 		content,
+		type,
+		personFirstName,
+		personLastName,
+		personDateOfBirth,
+		formerProperties,
 		mode,
 		loading,
 		error,
@@ -242,6 +304,11 @@ export function createNookStore(nookId: () => string) {
 		isEditing,
 		setTitle,
 		setContent,
+		setType,
+		setPersonFirstName,
+		setPersonLastName,
+		setPersonDateOfBirth,
+		setFormerProperties,
 		setMode,
 		setMentionTargetId,
 		loadNotes,

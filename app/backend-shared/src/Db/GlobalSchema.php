@@ -88,6 +88,10 @@ final class GlobalSchema
 			);
 		");
 
+        $pdo->exec("alter table global.notes add column if not exists type text not null default 'anything'");
+        $pdo->exec("alter table global.notes add column if not exists properties jsonb not null default '{}'::jsonb");
+        $pdo->exec("alter table global.notes add column if not exists former_properties jsonb not null default '{}'::jsonb");
+
         $pdo->exec('create index if not exists note_mentions_source_note_id_idx on global.note_mentions (source_note_id)');
         $pdo->exec('create index if not exists note_mentions_target_note_id_idx on global.note_mentions (target_note_id)');
         $pdo->exec('create unique index if not exists note_mentions_source_position_uidx on global.note_mentions (source_note_id, position)');

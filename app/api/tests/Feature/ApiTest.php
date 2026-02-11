@@ -120,6 +120,8 @@ it('can create a note in a nook', function (): void {
     expect($createNoteData['note']['nook_id'])->toBe($nookId);
     expect($createNoteData['note']['title'])->toBe('Hello');
     expect($createNoteData['note']['content'])->toBe('World');
+    expect($createNoteData['note']['type'])->toBe('anything');
+    expect($createNoteData['note']['properties'])->toBeArray();
     $noteId = (string)($createNoteData['note']['id'] ?? '');
     expect($noteId)->not->toBe('');
 
@@ -142,7 +144,7 @@ it('can create a note in a nook', function (): void {
 		'PUT',
 		'/api/nooks/' . $nookId . '/notes/' . $noteId,
 		$headers,
-		json_encode(['title' => 'Hello 2', 'content' => $mentionMd], JSON_UNESCAPED_SLASHES)
+		json_encode(['title' => 'Hello 2', 'content' => $mentionMd, 'type' => 'anything', 'properties' => []], JSON_UNESCAPED_SLASHES)
 	);
 	expect($updateWithMention['status'])->toBe(200);
 
@@ -211,7 +213,7 @@ it('can create a note in a nook', function (): void {
 		'PUT',
 		'/api/nooks/' . $nookId . '/notes/' . $noteId,
 		$headers,
-		json_encode(['title' => 'Hello 2', 'content' => 'World 2'], JSON_UNESCAPED_SLASHES)
+		json_encode(['title' => 'Hello 2', 'content' => 'World 2', 'type' => 'anything', 'properties' => []], JSON_UNESCAPED_SLASHES)
 	);
 	expect($updateNote['status'])->toBe(200);
 
@@ -220,6 +222,8 @@ it('can create a note in a nook', function (): void {
 	expect($updateNoteData['note']['id'])->toBe($noteId);
 	expect($updateNoteData['note']['title'])->toBe('Hello 2');
 	expect($updateNoteData['note']['content'])->toBe('World 2');
+	expect($updateNoteData['note']['type'])->toBe('anything');
+	expect($updateNoteData['note']['properties'])->toBeArray();
 
 	$mentions2 = $pdoMentions->prepare('select count(*) from global.note_mentions where source_note_id = :source');
 	$mentions2->execute([':source' => $noteId]);
@@ -238,12 +242,14 @@ it('can create a note in a nook', function (): void {
 	expect(count($mentionsOut2Data['outgoing'] ?? []))->toBe(0);
 
     $pdo = test_pdo();
-    $stmt = $pdo->prepare('select title, content from global.notes where id = :id and nook_id = :nook_id');
+    $stmt = $pdo->prepare('select title, content, type, properties from global.notes where id = :id and nook_id = :nook_id');
     $stmt->execute([':id' => $noteId, ':nook_id' => $nookId]);
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
     expect($row)->toBeArray();
     expect((string)($row['title'] ?? ''))->toBe('Hello 2');
     expect((string)($row['content'] ?? ''))->toBe('World 2');
+    expect((string)($row['type'] ?? ''))->toBe('anything');
+    expect($row['properties'])->not->toBeNull();
 
     $deleteNote = App::handle(
         'DELETE',
@@ -270,6 +276,86 @@ it('can create a note in a nook', function (): void {
     $stmt2 = $pdo->prepare('select count(*) from global.notes where id = :id and nook_id = :nook_id');
     $stmt2->execute([':id' => $noteId, ':nook_id' => $nookId]);
     expect((int)$stmt2->fetchColumn())->toBe(0);
+});
+
+it('demoting a person note to anything preserves fields in former_properties and can be restored', function (): void {
+	$userId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+	$headers = [
+		'X-Nook-User' => $userId,
+		'X-Nook-Groups' => 'paith/notes',
+	];
+
+	App::handle('GET', '/api/me', $headers, '');
+
+	$createNook = App::handle('POST', '/api/nooks', $headers, json_encode(['name' => 'People'], JSON_UNESCAPED_SLASHES));
+	expect($createNook['status'])->toBe(200);
+	$createNookData = json_decode($createNook['body'], true);
+	expect($createNookData)->toBeArray();
+	$nookId = (string)($createNookData['nook']['id'] ?? '');
+	expect($nookId)->not->toBe('');
+
+	$createPerson = App::handle(
+		'POST',
+		'/api/nooks/' . $nookId . '/notes',
+		$headers,
+		json_encode([
+			'title' => 'Ada Lovelace',
+			'content' => 'Initial content',
+			'type' => 'person',
+			'properties' => [
+				'first_name' => 'Ada',
+				'last_name' => 'Lovelace',
+				'date_of_birth' => '1815-12-10',
+			],
+		], JSON_UNESCAPED_SLASHES)
+	);
+	expect($createPerson['status'])->toBe(200);
+	$createPersonData = json_decode($createPerson['body'], true);
+	expect($createPersonData)->toBeArray();
+	$noteId = (string)($createPersonData['note']['id'] ?? '');
+	expect($noteId)->not->toBe('');
+	expect($createPersonData['note']['type'])->toBe('person');
+
+	$demote = App::handle(
+		'PUT',
+		'/api/nooks/' . $nookId . '/notes/' . $noteId,
+		$headers,
+		json_encode([
+			'title' => 'Ada Lovelace',
+			'content' => 'Initial content',
+			'type' => 'anything',
+			'properties' => [],
+		], JSON_UNESCAPED_SLASHES)
+	);
+	expect($demote['status'])->toBe(200);
+	$demoteData = json_decode($demote['body'], true);
+	expect($demoteData)->toBeArray();
+	expect($demoteData['note']['type'])->toBe('anything');
+	expect($demoteData['note']['former_properties'])->toBeArray();
+	expect($demoteData['note']['former_properties']['person'])->toBeArray();
+	expect((string)($demoteData['note']['former_properties']['person']['first_name'] ?? ''))->toBe('Ada');
+	expect((string)($demoteData['note']['former_properties']['person']['last_name'] ?? ''))->toBe('Lovelace');
+	expect((string)($demoteData['note']['former_properties']['person']['date_of_birth'] ?? ''))->toBe('1815-12-10');
+
+	$promote = App::handle(
+		'PUT',
+		'/api/nooks/' . $nookId . '/notes/' . $noteId,
+		$headers,
+		json_encode([
+			'title' => 'Ada Lovelace',
+			'content' => 'Initial content',
+			'type' => 'person',
+			'properties' => [],
+		], JSON_UNESCAPED_SLASHES)
+	);
+	expect($promote['status'])->toBe(200);
+	$promoteData = json_decode($promote['body'], true);
+	expect($promoteData)->toBeArray();
+	expect($promoteData['note']['type'])->toBe('person');
+	expect($promoteData['note']['properties'])->toBeArray();
+	expect((string)($promoteData['note']['properties']['first_name'] ?? ''))->toBe('Ada');
+	expect((string)($promoteData['note']['properties']['last_name'] ?? ''))->toBe('Lovelace');
+	expect((string)($promoteData['note']['properties']['date_of_birth'] ?? ''))->toBe('1815-12-10');
 });
 
 it('exposes the personal nook via /api/nooks/personal', function (): void {
