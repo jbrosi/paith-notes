@@ -8,6 +8,7 @@ import {
 } from "./types";
 
 export function createNookStore(nookId: () => string) {
+	const fileInlineUrlCache = new Map<string, string>();
 	const [notes, setNotes] = createSignal<Note[]>([]);
 	const [selectedId, setSelectedId] = createSignal<string>("");
 	const [title, setTitle] = createSignal<string>("");
@@ -32,7 +33,8 @@ export function createNookStore(nookId: () => string) {
 	const [loading, setLoading] = createSignal<boolean>(false);
 	const [error, setError] = createSignal<string>("");
 	const [mentionTargetId, setMentionTargetId] = createSignal<string>("");
-	const [mentionEmbedImage, setMentionEmbedImage] = createSignal<boolean>(false);
+	const [mentionEmbedImage, setMentionEmbedImage] =
+		createSignal<boolean>(false);
 	const [outgoingMentions, setOutgoingMentions] = createSignal<Mention[]>([]);
 	const [incomingMentions, setIncomingMentions] = createSignal<Mention[]>([]);
 	const [fileUploadInProgress, setFileUploadInProgress] =
@@ -59,6 +61,38 @@ export function createNookStore(nookId: () => string) {
 			return;
 		}
 		setTitleIsManual(true);
+	};
+
+	const resolveEmbeddedImageSrc = async (noteId: string) => {
+		const id = noteId.trim();
+		if (id === "") return null;
+		if (nookId() === "") return null;
+		const cached = fileInlineUrlCache.get(id);
+		if (cached) return cached;
+
+		let n = notes().find((x) => x.id === id);
+		if (!n) {
+			await loadNotes();
+			n = notes().find((x) => x.id === id);
+		}
+		if (!n) return null;
+		if (n.type !== "file") return null;
+
+		const mime = String(n.properties?.mime_type ?? "");
+		if (!mime.startsWith("image/")) return null;
+
+		const res = await apiFetch(
+			`/api/nooks/${nookId()}/notes/${id}/file/download-url?inline=1`,
+			{ method: "GET" },
+		);
+		if (!res.ok) {
+			return null;
+		}
+		const json = (await res.json()) as unknown as { download_url?: string };
+		const url = String(json?.download_url ?? "");
+		if (url === "") return null;
+		fileInlineUrlCache.set(id, url);
+		return url;
 	};
 
 	const loadMentions = async () => {
@@ -607,6 +641,7 @@ export function createNookStore(nookId: () => string) {
 		selectNote,
 		onNoteLinkClick,
 		insertMention,
+		resolveEmbeddedImageSrc,
 		saveNote,
 		deleteNote,
 		uploadFile,

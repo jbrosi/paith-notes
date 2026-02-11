@@ -42,11 +42,13 @@ export default function Nook() {
 							selectedId={store.selectedId()}
 							notes={store.notes()}
 							mentionTargetId={store.mentionTargetId()}
+							mentionEmbedImage={store.mentionEmbedImage()}
 							onToggleMode={() =>
 								store.setMode((m) => (m === "edit" ? "view" : "edit"))
 							}
 							onRefresh={store.loadNotes}
 							onChangeMentionTargetId={store.setMentionTargetId}
+							onChangeMentionEmbedImage={store.setMentionEmbedImage}
 							onInsertMention={store.insertMention}
 							onSave={store.saveNote}
 							onDelete={store.deleteNote}
@@ -278,6 +280,9 @@ export default function Nook() {
 										onChange={store.setContent}
 										readonly={store.mode() !== "edit"}
 										onNoteLinkClick={(id) => void store.onNoteLinkClick(id)}
+										resolveEmbeddedImageSrc={(id) =>
+											store.resolveEmbeddedImageSrc(id)
+										}
 									/>
 								</div>
 							</div>
