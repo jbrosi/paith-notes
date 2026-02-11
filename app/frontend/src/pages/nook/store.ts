@@ -11,11 +11,20 @@ export function createNookStore(nookId: () => string) {
 	const [notes, setNotes] = createSignal<Note[]>([]);
 	const [selectedId, setSelectedId] = createSignal<string>("");
 	const [title, setTitle] = createSignal<string>("");
+	const [titleIsManual, setTitleIsManual] = createSignal<boolean>(false);
 	const [content, setContent] = createSignal<string>("");
-	const [type, setType] = createSignal<"anything" | "person">("anything");
+	const [type, setType] = createSignal<"anything" | "person" | "file">(
+		"anything",
+	);
 	const [personFirstName, setPersonFirstName] = createSignal<string>("");
 	const [personLastName, setPersonLastName] = createSignal<string>("");
 	const [personDateOfBirth, setPersonDateOfBirth] = createSignal<string>("");
+	const [fileFilename, setFileFilename] = createSignal<string>("");
+	const [fileExtension, setFileExtension] = createSignal<string>("");
+	const [fileFilesize, setFileFilesize] = createSignal<string>("");
+	const [fileMimeType, setFileMimeType] = createSignal<string>("");
+	const [fileChecksum, setFileChecksum] = createSignal<string>("");
+	const [fileInlineUrl, setFileInlineUrl] = createSignal<string>("");
 	const [formerProperties, setFormerProperties] = createSignal<
 		Record<string, unknown>
 	>({});
@@ -26,8 +35,31 @@ export function createNookStore(nookId: () => string) {
 	const [mentionEmbedImage, setMentionEmbedImage] = createSignal<boolean>(false);
 	const [outgoingMentions, setOutgoingMentions] = createSignal<Mention[]>([]);
 	const [incomingMentions, setIncomingMentions] = createSignal<Mention[]>([]);
+	const [fileUploadInProgress, setFileUploadInProgress] =
+		createSignal<boolean>(false);
 
 	const isEditing = () => mode() === "edit";
+
+	const personDerivedTitle = () => {
+		const first = personFirstName().trim();
+		const last = personLastName().trim();
+		return `${first} ${last}`.trim();
+	};
+
+	const derivedTitleFromNote = (note: Note) => {
+		const first = String(note.properties?.first_name ?? "").trim();
+		const last = String(note.properties?.last_name ?? "").trim();
+		return `${first} ${last}`.trim();
+	};
+
+	const setTitleFromUser = (next: string) => {
+		setTitle(next);
+		if (type() === "person" && next.trim() === "") {
+			setTitleIsManual(false);
+			return;
+		}
+		setTitleIsManual(true);
+	};
 
 	const loadMentions = async () => {
 		if (nookId() === "") return;
@@ -94,11 +126,17 @@ export function createNookStore(nookId: () => string) {
 	const newNote = () => {
 		setSelectedId("");
 		setTitle("");
+		setTitleIsManual(false);
 		setContent("");
 		setType("anything");
 		setPersonFirstName("");
 		setPersonLastName("");
 		setPersonDateOfBirth("");
+		setFileFilename("");
+		setFileExtension("");
+		setFileFilesize("");
+		setFileMimeType("");
+		setFileChecksum("");
 		setFormerProperties({});
 		setError("");
 		setMentionTargetId("");
@@ -110,10 +148,28 @@ export function createNookStore(nookId: () => string) {
 		setSelectedId(note.id);
 		setTitle(note.title);
 		setContent(note.content);
-		setType(note.type === "person" ? "person" : "anything");
+		setType(
+			note.type === "person"
+				? "person"
+				: note.type === "file"
+					? "file"
+					: "anything",
+		);
 		setPersonFirstName(String(note.properties?.first_name ?? ""));
 		setPersonLastName(String(note.properties?.last_name ?? ""));
 		setPersonDateOfBirth(String(note.properties?.date_of_birth ?? ""));
+		setFileFilename(String(note.properties?.filename ?? ""));
+		setFileExtension(String(note.properties?.extension ?? ""));
+		setFileFilesize(String(note.properties?.filesize ?? ""));
+		setFileMimeType(String(note.properties?.mime_type ?? ""));
+		setFileChecksum(String(note.properties?.checksum ?? ""));
+		setFileInlineUrl("");
+		if (note.type === "person") {
+			const derived = derivedTitleFromNote(note);
+			setTitleIsManual(derived === "" ? true : note.title.trim() !== derived);
+		} else {
+			setTitleIsManual(true);
+		}
 		setFormerProperties(
 			(note as unknown as { formerProperties?: Record<string, unknown> })
 				.formerProperties ?? {},
@@ -122,6 +178,40 @@ export function createNookStore(nookId: () => string) {
 		setMentionTargetId("");
 		setMentionEmbedImage(false);
 		void loadMentions();
+	};
+
+	const loadFileInlineUrl = async () => {
+		const id = selectedId();
+		if (id === "") {
+			setFileInlineUrl("");
+			return;
+		}
+		if (type() !== "file") {
+			setFileInlineUrl("");
+			return;
+		}
+		if (fileFilename() === "") {
+			setFileInlineUrl("");
+			return;
+		}
+
+		try {
+			const res = await apiFetch(
+				`/api/nooks/${nookId()}/notes/${id}/file/download-url?inline=1`,
+				{ method: "GET" },
+			);
+			if (!res.ok) {
+				throw new Error(
+					`Failed to get inline URL: ${res.status} ${res.statusText}`,
+				);
+			}
+			const json = (await res.json()) as unknown as {
+				download_url?: string;
+			};
+			setFileInlineUrl(String(json?.download_url ?? ""));
+		} catch {
+			setFileInlineUrl("");
+		}
 	};
 
 	createEffect(() => {
@@ -142,6 +232,16 @@ export function createNookStore(nookId: () => string) {
 		if (typeof p.date_of_birth === "string") {
 			setPersonDateOfBirth(p.date_of_birth);
 		}
+	});
+
+	createEffect(() => {
+		if (!isEditing()) return;
+		if (type() !== "person") return;
+		if (titleIsManual()) return;
+
+		const derived = personDerivedTitle();
+		if (derived === "") return;
+		setTitle(derived);
 	});
 
 	const onNoteLinkClick = async (noteId: string) => {
@@ -177,13 +277,15 @@ export function createNookStore(nookId: () => string) {
 
 	const saveNote = async () => {
 		if (!isEditing()) return;
+		const noteType = type();
 		const t = title().trim();
-		if (t === "") {
+		const titleForSave =
+			noteType === "person" && t === "" ? personDerivedTitle() : t;
+		if (titleForSave === "") {
 			setError("Title is required");
 			return;
 		}
 
-		const noteType = type();
 		const properties =
 			noteType === "person"
 				? {
@@ -204,7 +306,7 @@ export function createNookStore(nookId: () => string) {
 						"Content-Type": "application/json",
 					},
 					body: JSON.stringify({
-						title: t,
+						title: titleForSave,
 						content: content(),
 						type: noteType,
 						properties,
@@ -228,7 +330,7 @@ export function createNookStore(nookId: () => string) {
 						"Content-Type": "application/json",
 					},
 					body: JSON.stringify({
-						title: t,
+						title: titleForSave,
 						content: content(),
 						type: noteType,
 						properties,
@@ -296,6 +398,169 @@ export function createNookStore(nookId: () => string) {
 		void loadNotes();
 	});
 
+	createEffect(() => {
+		void selectedId();
+		void type();
+		void fileFilename();
+		void loadFileInlineUrl();
+	});
+
+	const doUploadFile = async (file: File, opts: { forceNew: boolean }) => {
+		const filename = file.name;
+		const ext = filename.includes(".") ? (filename.split(".").pop() ?? "") : "";
+		const mime = file.type;
+
+		let id = selectedId();
+		if (opts.forceNew) {
+			id = "";
+		}
+
+		if (id === "") {
+			const createRes = await apiFetch(`/api/nooks/${nookId()}/notes`, {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify({
+					title: filename,
+					content: "",
+					type: "file",
+					properties: {},
+				}),
+			});
+			if (!createRes.ok) {
+				throw new Error(
+					`Failed to create file note: ${createRes.status} ${createRes.statusText}`,
+				);
+			}
+			const createJson = await createRes.json();
+			const createBody = NoteResponseSchema.parse(createJson);
+			setNotes([createBody.note, ...notes()]);
+			selectNote(createBody.note);
+			id = createBody.note.id;
+		}
+
+		const res = await apiFetch(
+			`/api/nooks/${nookId()}/notes/${id}/file/upload-url`,
+			{
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					filename,
+					extension: ext,
+					filesize: file.size,
+					mime_type: mime,
+					checksum: "",
+				}),
+			},
+		);
+		if (!res.ok) {
+			throw new Error(
+				`Failed to get upload URL: ${res.status} ${res.statusText}`,
+			);
+		}
+		const json = (await res.json()) as unknown as {
+			upload_url?: string;
+		};
+		const uploadUrl = String(json?.upload_url ?? "");
+		if (uploadUrl === "") {
+			throw new Error("Upload URL missing from response");
+		}
+
+		const putRes = await fetch(uploadUrl, {
+			method: "PUT",
+			body: file,
+		});
+		if (!putRes.ok) {
+			throw new Error(`Upload failed: ${putRes.status} ${putRes.statusText}`);
+		}
+
+		setFileFilename(filename);
+		setFileExtension(ext);
+		setFileFilesize(String(file.size));
+		setFileMimeType(mime);
+		setFileChecksum("");
+		setTitleFromUser(filename);
+		setContent("");
+		await loadNotes();
+		await loadFileInlineUrl();
+	};
+
+	const uploadFile = async (file: File) => {
+		if (!isEditing()) return;
+		if (type() !== "file") {
+			setError("Note type must be file");
+			return;
+		}
+
+		setFileUploadInProgress(true);
+		setLoading(true);
+		setError("");
+		try {
+			await doUploadFile(file, { forceNew: false });
+		} catch (e) {
+			setError(String(e));
+		} finally {
+			setLoading(false);
+			setFileUploadInProgress(false);
+		}
+	};
+
+	const quickUploadFile = async (file: File) => {
+		const previousMode = mode();
+
+		setMode("edit");
+		setType("file");
+		setSelectedId("");
+		setFileFilename("");
+
+		setFileUploadInProgress(true);
+		setLoading(true);
+		setError("");
+		try {
+			await doUploadFile(file, { forceNew: true });
+			setMode(previousMode);
+		} catch (e) {
+			setError(String(e));
+			setMode(previousMode);
+		} finally {
+			setLoading(false);
+			setFileUploadInProgress(false);
+		}
+	};
+
+	const downloadFile = async () => {
+		const id = selectedId();
+		if (id === "") return;
+		if (type() !== "file") return;
+
+		setLoading(true);
+		setError("");
+		try {
+			const res = await apiFetch(
+				`/api/nooks/${nookId()}/notes/${id}/file/download-url`,
+				{ method: "GET" },
+			);
+			if (!res.ok) {
+				throw new Error(
+					`Failed to get download URL: ${res.status} ${res.statusText}`,
+				);
+			}
+			const json = (await res.json()) as unknown as {
+				download_url?: string;
+			};
+			const downloadUrl = String(json?.download_url ?? "");
+			if (downloadUrl === "") {
+				throw new Error("Download URL missing from response");
+			}
+			window.open(downloadUrl, "_blank");
+		} catch (e) {
+			setError(String(e));
+		} finally {
+			setLoading(false);
+		}
+	};
+
 	return {
 		notes,
 		selectedId,
@@ -305,6 +570,12 @@ export function createNookStore(nookId: () => string) {
 		personFirstName,
 		personLastName,
 		personDateOfBirth,
+		fileFilename,
+		fileExtension,
+		fileFilesize,
+		fileMimeType,
+		fileChecksum,
+		fileInlineUrl,
 		formerProperties,
 		mode,
 		loading,
@@ -313,13 +584,19 @@ export function createNookStore(nookId: () => string) {
 		mentionEmbedImage,
 		outgoingMentions,
 		incomingMentions,
+		fileUploadInProgress,
 		isEditing,
-		setTitle,
+		setTitle: setTitleFromUser,
 		setContent,
 		setType,
 		setPersonFirstName,
 		setPersonLastName,
 		setPersonDateOfBirth,
+		setFileFilename,
+		setFileExtension,
+		setFileFilesize,
+		setFileMimeType,
+		setFileChecksum,
 		setFormerProperties,
 		setMode,
 		setMentionTargetId,
@@ -332,5 +609,8 @@ export function createNookStore(nookId: () => string) {
 		insertMention,
 		saveNote,
 		deleteNote,
+		uploadFile,
+		quickUploadFile,
+		downloadFile,
 	};
 }

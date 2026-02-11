@@ -5,7 +5,7 @@ const NoteApiSchema = z
 		id: z.string(),
 		title: z.string(),
 		content: z.string(),
-		type: z.string().optional(),
+		type: z.enum(["anything", "person", "file"]).optional(),
 		properties: z.record(z.string(), z.unknown()).optional(),
 		former_properties: z.record(z.string(), z.unknown()).optional(),
 		created_at: z.string().optional(),

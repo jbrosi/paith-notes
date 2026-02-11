@@ -22,7 +22,16 @@ final class App
 
     public static function handle(string $method, string $path, array $headers = [], string $body = ''): array
     {
-        $request = new Request($method, $path, $headers, [], $body);
+        $parsedPath = parse_url($path, PHP_URL_PATH);
+        $requestPath = is_string($parsedPath) && $parsedPath !== '' ? $parsedPath : $path;
+
+        $query = [];
+        $qs = parse_url($path, PHP_URL_QUERY);
+        if (is_string($qs) && $qs !== '') {
+            parse_str($qs, $query);
+        }
+
+        $request = new Request($method, $requestPath, $headers, $query, $body);
         $response = self::kernel()->handle($request, self::context());
 
         return [

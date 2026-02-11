@@ -4,11 +4,13 @@ declare(strict_types=1);
 
 namespace Paith\Notes\Api\Http\Controller;
 
+use Aws\S3\S3Client;
 use Paith\Notes\Api\Http\Context;
 use Paith\Notes\Api\Http\HttpError;
 use Paith\Notes\Api\Http\JsonResponse;
 use Paith\Notes\Api\Http\Request;
 use Paith\Notes\Api\Http\Response;
+use Paith\Notes\Shared\Env;
 use PDO;
 use Throwable;
 
@@ -16,6 +18,7 @@ final class NotesController
 {
     private const NOTE_TYPE_ANYTHING = 'anything';
     private const NOTE_TYPE_PERSON = 'person';
+    private const NOTE_TYPE_FILE = 'file';
 
     public function list(Request $request, Context $context): Response
     {
@@ -83,15 +86,18 @@ final class NotesController
 
         $titleRaw = $data['title'] ?? '';
         $title = is_string($titleRaw) ? trim($titleRaw) : '';
-        if ($title === '') {
-            throw new HttpError('title is required', 400);
-        }
-
         $contentRaw = $data['content'] ?? '';
         $content = is_string($contentRaw) ? $contentRaw : '';
 
         $type = self::normalizeNoteType($data['type'] ?? null, self::NOTE_TYPE_ANYTHING);
         $properties = self::normalizeProperties($data['properties'] ?? null);
+
+        if ($title === '' && $type === self::NOTE_TYPE_PERSON) {
+            $title = self::derivePersonTitle($properties);
+        }
+        if ($title === '') {
+            throw new HttpError('title is required', 400);
+        }
 
         try {
             $pdo->beginTransaction();
@@ -176,9 +182,6 @@ final class NotesController
 
         $titleRaw = $data['title'] ?? '';
         $title = is_string($titleRaw) ? trim($titleRaw) : '';
-        if ($title === '') {
-            throw new HttpError('title is required', 400);
-        }
 
         $contentRaw = $data['content'] ?? '';
         $content = is_string($contentRaw) ? $contentRaw : '';
@@ -217,6 +220,12 @@ final class NotesController
         $type = self::normalizeNoteType($typeRaw, $existingType);
         $properties = $propertiesRaw === null ? $existingProperties : self::normalizeProperties($propertiesRaw);
 
+        if ($existingType !== $type) {
+            if ($existingType === self::NOTE_TYPE_FILE || $type === self::NOTE_TYPE_FILE) {
+                throw new HttpError('file note type cannot be changed', 400);
+            }
+        }
+
         $formerProperties = $existingFormerProperties;
 
         if ($existingType === self::NOTE_TYPE_PERSON && $type !== self::NOTE_TYPE_PERSON) {
@@ -231,6 +240,13 @@ final class NotesController
             if ($properties === [] && isset($formerProperties['person']) && is_array($formerProperties['person'])) {
                 $properties = self::normalizeProperties($formerProperties['person']);
             }
+        }
+
+        if ($title === '' && $type === self::NOTE_TYPE_PERSON) {
+            $title = self::derivePersonTitle($properties);
+        }
+        if ($title === '') {
+            throw new HttpError('title is required', 400);
         }
 
         try {
@@ -421,6 +437,221 @@ final class NotesController
         ]);
     }
 
+    public function fileUploadUrl(Request $request, Context $context): Response
+    {
+        $pdo = $context->pdo();
+        $user = $context->user();
+
+        $nookId = trim($request->routeParam('nookId'));
+        if ($nookId === '') {
+            throw new HttpError('nookId is required', 400);
+        }
+        if (!self::isUuid($nookId)) {
+            throw new HttpError('nookId must be a UUID', 400);
+        }
+
+        $noteId = trim($request->routeParam('noteId'));
+        if ($noteId === '') {
+            throw new HttpError('noteId is required', 400);
+        }
+        if (!self::isUuid($noteId)) {
+            throw new HttpError('noteId must be a UUID', 400);
+        }
+
+        $membership = $this->requireMember($pdo, $user, $nookId);
+
+        $userId = is_scalar($user['id'] ?? null) ? (string)$user['id'] : '';
+        if ($userId === '') {
+            throw new HttpError('invalid user', 500);
+        }
+
+        $allowed = false;
+        $role = is_scalar($membership['role'] ?? null) ? (string)$membership['role'] : '';
+        if ($role === 'owner') {
+            $allowed = true;
+        } else {
+            $c = $pdo->prepare('select created_by from global.notes where id = :id and nook_id = :nook_id');
+            $c->execute([':id' => $noteId, ':nook_id' => $nookId]);
+            $createdBy = $c->fetchColumn();
+            if (is_scalar($createdBy) && (string)$createdBy === $userId) {
+                $allowed = true;
+            }
+        }
+
+        if (!$allowed) {
+            throw new HttpError('forbidden', 403);
+        }
+
+        $typeStmt = $pdo->prepare('select type from global.notes where id = :id and nook_id = :nook_id');
+        $typeStmt->execute([':id' => $noteId, ':nook_id' => $nookId]);
+        $existingTypeRaw = $typeStmt->fetchColumn();
+        $existingType = is_scalar($existingTypeRaw) ? (string)$existingTypeRaw : '';
+        if ($existingType === '') {
+            throw new HttpError('note not found', 404);
+        }
+        if ($existingType !== self::NOTE_TYPE_FILE) {
+            throw new HttpError('note type must be file', 400);
+        }
+
+        $data = $request->jsonBody();
+
+        $filenameRaw = $data['filename'] ?? '';
+        $filename = is_string($filenameRaw) ? trim($filenameRaw) : '';
+        if ($filename === '') {
+            throw new HttpError('filename is required', 400);
+        }
+
+        $extensionRaw = $data['extension'] ?? '';
+        $extension = is_string($extensionRaw) ? trim($extensionRaw) : '';
+
+        $filesizeRaw = $data['filesize'] ?? 0;
+        $filesize = is_numeric($filesizeRaw) ? (int)$filesizeRaw : 0;
+        if ($filesize < 0) {
+            $filesize = 0;
+        }
+
+        $mimeTypeRaw = $data['mime_type'] ?? '';
+        $mimeType = is_string($mimeTypeRaw) ? trim($mimeTypeRaw) : '';
+
+        $checksumRaw = $data['checksum'] ?? '';
+        $checksum = is_string($checksumRaw) ? trim($checksumRaw) : '';
+
+        $objectKey = sprintf('notes/%s/files/%s', $nookId, $noteId);
+
+        $s3 = self::s3PresignClientForRequest($request);
+        $bucket = self::filesBucketFromEnv();
+
+        $params = [
+            'Bucket' => $bucket,
+            'Key' => $objectKey,
+        ];
+
+        $cmd = $s3->getCommand('PutObject', $params);
+        $presigned = $s3->createPresignedRequest($cmd, '+15 minutes');
+
+        $url = (string)$presigned->getUri();
+
+        try {
+            $pdo->beginTransaction();
+
+            $upsert = $pdo->prepare(
+                "insert into global.note_files (note_id, object_key, filename, extension, filesize, mime_type, checksum, updated_at)\n"
+                . "values (:note_id, :object_key, :filename, :extension, :filesize, :mime_type, :checksum, now())\n"
+                . "on conflict (note_id) do update set\n"
+                . "    object_key = excluded.object_key,\n"
+                . "    filename = excluded.filename,\n"
+                . "    extension = excluded.extension,\n"
+                . "    filesize = excluded.filesize,\n"
+                . "    mime_type = excluded.mime_type,\n"
+                . "    checksum = excluded.checksum,\n"
+                . "    updated_at = now()"
+            );
+            $upsert->execute([
+                ':note_id' => $noteId,
+                ':object_key' => $objectKey,
+                ':filename' => $filename,
+                ':extension' => $extension,
+                ':filesize' => $filesize,
+                ':mime_type' => $mimeType,
+                ':checksum' => $checksum,
+            ]);
+
+            $properties = [
+                'filename' => $filename,
+                'extension' => $extension,
+                'filesize' => $filesize,
+                'mime_type' => $mimeType,
+                'checksum' => $checksum,
+            ];
+
+            $updateProps = $pdo->prepare('update global.notes set properties = :properties where id = :id and nook_id = :nook_id');
+            $updateProps->execute([
+                ':id' => $noteId,
+                ':nook_id' => $nookId,
+                ':properties' => self::encodeJsonObject($properties),
+            ]);
+
+            $pdo->commit();
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            throw $e;
+        }
+
+        return JsonResponse::ok([
+            'upload_url' => $url,
+            'object_key' => $objectKey,
+            'expires_in' => 900,
+        ]);
+    }
+
+    public function fileDownloadUrl(Request $request, Context $context): Response
+    {
+        $pdo = $context->pdo();
+        $user = $context->user();
+
+        $nookId = trim($request->routeParam('nookId'));
+        if ($nookId === '') {
+            throw new HttpError('nookId is required', 400);
+        }
+        if (!self::isUuid($nookId)) {
+            throw new HttpError('nookId must be a UUID', 400);
+        }
+
+        $noteId = trim($request->routeParam('noteId'));
+        if ($noteId === '') {
+            throw new HttpError('noteId is required', 400);
+        }
+        if (!self::isUuid($noteId)) {
+            throw new HttpError('noteId must be a UUID', 400);
+        }
+
+        $this->requireMember($pdo, $user, $nookId);
+
+        $stmt = $pdo->prepare(
+            'select nf.object_key, nf.filename, nf.mime_type from global.note_files nf join global.notes n on n.id = nf.note_id where nf.note_id = :note_id and n.nook_id = :nook_id'
+        );
+        $stmt->execute([':note_id' => $noteId, ':nook_id' => $nookId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!is_array($row)) {
+            throw new HttpError('file not found', 404);
+        }
+
+        $objectKey = is_scalar($row['object_key'] ?? null) ? (string)$row['object_key'] : '';
+        if ($objectKey === '') {
+            throw new HttpError('file not found', 404);
+        }
+        $filename = is_scalar($row['filename'] ?? null) ? (string)$row['filename'] : 'download';
+        $mimeType = is_scalar($row['mime_type'] ?? null) ? (string)$row['mime_type'] : '';
+
+        $inline = trim($request->queryParam('inline')) !== '';
+
+        $s3 = self::s3PresignClientForRequest($request);
+        $bucket = self::filesBucketFromEnv();
+
+        $params = [
+            'Bucket' => $bucket,
+            'Key' => $objectKey,
+            'ResponseContentDisposition' => sprintf(
+                '%s; filename="%s"',
+                $inline ? 'inline' : 'attachment',
+                addslashes($filename)
+            ),
+        ];
+        if ($mimeType !== '') {
+            $params['ResponseContentType'] = $mimeType;
+        }
+
+        $cmd = $s3->getCommand('GetObject', $params);
+        $presigned = $s3->createPresignedRequest($cmd, '+15 minutes');
+
+        return JsonResponse::ok([
+            'download_url' => (string)$presigned->getUri(),
+            'expires_in' => 900,
+        ]);
+    }
+
     private function requireMember(PDO $pdo, array $user, string $nookId): array
     {
         $check = $pdo->prepare('select role from global.nook_members where nook_id = :nook_id and user_id = :user_id limit 1');
@@ -520,10 +751,91 @@ final class NotesController
         if ($t === '') {
             return $default;
         }
-        if ($t === self::NOTE_TYPE_ANYTHING || $t === self::NOTE_TYPE_PERSON) {
+        if ($t === self::NOTE_TYPE_ANYTHING || $t === self::NOTE_TYPE_PERSON || $t === self::NOTE_TYPE_FILE) {
             return $t;
         }
         return $default;
+    }
+
+    private static function s3PresignClientFromEnv(): S3Client
+    {
+        $endpoint = Env::get('S3_PUBLIC_ENDPOINT');
+        if ($endpoint === '') {
+            $endpoint = Env::get('S3_ENDPOINT');
+        }
+
+        $accessKey = Env::get('S3_ACCESS_KEY');
+        $secretKey = Env::get('S3_SECRET_KEY');
+
+        if ($endpoint === '' || $accessKey === '' || $secretKey === '') {
+            throw new HttpError('S3 is not configured', 500);
+        }
+
+        $endpoint = preg_replace('#/+$#', '', $endpoint) ?? $endpoint;
+
+        return new S3Client([
+            'version' => 'latest',
+            'region' => 'us-east-1',
+            'endpoint' => $endpoint,
+            'use_path_style_endpoint' => true,
+            'credentials' => [
+                'key' => $accessKey,
+                'secret' => $secretKey,
+            ],
+        ]);
+    }
+
+    private static function s3PresignClientForRequest(Request $request): S3Client
+    {
+        $public = '';
+
+        $host = trim($request->header('Host'));
+        if ($host !== '') {
+            $proto = trim($request->header('X-Forwarded-Proto'));
+            if ($proto === '') {
+                $proto = 'http';
+            }
+            $public = $proto . '://' . $host;
+        }
+
+        if ($public === '') {
+            $public = Env::get('S3_PUBLIC_ENDPOINT');
+        }
+
+        if ($public === '') {
+            return self::s3PresignClientFromEnv();
+        }
+
+        $accessKey = Env::get('S3_ACCESS_KEY');
+        $secretKey = Env::get('S3_SECRET_KEY');
+        if ($accessKey === '' || $secretKey === '') {
+            throw new HttpError('S3 is not configured', 500);
+        }
+
+        $public = preg_replace('#/+$#', '', $public) ?? $public;
+
+        return new S3Client([
+            'version' => 'latest',
+            'region' => 'us-east-1',
+            'endpoint' => $public,
+            'use_path_style_endpoint' => true,
+            'credentials' => [
+                'key' => $accessKey,
+                'secret' => $secretKey,
+            ],
+        ]);
+    }
+
+    private static function filesBucketFromEnv(): string
+    {
+        $bucket = Env::get('S3_FILES_BUCKET');
+        if ($bucket === '') {
+            $bucket = Env::get('S3_BUCKET');
+        }
+        if ($bucket === '') {
+            throw new HttpError('S3 is not configured', 500);
+        }
+        return $bucket;
     }
 
     /** @return array<string, mixed> */
@@ -559,25 +871,38 @@ final class NotesController
         return (string)json_encode($value, JSON_UNESCAPED_SLASHES);
     }
 
+    /** @param array<string, mixed> $properties */
+    private static function derivePersonTitle(array $properties): string
+    {
+        $first = $properties['first_name'] ?? null;
+        $last = $properties['last_name'] ?? null;
+
+        $firstName = is_string($first) ? trim($first) : '';
+        $lastName = is_string($last) ? trim($last) : '';
+
+        return trim($firstName . ' ' . $lastName);
+    }
+
     /** @param array<string, mixed> $properties @return array<string, string> */
     private static function extractPersonFields(array $properties): array
     {
-        /** @var array<string, string> $out */
-        $out = [];
-        $first = $properties['first_name'] ?? null;
-        $last = $properties['last_name'] ?? null;
+        $person = [];
+
+        $firstName = $properties['first_name'] ?? null;
+        if (is_string($firstName) && trim($firstName) !== '') {
+            $person['first_name'] = trim($firstName);
+        }
+
+        $lastName = $properties['last_name'] ?? null;
+        if (is_string($lastName) && trim($lastName) !== '') {
+            $person['last_name'] = trim($lastName);
+        }
+
         $dob = $properties['date_of_birth'] ?? null;
-
-        if (is_string($first) && trim($first) !== '') {
-            $out['first_name'] = trim($first);
-        }
-        if (is_string($last) && trim($last) !== '') {
-            $out['last_name'] = trim($last);
-        }
         if (is_string($dob) && trim($dob) !== '') {
-            $out['date_of_birth'] = trim($dob);
+            $person['date_of_birth'] = trim($dob);
         }
 
-        return $out;
+        return $person;
     }
 }
