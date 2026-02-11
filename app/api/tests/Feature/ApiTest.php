@@ -123,29 +123,75 @@ it('can create a note in a nook', function (): void {
     $noteId = (string)($createNoteData['note']['id'] ?? '');
     expect($noteId)->not->toBe('');
 
+	// Create a second note so we can reference it from the first note.
+	$createNote2 = App::handle(
+		'POST',
+		'/api/nooks/' . $nookId . '/notes',
+		$headers,
+		json_encode(['title' => 'Target', 'content' => ''], JSON_UNESCAPED_SLASHES)
+	);
+	expect($createNote2['status'])->toBe(200);
+	$createNote2Data = json_decode($createNote2['body'], true);
+	expect($createNote2Data)->toBeArray();
+	$targetNoteId = (string)($createNote2Data['note']['id'] ?? '');
+	expect($targetNoteId)->not->toBe('');
+
+	// Update the first note to mention the second note.
+	$mentionMd = 'see [Custom Title](note:' . $targetNoteId . ') for details';
+	$updateWithMention = App::handle(
+		'PUT',
+		'/api/nooks/' . $nookId . '/notes/' . $noteId,
+		$headers,
+		json_encode(['title' => 'Hello 2', 'content' => $mentionMd], JSON_UNESCAPED_SLASHES)
+	);
+	expect($updateWithMention['status'])->toBe(200);
+
+	$pdoMentions = test_pdo();
+	$mentions = $pdoMentions->prepare('select source_note_id, target_note_id, position, link_title from global.note_mentions where source_note_id = :source order by position asc');
+	$mentions->execute([':source' => $noteId]);
+	$rows = $mentions->fetchAll(PDO::FETCH_ASSOC);
+	expect($rows)->toBeArray();
+	expect(count($rows))->toBe(1);
+	expect((string)($rows[0]['source_note_id'] ?? ''))->toBe($noteId);
+	expect((string)($rows[0]['target_note_id'] ?? ''))->toBe($targetNoteId);
+	expect((int)($rows[0]['position'] ?? -1))->toBeGreaterThanOrEqual(0);
+	expect((string)($rows[0]['link_title'] ?? ''))->toBe('Custom Title');
+
     $listNotes = App::handle('GET', '/api/nooks/' . $nookId . '/notes', $headers, '');
     expect($listNotes['status'])->toBe(200);
 
     $listNotesData = json_decode($listNotes['body'], true);
     expect($listNotesData)->toBeArray();
     expect($listNotesData['notes'])->toBeArray();
-    expect(count($listNotesData['notes']))->toBe(1);
-    expect($listNotesData['notes'][0]['id'])->toBe($noteId);
-    expect($listNotesData['notes'][0]['title'])->toBe('Hello');
+	// We created 2 notes: the original + the target note.
+    expect(count($listNotesData['notes']))->toBe(2);
 
-    $updateNote = App::handle(
-        'PUT',
-        '/api/nooks/' . $nookId . '/notes/' . $noteId,
-        $headers,
-        json_encode(['title' => 'Hello 2', 'content' => 'World 2'], JSON_UNESCAPED_SLASHES)
-    );
-    expect($updateNote['status'])->toBe(200);
+	$ids = array_map(static fn (array $n): string => (string)($n['id'] ?? ''), $listNotesData['notes']);
+	expect(in_array($noteId, $ids, true))->toBe(true);
+	expect(in_array($targetNoteId, $ids, true))->toBe(true);
 
-    $updateNoteData = json_decode($updateNote['body'], true);
-    expect($updateNoteData)->toBeArray();
-    expect($updateNoteData['note']['id'])->toBe($noteId);
-    expect($updateNoteData['note']['title'])->toBe('Hello 2');
-    expect($updateNoteData['note']['content'])->toBe('World 2');
+	$titles = array_map(static fn (array $n): string => (string)($n['title'] ?? ''), $listNotesData['notes']);
+	expect(in_array('Hello', $titles, true))->toBe(true);
+	expect(in_array('Target', $titles, true))->toBe(true);
+
+	// Remove the mention and ensure mention table is synced (deleted).
+	$updateNote = App::handle(
+		'PUT',
+		'/api/nooks/' . $nookId . '/notes/' . $noteId,
+		$headers,
+		json_encode(['title' => 'Hello 2', 'content' => 'World 2'], JSON_UNESCAPED_SLASHES)
+	);
+	expect($updateNote['status'])->toBe(200);
+
+	$updateNoteData = json_decode($updateNote['body'], true);
+	expect($updateNoteData)->toBeArray();
+	expect($updateNoteData['note']['id'])->toBe($noteId);
+	expect($updateNoteData['note']['title'])->toBe('Hello 2');
+	expect($updateNoteData['note']['content'])->toBe('World 2');
+
+	$mentions2 = $pdoMentions->prepare('select count(*) from global.note_mentions where source_note_id = :source');
+	$mentions2->execute([':source' => $noteId]);
+	expect((int)$mentions2->fetchColumn())->toBe(0);
 
     $pdo = test_pdo();
     $stmt = $pdo->prepare('select title, content from global.notes where id = :id and nook_id = :nook_id');

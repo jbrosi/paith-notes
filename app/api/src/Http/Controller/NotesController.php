@@ -82,6 +82,8 @@ final class NotesController
         $content = is_string($contentRaw) ? $contentRaw : '';
 
         try {
+            $pdo->beginTransaction();
+
             $stmt = $pdo->prepare(
                 "insert into global.notes (nook_id, created_by, title, content) values (:nook_id, :created_by, :title, :content) returning id, created_at"
             );
@@ -100,6 +102,13 @@ final class NotesController
             $id = $row['id'] ?? '';
             $createdAt = $row['created_at'] ?? '';
 
+            $noteId = is_scalar($id) ? (string)$id : '';
+            if ($noteId !== '') {
+                $this->syncMentions($pdo, $nookId, $noteId, $content);
+            }
+
+            $pdo->commit();
+
             return JsonResponse::ok([
                 'note' => [
                     'id' => is_scalar($id) ? (string)$id : '',
@@ -110,6 +119,9 @@ final class NotesController
                 ],
             ]);
         } catch (Throwable $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
             throw $e;
         }
     }
@@ -170,32 +182,45 @@ final class NotesController
             throw new HttpError('forbidden', 403);
         }
 
-        $stmt = $pdo->prepare(
-            'update global.notes set title = :title, content = :content where id = :id and nook_id = :nook_id returning id, created_at'
-        );
-        $stmt->execute([
-            ':id' => $noteId,
-            ':nook_id' => $nookId,
-            ':title' => $title,
-            ':content' => $content,
-        ]);
-        $row = $stmt->fetch(PDO::FETCH_ASSOC);
-        if (!is_array($row)) {
-            throw new HttpError('note not found', 404);
+        try {
+            $pdo->beginTransaction();
+
+            $stmt = $pdo->prepare(
+                'update global.notes set title = :title, content = :content where id = :id and nook_id = :nook_id returning id, created_at'
+            );
+            $stmt->execute([
+                ':id' => $noteId,
+                ':nook_id' => $nookId,
+                ':title' => $title,
+                ':content' => $content,
+            ]);
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!is_array($row)) {
+                throw new HttpError('note not found', 404);
+            }
+
+            $this->syncMentions($pdo, $nookId, $noteId, $content);
+
+            $pdo->commit();
+
+            $id = $row['id'] ?? '';
+            $createdAt = $row['created_at'] ?? '';
+
+            return JsonResponse::ok([
+                'note' => [
+                    'id' => is_scalar($id) ? (string)$id : '',
+                    'nook_id' => $nookId,
+                    'title' => $title,
+                    'content' => $content,
+                    'created_at' => is_scalar($createdAt) ? (string)$createdAt : '',
+                ],
+            ]);
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            throw $e;
         }
-
-        $id = $row['id'] ?? '';
-        $createdAt = $row['created_at'] ?? '';
-
-        return JsonResponse::ok([
-            'note' => [
-                'id' => is_scalar($id) ? (string)$id : '',
-                'nook_id' => $nookId,
-                'title' => $title,
-                'content' => $content,
-                'created_at' => is_scalar($createdAt) ? (string)$createdAt : '',
-            ],
-        ]);
     }
 
     public function delete(Request $request, Context $context): Response
@@ -259,6 +284,86 @@ final class NotesController
         ]);
     }
 
+    public function mentions(Request $request, Context $context): Response
+    {
+        $pdo = $context->pdo();
+        $user = $context->user();
+
+        $nookId = trim($request->routeParam('nookId'));
+        if ($nookId === '') {
+            throw new HttpError('nookId is required', 400);
+        }
+        if (!self::isUuid($nookId)) {
+            throw new HttpError('nookId must be a UUID', 400);
+        }
+
+        $noteId = trim($request->routeParam('noteId'));
+        if ($noteId === '') {
+            throw new HttpError('noteId is required', 400);
+        }
+        if (!self::isUuid($noteId)) {
+            throw new HttpError('noteId must be a UUID', 400);
+        }
+
+        $this->requireMember($pdo, $user, $nookId);
+
+        $outgoingStmt = $pdo->prepare(
+            'select m.target_note_id as note_id, n.title as note_title, m.link_title, m.position '
+            . 'from global.note_mentions m '
+            . 'join global.notes n on n.id = m.target_note_id '
+            . 'where m.source_note_id = :source_note_id and n.nook_id = :nook_id '
+            . 'order by m.position asc'
+        );
+        $outgoingStmt->execute([
+            ':source_note_id' => $noteId,
+            ':nook_id' => $nookId,
+        ]);
+        $outgoingRows = $outgoingStmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $incomingStmt = $pdo->prepare(
+            'select m.source_note_id as note_id, n.title as note_title, m.link_title, m.position '
+            . 'from global.note_mentions m '
+            . 'join global.notes n on n.id = m.source_note_id '
+            . 'where m.target_note_id = :target_note_id and n.nook_id = :nook_id '
+            . 'order by m.position asc'
+        );
+        $incomingStmt->execute([
+            ':target_note_id' => $noteId,
+            ':nook_id' => $nookId,
+        ]);
+        $incomingRows = $incomingStmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $normalize = static function (array $r): array {
+            return [
+                'note_id' => is_scalar($r['note_id'] ?? null) ? (string)$r['note_id'] : '',
+                'note_title' => is_scalar($r['note_title'] ?? null) ? (string)$r['note_title'] : '',
+                'link_title' => is_scalar($r['link_title'] ?? null) ? (string)$r['link_title'] : '',
+                'position' => is_scalar($r['position'] ?? null) ? (int)$r['position'] : 0,
+            ];
+        };
+
+        $outgoing = [];
+        foreach ($outgoingRows as $r) {
+            if (!is_array($r)) {
+                continue;
+            }
+            $outgoing[] = $normalize($r);
+        }
+
+        $incoming = [];
+        foreach ($incomingRows as $r) {
+            if (!is_array($r)) {
+                continue;
+            }
+            $incoming[] = $normalize($r);
+        }
+
+        return JsonResponse::ok([
+            'outgoing' => $outgoing,
+            'incoming' => $incoming,
+        ]);
+    }
+
     private function requireMember(PDO $pdo, array $user, string $nookId): array
     {
         $check = $pdo->prepare('select role from global.nook_members where nook_id = :nook_id and user_id = :user_id limit 1');
@@ -271,6 +376,82 @@ final class NotesController
             throw new HttpError('forbidden', 403);
         }
         return $row;
+    }
+
+    private function syncMentions(PDO $pdo, string $nookId, string $sourceNoteId, string $markdown): void
+    {
+        $pdo->prepare('delete from global.note_mentions where source_note_id = :source_note_id')->execute([
+            ':source_note_id' => $sourceNoteId,
+        ]);
+
+        $mentions = self::parseMentionsFromMarkdown($markdown);
+        if ($mentions === []) {
+            return;
+        }
+
+        $exists = $pdo->prepare('select 1 from global.notes where id = :id and nook_id = :nook_id');
+        $insert = $pdo->prepare(
+            'insert into global.note_mentions (source_note_id, target_note_id, position, link_title) values (:source_note_id, :target_note_id, :position, :link_title)'
+        );
+
+        foreach ($mentions as $m) {
+            $target = $m['target_note_id'] ?? '';
+            $title = $m['link_title'] ?? '';
+            $offset = $m['offset'] ?? 0;
+            if (!is_string($target) || !self::isUuid($target)) {
+                continue;
+            }
+
+            $exists->execute([':id' => $target, ':nook_id' => $nookId]);
+            if (!$exists->fetchColumn()) {
+                continue;
+            }
+
+            $insert->execute([
+                ':source_note_id' => $sourceNoteId,
+                ':target_note_id' => $target,
+                ':position' => is_int($offset) ? $offset : 0,
+                ':link_title' => is_string($title) ? $title : '',
+            ]);
+        }
+    }
+
+    /** @return array<int, array{target_note_id: string, link_title: string, offset: int}> */
+    private static function parseMentionsFromMarkdown(string $markdown): array
+    {
+        // Matches markdown links like: [Some Title](note:11111111-1111-4111-8111-111111111111)
+        $pattern = '/\[(?<title>[^\]]+)\]\(note:(?<uuid>[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\)/i';
+
+        $matches = [];
+        $count = preg_match_all($pattern, $markdown, $matches, PREG_OFFSET_CAPTURE);
+        if (!is_int($count) || $count <= 0) {
+            return [];
+        }
+
+        if (!isset($matches['title'], $matches['uuid'])) {
+            return [];
+        }
+
+        $out = [];
+        $matchCount = count($matches['uuid']);
+        for ($i = 0; $i < $matchCount; $i++) {
+            $title = $matches['title'][$i][0] ?? '';
+            $uuid = $matches['uuid'][$i][0] ?? '';
+            $offset = $matches['uuid'][$i][1] ?? 0;
+
+            if (!is_string($title) || !is_string($uuid)) {
+                continue;
+            }
+
+            $out[] = [
+                'target_note_id' => $uuid,
+                'link_title' => $title,
+                'offset' => is_int($offset) ? $offset : 0,
+            ];
+        }
+
+        usort($out, static fn (array $a, array $b): int => ($a['offset'] ?? 0) <=> ($b['offset'] ?? 0));
+        return $out;
     }
 
     private static function isUuid(string $value): bool

@@ -7,14 +7,20 @@ export type MilkdownEditorProps = {
 	value: string;
 	onChange: (value: string) => void;
 	readonly?: boolean;
+	onNoteLinkClick?: (noteId: string) => void;
 };
 
 export function MilkdownEditor(props: MilkdownEditorProps) {
 	let rootEl!: HTMLDivElement;
 	let crepe: Crepe | null = null;
 	let lastMarkdownFromEditor = props.value;
+	let onRootClick: ((e: MouseEvent) => void) | null = null;
 
 	const destroy = () => {
+		if (onRootClick) {
+			rootEl.removeEventListener("click", onRootClick);
+			onRootClick = null;
+		}
 		if (crepe) {
 			crepe.destroy();
 			crepe = null;
@@ -24,6 +30,29 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
 	const create = async (defaultValue: string) => {
 		rootEl.innerHTML = "";
 		lastMarkdownFromEditor = defaultValue;
+
+		onRootClick = (e: MouseEvent) => {
+			const target = e.target;
+			if (!(target instanceof Element)) {
+				return;
+			}
+			const anchor = target.closest("a");
+			if (!(anchor instanceof HTMLAnchorElement)) {
+				return;
+			}
+			const href = anchor.getAttribute("href") ?? "";
+			if (!href.startsWith("note:")) {
+				return;
+			}
+
+			e.preventDefault();
+			e.stopPropagation();
+			const noteId = href.slice("note:".length).trim();
+			if (noteId !== "") {
+				props.onNoteLinkClick?.(noteId);
+			}
+		};
+		rootEl.addEventListener("click", onRootClick);
 
 		crepe = new Crepe({
 			root: rootEl,
