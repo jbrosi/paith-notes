@@ -28,8 +28,9 @@ final class ApiRoutes
         $r->add('DELETE', '/nooks/{nookId}/notes/{noteId}', [NotesController::class, 'delete']);
         $r->get('/nooks/{nookId}/notes/{noteId}/mentions', [NotesController::class, 'mentions']);
 
-		$r->post('/nooks/{nookId}/notes/{noteId}/file/upload-url', [NotesController::class, 'fileUploadUrl']);
-		$r->get('/nooks/{nookId}/notes/{noteId}/file/download-url', [NotesController::class, 'fileDownloadUrl']);
+
+        $r->post('/nooks/{nookId}/notes/{noteId}/file/upload-url', [NotesController::class, 'fileUploadUrl']);
+        $r->get('/nooks/{nookId}/notes/{noteId}/file/download-url', [NotesController::class, 'fileDownloadUrl']);
 
         $r->group('/module_1', [Module1Routes::class, 'register']);
     }

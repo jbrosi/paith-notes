@@ -283,6 +283,7 @@ export default function Nook() {
 										resolveEmbeddedImageSrc={(id) =>
 											store.resolveEmbeddedImageSrc(id)
 										}
+										uploadEmbeddedImage={(f) => store.uploadEmbeddedImage(f)}
 									/>
 								</div>
 							</div>

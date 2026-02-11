@@ -125,6 +125,96 @@ export function createNookStore(nookId: () => string) {
 		}
 	};
 
+	const uploadEmbeddedImage = async (file: File) => {
+		if (nookId() === "") return null;
+		setError("");
+		try {
+			const filename = file.name || "embedded";
+			const ext = filename.includes(".")
+				? (filename.split(".").pop() ?? "")
+				: "";
+			const mime = file.type;
+
+			const createRes = await apiFetch(`/api/nooks/${nookId()}/notes`, {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify({
+					title: filename,
+					content: "",
+					type: "file",
+					properties: {},
+				}),
+			});
+			if (!createRes.ok) {
+				throw new Error(
+					`Failed to create embedded file note: ${createRes.status} ${createRes.statusText}`,
+				);
+			}
+			const createJson = await createRes.json();
+			const createBody = NoteResponseSchema.parse(createJson);
+			const noteId = createBody.note.id;
+			setNotes([createBody.note, ...notes()]);
+
+			const res = await apiFetch(
+				`/api/nooks/${nookId()}/notes/${noteId}/file/upload-url`,
+				{
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({
+						filename,
+						extension: ext,
+						filesize: file.size,
+						mime_type: mime,
+						checksum: "",
+					}),
+				},
+			);
+			if (!res.ok) {
+				throw new Error(
+					`Failed to get embedded upload URL: ${res.status} ${res.statusText}`,
+				);
+			}
+			const json = (await res.json()) as unknown as { upload_url?: string };
+			const uploadUrl = String(json?.upload_url ?? "");
+			if (uploadUrl === "") {
+				throw new Error("Upload URL missing from response");
+			}
+
+			const putRes = await fetch(uploadUrl, { method: "PUT", body: file });
+			if (!putRes.ok) {
+				throw new Error(
+					`Embedded upload failed: ${putRes.status} ${putRes.statusText}`,
+				);
+			}
+
+			setNotes(
+				notes().map((n) =>
+					n.id === noteId
+						? {
+								...n,
+								properties: {
+									...(typeof n.properties === "object" && n.properties
+										? n.properties
+										: {}),
+									filename,
+									extension: ext,
+									filesize: file.size,
+									mime_type: mime,
+									checksum: "",
+								},
+							}
+						: n,
+				),
+			);
+			return noteId;
+		} catch (e) {
+			setError(String(e));
+			return null;
+		}
+	};
+
 	const loadNotes = async () => {
 		if (nookId() === "") return;
 
@@ -642,6 +732,7 @@ export function createNookStore(nookId: () => string) {
 		onNoteLinkClick,
 		insertMention,
 		resolveEmbeddedImageSrc,
+		uploadEmbeddedImage,
 		saveNote,
 		deleteNote,
 		uploadFile,

@@ -9,6 +9,7 @@ export type MilkdownEditorProps = {
 	readonly?: boolean;
 	onNoteLinkClick?: (noteId: string) => void;
 	resolveEmbeddedImageSrc?: (noteId: string) => Promise<string | null>;
+	uploadEmbeddedImage?: (file: File) => Promise<string | null>;
 };
 
 export function MilkdownEditor(props: MilkdownEditorProps) {
@@ -39,7 +40,7 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
 	};
 
 	const resolveEmbedsSoon = () => {
-		if (!props.resolveEmbeddedImageSrc) return;
+		if (!props.resolveEmbeddedImageSrc && !props.uploadEmbeddedImage) return;
 		if (embedResolveTimer !== null) return;
 		embedResolveTimer = window.setTimeout(() => {
 			embedResolveTimer = null;
@@ -48,6 +49,50 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
 	};
 
 	const resolveEmbeds = async () => {
+		const uploader = props.uploadEmbeddedImage;
+		if (uploader) {
+			const images = rootEl.querySelectorAll("img");
+			for (const img of images) {
+				const src = img.getAttribute("src") ?? "";
+				if (!(src.startsWith("blob:") || src.startsWith("data:"))) continue;
+				if (img.dataset.noteUploaded === "1") continue;
+				if (img.dataset.noteUploading === "1") continue;
+
+				img.dataset.noteUploading = "1";
+				try {
+					const res = await fetch(src);
+					if (!res.ok) continue;
+					const blob = await res.blob();
+					const mime = blob.type || "application/octet-stream";
+					const ext = mime.startsWith("image/")
+						? mime.slice("image/".length)
+						: "bin";
+					const rawName = (
+						img.getAttribute("alt") ??
+						img.getAttribute("title") ??
+						""
+					).trim();
+					const baseName = rawName
+						.replace(/\.[a-z0-9]+$/i, "")
+						.replace(/[^a-z0-9_-]+/gi, "-")
+						.replace(/-+/g, "-")
+						.replace(/^-|-$/g, "");
+					const finalBase =
+						baseName !== "" ? baseName : `embedded-${Date.now()}`;
+					const file = new File([blob], `${finalBase}.${ext}`, { type: mime });
+					const noteId = await uploader(file);
+					if (!noteId) continue;
+
+					img.dataset.noteUploaded = "1";
+					img.dataset.noteResolved = "0";
+					img.removeAttribute("data-note-resolved");
+					img.setAttribute("src", `note:${noteId}`);
+				} finally {
+					img.dataset.noteUploading = "0";
+				}
+			}
+		}
+
 		const resolver = props.resolveEmbeddedImageSrc;
 		if (!resolver) return;
 
