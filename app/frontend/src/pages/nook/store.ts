@@ -23,6 +23,7 @@ export function createNookStore(nookId: () => string) {
 	const [loading, setLoading] = createSignal<boolean>(false);
 	const [error, setError] = createSignal<string>("");
 	const [mentionTargetId, setMentionTargetId] = createSignal<string>("");
+	const [mentionEmbedImage, setMentionEmbedImage] = createSignal<boolean>(false);
 	const [outgoingMentions, setOutgoingMentions] = createSignal<Mention[]>([]);
 	const [incomingMentions, setIncomingMentions] = createSignal<Mention[]>([]);
 
@@ -100,6 +101,8 @@ export function createNookStore(nookId: () => string) {
 		setPersonDateOfBirth("");
 		setFormerProperties({});
 		setError("");
+		setMentionTargetId("");
+		setMentionEmbedImage(false);
 		setMode("edit");
 	};
 
@@ -116,6 +119,8 @@ export function createNookStore(nookId: () => string) {
 				.formerProperties ?? {},
 		);
 		setError("");
+		setMentionTargetId("");
+		setMentionEmbedImage(false);
 		void loadMentions();
 	};
 
@@ -159,7 +164,13 @@ export function createNookStore(nookId: () => string) {
 		const target = notes().find((n) => n.id === targetId);
 		if (!target) return;
 
-		const text = `[${target.title}](note:${target.id})`;
+		const canEmbedImage =
+			target.type === "file" &&
+			String(target.properties?.mime_type ?? "").startsWith("image/");
+		const shouldEmbed = mentionEmbedImage() && canEmbedImage;
+		const text = shouldEmbed
+			? `![${target.title}](note:${target.id})`
+			: `[${target.title}](note:${target.id})`;
 		const prefix = content() === "" ? "" : "\n\n";
 		setContent(`${content()}${prefix}${text}`);
 	};
@@ -299,6 +310,7 @@ export function createNookStore(nookId: () => string) {
 		loading,
 		error,
 		mentionTargetId,
+		mentionEmbedImage,
 		outgoingMentions,
 		incomingMentions,
 		isEditing,
@@ -311,6 +323,7 @@ export function createNookStore(nookId: () => string) {
 		setFormerProperties,
 		setMode,
 		setMentionTargetId,
+		setMentionEmbedImage,
 		loadNotes,
 		loadMentions,
 		newNote,

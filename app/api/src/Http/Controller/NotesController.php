@@ -580,4 +580,5 @@ final class NotesController
 
         return $out;
     }
+
 }
