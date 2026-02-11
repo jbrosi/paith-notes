@@ -1,0 +1,84 @@
+services:
+  app:
+    image: ${APP_IMAGE:-notes-app}
+    build:
+      context: ./docker/app
+    environment:
+      SERVER_NAME: ":8000"
+      FRANKENPHP_WATCH: "1"
+      DATABASE_URL: "postgresql://paith:paith@db:5432/paith"
+      S3_ENDPOINT: "http://rustfs:9000"
+      S3_ACCESS_KEY: "rustfsadmin"
+      S3_SECRET_KEY: "rustfsadmin"
+      S3_BUCKET: "paith"
+      KEYCLOAK_ENABLED: ${KEYCLOAK_ENABLED:-0}
+      KEYCLOAK_BASE_URL: ${KEYCLOAK_BASE_URL:-}
+      KEYCLOAK_REALM: ${KEYCLOAK_REALM:-}
+      KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:-}
+      DEBUG_AUTH: ${DEBUG_AUTH:-0}
+    depends_on:
+      - frontend
+      - db
+      - rustfs
+    volumes:
+      - ./app:/app
+      - ./Caddyfile:/etc/frankenphp/Caddyfile:ro
+
+  frontend:
+    image: docker.io/node:24
+    working_dir: /app/frontend
+    command: sh -lc "export COREPACK_ENABLE_DOWNLOAD_PROMPT=0 && corepack enable && if [ ! -d node_modules ] || [ -z \"$(ls -A node_modules 2>/dev/null || true)\" ]; then yarn install; fi && yarn run dev"
+    environment:
+      YARN_CACHE_FOLDER: "/tmp/yarn-cache"
+      VITE_KEYCLOAK_URL: ${KEYCLOAK_BASE_URL:-}
+      VITE_KEYCLOAK_REALM: ${KEYCLOAK_REALM:-}
+      VITE_KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:-}
+    volumes:
+      - ./app/frontend:/app/frontend
+      - frontend_node_modules:/app/frontend/node_modules
+      - ./.ci-cache/yarn:/tmp/yarn-cache
+    expose:
+      - "5173"
+
+  worker:
+    image: ${WORKER_IMAGE:-notes-worker}
+    build:
+      context: ./docker/worker
+    command: ["php", "/app/worker/worker.php"]
+    environment:
+      DATABASE_URL: "postgresql://paith:paith@db:5432/paith"
+      S3_ENDPOINT: "http://rustfs:9000"
+      S3_ACCESS_KEY: "rustfsadmin"
+      S3_SECRET_KEY: "rustfsadmin"
+      S3_BUCKET: "paith"
+    depends_on:
+      db:
+        condition: service_healthy
+      rustfs:
+        condition: service_started
+    volumes:
+      - ./app:/app
+
+  db:
+    image: docker.io/postgres:17-alpine
+    environment:
+      POSTGRES_DB: paith
+      POSTGRES_USER: paith
+      POSTGRES_PASSWORD: paith
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  rustfs:
+    image: docker.io/rustfs/rustfs:latest
+    command: ["/data"]
+    environment:
+      RUSTFS_ADDRESS: ":9000"
+      RUSTFS_CONSOLE_ENABLE: "true"
+      RUSTFS_ACCESS_KEY: "rustfsadmin"
+      RUSTFS_SECRET_KEY: "rustfsadmin"
+
+volumes:
+  frontend_node_modules:

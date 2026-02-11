@@ -3,6 +3,8 @@ set -eu
 
 ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 
+cd "$ROOT_DIR"
+
 if [ -z "${DISPLAY:-}" ]; then
 	echo "DISPLAY is not set. Cannot run Cypress open UI."
 	exit 1
@@ -15,12 +17,13 @@ if [ ! -d /tmp/.X11-unix ]; then
 	exit 1
 fi
 
-START_ONLY=1 NO_CLEANUP=1 sh "$ROOT_DIR/scripts/run-frontend-e2e-tests.sh"
+PROJECT=${PROJECT:-"notes-frontend-e2e-open-$(date +%s)-$$"}
+START_ONLY=1 NO_CLEANUP=1 PROJECT="$PROJECT" sh "$ROOT_DIR/scripts/run-frontend-e2e-tests.sh"
 
 mkdir -p "$ROOT_DIR/.ci-cache/yarn" "$ROOT_DIR/.ci-cache/cypress"
 
 docker run --rm \
-	--network host \
+	--network "${PROJECT}_default" \
 	-v /tmp/.X11-unix:/tmp/.X11-unix \
 	-e DISPLAY="$DISPLAY" \
 	-e QT_X11_NO_MITSHM=1 \
@@ -30,7 +33,7 @@ docker run --rm \
 	-v "$ROOT_DIR/.ci-cache/cypress:/cypress-cache" \
 	-e YARN_CACHE_FOLDER=/tmp/yarn-cache \
 	-e CYPRESS_CACHE_FOLDER=/cypress-cache \
-	-e CYPRESS_baseUrl=http://localhost:8000 \
+	-e CYPRESS_baseUrl=http://app:8000 \
 	-w /app/frontend \
 	--shm-size=1g \
 	--entrypoint sh \
