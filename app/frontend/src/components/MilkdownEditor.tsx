@@ -71,7 +71,6 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
 		destroy();
 		void create(next);
 	};
-
 	const resolveEmbeds = async () => {
 		const uploader = props.uploadEmbeddedImage;
 		if (uploader) {
