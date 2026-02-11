@@ -1,11 +1,10 @@
 import { createEffect, createSignal } from "solid-js";
 import { apiFetch } from "../../auth/keycloak";
-import type {
-	Mention,
-	MentionsResponse,
-	Note,
-	NoteResponse,
-	NotesListResponse,
+import type { Mention, Note } from "./types";
+import {
+	MentionsResponseSchema,
+	NoteResponseSchema,
+	NotesListResponseSchema,
 } from "./types";
 
 export function createNookStore(nookId: () => string) {
@@ -41,9 +40,10 @@ export function createNookStore(nookId: () => string) {
 					`Failed to load mentions: ${res.status} ${res.statusText}`,
 				);
 			}
-			const body = (await res.json()) as MentionsResponse;
-			setOutgoingMentions(Array.isArray(body?.outgoing) ? body.outgoing : []);
-			setIncomingMentions(Array.isArray(body?.incoming) ? body.incoming : []);
+			const json = await res.json();
+			const body = MentionsResponseSchema.parse(json);
+			setOutgoingMentions(body.outgoing);
+			setIncomingMentions(body.incoming);
 		} catch (e) {
 			setOutgoingMentions([]);
 			setIncomingMentions([]);
@@ -65,9 +65,9 @@ export function createNookStore(nookId: () => string) {
 					`Failed to load notes: ${res.status} ${res.statusText}`,
 				);
 			}
-
-			const body = (await res.json()) as NotesListResponse;
-			setNotes(Array.isArray(body?.notes) ? body.notes : []);
+			const json = await res.json();
+			const body = NotesListResponseSchema.parse(json);
+			setNotes(body.notes);
 
 			const currentSelected = selectedId();
 			if (currentSelected === "" && (body?.notes?.length ?? 0) > 0) {
@@ -152,11 +152,8 @@ export function createNookStore(nookId: () => string) {
 						`Failed to create note: ${res.status} ${res.statusText}`,
 					);
 				}
-
-				const body = (await res.json()) as NoteResponse;
-				if (!body?.note?.id) {
-					throw new Error("Note creation response is missing id");
-				}
+				const json = await res.json();
+				const body = NoteResponseSchema.parse(json);
 
 				setNotes([body.note, ...notes()]);
 				selectNote(body.note);
@@ -174,11 +171,8 @@ export function createNookStore(nookId: () => string) {
 						`Failed to update note: ${res.status} ${res.statusText}`,
 					);
 				}
-
-				const body = (await res.json()) as NoteResponse;
-				if (!body?.note?.id) {
-					throw new Error("Note update response is missing id");
-				}
+				const json = await res.json();
+				const body = NoteResponseSchema.parse(json);
 
 				setNotes(notes().map((n) => (n.id === body.note.id ? body.note : n)));
 				selectNote(body.note);

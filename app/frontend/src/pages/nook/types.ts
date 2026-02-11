@@ -1,26 +1,61 @@
-export type Note = {
-	id: string;
-	title: string;
-	content: string;
-	created_at?: string;
-};
+import { z } from "zod";
 
-export type Mention = {
-	note_id: string;
-	note_title: string;
-	link_title: string;
-	position: number;
-};
+const NoteApiSchema = z
+	.object({
+		id: z.string(),
+		title: z.string(),
+		content: z.string(),
+		created_at: z.string().optional(),
+	})
+	.transform((n) => ({
+		id: n.id,
+		title: n.title,
+		content: n.content,
+		createdAt: n.created_at,
+	}));
 
-export type NotesListResponse = {
-	notes: Note[];
-};
+export const NotesListResponseSchema = z
+	.object({
+		notes: z.array(NoteApiSchema),
+	})
+	.transform((r) => ({
+		notes: r.notes,
+	}));
 
-export type NoteResponse = {
-	note: Note;
-};
+export const NoteResponseSchema = z
+	.object({
+		note: NoteApiSchema,
+	})
+	.transform((r) => ({
+		note: r.note,
+	}));
 
-export type MentionsResponse = {
-	outgoing: Mention[];
-	incoming: Mention[];
-};
+const MentionApiSchema = z
+	.object({
+		note_id: z.string(),
+		note_title: z.string(),
+		link_title: z.string(),
+		position: z.number().int(),
+	})
+	.transform((m) => ({
+		noteId: m.note_id,
+		noteTitle: m.note_title,
+		linkTitle: m.link_title,
+		position: m.position,
+	}));
+
+export const MentionsResponseSchema = z
+	.object({
+		outgoing: z.array(MentionApiSchema),
+		incoming: z.array(MentionApiSchema),
+	})
+	.transform((r) => ({
+		outgoing: r.outgoing,
+		incoming: r.incoming,
+	}));
+
+export type Note = z.infer<typeof NoteApiSchema>;
+export type Mention = z.infer<typeof MentionApiSchema>;
+export type NotesListResponse = z.infer<typeof NotesListResponseSchema>;
+export type NoteResponse = z.infer<typeof NoteResponseSchema>;
+export type MentionsResponse = z.infer<typeof MentionsResponseSchema>;

@@ -24,7 +24,7 @@ export function NookMentionsPanel(props: NookMentionsPanelProps) {
 							{(m) => (
 								<button
 									type="button"
-									onClick={() => props.onOpenNote(m.note_id)}
+									onClick={() => props.onOpenNote(m.noteId)}
 									style={{
 										width: "100%",
 										padding: "6px 8px",
@@ -37,9 +37,9 @@ export function NookMentionsPanel(props: NookMentionsPanelProps) {
 									}}
 								>
 									<div style={{ "font-weight": "600" }}>
-										{m.link_title || m.note_title}
+										{m.linkTitle || m.noteTitle}
 									</div>
-									<div style={{ color: "#666" }}>{m.note_title}</div>
+									<div style={{ color: "#666" }}>{m.noteTitle}</div>
 								</button>
 							)}
 						</For>
@@ -55,7 +55,7 @@ export function NookMentionsPanel(props: NookMentionsPanelProps) {
 							{(m) => (
 								<button
 									type="button"
-									onClick={() => props.onOpenNote(m.note_id)}
+									onClick={() => props.onOpenNote(m.noteId)}
 									style={{
 										width: "100%",
 										padding: "6px 8px",
@@ -67,8 +67,8 @@ export function NookMentionsPanel(props: NookMentionsPanelProps) {
 										"margin-bottom": "6px",
 									}}
 								>
-									<div style={{ "font-weight": "600" }}>{m.note_title}</div>
-									<div style={{ color: "#666" }}>{m.link_title}</div>
+									<div style={{ "font-weight": "600" }}>{m.noteTitle}</div>
+									<div style={{ color: "#666" }}>{m.linkTitle}</div>
 								</button>
 							)}
 						</For>
