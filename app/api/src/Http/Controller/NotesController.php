@@ -135,6 +135,11 @@ final class NotesController
             throw new HttpError('noteId must be a UUID', 400);
         }
 
+        $userId = is_scalar($user['id'] ?? null) ? (string)$user['id'] : '';
+        if ($userId === '') {
+            throw new HttpError('invalid user', 500);
+        }
+
         $membership = $this->requireMember($pdo, $user, $nookId);
 
         $data = $request->jsonBody();
@@ -156,7 +161,7 @@ final class NotesController
             $c = $pdo->prepare('select created_by from global.notes where id = :id and nook_id = :nook_id');
             $c->execute([':id' => $noteId, ':nook_id' => $nookId]);
             $createdBy = $c->fetchColumn();
-            if ($createdBy && (string)$createdBy === (string)$user['id']) {
+            if (is_scalar($createdBy) && (string)$createdBy === $userId) {
                 $allowed = true;
             }
         }
