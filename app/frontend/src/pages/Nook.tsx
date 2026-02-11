@@ -3,6 +3,7 @@ import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import styles from "../App.module.css";
 import { apiFetch } from "../auth/keycloak";
 import { Button } from "../components/Button";
+import { MilkdownEditor } from "../components/MilkdownEditor";
 import notesStyles from "./Notes.module.css";
 
 type Note = {
@@ -68,7 +69,9 @@ export default function Nook() {
 				method: "GET",
 			});
 			if (!res.ok) {
-				throw new Error(`Failed to load notes: ${res.status} ${res.statusText}`);
+				throw new Error(
+					`Failed to load notes: ${res.status} ${res.statusText}`,
+				);
 			}
 
 			const body = (await res.json()) as NotesListResponse;
@@ -138,7 +141,9 @@ export default function Nook() {
 				body: JSON.stringify({ title: t, content: content() }),
 			});
 			if (!res.ok) {
-				throw new Error(`Failed to create note: ${res.status} ${res.statusText}`);
+				throw new Error(
+					`Failed to create note: ${res.status} ${res.statusText}`,
+				);
 			}
 
 			const body = (await res.json()) as NoteResponse;
@@ -191,7 +196,9 @@ export default function Nook() {
 				body: JSON.stringify({ title: t, content: content() }),
 			});
 			if (!res.ok) {
-				throw new Error(`Failed to update note: ${res.status} ${res.statusText}`);
+				throw new Error(
+					`Failed to update note: ${res.status} ${res.statusText}`,
+				);
 			}
 
 			const body = (await res.json()) as NoteResponse;
@@ -236,7 +243,11 @@ export default function Nook() {
 						>
 							Save
 						</Button>
-						<Button onClick={loadNotes} variant="secondary" disabled={loading()}>
+						<Button
+							onClick={loadNotes}
+							variant="secondary"
+							disabled={loading()}
+						>
 							Refresh
 						</Button>
 					</>
@@ -251,20 +262,40 @@ export default function Nook() {
 							type="text"
 							value={title()}
 							onInput={(e) => setTitle(e.currentTarget.value)}
-							style={{ width: "100%", padding: "8px", "box-sizing": "border-box" }}
+							style={{
+								width: "100%",
+								padding: "8px",
+								"box-sizing": "border-box",
+							}}
 						/>
 					</label>
 				</div>
 				<div>
-					<label>
-						Content
-						<textarea
-							value={content()}
-							onInput={(e) => setContent(e.currentTarget.value)}
-							rows={6}
-							style={{ width: "100%", padding: "8px", "box-sizing": "border-box" }}
-						/>
-					</label>
+					<div>
+						<div style={{ "margin-bottom": "0.5rem" }}>Content</div>
+						{isCypressRun() ? (
+							<textarea
+								value={content()}
+								onInput={(e) => setContent(e.currentTarget.value)}
+								rows={6}
+								style={{
+									width: "100%",
+									padding: "8px",
+									"box-sizing": "border-box",
+								}}
+							/>
+						) : (
+							<div
+								style={{
+									border: "1px solid #ccc",
+									"border-radius": "8px",
+									overflow: "hidden",
+								}}
+							>
+								<MilkdownEditor value={content()} onChange={setContent} />
+							</div>
+						)}
+					</div>
 				</div>
 			</div>
 
@@ -275,18 +306,22 @@ export default function Nook() {
 			<div>
 				<For each={notes()}>
 					{(note) => (
-						<div
+						<button
+							type="button"
 							class={notesStyles["note-card"]}
 							onClick={() => selectNote(note)}
 							style={{
 								cursor: "pointer",
-								"border-color":
-									note.id === selectedId() ? "#111" : undefined,
+								width: "100%",
+								padding: "0",
+								background: "transparent",
+								"text-align": "left",
+								"border-color": note.id === selectedId() ? "#111" : undefined,
 							}}
 						>
 							<h3>{note.title}</h3>
 							<p>{note.content}</p>
-						</div>
+						</button>
 					)}
 				</For>
 			</div>
