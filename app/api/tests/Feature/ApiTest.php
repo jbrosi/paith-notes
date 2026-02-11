@@ -446,6 +446,86 @@ it('file notes can request upload and download presigned URLs', function (): voi
 	expect((int)($inlineData['expires_in'] ?? 0))->toBeGreaterThan(0);
 });
 
+it('embedded image note links are included in mentions (empty alt)', function (): void {
+	$userId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+	$headers = [
+		'X-Nook-User' => $userId,
+		'X-Nook-Groups' => 'paith/notes',
+	];
+
+	App::handle('GET', '/api/me', $headers, '');
+
+	$createNook = App::handle(
+		'POST',
+		'/api/nooks',
+		$headers,
+		json_encode(['name' => 'Mentions'], JSON_UNESCAPED_SLASHES)
+	);
+	expect($createNook['status'])->toBe(200);
+	$createNookData = json_decode($createNook['body'], true);
+	expect($createNookData)->toBeArray();
+	$nookId = (string)($createNookData['nook']['id'] ?? '');
+	expect($nookId)->not->toBe('');
+
+	$target = App::handle(
+		'POST',
+		'/api/nooks/' . $nookId . '/notes',
+		$headers,
+		json_encode([
+			'title' => 'Image',
+			'content' => '',
+			'type' => 'file',
+			'properties' => [],
+		], JSON_UNESCAPED_SLASHES)
+	);
+	expect($target['status'])->toBe(200);
+	$targetData = json_decode($target['body'], true);
+	expect($targetData)->toBeArray();
+	$targetId = (string)($targetData['note']['id'] ?? '');
+	expect($targetId)->not->toBe('');
+
+	$source = App::handle(
+		'POST',
+		'/api/nooks/' . $nookId . '/notes',
+		$headers,
+		json_encode([
+			'title' => 'Source',
+			'content' => 'Here is an embed: ![1.00](note:' . $targetId . ' "fff")',
+			'type' => 'anything',
+			'properties' => [],
+		], JSON_UNESCAPED_SLASHES)
+	);
+	expect($source['status'])->toBe(200);
+	$sourceData = json_decode($source['body'], true);
+	expect($sourceData)->toBeArray();
+	$sourceId = (string)($sourceData['note']['id'] ?? '');
+	expect($sourceId)->not->toBe('');
+
+	$mentions = App::handle(
+		'GET',
+		'/api/nooks/' . $nookId . '/notes/' . $sourceId . '/mentions',
+		$headers,
+		''
+	);
+	expect($mentions['status'])->toBe(200);
+	$mentionsData = json_decode($mentions['body'], true);
+	expect($mentionsData)->toBeArray();
+
+	$outgoing = $mentionsData['outgoing'] ?? null;
+	expect($outgoing)->toBeArray();
+	$found = false;
+	foreach ($outgoing as $m) {
+		if (!is_array($m)) {
+			continue;
+		}
+		if ((string)($m['note_id'] ?? '') === $targetId) {
+			$found = true;
+			break;
+		}
+	}
+	expect($found)->toBeTrue();
+});
+
 it('exposes the personal nook via /api/nooks/personal', function (): void {
     $userId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
     $headers = [
