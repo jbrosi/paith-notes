@@ -5,12 +5,18 @@ const NoteApiSchema = z
 		id: z.string(),
 		title: z.string(),
 		content: z.string(),
+		type: z.string().optional(),
+		properties: z.record(z.string(), z.unknown()).optional(),
+		former_properties: z.record(z.string(), z.unknown()).optional(),
 		created_at: z.string().optional(),
 	})
 	.transform((n) => ({
 		id: n.id,
 		title: n.title,
 		content: n.content,
+		type: n.type ?? "anything",
+		properties: n.properties ?? {},
+		formerProperties: n.former_properties ?? {},
 		createdAt: n.created_at,
 	}));
 

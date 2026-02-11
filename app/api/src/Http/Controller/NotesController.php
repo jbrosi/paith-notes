@@ -14,6 +14,9 @@ use Throwable;
 
 final class NotesController
 {
+    private const NOTE_TYPE_ANYTHING = 'anything';
+    private const NOTE_TYPE_PERSON = 'person';
+
     public function list(Request $request, Context $context): Response
     {
         $pdo = $context->pdo();
@@ -30,7 +33,7 @@ final class NotesController
         $this->requireMember($pdo, $user, $nookId);
 
         $stmt = $pdo->prepare(
-            'select id, title, content, created_at from global.notes where nook_id = :nook_id order by created_at desc'
+            'select id, title, content, type, properties, former_properties, created_at from global.notes where nook_id = :nook_id order by created_at desc'
         );
         $stmt->execute([':nook_id' => $nookId]);
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -41,11 +44,17 @@ final class NotesController
                 continue;
             }
 
+            $properties = self::decodeJsonObject($r['properties'] ?? null);
+            $formerProperties = self::decodeJsonObject($r['former_properties'] ?? null);
+
             $notes[] = [
                 'id' => is_scalar($r['id'] ?? null) ? (string)$r['id'] : '',
                 'nook_id' => $nookId,
                 'title' => is_scalar($r['title'] ?? null) ? (string)$r['title'] : '',
                 'content' => is_scalar($r['content'] ?? null) ? (string)$r['content'] : '',
+                'type' => is_scalar($r['type'] ?? null) ? (string)$r['type'] : self::NOTE_TYPE_ANYTHING,
+                'properties' => $properties === [] ? (object)[] : $properties,
+                'former_properties' => $formerProperties === [] ? (object)[] : $formerProperties,
                 'created_at' => is_scalar($r['created_at'] ?? null) ? (string)$r['created_at'] : '',
             ];
         }
@@ -81,17 +90,23 @@ final class NotesController
         $contentRaw = $data['content'] ?? '';
         $content = is_string($contentRaw) ? $contentRaw : '';
 
+        $type = self::normalizeNoteType($data['type'] ?? null, self::NOTE_TYPE_ANYTHING);
+        $properties = self::normalizeProperties($data['properties'] ?? null);
+
         try {
             $pdo->beginTransaction();
 
             $stmt = $pdo->prepare(
-                "insert into global.notes (nook_id, created_by, title, content) values (:nook_id, :created_by, :title, :content) returning id, created_at"
+                "insert into global.notes (nook_id, created_by, title, content, type, properties, former_properties) values (:nook_id, :created_by, :title, :content, :type, :properties, :former_properties) returning id, created_at"
             );
             $stmt->execute([
                 ':nook_id' => $nookId,
                 ':created_by' => $user['id'],
                 ':title' => $title,
                 ':content' => $content,
+                ':type' => $type,
+                ':properties' => self::encodeJsonObject($properties),
+                ':former_properties' => '{}',
             ]);
 
             $row = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -115,6 +130,9 @@ final class NotesController
                     'nook_id' => $nookId,
                     'title' => $title,
                     'content' => $content,
+                    'type' => $type,
+                    'properties' => $properties === [] ? (object)[] : $properties,
+                    'former_properties' => (object)[],
                     'created_at' => is_scalar($createdAt) ? (string)$createdAt : '',
                 ],
             ]);
@@ -165,6 +183,9 @@ final class NotesController
         $contentRaw = $data['content'] ?? '';
         $content = is_string($contentRaw) ? $contentRaw : '';
 
+        $typeRaw = $data['type'] ?? null;
+        $propertiesRaw = $data['properties'] ?? null;
+
         $allowed = false;
         $role = is_scalar($membership['role'] ?? null) ? (string)$membership['role'] : '';
         if ($role === 'owner') {
@@ -182,17 +203,50 @@ final class NotesController
             throw new HttpError('forbidden', 403);
         }
 
+        $existingStmt = $pdo->prepare('select type, properties, former_properties from global.notes where id = :id and nook_id = :nook_id');
+        $existingStmt->execute([':id' => $noteId, ':nook_id' => $nookId]);
+        $existingRow = $existingStmt->fetch(PDO::FETCH_ASSOC);
+        if (!is_array($existingRow)) {
+            throw new HttpError('note not found', 404);
+        }
+
+        $existingType = is_scalar($existingRow['type'] ?? null) ? (string)$existingRow['type'] : self::NOTE_TYPE_ANYTHING;
+        $existingProperties = self::decodeJsonObject($existingRow['properties'] ?? null);
+        $existingFormerProperties = self::decodeJsonObject($existingRow['former_properties'] ?? null);
+
+        $type = self::normalizeNoteType($typeRaw, $existingType);
+        $properties = $propertiesRaw === null ? $existingProperties : self::normalizeProperties($propertiesRaw);
+
+        $formerProperties = $existingFormerProperties;
+
+        if ($existingType === self::NOTE_TYPE_PERSON && $type !== self::NOTE_TYPE_PERSON) {
+            $personFields = self::extractPersonFields($existingProperties);
+            if ($personFields !== []) {
+                $formerProperties['person'] = $personFields;
+            }
+            $properties = [];
+        }
+
+        if ($existingType !== self::NOTE_TYPE_PERSON && $type === self::NOTE_TYPE_PERSON) {
+            if ($properties === [] && isset($formerProperties['person']) && is_array($formerProperties['person'])) {
+                $properties = self::normalizeProperties($formerProperties['person']);
+            }
+        }
+
         try {
             $pdo->beginTransaction();
 
             $stmt = $pdo->prepare(
-                'update global.notes set title = :title, content = :content where id = :id and nook_id = :nook_id returning id, created_at'
+                'update global.notes set title = :title, content = :content, type = :type, properties = :properties, former_properties = :former_properties where id = :id and nook_id = :nook_id returning id, created_at'
             );
             $stmt->execute([
                 ':id' => $noteId,
                 ':nook_id' => $nookId,
                 ':title' => $title,
                 ':content' => $content,
+                ':type' => $type,
+                ':properties' => self::encodeJsonObject($properties),
+                ':former_properties' => self::encodeJsonObject($formerProperties),
             ]);
             $row = $stmt->fetch(PDO::FETCH_ASSOC);
             if (!is_array($row)) {
@@ -212,6 +266,9 @@ final class NotesController
                     'nook_id' => $nookId,
                     'title' => $title,
                     'content' => $content,
+                    'type' => $type,
+                    'properties' => $properties === [] ? (object)[] : $properties,
+                    'former_properties' => $formerProperties === [] ? (object)[] : $formerProperties,
                     'created_at' => is_scalar($createdAt) ? (string)$createdAt : '',
                 ],
             ]);
@@ -452,5 +509,75 @@ final class NotesController
             '/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i',
             $value
         );
+    }
+
+    private static function normalizeNoteType(mixed $value, string $default): string
+    {
+        if (!is_string($value)) {
+            return $default;
+        }
+        $t = trim($value);
+        if ($t === '') {
+            return $default;
+        }
+        if ($t === self::NOTE_TYPE_ANYTHING || $t === self::NOTE_TYPE_PERSON) {
+            return $t;
+        }
+        return $default;
+    }
+
+    /** @return array<string, mixed> */
+    private static function normalizeProperties(mixed $value): array
+    {
+        if (!is_array($value)) {
+            return [];
+        }
+        /** @var array<string, mixed> $value */
+        return $value;
+    }
+
+    /** @return array<string, mixed> */
+    private static function decodeJsonObject(mixed $value): array
+    {
+        if (!is_scalar($value)) {
+            return [];
+        }
+        $decoded = json_decode((string)$value, true);
+        if (!is_array($decoded)) {
+            return [];
+        }
+        /** @var array<string, mixed> $decoded */
+        return $decoded;
+    }
+
+    /** @param array<string, mixed> $value */
+    private static function encodeJsonObject(array $value): string
+    {
+        if ($value === []) {
+            return '{}';
+        }
+        return (string)json_encode($value, JSON_UNESCAPED_SLASHES);
+    }
+
+    /** @param array<string, mixed> $properties @return array<string, string> */
+    private static function extractPersonFields(array $properties): array
+    {
+        /** @var array<string, string> $out */
+        $out = [];
+        $first = $properties['first_name'] ?? null;
+        $last = $properties['last_name'] ?? null;
+        $dob = $properties['date_of_birth'] ?? null;
+
+        if (is_string($first) && trim($first) !== '') {
+            $out['first_name'] = trim($first);
+        }
+        if (is_string($last) && trim($last) !== '') {
+            $out['last_name'] = trim($last);
+        }
+        if (is_string($dob) && trim($dob) !== '') {
+            $out['date_of_birth'] = trim($dob);
+        }
+
+        return $out;
     }
 }
