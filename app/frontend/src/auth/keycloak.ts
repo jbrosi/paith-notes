@@ -48,6 +48,21 @@ function createCypressKeycloakStub(): KeycloakLike {
 	};
 }
 
+function createDevHeaderAuthStub(): KeycloakLike {
+	return {
+		authenticated: true,
+		token: "dev",
+		init: async () => true,
+		login: async () => {
+			// no-op for dev
+		},
+		logout: async () => {
+			// no-op for dev
+		},
+		updateToken: async () => true,
+	};
+}
+
 function createMissingConfigKeycloakStub(): KeycloakLike {
 	const error = new Error(
 		"Keycloak is not configured. Set VITE_KEYCLOAK_URL, VITE_KEYCLOAK_REALM, and VITE_KEYCLOAK_CLIENT_ID (or, when using docker-compose, set KEYCLOAK_BASE_URL, KEYCLOAK_REALM, KEYCLOAK_CLIENT_ID and restart the frontend container).",
@@ -72,7 +87,9 @@ function createMissingConfigKeycloakStub(): KeycloakLike {
 export const keycloak: KeycloakLike = isCypressRun()
 	? createCypressKeycloakStub()
 	: keycloakUrl === "" || keycloakRealm === "" || keycloakClientId === ""
-		? createMissingConfigKeycloakStub()
+		? import.meta.env.DEV
+			? createDevHeaderAuthStub()
+			: createMissingConfigKeycloakStub()
 		: new Keycloak({
 				url: keycloakUrl,
 				realm: keycloakRealm,
@@ -109,6 +126,16 @@ export async function apiFetch(
 	const token = await ensureFreshToken(30);
 	const headers = new Headers(init.headers);
 	headers.set("Authorization", `Bearer ${token}`);
+
+	if (token === "dev" || token === "cypress") {
+		if (!headers.has("X-Nook-User")) {
+			headers.set("X-Nook-User", "11111111-1111-4111-8111-111111111111");
+		}
+		if (!headers.has("X-Nook-Groups")) {
+			headers.set("X-Nook-Groups", "paith/notes");
+		}
+	}
+
 	if (!headers.has("Accept")) {
 		headers.set("Accept", "application/json");
 	}
