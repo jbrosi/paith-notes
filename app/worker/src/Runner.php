@@ -127,6 +127,7 @@ final class Runner
         $s3AccessKey = Env::get('S3_ACCESS_KEY');
         $s3SecretKey = Env::get('S3_SECRET_KEY');
         $s3Bucket = Env::get('S3_BUCKET');
+        $s3FilesBucket = Env::get('S3_FILES_BUCKET');
 
         if ($s3Endpoint === '' || $s3AccessKey === '' || $s3SecretKey === '' || $s3Bucket === '') {
             fwrite(STDERR, "warning: S3 env not fully set; skipping bucket setup\n");
@@ -150,6 +151,13 @@ final class Runner
             $exists = $s3->doesBucketExist($s3Bucket);
             if (!$exists) {
                 $s3->createBucket(['Bucket' => $s3Bucket]);
+            }
+
+            if ($s3FilesBucket !== '' && $s3FilesBucket !== $s3Bucket) {
+                $existsFiles = $s3->doesBucketExist($s3FilesBucket);
+                if (!$existsFiles) {
+                    $s3->createBucket(['Bucket' => $s3FilesBucket]);
+                }
             }
 
             fwrite(STDOUT, sprintf("ensured S3 bucket exists: %s (%s)\n", $s3Bucket, $endpoint));

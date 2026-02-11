@@ -358,6 +358,94 @@ it('demoting a person note to anything preserves fields in former_properties and
 	expect((string)($promoteData['note']['properties']['date_of_birth'] ?? ''))->toBe('1815-12-10');
 });
 
+it('file notes can request upload and download presigned URLs', function (): void {
+	$userId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+	$headers = [
+		'X-Nook-User' => $userId,
+		'X-Nook-Groups' => 'paith/notes',
+	];
+
+	App::handle('GET', '/api/me', $headers, '');
+
+	$createNook = App::handle('POST', '/api/nooks', $headers, json_encode(['name' => 'Files'], JSON_UNESCAPED_SLASHES));
+	expect($createNook['status'])->toBe(200);
+	$createNookData = json_decode($createNook['body'], true);
+	expect($createNookData)->toBeArray();
+	$nookId = (string)($createNookData['nook']['id'] ?? '');
+	expect($nookId)->not->toBe('');
+
+	$createFileNote = App::handle(
+		'POST',
+		'/api/nooks/' . $nookId . '/notes',
+		$headers,
+		json_encode([
+			'title' => 'My File',
+			'content' => 'This is a file note',
+			'type' => 'file',
+			'properties' => [],
+		], JSON_UNESCAPED_SLASHES)
+	);
+	expect($createFileNote['status'])->toBe(200);
+	$createFileData = json_decode($createFileNote['body'], true);
+	expect($createFileData)->toBeArray();
+	$noteId = (string)($createFileData['note']['id'] ?? '');
+	expect($noteId)->not->toBe('');
+	expect((string)($createFileData['note']['type'] ?? ''))->toBe('file');
+
+	$uploadUrl = App::handle(
+		'POST',
+		'/api/nooks/' . $nookId . '/notes/' . $noteId . '/file/upload-url',
+		$headers,
+		json_encode([
+			'filename' => 'example.txt',
+			'extension' => 'txt',
+			'filesize' => 123,
+			'mime_type' => 'text/plain',
+			'checksum' => 'abc123',
+		], JSON_UNESCAPED_SLASHES)
+	);
+	expect($uploadUrl['status'])->toBe(200);
+	$uploadData = json_decode($uploadUrl['body'], true);
+	expect($uploadData)->toBeArray();
+	expect((string)($uploadData['upload_url'] ?? ''))->toContain('http');
+	expect((int)($uploadData['expires_in'] ?? 0))->toBeGreaterThan(0);
+	expect((string)($uploadData['object_key'] ?? ''))->toContain($noteId);
+
+	$pdo = test_pdo();
+	$stmt = $pdo->prepare('select object_key, filename, filesize, mime_type, checksum from global.note_files where note_id = :note_id');
+	$stmt->execute([':note_id' => $noteId]);
+	$row = $stmt->fetch(PDO::FETCH_ASSOC);
+	expect($row)->toBeArray();
+	expect((string)($row['filename'] ?? ''))->toBe('example.txt');
+	expect((int)($row['filesize'] ?? 0))->toBe(123);
+	expect((string)($row['mime_type'] ?? ''))->toBe('text/plain');
+	expect((string)($row['checksum'] ?? ''))->toBe('abc123');
+
+	$downloadUrl = App::handle(
+		'GET',
+		'/api/nooks/' . $nookId . '/notes/' . $noteId . '/file/download-url',
+		$headers,
+		''
+	);
+	expect($downloadUrl['status'])->toBe(200);
+	$downloadData = json_decode($downloadUrl['body'], true);
+	expect($downloadData)->toBeArray();
+	expect((string)($downloadData['download_url'] ?? ''))->toContain('http');
+	expect((int)($downloadData['expires_in'] ?? 0))->toBeGreaterThan(0);
+
+	$inlineUrl = App::handle(
+		'GET',
+		'/api/nooks/' . $nookId . '/notes/' . $noteId . '/file/download-url?inline=1',
+		$headers,
+		''
+	);
+	expect($inlineUrl['status'])->toBe(200);
+	$inlineData = json_decode($inlineUrl['body'], true);
+	expect($inlineData)->toBeArray();
+	expect((string)($inlineData['download_url'] ?? ''))->toContain('http');
+	expect((int)($inlineData['expires_in'] ?? 0))->toBeGreaterThan(0);
+});
+
 it('exposes the personal nook via /api/nooks/personal', function (): void {
     $userId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
     $headers = [

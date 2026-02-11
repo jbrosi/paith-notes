@@ -9,9 +9,11 @@ services:
       FRANKENPHP_WATCH: "1"
       DATABASE_URL: "postgresql://paith:paith@db:5432/paith"
       S3_ENDPOINT: "http://rustfs:9000"
+      S3_PUBLIC_ENDPOINT: "http://localhost:8000"
       S3_ACCESS_KEY: "rustfsadmin"
       S3_SECRET_KEY: "rustfsadmin"
       S3_BUCKET: "paith"
+      S3_FILES_BUCKET: "files"
       KEYCLOAK_ENABLED: ${KEYCLOAK_ENABLED:-0}
       KEYCLOAK_BASE_URL: ${KEYCLOAK_BASE_URL:-}
       KEYCLOAK_REALM: ${KEYCLOAK_REALM:-}
@@ -54,6 +56,7 @@ services:
       S3_ACCESS_KEY: "rustfsadmin"
       S3_SECRET_KEY: "rustfsadmin"
       S3_BUCKET: "paith"
+      S3_FILES_BUCKET: "files"
     depends_on:
       db:
         condition: service_healthy

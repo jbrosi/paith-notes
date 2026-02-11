@@ -7,9 +7,12 @@ export type NookSidebarProps = {
 	selectedId: string;
 	onNew: () => void;
 	onSelect: (note: Note) => void;
+	onQuickUploadFile: (file: File) => void;
 };
 
 export function NookSidebar(props: NookSidebarProps) {
+	let quickUploadInput: HTMLInputElement | undefined;
+
 	return (
 		<div
 			style={{
@@ -28,9 +31,24 @@ export function NookSidebar(props: NookSidebarProps) {
 				}}
 			>
 				<div style={{ "font-weight": "600" }}>Notes</div>
-				<Button onClick={props.onNew} variant="secondary">
-					New
-				</Button>
+				<div style={{ display: "flex", gap: "8px", "align-items": "center" }}>
+					<input
+						ref={quickUploadInput}
+						type="file"
+						style={{ display: "none" }}
+						onChange={(e) => {
+							const f = e.currentTarget.files?.[0];
+							e.currentTarget.value = "";
+							if (f) props.onQuickUploadFile(f);
+						}}
+					/>
+					<Button variant="secondary" onClick={() => quickUploadInput?.click()}>
+						Upload file
+					</Button>
+					<Button onClick={props.onNew} variant="secondary">
+						New
+					</Button>
+				</div>
 			</div>
 
 			<div>
@@ -70,6 +88,19 @@ export function NookSidebar(props: NookSidebarProps) {
 										}}
 									>
 										Person
+									</span>
+								) : note.type === "file" ? (
+									<span
+										style={{
+											"font-size": "12px",
+											padding: "2px 6px",
+											"border-radius": "999px",
+											border: "1px solid #c9def7",
+											background: "#eef5ff",
+											color: "#1f5fbf",
+										}}
+									>
+										File
 									</span>
 								) : null}
 							</div>

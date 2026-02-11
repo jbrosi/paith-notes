@@ -9,9 +9,11 @@ export type NookToolbarProps = {
 	selectedId: string;
 	notes: Note[];
 	mentionTargetId: string;
+	mentionEmbedImage: boolean;
 	onToggleMode: () => void;
 	onRefresh: () => void;
 	onChangeMentionTargetId: (id: string) => void;
+	onChangeMentionEmbedImage: (next: boolean) => void;
 	onInsertMention: () => void;
 	onSave: () => void;
 	onDelete: () => void;
@@ -19,6 +21,14 @@ export type NookToolbarProps = {
 
 export function NookToolbar(props: NookToolbarProps) {
 	const isEditing = () => props.mode === "edit";
+	const canEmbedImage = () => {
+		const id = props.mentionTargetId;
+		if (id === "") return false;
+		const n = props.notes.find((x) => x.id === id);
+		if (!n) return false;
+		if (n.type !== "file") return false;
+		return String(n.properties?.mime_type ?? "").startsWith("image/");
+	};
 
 	return (
 		<div
@@ -54,6 +64,17 @@ export function NookToolbar(props: NookToolbarProps) {
 					{(n) => <option value={n.id}>{n.title}</option>}
 				</For>
 			</select>
+			<label style={{ display: "flex", gap: "6px", "align-items": "center" }}>
+				<input
+					type="checkbox"
+					checked={props.mentionEmbedImage}
+					onChange={(e) =>
+						props.onChangeMentionEmbedImage(e.currentTarget.checked)
+					}
+					disabled={props.loading || !isEditing() || !canEmbedImage()}
+				/>
+				Include image
+			</label>
 			<Button
 				onClick={props.onInsertMention}
 				variant="secondary"

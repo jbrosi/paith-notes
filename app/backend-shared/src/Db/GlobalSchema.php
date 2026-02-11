@@ -92,6 +92,23 @@ final class GlobalSchema
         $pdo->exec("alter table global.notes add column if not exists properties jsonb not null default '{}'::jsonb");
         $pdo->exec("alter table global.notes add column if not exists former_properties jsonb not null default '{}'::jsonb");
 
+
+        $pdo->exec(" 
+            create table if not exists global.note_files (
+                note_id uuid primary key references global.notes(id) on delete cascade,
+                object_key text not null,
+                filename text not null default '',
+                extension text not null default '',
+                filesize bigint not null default 0,
+                mime_type text not null default '',
+                checksum text not null default '',
+                created_at timestamptz not null default now(),
+                updated_at timestamptz not null default now()
+            );
+        ");
+
+        $pdo->exec('create index if not exists note_files_object_key_idx on global.note_files (object_key)');
+
         $pdo->exec('create index if not exists note_mentions_source_note_id_idx on global.note_mentions (source_note_id)');
         $pdo->exec('create index if not exists note_mentions_target_note_id_idx on global.note_mentions (target_note_id)');
         $pdo->exec('create unique index if not exists note_mentions_source_position_uidx on global.note_mentions (source_note_id, position)');

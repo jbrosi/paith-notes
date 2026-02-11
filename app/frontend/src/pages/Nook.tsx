@@ -30,6 +30,7 @@ export default function Nook() {
 					selectedId={store.selectedId()}
 					onNew={store.newNote}
 					onSelect={store.selectNote}
+					onQuickUploadFile={(f) => void store.quickUploadFile(f)}
 				/>
 
 				<div style={{ flex: "1", "min-width": "0" }}>
@@ -41,11 +42,13 @@ export default function Nook() {
 							selectedId={store.selectedId()}
 							notes={store.notes()}
 							mentionTargetId={store.mentionTargetId()}
+							mentionEmbedImage={store.mentionEmbedImage()}
 							onToggleMode={() =>
 								store.setMode((m) => (m === "edit" ? "view" : "edit"))
 							}
 							onRefresh={store.loadNotes}
 							onChangeMentionTargetId={store.setMentionTargetId}
+							onChangeMentionEmbedImage={store.setMentionEmbedImage}
 							onInsertMention={store.insertMention}
 							onSave={store.saveNote}
 							onDelete={store.deleteNote}
@@ -58,14 +61,28 @@ export default function Nook() {
 								Type
 								<select
 									value={store.type()}
-									onChange={(e) =>
-										store.setType(
+									onChange={(e) => {
+										if (store.selectedId() !== "" && store.type() === "file") {
+											return;
+										}
+
+										const next =
 											e.currentTarget.value === "person"
 												? "person"
-												: "anything",
-										)
+												: e.currentTarget.value === "file"
+													? "file"
+													: "anything";
+
+										if (store.selectedId() !== "" && next === "file") {
+											return;
+										}
+
+										store.setType(next);
+									}}
+									disabled={
+										store.mode() !== "edit" ||
+										(store.selectedId() !== "" && store.type() === "file")
 									}
-									disabled={store.mode() !== "edit"}
 									style={{
 										width: "100%",
 										padding: "8px",
@@ -74,6 +91,14 @@ export default function Nook() {
 								>
 									<option value="anything">Anything</option>
 									<option value="person">Person</option>
+									<option
+										value="file"
+										disabled={
+											store.selectedId() !== "" && store.type() !== "file"
+										}
+									>
+										File
+									</option>
 								</select>
 							</label>
 						</div>
@@ -137,39 +162,132 @@ export default function Nook() {
 							</div>
 						</Show>
 
-						<div style={{ "margin-bottom": "0.5rem" }}>
-							<label>
-								Title
-								<input
-									type="text"
-									value={store.title()}
-									onInput={(e) => store.setTitle(e.currentTarget.value)}
-									readOnly={store.mode() !== "edit"}
-									style={{
-										width: "100%",
-										padding: "8px",
-										"box-sizing": "border-box",
-									}}
-								/>
-							</label>
-						</div>
-						<div>
-							<div style={{ "margin-bottom": "0.5rem" }}>Content</div>
+						<Show when={store.type() === "file"}>
 							<div
 								style={{
-									border: "1px solid #ccc",
-									"border-radius": "8px",
-									overflow: "hidden",
+									display: "flex",
+									gap: "8px",
+									"align-items": "center",
 								}}
 							>
-								<MilkdownEditor
-									value={store.content()}
-									onChange={store.setContent}
-									readonly={store.mode() !== "edit"}
-									onNoteLinkClick={(id) => void store.onNoteLinkClick(id)}
-								/>
+								<Show when={store.fileFilename() === ""}>
+									<input
+										type="file"
+										disabled={store.mode() !== "edit"}
+										onChange={(e) => {
+											const f = e.currentTarget.files?.[0];
+											if (f) void store.uploadFile(f);
+										}}
+									/>
+								</Show>
+								<button
+									type="button"
+									onClick={() => void store.downloadFile()}
+									disabled={
+										store.selectedId() === "" || store.fileFilename() === ""
+									}
+								>
+									Download
+								</button>
 							</div>
-						</div>
+
+							<Show
+								when={
+									store.fileFilename() !== "" &&
+									!store.fileUploadInProgress() &&
+									store.fileInlineUrl() !== ""
+								}
+							>
+								<div style={{ "margin-top": "0.5rem" }}>
+									<Show when={store.fileMimeType().startsWith("image/")}>
+										<img
+											src={store.fileInlineUrl()}
+											alt={store.fileFilename()}
+											style={{
+												"max-width": "100%",
+												"max-height": "420px",
+												border: "1px solid #eee",
+												"border-radius": "8px",
+											}}
+										/>
+									</Show>
+									<Show when={store.fileMimeType() === "application/pdf"}>
+										<iframe
+											src={store.fileInlineUrl()}
+											title={store.fileFilename()}
+											style={{
+												width: "100%",
+												height: "520px",
+												border: "1px solid #eee",
+												"border-radius": "8px",
+											}}
+										/>
+									</Show>
+									<Show
+										when={
+											!store.fileMimeType().startsWith("image/") &&
+											store.fileMimeType() !== "application/pdf"
+										}
+									>
+										<div style={{ color: "#666" }}>
+											Preview not available for this file type.
+										</div>
+									</Show>
+								</div>
+							</Show>
+						</Show>
+
+						<Show
+							when={
+								store.type() !== "file" ||
+								(store.fileFilename() !== "" && !store.fileUploadInProgress())
+							}
+						>
+							<div style={{ "margin-bottom": "0.5rem" }}>
+								<label>
+									Title
+									<input
+										type="text"
+										value={store.title()}
+										onInput={(e) => store.setTitle(e.currentTarget.value)}
+										readOnly={store.mode() !== "edit"}
+										style={{
+											width: "100%",
+											padding: "8px",
+											"box-sizing": "border-box",
+										}}
+									/>
+								</label>
+							</div>
+						</Show>
+						<Show
+							when={
+								store.type() !== "file" ||
+								(store.fileFilename() !== "" && !store.fileUploadInProgress())
+							}
+						>
+							<div>
+								<div style={{ "margin-bottom": "0.5rem" }}>Content</div>
+								<div
+									style={{
+										border: "1px solid #ccc",
+										"border-radius": "8px",
+										overflow: "hidden",
+									}}
+								>
+									<MilkdownEditor
+										value={store.content()}
+										onChange={store.setContent}
+										readonly={store.mode() !== "edit"}
+										onNoteLinkClick={(id) => void store.onNoteLinkClick(id)}
+										resolveEmbeddedImageSrc={(id) =>
+											store.resolveEmbeddedImageSrc(id)
+										}
+										uploadEmbeddedImage={(f) => store.uploadEmbeddedImage(f)}
+									/>
+								</div>
+							</div>
+						</Show>
 					</div>
 
 					<NookMentionsPanel

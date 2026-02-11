@@ -13,6 +13,10 @@ export function NookMentionsPanel(props: NookMentionsPanelProps) {
 		return props.notes.find((n) => n.id === noteId)?.type === "person";
 	};
 
+	const isFile = (noteId: string) => {
+		return props.notes.find((n) => n.id === noteId)?.type === "file";
+	};
+
 	return (
 		<div style={{ "margin-top": "1rem" }}>
 			<div style={{ "font-weight": "600", "margin-bottom": "6px" }}>
@@ -65,6 +69,19 @@ export function NookMentionsPanel(props: NookMentionsPanelProps) {
 											>
 												Person
 											</span>
+										) : isFile(m.noteId) ? (
+											<span
+												style={{
+													"font-size": "12px",
+													padding: "2px 6px",
+													"border-radius": "999px",
+													border: "1px solid #c9def7",
+													background: "#eef5ff",
+													color: "#1f5fbf",
+												}}
+											>
+												File
+											</span>
 										) : null}
 									</div>
 								</button>
@@ -114,6 +131,19 @@ export function NookMentionsPanel(props: NookMentionsPanelProps) {
 												}}
 											>
 												Person
+											</span>
+										) : isFile(m.noteId) ? (
+											<span
+												style={{
+													"font-size": "12px",
+													padding: "2px 6px",
+													"border-radius": "999px",
+													border: "1px solid #c9def7",
+													background: "#eef5ff",
+													color: "#1f5fbf",
+												}}
+											>
+												File
 											</span>
 										) : null}
 									</div>
