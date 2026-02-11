@@ -24,7 +24,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.3.11",
-    "autoprefixer": "^10.4.20",
+    "autoprefixer": "^10.4.24",
     "cypress": "^15.10.0",
     "postcss": "^8.4.49",
     "stylelint": "^16.0.0",
