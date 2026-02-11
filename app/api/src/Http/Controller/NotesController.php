@@ -395,10 +395,10 @@ final class NotesController
         );
 
         foreach ($mentions as $m) {
-            $target = $m['target_note_id'] ?? '';
-            $title = $m['link_title'] ?? '';
-            $offset = $m['offset'] ?? 0;
-            if (!is_string($target) || !self::isUuid($target)) {
+            $target = $m['target_note_id'];
+            $title = $m['link_title'];
+            $offset = $m['offset'];
+            if (!self::isUuid($target)) {
                 continue;
             }
 
@@ -410,8 +410,8 @@ final class NotesController
             $insert->execute([
                 ':source_note_id' => $sourceNoteId,
                 ':target_note_id' => $target,
-                ':position' => is_int($offset) ? $offset : 0,
-                ':link_title' => is_string($title) ? $title : '',
+                ':position' => $offset,
+                ':link_title' => $title,
             ]);
         }
     }
@@ -428,10 +428,6 @@ final class NotesController
             return [];
         }
 
-        if (!isset($matches['title'], $matches['uuid'])) {
-            return [];
-        }
-
         $out = [];
         $matchCount = count($matches['uuid']);
         for ($i = 0; $i < $matchCount; $i++) {
@@ -439,18 +435,14 @@ final class NotesController
             $uuid = $matches['uuid'][$i][0] ?? '';
             $offset = $matches['uuid'][$i][1] ?? 0;
 
-            if (!is_string($title) || !is_string($uuid)) {
-                continue;
-            }
-
             $out[] = [
                 'target_note_id' => $uuid,
                 'link_title' => $title,
-                'offset' => is_int($offset) ? $offset : 0,
+                'offset' => $offset,
             ];
         }
 
-        usort($out, static fn (array $a, array $b): int => ($a['offset'] ?? 0) <=> ($b['offset'] ?? 0));
+        usort($out, static fn (array $a, array $b): int => $a['offset'] <=> $b['offset']);
         return $out;
     }
 
