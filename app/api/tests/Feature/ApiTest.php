@@ -157,6 +157,38 @@ it('can create a note in a nook', function (): void {
 	expect((int)($rows[0]['position'] ?? -1))->toBeGreaterThanOrEqual(0);
 	expect((string)($rows[0]['link_title'] ?? ''))->toBe('Custom Title');
 
+	// Mentions endpoint: outgoing on source note.
+	$mentionsOut = App::handle(
+		'GET',
+		'/api/nooks/' . $nookId . '/notes/' . $noteId . '/mentions',
+		$headers,
+		''
+	);
+	expect($mentionsOut['status'])->toBe(200);
+	$mentionsOutData = json_decode($mentionsOut['body'], true);
+	expect($mentionsOutData)->toBeArray();
+	expect($mentionsOutData['outgoing'])->toBeArray();
+	expect($mentionsOutData['incoming'])->toBeArray();
+	expect(count($mentionsOutData['outgoing']))->toBe(1);
+	expect((string)($mentionsOutData['outgoing'][0]['note_id'] ?? ''))->toBe($targetNoteId);
+	expect((string)($mentionsOutData['outgoing'][0]['link_title'] ?? ''))->toBe('Custom Title');
+
+	// Mentions endpoint: incoming on target note.
+	$mentionsIn = App::handle(
+		'GET',
+		'/api/nooks/' . $nookId . '/notes/' . $targetNoteId . '/mentions',
+		$headers,
+		''
+	);
+	expect($mentionsIn['status'])->toBe(200);
+	$mentionsInData = json_decode($mentionsIn['body'], true);
+	expect($mentionsInData)->toBeArray();
+	expect($mentionsInData['outgoing'])->toBeArray();
+	expect($mentionsInData['incoming'])->toBeArray();
+	expect(count($mentionsInData['incoming']))->toBe(1);
+	expect((string)($mentionsInData['incoming'][0]['note_id'] ?? ''))->toBe($noteId);
+	expect((string)($mentionsInData['incoming'][0]['link_title'] ?? ''))->toBe('Custom Title');
+
     $listNotes = App::handle('GET', '/api/nooks/' . $nookId . '/notes', $headers, '');
     expect($listNotes['status'])->toBe(200);
 
@@ -171,7 +203,7 @@ it('can create a note in a nook', function (): void {
 	expect(in_array($targetNoteId, $ids, true))->toBe(true);
 
 	$titles = array_map(static fn (array $n): string => (string)($n['title'] ?? ''), $listNotesData['notes']);
-	expect(in_array('Hello', $titles, true))->toBe(true);
+	expect(in_array('Hello 2', $titles, true))->toBe(true);
 	expect(in_array('Target', $titles, true))->toBe(true);
 
 	// Remove the mention and ensure mention table is synced (deleted).
@@ -192,6 +224,18 @@ it('can create a note in a nook', function (): void {
 	$mentions2 = $pdoMentions->prepare('select count(*) from global.note_mentions where source_note_id = :source');
 	$mentions2->execute([':source' => $noteId]);
 	expect((int)$mentions2->fetchColumn())->toBe(0);
+
+	// Mentions endpoint should now be empty.
+	$mentionsOut2 = App::handle(
+		'GET',
+		'/api/nooks/' . $nookId . '/notes/' . $noteId . '/mentions',
+		$headers,
+		''
+	);
+	expect($mentionsOut2['status'])->toBe(200);
+	$mentionsOut2Data = json_decode($mentionsOut2['body'], true);
+	expect($mentionsOut2Data)->toBeArray();
+	expect(count($mentionsOut2Data['outgoing'] ?? []))->toBe(0);
 
     $pdo = test_pdo();
     $stmt = $pdo->prepare('select title, content from global.notes where id = :id and nook_id = :nook_id');
@@ -219,7 +263,9 @@ it('can create a note in a nook', function (): void {
     $listNotesData2 = json_decode($listNotes2['body'], true);
     expect($listNotesData2)->toBeArray();
     expect($listNotesData2['notes'])->toBeArray();
-    expect(count($listNotesData2['notes']))->toBe(0);
+	// The target note should still exist.
+    expect(count($listNotesData2['notes']))->toBe(1);
+	expect((string)($listNotesData2['notes'][0]['id'] ?? ''))->toBe($targetNoteId);
 
     $stmt2 = $pdo->prepare('select count(*) from global.notes where id = :id and nook_id = :nook_id');
     $stmt2->execute([':id' => $noteId, ':nook_id' => $nookId]);

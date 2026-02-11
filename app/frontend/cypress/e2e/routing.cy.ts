@@ -102,6 +102,58 @@ describe("Routing E2E Tests", () => {
 		cy.contains("button", title, { timeout: 10_000 }).should("be.visible");
 	});
 
+	it("shows outgoing and incoming mentions", () => {
+		const label = `Mention ${Date.now()}`;
+
+		getPersonalNookId().then((nookId) => {
+			cy.request({
+				method: "POST",
+				url: `/api/nooks/${nookId}/notes`,
+				headers,
+				body: { title: "Source Note", content: "" },
+			}).then((res) => {
+				const sourceId = String(res.body?.note?.id ?? "");
+				expect(sourceId).to.not.equal("");
+
+				cy.request({
+					method: "POST",
+					url: `/api/nooks/${nookId}/notes`,
+					headers,
+					body: { title: "Target Note", content: "" },
+				}).then((res2) => {
+					const targetId = String(res2.body?.note?.id ?? "");
+					expect(targetId).to.not.equal("");
+
+					cy.request({
+						method: "PUT",
+						url: `/api/nooks/${nookId}/notes/${sourceId}`,
+						headers,
+						body: {
+							title: "Source Note",
+							content: `See [${label}](note:${targetId})`,
+						},
+					});
+				});
+			});
+		});
+
+		nav().within(() => {
+			cy.contains("a", "Notes").click();
+		});
+
+		cy.contains("button", "Source Note").click();
+		cy.contains("Mentions").should("be.visible");
+		cy.contains("Outgoing").should("be.visible");
+		cy.contains("Incoming").should("be.visible");
+		cy.contains("button", label).should("be.visible");
+
+		cy.contains("button", label).click();
+		cy.get('input[type="text"]').should("have.value", "Target Note");
+		cy.contains("Mentions").should("be.visible");
+		cy.contains("Incoming").should("be.visible");
+		cy.contains("button", "Source Note").should("be.visible");
+	});
+
 	it("navigates back to Home page", () => {
 		nav().within(() => {
 			cy.contains("a", "About").click();

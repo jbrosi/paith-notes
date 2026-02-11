@@ -136,7 +136,7 @@ export function createNookStore(nookId: () => string) {
 		}
 
 		setLoading(true);
-		setError("");		
+		setError("");
 		try {
 			const id = selectedId();
 			if (id === "") {

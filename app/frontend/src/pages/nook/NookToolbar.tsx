@@ -61,7 +61,10 @@ export function NookToolbar(props: NookToolbarProps) {
 			>
 				Insert
 			</Button>
-			<Button onClick={props.onSave} disabled={props.loading || !isEditing() || props.title.trim() === ""}>
+			<Button
+				onClick={props.onSave}
+				disabled={props.loading || !isEditing() || props.title.trim() === ""}
+			>
 				Save
 			</Button>
 			<Button

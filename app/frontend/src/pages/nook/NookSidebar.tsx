@@ -45,8 +45,7 @@ export function NookSidebar(props: NookSidebarProps) {
 								"text-align": "left",
 								"border-radius": "6px",
 								border: "1px solid #ddd",
-								background:
-									note.id === props.selectedId ? "#f6f8fa" : "white",
+								background: note.id === props.selectedId ? "#f6f8fa" : "white",
 								"margin-bottom": "8px",
 								cursor: "pointer",
 							}}
