@@ -73,36 +73,57 @@ export function NookSidebar(props: NookSidebarProps) {
 									display: "flex",
 									gap: "8px",
 									"align-items": "center",
+									"justify-content": "space-between",
 								}}
 							>
-								<div style={{ "font-weight": "600" }}>{note.title}</div>
-								{note.type === "person" ? (
-									<span
-										style={{
-											"font-size": "12px",
-											padding: "2px 6px",
-											"border-radius": "999px",
-											border: "1px solid #c9def7",
-											background: "#eef5ff",
-											color: "#1f5fbf",
-										}}
-									>
-										Person
-									</span>
-								) : note.type === "file" ? (
-									<span
-										style={{
-											"font-size": "12px",
-											padding: "2px 6px",
-											"border-radius": "999px",
-											border: "1px solid #c9def7",
-											background: "#eef5ff",
-											color: "#1f5fbf",
-										}}
-									>
-										File
-									</span>
-								) : null}
+								<div
+									style={{
+										display: "flex",
+										gap: "8px",
+										"align-items": "center",
+									}}
+								>
+									<div style={{ "font-weight": "600" }}>{note.title}</div>
+									{note.type === "person" ? (
+										<span
+											style={{
+												"font-size": "12px",
+												padding: "2px 6px",
+												"border-radius": "999px",
+												border: "1px solid #c9def7",
+												background: "#eef5ff",
+												color: "#1f5fbf",
+											}}
+										>
+											Person
+										</span>
+									) : note.type === "file" ? (
+										<span
+											style={{
+												"font-size": "12px",
+												padding: "2px 6px",
+												"border-radius": "999px",
+												border: "1px solid #c9def7",
+												background: "#eef5ff",
+												color: "#1f5fbf",
+											}}
+										>
+											File
+										</span>
+									) : null}
+								</div>
+								<div
+									style={{
+										display: "flex",
+										gap: "6px",
+										"align-items": "center",
+										color: "#666",
+										"font-size": "12px",
+									}}
+								>
+									<div>in {note.incomingMentionsCount}</div>
+									<div>out {note.outgoingMentionsCount}</div>
+								</div>
 							</div>
 						</button>
 					)}

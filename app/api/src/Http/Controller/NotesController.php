@@ -36,7 +36,26 @@ final class NotesController
         $this->requireMember($pdo, $user, $nookId);
 
         $stmt = $pdo->prepare(
-            'select id, title, content, type, properties, former_properties, created_at from global.notes where nook_id = :nook_id order by created_at desc'
+            'select n.id, n.title, n.content, n.type, n.properties, n.former_properties, n.created_at,
+                coalesce(outgoing.cnt, 0) as outgoing_mentions_count,
+                coalesce(incoming.cnt, 0) as incoming_mentions_count
+            from global.notes n
+            left join (
+                select nm.source_note_id as note_id, count(*)::int as cnt
+                from global.note_mentions nm
+                join global.notes nn on nn.id = nm.source_note_id
+                where nn.nook_id = :nook_id
+                group by nm.source_note_id
+            ) outgoing on outgoing.note_id = n.id
+            left join (
+                select nm.target_note_id as note_id, count(*)::int as cnt
+                from global.note_mentions nm
+                join global.notes nn on nn.id = nm.target_note_id
+                where nn.nook_id = :nook_id
+                group by nm.target_note_id
+            ) incoming on incoming.note_id = n.id
+            where n.nook_id = :nook_id
+            order by n.created_at desc'
         );
         $stmt->execute([':nook_id' => $nookId]);
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -59,6 +78,8 @@ final class NotesController
                 'properties' => $properties === [] ? (object)[] : $properties,
                 'former_properties' => $formerProperties === [] ? (object)[] : $formerProperties,
                 'created_at' => is_scalar($r['created_at'] ?? null) ? (string)$r['created_at'] : '',
+                'outgoing_mentions_count' => is_scalar($r['outgoing_mentions_count'] ?? null) ? (int)$r['outgoing_mentions_count'] : 0,
+                'incoming_mentions_count' => is_scalar($r['incoming_mentions_count'] ?? null) ? (int)$r['incoming_mentions_count'] : 0,
             ];
         }
 
@@ -707,8 +728,10 @@ final class NotesController
     /** @return array<int, array{target_note_id: string, link_title: string, offset: int}> */
     private static function parseMentionsFromMarkdown(string $markdown): array
     {
-        // Matches markdown links like: [Some Title](note:11111111-1111-4111-8111-111111111111)
-        $pattern = '/\[(?<title>[^\]]+)\]\(note:(?<uuid>[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\)/i';
+        // Matches markdown note links like:
+        // - [Some Title](note:11111111-1111-4111-8111-111111111111)
+        // - ![Some Title](note:11111111-1111-4111-8111-111111111111)
+        $pattern = '/!?\[(?<title>[^\]]*)\]\(note:(?<uuid>[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})(?:\s+"(?<caption>[^"]*)")?\)/i';
 
         $matches = [];
         $count = preg_match_all($pattern, $markdown, $matches, PREG_OFFSET_CAPTURE);
@@ -720,12 +743,18 @@ final class NotesController
         $matchCount = count($matches['uuid']);
         for ($i = 0; $i < $matchCount; $i++) {
             $title = $matches['title'][$i][0] ?? '';
+            $caption = $matches['caption'][$i][0] ?? '';
             $uuid = $matches['uuid'][$i][0] ?? '';
             $offset = $matches['uuid'][$i][1] ?? 0;
 
+            $linkTitle = trim((string)$caption);
+            if ($linkTitle === '') {
+                $linkTitle = trim((string)$title);
+            }
+
             $out[] = [
                 'target_note_id' => $uuid,
-                'link_title' => $title,
+                'link_title' => $linkTitle,
                 'offset' => $offset,
             ];
         }

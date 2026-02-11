@@ -1,5 +1,5 @@
 import { useParams } from "@solidjs/router";
-import { createMemo, Show } from "solid-js";
+import { createMemo, createSignal, Show } from "solid-js";
 import styles from "../App.module.css";
 import { MilkdownEditor } from "../components/MilkdownEditor";
 import notesStyles from "./Notes.module.css";
@@ -12,6 +12,7 @@ export default function Nook() {
 	const params = useParams();
 	const nookId = createMemo(() => String(params.nookId ?? ""));
 	const store = createNookStore(nookId);
+	const [showMarkdown, setShowMarkdown] = createSignal<boolean>(false);
 
 	return (
 		<main class={styles.container}>
@@ -54,6 +55,27 @@ export default function Nook() {
 							onDelete={store.deleteNote}
 						/>
 					</div>
+					<button
+						type="button"
+						onClick={() => setShowMarkdown((v) => !v)}
+						style={{ "margin-bottom": "0.5rem" }}
+					>
+						{showMarkdown() ? "Hide" : "Show"} markdown
+					</button>
+					<Show when={showMarkdown()}>
+						<textarea
+							readOnly
+							value={store.content()}
+							style={{
+								width: "100%",
+								height: "180px",
+								"font-family": "monospace",
+								"box-sizing": "border-box",
+								padding: "8px",
+								"margin-bottom": "1rem",
+							}}
+						/>
+					</Show>
 
 					<div style={{ "margin-bottom": "1rem" }}>
 						<div style={{ "margin-bottom": "0.5rem" }}>
