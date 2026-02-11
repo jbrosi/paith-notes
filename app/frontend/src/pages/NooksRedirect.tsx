@@ -11,24 +11,10 @@ type PersonalNookResponse = {
 	};
 };
 
-export const CYPRESS_NOOK_ID = "00000000-0000-0000-0000-000000000000";
-
-function isCypressRun(): boolean {
-	return (
-		typeof window !== "undefined" &&
-		typeof (window as unknown as { Cypress?: unknown }).Cypress !== "undefined"
-	);
-}
-
 export default function NooksRedirect() {
 	const navigate = useNavigate();
 
 	const [data] = createResource(async () => {
-		if (isCypressRun()) {
-			navigate(`/nooks/${CYPRESS_NOOK_ID}`, { replace: true });
-			return null;
-		}
-
 		const res = await apiFetch("/api/nooks/personal", {
 			method: "GET",
 			headers: {

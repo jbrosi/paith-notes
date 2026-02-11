@@ -198,6 +198,67 @@ final class NotesController
         ]);
     }
 
+    public function delete(Request $request, Context $context): Response
+    {
+        $pdo = $context->pdo();
+        $user = $context->user();
+
+        $nookId = trim($request->routeParam('nookId'));
+        if ($nookId === '') {
+            throw new HttpError('nookId is required', 400);
+        }
+        if (!self::isUuid($nookId)) {
+            throw new HttpError('nookId must be a UUID', 400);
+        }
+
+        $noteId = trim($request->routeParam('noteId'));
+        if ($noteId === '') {
+            throw new HttpError('noteId is required', 400);
+        }
+        if (!self::isUuid($noteId)) {
+            throw new HttpError('noteId must be a UUID', 400);
+        }
+
+        $userId = is_scalar($user['id'] ?? null) ? (string)$user['id'] : '';
+        if ($userId === '') {
+            throw new HttpError('invalid user', 500);
+        }
+
+        $membership = $this->requireMember($pdo, $user, $nookId);
+
+        $allowed = false;
+        $role = is_scalar($membership['role'] ?? null) ? (string)$membership['role'] : '';
+        if ($role === 'owner') {
+            $allowed = true;
+        } else {
+            $c = $pdo->prepare('select created_by from global.notes where id = :id and nook_id = :nook_id');
+            $c->execute([':id' => $noteId, ':nook_id' => $nookId]);
+            $createdBy = $c->fetchColumn();
+            if (is_scalar($createdBy) && (string)$createdBy === $userId) {
+                $allowed = true;
+            }
+        }
+
+        if (!$allowed) {
+            throw new HttpError('forbidden', 403);
+        }
+
+        $stmt = $pdo->prepare('delete from global.notes where id = :id and nook_id = :nook_id returning id');
+        $stmt->execute([
+            ':id' => $noteId,
+            ':nook_id' => $nookId,
+        ]);
+        $deletedId = $stmt->fetchColumn();
+        if (!is_scalar($deletedId) || (string)$deletedId === '') {
+            throw new HttpError('note not found', 404);
+        }
+
+        return JsonResponse::ok([
+            'deleted' => true,
+            'note_id' => (string)$deletedId,
+        ]);
+    }
+
     private function requireMember(PDO $pdo, array $user, string $nookId): array
     {
         $check = $pdo->prepare('select role from global.nook_members where nook_id = :nook_id and user_id = :user_id limit 1');
