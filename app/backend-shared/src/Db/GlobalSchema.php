@@ -77,7 +77,7 @@ final class GlobalSchema
         $pdo->exec('create index if not exists notes_nook_id_idx on global.notes (nook_id)');
         $pdo->exec('create index if not exists notes_created_by_idx on global.notes (created_by)');
 
-		$pdo->exec(" 
+        $pdo->exec(" 
 			create table if not exists global.note_mentions (
 				id bigserial primary key,
 				source_note_id uuid not null references global.notes(id) on delete cascade,
@@ -88,9 +88,9 @@ final class GlobalSchema
 			);
 		");
 
-		$pdo->exec('create index if not exists note_mentions_source_note_id_idx on global.note_mentions (source_note_id)');
-		$pdo->exec('create index if not exists note_mentions_target_note_id_idx on global.note_mentions (target_note_id)');
-		$pdo->exec('create unique index if not exists note_mentions_source_position_uidx on global.note_mentions (source_note_id, position)');
+        $pdo->exec('create index if not exists note_mentions_source_note_id_idx on global.note_mentions (source_note_id)');
+        $pdo->exec('create index if not exists note_mentions_target_note_id_idx on global.note_mentions (target_note_id)');
+        $pdo->exec('create unique index if not exists note_mentions_source_position_uidx on global.note_mentions (source_note_id, position)');
 
         $pdo->exec("
             create table if not exists global.jobs (
