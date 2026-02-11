@@ -64,6 +64,20 @@ final class GlobalSchema
         $pdo->exec('create index if not exists nook_members_user_id_idx on global.nook_members (user_id)');
 
         $pdo->exec("
+            create table if not exists global.notes (
+                id uuid primary key default gen_random_uuid(),
+                nook_id uuid not null references global.nooks(id) on delete cascade,
+                created_by uuid not null references global.users(id) on delete restrict,
+                title text not null,
+                content text not null default '',
+                created_at timestamptz not null default now()
+            );
+        ");
+
+        $pdo->exec('create index if not exists notes_nook_id_idx on global.notes (nook_id)');
+        $pdo->exec('create index if not exists notes_created_by_idx on global.notes (created_by)');
+
+        $pdo->exec("
             create table if not exists global.jobs (
                 id bigserial primary key,
                 queue text not null default 'default',
