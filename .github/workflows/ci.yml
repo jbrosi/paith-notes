@@ -27,14 +27,8 @@ jobs:
           path: .ci-cache/composer
           key: composer-${{ runner.os }}-${{ hashFiles('app/api/composer.json', 'app/api/composer.lock', 'app/worker/composer.json', 'app/worker/composer.lock') }}
 
-      - name: Build worker image
-        run: docker compose build worker
-
-      - name: Install PHP dependencies (worker)
-        run: docker compose run --rm --no-deps -v ${{ github.workspace }}/.ci-cache/composer:/tmp/composer-cache -e COMPOSER_CACHE_DIR=/tmp/composer-cache worker composer install --working-dir=/app/worker --no-interaction --prefer-dist
-
-      - name: Install PHP dependencies (api)
-        run: docker compose run --rm --no-deps -v ${{ github.workspace }}/.ci-cache/composer:/tmp/composer-cache -e COMPOSER_CACHE_DIR=/tmp/composer-cache worker composer install --working-dir=/app/api --no-interaction --prefer-dist
+      - name: Install PHP dependencies
+        run: sh scripts/ci-install-php.sh
 
       - name: Save Composer cache
         uses: actions/cache/save@v4
@@ -58,7 +52,7 @@ jobs:
           key: yarn-${{ runner.os }}-${{ hashFiles('app/frontend/package.json', 'app/frontend/yarn.lock') }}
 
       - name: Install frontend dependencies
-        run: docker compose run --rm --no-deps -v ${{ github.workspace }}/.ci-cache/yarn:/tmp/yarn-cache -e YARN_CACHE_FOLDER=/tmp/yarn-cache -e CYPRESS_INSTALL_BINARY=0 frontend sh -lc "export COREPACK_ENABLE_DOWNLOAD_PROMPT=0 && corepack enable && yarn install"
+        run: sh scripts/ci-install-frontend.sh
 
       - name: Save Yarn cache
         uses: actions/cache/save@v4
@@ -83,20 +77,14 @@ jobs:
           path: .ci-cache/composer
           key: composer-${{ runner.os }}-${{ hashFiles('app/api/composer.json', 'app/api/composer.lock', 'app/worker/composer.json', 'app/worker/composer.lock') }}
 
-      - name: Build worker image
-        run: docker compose build worker
-
-      - name: Install PHP dependencies (worker)
-        run: docker compose run --rm --no-deps -v ${{ github.workspace }}/.ci-cache/composer:/tmp/composer-cache -e COMPOSER_CACHE_DIR=/tmp/composer-cache worker composer install --working-dir=/app/worker --no-interaction --prefer-dist
-
-      - name: Install PHP dependencies (api)
-        run: docker compose run --rm --no-deps -v ${{ github.workspace }}/.ci-cache/composer:/tmp/composer-cache -e COMPOSER_CACHE_DIR=/tmp/composer-cache worker composer install --working-dir=/app/api --no-interaction --prefer-dist
+      - name: Install PHP dependencies
+        run: sh scripts/ci-install-php.sh
 
       - name: PHPCS
-        run: docker compose run --rm --no-deps worker composer phpcs --working-dir=/app/worker
+        run: sh scripts/php-lint.sh
 
       - name: PHPStan
-        run: docker compose run --rm --no-deps worker composer phpstan --working-dir=/app/worker
+        run: sh scripts/phpstan.sh
 
   lint-frontend:
     runs-on: ubuntu-latest
@@ -116,7 +104,7 @@ jobs:
           key: yarn-${{ runner.os }}-${{ hashFiles('app/frontend/package.json', 'app/frontend/yarn.lock') }}
 
       - name: Frontend lint (Biome)
-        run: docker compose run --rm --no-deps -v ${{ github.workspace }}/.ci-cache/yarn:/tmp/yarn-cache -e YARN_CACHE_FOLDER=/tmp/yarn-cache frontend sh -lc "export COREPACK_ENABLE_DOWNLOAD_PROMPT=0 && corepack enable && yarn install && yarn verify"
+        run: sh scripts/ci-lint-frontend.sh
 
   test-frontend-component:
     runs-on: ubuntu-latest
@@ -183,50 +171,8 @@ jobs:
           path: .ci-cache/composer
           key: composer-${{ runner.os }}-${{ hashFiles('app/api/composer.json', 'app/api/composer.lock', 'app/worker/composer.json', 'app/worker/composer.lock') }}
 
-      - name: Build worker image
-        run: docker compose build worker
-
-      - name: Install PHP dependencies (api)
-        run: docker compose run --rm --no-deps -v ${{ github.workspace }}/.ci-cache/composer:/tmp/composer-cache -e COMPOSER_CACHE_DIR=/tmp/composer-cache worker composer install --working-dir=/app/api --no-interaction --prefer-dist
-
-      - name: Start services (frontend and backend)
-        run: docker compose up -d db rustfs app
-
-      - name: Wait for services to be ready
-        run: |
-          echo "Waiting for services to be ready..."
-          for i in {1..60}; do
-            # Check API health endpoint
-            if curl -f http://localhost:8000/health > /dev/null 2>&1; then
-              echo "API is ready!"
-              # Check if frontend is serving (proxied through app service)
-              if curl -f http://localhost:8000 > /dev/null 2>&1; then
-                echo "Frontend is ready!"
-                exit 0
-              fi
-            fi
-            echo "Waiting... ($i/60)"
-            sleep 2
-          done
-          echo "Services failed to start"
-          docker compose logs
-          exit 1
-
-      - name: Install dependencies and run E2E tests in frontend container
-        run: |
-          # Use Cypress included image for running E2E tests (has all dependencies like Xvfb)
-          docker run --rm \
-            --network host \
-            -v ${{ github.workspace }}/app/frontend:/app/frontend \
-            -v ${{ github.workspace }}/.ci-cache/yarn:/tmp/yarn-cache \
-            -v ${{ github.workspace }}/.ci-cache/cypress:/cypress-cache \
-            -e YARN_CACHE_FOLDER=/tmp/yarn-cache \
-            -e CYPRESS_CACHE_FOLDER=/cypress-cache \
-            -e CYPRESS_baseUrl=http://localhost:8000 \
-            -w /app/frontend \
-            --entrypoint sh \
-            docker.io/cypress/included:15.8.1 \
-            -lc "export COREPACK_ENABLE_DOWNLOAD_PROMPT=0 && corepack enable && yarn install && if [ -z \"$(ls -A /cypress-cache 2>/dev/null || true)\" ]; then cp -a /root/.cache/Cypress/. /cypress-cache/ 2>/dev/null || true; fi && yarn test:e2e"
+      - name: Run E2E tests
+        run: CI=1 sh scripts/run-frontend-e2e-tests.sh
 
       - name: Save Cypress binary cache
         uses: actions/cache/save@v4
@@ -234,10 +180,6 @@ jobs:
         with:
           path: .ci-cache/cypress
           key: cypress-${{ runner.os }}-${{ hashFiles('app/frontend/package.json', 'app/frontend/yarn.lock') }}
-
-      - name: Cleanup
-        if: always()
-        run: docker compose down -v
 
   test-php:
     runs-on: ubuntu-latest
@@ -256,30 +198,14 @@ jobs:
           path: .ci-cache/composer
           key: composer-${{ runner.os }}-${{ hashFiles('app/api/composer.json', 'app/api/composer.lock', 'app/worker/composer.json', 'app/worker/composer.lock') }}
 
-      - name: Build worker image
-        run: docker compose build worker
-
-      - name: Start services
-        run: docker compose up -d db rustfs
-
-      - name: Install PHP dependencies (worker)
-        run: docker compose run --rm --no-deps -v ${{ github.workspace }}/.ci-cache/composer:/tmp/composer-cache -e COMPOSER_CACHE_DIR=/tmp/composer-cache worker composer install --working-dir=/app/worker --no-interaction --prefer-dist
-
-      - name: Install PHP dependencies (api)
-        run: docker compose run --rm --no-deps -v ${{ github.workspace }}/.ci-cache/composer:/tmp/composer-cache -e COMPOSER_CACHE_DIR=/tmp/composer-cache worker composer install --working-dir=/app/api --no-interaction --prefer-dist
-
       - name: Pest (with coverage)
-        run: docker compose run --rm worker sh -lc "mkdir -p /app/api/coverage && cd /app/api && php -d pcov.enabled=1 vendor/bin/pest --coverage --coverage-clover=/app/api/coverage/clover.xml"
+        run: sh scripts/ci-test-php.sh
 
       - name: Upload coverage artifact
         uses: actions/upload-artifact@v4
         with:
           name: api-coverage-clover
           path: app/api/coverage/clover.xml
-
-      - name: Cleanup
-        if: always()
-        run: docker compose down -v
 
   sonarcloud:
     runs-on: ubuntu-latest

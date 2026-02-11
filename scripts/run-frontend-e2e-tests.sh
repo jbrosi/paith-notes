@@ -3,6 +3,11 @@ set -eu
 
 ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 
+cd "$ROOT_DIR"
+
+COMPOSE_FILE="docker-compose.frontend-e2e.yml"
+PROJECT=${PROJECT:-"notes-frontend-e2e"}
+
 mkdir -p "$ROOT_DIR/.ci-cache/yarn" "$ROOT_DIR/.ci-cache/cypress" "$ROOT_DIR/.ci-cache/composer"
 
 cleanup() {
@@ -15,30 +20,30 @@ cleanup() {
 	fi
 
 	if [ -n "${CI:-}" ]; then
-		docker compose down -v || true
+		docker compose -f "$COMPOSE_FILE" --project-name "$PROJECT" down -v --remove-orphans >/dev/null 2>&1 || true
 	else
-		docker compose down || true
+		docker compose -f "$COMPOSE_FILE" --project-name "$PROJECT" down --remove-orphans >/dev/null 2>&1 || true
 	fi
 }
 trap cleanup EXIT
 
 # Build worker image from this monorepo (needed for composer installs)
-docker compose build worker
+docker compose -f "$COMPOSE_FILE" --project-name "$PROJECT" build worker
 
 # Ensure API deps are installed (required for /health and app runtime)
-docker compose run --rm --no-deps \
+docker compose -f "$COMPOSE_FILE" --project-name "$PROJECT" run --rm --no-deps \
 	-v "$ROOT_DIR/.ci-cache/composer:/tmp/composer-cache" \
 	-e COMPOSER_CACHE_DIR=/tmp/composer-cache \
 	worker composer install --working-dir=/app/api --no-interaction --prefer-dist
 
 # Start full stack (app will pull in frontend, db, rustfs)
-docker compose up -d db rustfs app
+docker compose -f "$COMPOSE_FILE" --project-name "$PROJECT" up -d db rustfs app
 
 echo "Waiting for services to be ready..."
 for i in $(seq 1 150); do
-	if curl -fsS --connect-timeout 2 --max-time 2 http://localhost:8000/health >/dev/null 2>&1; then
+	if docker compose -f "$COMPOSE_FILE" --project-name "$PROJECT" run --rm --no-deps worker php -r "exit((int)!(bool)@file_get_contents('http://app:8000/health'));" >/dev/null 2>&1; then
 		echo "API is ready!"
-		if curl -fsS --connect-timeout 2 --max-time 2 http://localhost:8000 >/dev/null 2>&1; then
+		if docker compose -f "$COMPOSE_FILE" --project-name "$PROJECT" run --rm --no-deps worker php -r "exit((int)!(bool)@file_get_contents('http://app:8000'));" >/dev/null 2>&1; then
 			echo "Frontend is ready!"
 			break
 		fi
@@ -47,9 +52,9 @@ for i in $(seq 1 150); do
 	sleep 2
 done
 
-if ! curl -fsS --connect-timeout 2 --max-time 2 http://localhost:8000/health >/dev/null 2>&1; then
+if ! docker compose -f "$COMPOSE_FILE" --project-name "$PROJECT" run --rm --no-deps worker php -r "exit((int)!(bool)@file_get_contents('http://app:8000/health'));" >/dev/null 2>&1; then
 	echo "Services failed to start"
-	docker compose logs
+	docker compose -f "$COMPOSE_FILE" --project-name "$PROJECT" logs
 	exit 1
 fi
 
@@ -59,13 +64,13 @@ if [ "${START_ONLY:-0}" = "1" ]; then
 fi
 
 docker run --rm \
-	--network host \
+	--network "${PROJECT}_default" \
 	-v "$ROOT_DIR/app/frontend:/app/frontend" \
 	-v "$ROOT_DIR/.ci-cache/yarn:/tmp/yarn-cache" \
 	-v "$ROOT_DIR/.ci-cache/cypress:/cypress-cache" \
 	-e YARN_CACHE_FOLDER=/tmp/yarn-cache \
 	-e CYPRESS_CACHE_FOLDER=/cypress-cache \
-	-e CYPRESS_baseUrl=http://localhost:8000 \
+	-e CYPRESS_baseUrl=http://app:8000 \
 	-w /app/frontend \
 	--entrypoint sh \
 	docker.io/cypress/included:15.8.1 \
