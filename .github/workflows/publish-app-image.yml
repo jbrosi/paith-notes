@@ -43,7 +43,8 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: Dockerfile
+          file: docker/app/Dockerfile
+          target: prod
           push: true
           tags: |
             ghcr.io/${{ github.repository }}/app:${{ steps.meta.outputs.tag }}
@@ -79,7 +80,8 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: Dockerfile
+          file: docker/app/Dockerfile
+          target: prod
           push: false
           tags: |
             ghcr.io/${{ github.repository }}/app:${{ matrix.tag }}

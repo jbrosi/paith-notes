@@ -2,7 +2,9 @@ services:
   app:
     image: ${APP_IMAGE:-notes-app}
     build:
-      context: ./docker/app
+      context: .
+      dockerfile: docker/app/Dockerfile
+      target: dev
     environment:
       SERVER_NAME: ":8000"
       FRANKENPHP_WATCH: "1"
@@ -43,7 +45,9 @@ services:
   worker:
     image: ${WORKER_IMAGE:-notes-worker}
     build:
-      context: ./docker/worker
+      context: .
+      dockerfile: docker/worker/Dockerfile
+      target: dev
     command: ["php", "/app/worker/worker.php"]
     environment:
       DATABASE_URL: "postgresql://paith:paith@db:5432/paith"
