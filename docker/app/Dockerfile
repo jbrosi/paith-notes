@@ -1,5 +1,9 @@
 FROM dunglas/frankenphp:latest AS dev
 
+RUN apt-get update \
+	&& apt-get install -y --no-install-recommends git unzip ca-certificates \
+	&& rm -rf /var/lib/apt/lists/*
+
 RUN install-php-extensions pdo_pgsql
 
 COPY --from=composer:latest /usr/bin/composer /usr/local/bin/composer
