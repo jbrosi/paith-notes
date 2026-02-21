@@ -4,9 +4,8 @@ on:
   push:
     branches:
       - main
-      - dev
     paths:
-      - docker/app/Dockerfile
+      - Dockerfile
       - .github/workflows/publish-app-image.yml
   schedule:
     - cron: '23 3 * * *'
@@ -46,8 +45,8 @@ jobs:
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
-          context: docker/app
-          file: docker/app/Dockerfile
+          context: .
+          file: Dockerfile
           push: true
           tags: |
             ghcr.io/${{ github.repository }}/app:${{ steps.meta.outputs.tag }}
@@ -63,8 +62,6 @@ jobs:
         include:
           - ref: refs/heads/main
             tag: latest
-          - ref: refs/heads/dev
-            tag: test
 
     steps:
       - uses: actions/checkout@v4
@@ -84,9 +81,9 @@ jobs:
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
-          context: docker/app
-          file: docker/app/Dockerfile
-          push: true
+          context: .
+          file: Dockerfile
+          push: false
           tags: |
             ghcr.io/${{ github.repository }}/app:${{ matrix.tag }}
           cache-from: type=gha
