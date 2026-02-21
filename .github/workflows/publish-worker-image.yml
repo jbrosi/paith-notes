@@ -4,9 +4,8 @@ on:
   push:
     branches:
       - main
-      - dev
     paths:
-     - docker/worker/Dockerfile
+      - Dockerfile.worker
       - .github/workflows/publish-worker-image.yml
   schedule:
     - cron: '17 3 * * *'
@@ -46,8 +45,8 @@ jobs:
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
-          context: docker/worker
-          file: docker/worker/Dockerfile
+          context: .
+          file: Dockerfile.worker
           push: true
           tags: |
             ghcr.io/${{ github.repository }}/worker:${{ steps.meta.outputs.tag }}
@@ -63,8 +62,6 @@ jobs:
         include:
           - ref: refs/heads/main
             tag: latest
-          - ref: refs/heads/dev
-            tag: test
 
     steps:
       - uses: actions/checkout@v4
@@ -84,9 +81,9 @@ jobs:
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
-          context: docker/worker
-          file: docker/worker/Dockerfile
-          push: true
+          context: .
+          file: Dockerfile.worker
+          push: false
           tags: |
             ghcr.io/${{ github.repository }}/worker:${{ matrix.tag }}
           cache-from: type=gha
