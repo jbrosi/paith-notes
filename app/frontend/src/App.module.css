@@ -37,3 +37,29 @@
 	background: white;
 	cursor: pointer;
 }
+
+.loading-row {
+	display: flex;
+	gap: 12px;
+	align-items: center;
+	margin-top: 12px;
+}
+
+.spinner {
+	width: 16px;
+	height: 16px;
+	border: 2px solid #ddd;
+	border-top-color: #555;
+	border-radius: 50%;
+	animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+	from {
+		transform: rotate(0deg);
+	}
+
+	to {
+		transform: rotate(360deg);
+	}
+}

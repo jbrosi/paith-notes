@@ -12,7 +12,15 @@ export function RequireAuth(props: {
 	return (
 		<Show
 			when={auth.ready()}
-			fallback={<main class={styles.container}>Loading...</main>}
+			fallback={
+				<main class={styles.container}>
+					<h1 class={styles.title}>Signing in…</h1>
+					<div class={styles["loading-row"]}>
+						<div class={styles.spinner} />
+						<p class={styles.subtitle}>Checking login state…</p>
+					</div>
+				</main>
+			}
 		>
 			<Show
 				when={auth.authenticated()}

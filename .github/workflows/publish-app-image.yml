@@ -4,9 +4,6 @@ on:
   push:
     branches:
       - main
-    paths:
-      - Dockerfile
-      - .github/workflows/publish-app-image.yml
   schedule:
     - cron: '23 3 * * *'
   workflow_dispatch:

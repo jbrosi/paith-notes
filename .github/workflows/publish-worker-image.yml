@@ -4,9 +4,6 @@ on:
   push:
     branches:
       - main
-    paths:
-      - Dockerfile.worker
-      - .github/workflows/publish-worker-image.yml
   schedule:
     - cron: '17 3 * * *'
   workflow_dispatch:

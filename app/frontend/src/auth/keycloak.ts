@@ -6,6 +6,10 @@ const keycloakClientId = String(
 	import.meta.env.VITE_KEYCLOAK_CLIENT_ID ?? "",
 ).trim();
 
+const keycloakInitTimeoutMs = Number(
+	import.meta.env.VITE_KEYCLOAK_INIT_TIMEOUT_MS ?? 8000,
+);
+
 type KeycloakLike = {
 	authenticated?: boolean;
 	token?: string;
@@ -97,11 +101,24 @@ export const keycloak: KeycloakLike = isCypressRun()
 			});
 
 export async function initKeycloak(): Promise<boolean> {
-	return keycloak.init({
+	const initPromise = keycloak.init({
 		onLoad: "check-sso",
 		pkceMethod: "S256",
 		checkLoginIframe: false,
 	});
+
+	const timeoutMs =
+		Number.isFinite(keycloakInitTimeoutMs) && keycloakInitTimeoutMs > 0
+			? keycloakInitTimeoutMs
+			: 8000;
+
+	const timeoutPromise = new Promise<boolean>((_, reject) => {
+		setTimeout(() => {
+			reject(new Error(`Keycloak init timed out after ${timeoutMs}ms`));
+		}, timeoutMs);
+	});
+
+	return Promise.race([initPromise, timeoutPromise]);
 }
 
 export async function ensureFreshToken(
