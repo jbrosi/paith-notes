@@ -6,8 +6,7 @@
 .ci-cache
 **/.cache
 
-# Frontend (not needed for PHP images)
-app/frontend
+# Frontend
 app/frontend/node_modules
 
 # Dependencies built on host
