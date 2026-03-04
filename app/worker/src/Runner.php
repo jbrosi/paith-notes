@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Paith\Notes\Worker;
 
+use Paith\Notes\Shared\Db\DatabaseUrl;
 use Paith\Notes\Shared\Db\GlobalSchema;
 use Paith\Notes\Shared\Env;
 use PDO;
@@ -14,32 +15,15 @@ final class Runner
     public static function run(): void
     {
         $databaseUrl = Env::get('DATABASE_URL');
-        if ($databaseUrl === '') {
-            fwrite(STDERR, "DATABASE_URL is not set\n");
+        try {
+            $cfg = DatabaseUrl::toPdoConfig($databaseUrl);
+        } catch (\Throwable $e) {
+            fwrite(STDERR, sprintf("%s\n", $e->getMessage()));
             exit(1);
         }
 
-        $parts = parse_url($databaseUrl);
-        if ($parts === false) {
-            fwrite(STDERR, "DATABASE_URL is invalid\n");
-            exit(1);
-        }
-
-        $host = $parts['host'] ?? '';
-        $port = (int)($parts['port'] ?? 5432);
-        $user = $parts['user'] ?? '';
-        $pass = $parts['pass'] ?? '';
-        $dbName = ltrim((string)($parts['path'] ?? ''), '/');
-
-        if ($host === '' || $user === '' || $dbName === '') {
-            fwrite(STDERR, "DATABASE_URL must include host, user, and database name\n");
-            exit(1);
-        }
-
-        $dsn = sprintf('pgsql:host=%s;port=%d;dbname=%s', $host, $port, $dbName);
-
-        $connect = static function () use ($dsn, $user, $pass): PDO {
-            return new PDO($dsn, $user, $pass, [
+        $connect = static function () use ($cfg): PDO {
+            return new PDO($cfg['dsn'], $cfg['user'], $cfg['pass'], [
                 PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
                 PDO::ATTR_TIMEOUT => 2,
             ]);
