@@ -29,9 +29,8 @@ final class Runner
             ]);
         };
 
-        $ensureSchema = static function (PDO $pdo): void {
-            GlobalSchema::ensure($pdo);
-        };
+        // Ensure DB schema once at worker startup (not on every job poll).
+        GlobalSchema::ensure($connect());
 
         $workerId = sprintf('worker-%s-%d', gethostname() ?: 'unknown', getmypid());
 
@@ -40,7 +39,6 @@ final class Runner
         while (true) {
             try {
                 $pdo = $connect();
-                $ensureSchema($pdo);
 
                 $pdo->beginTransaction();
 
