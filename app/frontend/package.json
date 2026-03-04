@@ -20,12 +20,13 @@
   "dependencies": {
     "@milkdown/crepe": "^7.18.0",
     "@solidjs/router": "^0.15.4",
-    "keycloak-js": "^26.2.3",
+    "d3": "^7.9.0",
     "solid-js": "^1.9.11",
     "zod": "^4.3.6"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.2",
+    "@types/d3": "^7.4.3",
     "autoprefixer": "^10.4.24",
     "cypress": "^15.10.0",
     "postcss": "^8.4.49",

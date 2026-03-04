@@ -1,16 +1,18 @@
-import { For } from "solid-js";
+import { createMemo, createSignal, Show } from "solid-js";
 import { Button } from "../../components/Button";
-import type { Note } from "./types";
+import { NoteSearchSelect } from "../../components/NoteSearchSelect";
+import type { NoteSummary, NoteType } from "./types";
 
 export type NookToolbarProps = {
 	mode: "view" | "edit";
 	loading: boolean;
 	title: string;
 	selectedId: string;
-	notes: Note[];
+	notes: NoteSummary[];
+	noteTypes?: NoteType[];
 	mentionTargetId: string;
 	mentionEmbedImage: boolean;
-	onToggleMode: () => void;
+	mentionCanEmbedImage: boolean;
 	onRefresh: () => void;
 	onChangeMentionTargetId: (id: string) => void;
 	onChangeMentionEmbedImage: (next: boolean) => void;
@@ -21,14 +23,31 @@ export type NookToolbarProps = {
 
 export function NookToolbar(props: NookToolbarProps) {
 	const isEditing = () => props.mode === "edit";
-	const canEmbedImage = () => {
-		const id = props.mentionTargetId;
-		if (id === "") return false;
-		const n = props.notes.find((x) => x.id === id);
-		if (!n) return false;
-		if (n.type !== "file") return false;
-		return String(n.properties?.mime_type ?? "").startsWith("image/");
-	};
+	const canEmbedImage = () => props.mentionCanEmbedImage;
+	const [mentionTypeFilterId, setMentionTypeFilterId] =
+		createSignal<string>("");
+
+	const mentionOptions = createMemo(() => {
+		return props.notes
+			.filter((n) => n.id !== props.selectedId)
+			.map((n) => ({
+				id: n.id,
+				title: n.title,
+				subtitle:
+					n.type === "file" ? "File" : n.type === "person" ? "Person" : "Note",
+				typeId: n.typeId,
+			}));
+	});
+
+	const typeNodes = createMemo(() =>
+		(props.noteTypes ?? []).map((t) => ({ id: t.id, parentId: t.parentId })),
+	);
+
+	const mentionTypeOptions = createMemo(() => {
+		return (props.noteTypes ?? [])
+			.filter((t) => t.archivedAt === "")
+			.map((t) => ({ id: t.id, label: t.label }));
+	});
 
 	return (
 		<div
@@ -38,10 +57,6 @@ export function NookToolbar(props: NookToolbarProps) {
 				"align-items": "center",
 			}}
 		>
-			<Button onClick={props.onToggleMode} variant="secondary">
-				Switch to {isEditing() ? "View" : "Edit"}
-			</Button>
-			<div style={{ color: "#666" }}>Mode: {props.mode}</div>
 			<div style={{ flex: "1" }} />
 			<Button
 				onClick={props.onRefresh}
@@ -50,51 +65,57 @@ export function NookToolbar(props: NookToolbarProps) {
 			>
 				Refresh
 			</Button>
-			<select
-				value={props.mentionTargetId}
-				onChange={(e) => props.onChangeMentionTargetId(e.currentTarget.value)}
-				disabled={props.loading || props.notes.length === 0}
-				style={{
-					"max-width": "220px",
-					padding: "6px",
-				}}
-			>
-				<option value="">Mention note…</option>
-				<For each={props.notes.filter((n) => n.id !== props.selectedId)}>
-					{(n) => <option value={n.id}>{n.title}</option>}
-				</For>
-			</select>
-			<label style={{ display: "flex", gap: "6px", "align-items": "center" }}>
-				<input
-					type="checkbox"
-					checked={props.mentionEmbedImage}
-					onChange={(e) =>
-						props.onChangeMentionEmbedImage(e.currentTarget.checked)
-					}
-					disabled={props.loading || !isEditing() || !canEmbedImage()}
-				/>
-				Include image
-			</label>
-			<Button
-				onClick={props.onInsertMention}
-				variant="secondary"
-				disabled={props.loading || !isEditing() || props.mentionTargetId === ""}
-			>
-				Insert
-			</Button>
-			<Button
-				onClick={props.onSave}
-				disabled={props.loading || !isEditing() || props.title.trim() === ""}
-			>
-				Save
-			</Button>
-			<Button
-				onClick={props.onDelete}
-				variant="danger"
-				disabled={props.loading || props.selectedId === ""}
-			>
-				Delete
-			</Button>
+			<Show when={isEditing()}>
+				<div style={{ width: "220px" }}>
+					<NoteSearchSelect
+						value={props.mentionTargetId}
+						options={mentionOptions()}
+						onChange={(id) => props.onChangeMentionTargetId(id)}
+						typeNodes={typeNodes()}
+						typeFilter={{
+							value: mentionTypeFilterId(),
+							onChange: (next) => setMentionTypeFilterId(next),
+							options: mentionTypeOptions(),
+							placeholder: "All types",
+							disabled: props.loading,
+						}}
+						filters={{ typeId: mentionTypeFilterId(), includeSubtypes: true }}
+						placeholder="Mention note…"
+						disabled={props.loading || props.notes.length === 0}
+					/>
+				</div>
+				<label style={{ display: "flex", gap: "6px", "align-items": "center" }}>
+					<input
+						type="checkbox"
+						checked={props.mentionEmbedImage}
+						onChange={(e) =>
+							props.onChangeMentionEmbedImage(e.currentTarget.checked)
+						}
+						disabled={props.loading || !canEmbedImage()}
+					/>
+					Include image
+				</label>
+				<Button
+					onClick={props.onInsertMention}
+					variant="secondary"
+					disabled={props.loading || props.mentionTargetId === ""}
+				>
+					Insert
+				</Button>
+				<Button
+					onClick={props.onSave}
+					disabled={props.loading || props.title.trim() === ""}
+				>
+					Save
+				</Button>
+				<Button
+					onClick={props.onDelete}
+					variant="danger"
+					disabled={props.loading || props.selectedId === ""}
+				>
+					Delete
+				</Button>
+			</Show>
 		</div>
 	);
 }

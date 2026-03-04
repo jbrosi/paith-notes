@@ -38,7 +38,7 @@ docker compose -f "$COMPOSE_FILE" --project-name "$PROJECT" run --rm --no-deps \
 
 # Start full stack (app will pull in frontend, db, rustfs)
 # Force recreate to ensure environment changes (e.g. auth mode) apply even if a previous run left containers behind.
-docker compose -f "$COMPOSE_FILE" --project-name "$PROJECT" up -d --force-recreate db rustfs app
+docker compose -f "$COMPOSE_FILE" --project-name "$PROJECT" up -d --force-recreate db files app
 
 echo "Waiting for services to be ready..."
 for i in $(seq 1 150); do

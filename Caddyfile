@@ -5,15 +5,13 @@
         path /health* /healthz* /api/*
     }
 
-	@s3 {
-		path_regexp s3 ^/(files|paith)(/.*)?$
-	}
+    @files {
+        path /files/*
+    }
 
-	handle @s3 {
-		reverse_proxy rustfs:9000 {
-			header_up Host {http.request.hostport}
-		}
-	}
+    handle @files {
+        reverse_proxy files:8080
+    }
 
     handle @php {
         php_server {

@@ -1,21 +1,100 @@
-import { useParams } from "@solidjs/router";
-import { createMemo, createSignal, Show } from "solid-js";
+import { useLocation, useNavigate, useParams } from "@solidjs/router";
+import {
+	createEffect,
+	createMemo,
+	createSignal,
+	Show,
+	untrack,
+} from "solid-js";
 import styles from "../App.module.css";
-import { MilkdownEditor } from "../components/MilkdownEditor";
-import notesStyles from "./Notes.module.css";
-import { NookMentionsPanel } from "./nook/NookMentionsPanel";
+import { NookGraphPanel } from "./nook/NookGraphPanel";
+import { NookLinksPanel } from "./nook/NookLinksPanel";
+import { NookMainPanel } from "./nook/NookMainPanel";
 import { NookSidebar } from "./nook/NookSidebar";
-import { NookToolbar } from "./nook/NookToolbar";
+import { NookStatusPanel } from "./nook/NookStatusPanel";
+import { NookTypeEditPanel } from "./nook/NookTypeEditPanel";
 import { createNookStore } from "./nook/store";
 
 export default function Nook() {
 	const params = useParams();
+	const location = useLocation();
+	const navigate = useNavigate();
 	const nookId = createMemo(() => String(params.nookId ?? ""));
+	const subPath = createMemo(() =>
+		String((params as { path?: string }).path ?? ""),
+	);
 	const store = createNookStore(nookId);
 	const [showMarkdown, setShowMarkdown] = createSignal<boolean>(false);
+	let isApplyingUrlSelection = false;
+	let lastUrlSelectRequestId = 0;
+
+	const typeEditId = createMemo(() => {
+		const p = subPath().replace(/^\/+/, "").replace(/\/+$/, "");
+		if (p === "") return "";
+		const parts = p.split("/").filter(Boolean);
+		if (parts.length === 3 && parts[0] === "types" && parts[2] === "edit") {
+			return String(parts[1] ?? "");
+		}
+		return "";
+	});
+
+	const showLinks = createMemo(() => {
+		const p = subPath().replace(/^\/+/, "").replace(/\/+$/, "");
+		return p === "links";
+	});
+
+	const noteParam = createMemo(() => {
+		const sp = new URLSearchParams(location.search);
+		return String(sp.get("note") ?? "").trim();
+	});
+
+	createEffect(() => {
+		const id = noteParam();
+		void store.allNotes();
+		if (id === "") return;
+		const currentSelected = untrack(() => store.selectedId());
+		if (currentSelected === id) return;
+		const requestId = ++lastUrlSelectRequestId;
+		isApplyingUrlSelection = true;
+		void (async () => {
+			try {
+				await store.onNoteLinkClick(id);
+			} finally {
+				if (requestId === lastUrlSelectRequestId) {
+					isApplyingUrlSelection = false;
+				}
+			}
+		})();
+	});
+
+	createEffect(() => {
+		const id = store.selectedId().trim();
+		const sp = new URLSearchParams(location.search);
+		const current = String(sp.get("note") ?? "").trim();
+		if (isApplyingUrlSelection) return;
+		if (id === "") {
+			if (current === "") return;
+			sp.delete("note");
+		} else {
+			if (current === id) return;
+			sp.set("note", id);
+		}
+		const next = `${location.pathname}${sp.toString() === "" ? "" : `?${sp.toString()}`}`;
+		navigate(next, { replace: true });
+	});
+
+	createEffect(() => {
+		const t = store.title().trim();
+		if (store.selectedId().trim() === "") {
+			document.title = "My Notes | Paith Notes";
+			return;
+		}
+		document.title =
+			t === "" ? "My Notes | Paith Notes" : `${t} | My Notes | Paith Notes`;
+	});
 
 	return (
-		<main class={styles.container}>
+		<main class={styles["container-wide"]}>
 			<h1 class={styles.title}>My Notes</h1>
 			<p class={styles.subtitle}>Manage your notes here</p>
 
@@ -27,302 +106,48 @@ export default function Nook() {
 
 			<div style={{ display: "flex", gap: "16px", "align-items": "stretch" }}>
 				<NookSidebar
+					nookId={nookId()}
 					notes={store.notes()}
+					notesNextCursor={store.notesNextCursor()}
+					noteTypes={store.noteTypes()}
+					selectedTypeId={store.selectedTypeId()}
 					selectedId={store.selectedId()}
+					onSelectType={(id) => store.setSelectedTypeId(id)}
+					onCreateType={(i) => void store.createNoteType(i)}
+					onRenameType={(t, next) => void store.renameNoteType(t, next)}
+					onDeleteType={(t) => void store.deleteNoteType(t)}
 					onNew={store.newNote}
 					onSelect={store.selectNote}
+					onLoadMoreNotes={() => void store.loadMoreNotes()}
+					onSetNotesQuery={(q) => store.setNotesQuery(q)}
 					onQuickUploadFile={(f) => void store.quickUploadFile(f)}
 				/>
 
 				<div style={{ flex: "1", "min-width": "0" }}>
-					<div class={notesStyles["add-note-container"]}>
-						<NookToolbar
-							mode={store.mode()}
-							loading={store.loading()}
-							title={store.title()}
-							selectedId={store.selectedId()}
-							notes={store.notes()}
-							mentionTargetId={store.mentionTargetId()}
-							mentionEmbedImage={store.mentionEmbedImage()}
-							onToggleMode={() =>
-								store.setMode((m) => (m === "edit" ? "view" : "edit"))
-							}
-							onRefresh={store.loadNotes}
-							onChangeMentionTargetId={store.setMentionTargetId}
-							onChangeMentionEmbedImage={store.setMentionEmbedImage}
-							onInsertMention={store.insertMention}
-							onSave={store.saveNote}
-							onDelete={store.deleteNote}
-						/>
-					</div>
-					<button
-						type="button"
-						onClick={() => setShowMarkdown((v) => !v)}
-						style={{ "margin-bottom": "0.5rem" }}
-					>
-						{showMarkdown() ? "Hide" : "Show"} markdown
-					</button>
-					<Show when={showMarkdown()}>
-						<textarea
-							readOnly
-							value={store.content()}
-							style={{
-								width: "100%",
-								height: "180px",
-								"font-family": "monospace",
-								"box-sizing": "border-box",
-								padding: "8px",
-								"margin-bottom": "1rem",
-							}}
-						/>
-					</Show>
-
-					<div style={{ "margin-bottom": "1rem" }}>
-						<div style={{ "margin-bottom": "0.5rem" }}>
-							<label>
-								Type
-								<select
-									value={store.type()}
-									onChange={(e) => {
-										if (store.selectedId() !== "" && store.type() === "file") {
-											return;
-										}
-
-										const next =
-											e.currentTarget.value === "person"
-												? "person"
-												: e.currentTarget.value === "file"
-													? "file"
-													: "anything";
-
-										if (store.selectedId() !== "" && next === "file") {
-											return;
-										}
-
-										store.setType(next);
-									}}
-									disabled={
-										store.mode() !== "edit" ||
-										(store.selectedId() !== "" && store.type() === "file")
-									}
-									style={{
-										width: "100%",
-										padding: "8px",
-										"box-sizing": "border-box",
-									}}
-								>
-									<option value="anything">Anything</option>
-									<option value="person">Person</option>
-									<option
-										value="file"
-										disabled={
-											store.selectedId() !== "" && store.type() !== "file"
-										}
-									>
-										File
-									</option>
-								</select>
-							</label>
-						</div>
-
-						<Show when={store.type() === "person"}>
-							<div style={{ "margin-bottom": "0.5rem" }}>
-								<label>
-									First name
-									<input
-										type="text"
-										value={store.personFirstName()}
-										onInput={(e) =>
-											store.setPersonFirstName(e.currentTarget.value)
-										}
-										readOnly={store.mode() !== "edit"}
-										style={{
-											width: "100%",
-											padding: "8px",
-											"box-sizing": "border-box",
-										}}
-									/>
-								</label>
-							</div>
-
-							<div style={{ "margin-bottom": "0.5rem" }}>
-								<label>
-									Last name
-									<input
-										type="text"
-										value={store.personLastName()}
-										onInput={(e) =>
-											store.setPersonLastName(e.currentTarget.value)
-										}
-										readOnly={store.mode() !== "edit"}
-										style={{
-											width: "100%",
-											padding: "8px",
-											"box-sizing": "border-box",
-										}}
-									/>
-								</label>
-							</div>
-
-							<div style={{ "margin-bottom": "0.5rem" }}>
-								<label>
-									Date of birth
-									<input
-										type="text"
-										value={store.personDateOfBirth()}
-										onInput={(e) =>
-											store.setPersonDateOfBirth(e.currentTarget.value)
-										}
-										readOnly={store.mode() !== "edit"}
-										style={{
-											width: "100%",
-											padding: "8px",
-											"box-sizing": "border-box",
-										}}
-									/>
-								</label>
-							</div>
-						</Show>
-
-						<Show when={store.type() === "file"}>
-							<div
-								style={{
-									display: "flex",
-									gap: "8px",
-									"align-items": "center",
-								}}
-							>
-								<Show when={store.fileFilename() === ""}>
-									<input
-										type="file"
-										disabled={store.mode() !== "edit"}
-										onChange={(e) => {
-											const f = e.currentTarget.files?.[0];
-											if (f) void store.uploadFile(f);
-										}}
-									/>
-								</Show>
-								<button
-									type="button"
-									onClick={() => void store.downloadFile()}
-									disabled={
-										store.selectedId() === "" || store.fileFilename() === ""
-									}
-								>
-									Download
-								</button>
-							</div>
-
+					<Show
+						when={showLinks()}
+						fallback={
 							<Show
-								when={
-									store.fileFilename() !== "" &&
-									!store.fileUploadInProgress() &&
-									store.fileInlineUrl() !== ""
+								when={typeEditId() !== ""}
+								fallback={
+									<NookMainPanel
+										store={store}
+										showMarkdown={showMarkdown()}
+										onToggleMarkdown={() => setShowMarkdown((v) => !v)}
+									/>
 								}
 							>
-								<div style={{ "margin-top": "0.5rem" }}>
-									<Show when={store.fileMimeType().startsWith("image/")}>
-										<img
-											src={store.fileInlineUrl()}
-											alt={store.fileFilename()}
-											style={{
-												"max-width": "100%",
-												"max-height": "420px",
-												border: "1px solid #eee",
-												"border-radius": "8px",
-											}}
-										/>
-									</Show>
-									<Show when={store.fileMimeType() === "application/pdf"}>
-										<iframe
-											src={store.fileInlineUrl()}
-											title={store.fileFilename()}
-											style={{
-												width: "100%",
-												height: "520px",
-												border: "1px solid #eee",
-												"border-radius": "8px",
-											}}
-										/>
-									</Show>
-									<Show
-										when={
-											!store.fileMimeType().startsWith("image/") &&
-											store.fileMimeType() !== "application/pdf"
-										}
-									>
-										<div style={{ color: "#666" }}>
-											Preview not available for this file type.
-										</div>
-									</Show>
-								</div>
+								<NookTypeEditPanel store={store} typeId={typeEditId()} />
 							</Show>
-						</Show>
-
-						<Show
-							when={
-								store.type() !== "file" ||
-								(store.fileFilename() !== "" && !store.fileUploadInProgress())
-							}
-						>
-							<div style={{ "margin-bottom": "0.5rem" }}>
-								<label>
-									Title
-									<input
-										type="text"
-										value={store.title()}
-										onInput={(e) => store.setTitle(e.currentTarget.value)}
-										readOnly={store.mode() !== "edit"}
-										style={{
-											width: "100%",
-											padding: "8px",
-											"box-sizing": "border-box",
-										}}
-									/>
-								</label>
-							</div>
-						</Show>
-						<Show
-							when={
-								store.type() !== "file" ||
-								(store.fileFilename() !== "" && !store.fileUploadInProgress())
-							}
-						>
-							<div>
-								<div style={{ "margin-bottom": "0.5rem" }}>Content</div>
-								<div
-									style={{
-										border: "1px solid #ccc",
-										"border-radius": "8px",
-										overflow: "hidden",
-									}}
-								>
-									<MilkdownEditor
-										value={store.content()}
-										onChange={store.setContent}
-										readonly={store.mode() !== "edit"}
-										onNoteLinkClick={(id) => void store.onNoteLinkClick(id)}
-										resolveEmbeddedImageSrc={(id) =>
-											store.resolveEmbeddedImageSrc(id)
-										}
-										uploadEmbeddedImage={(f) => store.uploadEmbeddedImage(f)}
-									/>
-								</div>
-							</div>
-						</Show>
-					</div>
-
-					<NookMentionsPanel
-						notes={store.notes()}
-						outgoing={store.outgoingMentions()}
-						incoming={store.incomingMentions()}
-						onOpenNote={(id) => void store.onNoteLinkClick(id)}
-					/>
-
-					<Show when={store.error() !== ""}>
-						<pre class={styles.error}>{store.error()}</pre>
+						}
+					>
+						<NookLinksPanel store={store} />
 					</Show>
+
+					<NookStatusPanel store={store} />
 				</div>
+
+				<NookGraphPanel store={store} />
 			</div>
 		</main>
 	);

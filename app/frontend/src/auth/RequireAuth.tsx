@@ -9,6 +9,11 @@ export function RequireAuth(props: {
 }) {
 	const auth = useAuth();
 
+	const redirectTo = () =>
+		props.redirectTo?.trim()
+			? props.redirectTo.trim()
+			: `${window.location.pathname}${window.location.search}${window.location.hash}`;
+
 	return (
 		<Show
 			when={auth.ready()}
@@ -24,7 +29,7 @@ export function RequireAuth(props: {
 		>
 			<Show
 				when={auth.authenticated()}
-				fallback={<LoginNeeded redirectTo={props.redirectTo} />}
+				fallback={<LoginNeeded redirectTo={redirectTo()} />}
 			>
 				{props.children}
 			</Show>

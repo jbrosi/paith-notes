@@ -16,7 +16,7 @@ trap 'status=$?; cleanup || true; exit $status' EXIT INT TERM
 
 docker compose -f "$COMPOSE_FILE" --project-name "$PROJECT" build worker
 
-docker compose -f "$COMPOSE_FILE" --project-name "$PROJECT" up -d db rustfs
+docker compose -f "$COMPOSE_FILE" --project-name "$PROJECT" up -d db files
 
 docker compose -f "$COMPOSE_FILE" --project-name "$PROJECT" run --rm --no-deps \
   -v "$ROOT_DIR/.ci-cache/composer:/tmp/composer-cache" \

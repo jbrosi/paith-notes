@@ -1,20 +1,17 @@
 import { For, Show } from "solid-js";
-import type { Mention, Note } from "./types";
+import type { Mention, NoteSummary } from "./types";
 
 export type NookMentionsPanelProps = {
-	notes: Note[];
+	notes: NoteSummary[];
 	outgoing: Mention[];
 	incoming: Mention[];
 	onOpenNote: (noteId: string) => void;
 };
 
 export function NookMentionsPanel(props: NookMentionsPanelProps) {
-	const isPerson = (noteId: string) => {
-		return props.notes.find((n) => n.id === noteId)?.type === "person";
-	};
-
-	const isFile = (noteId: string) => {
-		return props.notes.find((n) => n.id === noteId)?.type === "file";
+	const noteTypeLabel = (noteId: string) => {
+		const t = props.notes.find((n) => n.id === noteId)?.type;
+		return t === "person" ? "Person" : t === "file" ? "File" : "Note";
 	};
 
 	return (
@@ -56,33 +53,18 @@ export function NookMentionsPanel(props: NookMentionsPanelProps) {
 										}}
 									>
 										<div style={{ color: "#666" }}>{m.noteTitle}</div>
-										{isPerson(m.noteId) ? (
-											<span
-												style={{
-													"font-size": "12px",
-													padding: "2px 6px",
-													"border-radius": "999px",
-													border: "1px solid #c9def7",
-													background: "#eef5ff",
-													color: "#1f5fbf",
-												}}
-											>
-												Person
-											</span>
-										) : isFile(m.noteId) ? (
-											<span
-												style={{
-													"font-size": "12px",
-													padding: "2px 6px",
-													"border-radius": "999px",
-													border: "1px solid #c9def7",
-													background: "#eef5ff",
-													color: "#1f5fbf",
-												}}
-											>
-												File
-											</span>
-										) : null}
+										<span
+											style={{
+												"font-size": "12px",
+												padding: "2px 6px",
+												"border-radius": "999px",
+												border: "1px solid #c9def7",
+												background: "#eef5ff",
+												color: "#1f5fbf",
+											}}
+										>
+											{noteTypeLabel(m.noteId)}
+										</span>
 									</div>
 								</button>
 							)}
@@ -119,33 +101,18 @@ export function NookMentionsPanel(props: NookMentionsPanelProps) {
 										}}
 									>
 										<div style={{ "font-weight": "600" }}>{m.noteTitle}</div>
-										{isPerson(m.noteId) ? (
-											<span
-												style={{
-													"font-size": "12px",
-													padding: "2px 6px",
-													"border-radius": "999px",
-													border: "1px solid #c9def7",
-													background: "#eef5ff",
-													color: "#1f5fbf",
-												}}
-											>
-												Person
-											</span>
-										) : isFile(m.noteId) ? (
-											<span
-												style={{
-													"font-size": "12px",
-													padding: "2px 6px",
-													"border-radius": "999px",
-													border: "1px solid #c9def7",
-													background: "#eef5ff",
-													color: "#1f5fbf",
-												}}
-											>
-												File
-											</span>
-										) : null}
+										<span
+											style={{
+												"font-size": "12px",
+												padding: "2px 6px",
+												"border-radius": "999px",
+												border: "1px solid #c9def7",
+												background: "#eef5ff",
+												color: "#1f5fbf",
+											}}
+										>
+											{noteTypeLabel(m.noteId)}
+										</span>
 									</div>
 									<div style={{ color: "#666" }}>{m.linkTitle}</div>
 								</button>
