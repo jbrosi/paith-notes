@@ -191,7 +191,7 @@ final class NotesController
         }
 
         if ($typeId !== '') {
-            $typeCheck = $pdo->prepare('select applies_to_files, applies_to_notes from global.note_types where id = :id and nook_id = :nook_id and archived_at is null');
+            $typeCheck = $pdo->prepare('select applies_to_files, applies_to_notes from global.note_types where id = :id and nook_id = :nook_id');
             $typeCheck->execute([':id' => $typeId, ':nook_id' => $nookId]);
             $typeRow = $typeCheck->fetch(PDO::FETCH_ASSOC);
             if (!is_array($typeRow)) {
@@ -356,7 +356,7 @@ final class NotesController
         }
 
         if ($typeId !== null) {
-            $typeCheck = $pdo->prepare('select applies_to_files, applies_to_notes from global.note_types where id = :id and nook_id = :nook_id and archived_at is null');
+            $typeCheck = $pdo->prepare('select applies_to_files, applies_to_notes from global.note_types where id = :id and nook_id = :nook_id');
             $typeCheck->execute([':id' => $typeId, ':nook_id' => $nookId]);
             $typeRow = $typeCheck->fetch(PDO::FETCH_ASSOC);
             if (!is_array($typeRow)) {

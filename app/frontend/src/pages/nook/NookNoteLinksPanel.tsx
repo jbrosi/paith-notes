@@ -301,9 +301,7 @@ export function NookNoteLinksPanel(props: NookNoteLinksPanelProps) {
 		const typeById = new Map(types.map((t) => [t.id, t.label] as const));
 
 		if (activeRules.length === 0) {
-			return types
-				.filter((t) => t.archivedAt === "")
-				.map((t) => ({ id: t.id, label: t.label }));
+			return types.map((t) => ({ id: t.id, label: t.label }));
 		}
 
 		const allowed = new Set<string>();
@@ -326,9 +324,7 @@ export function NookNoteLinksPanel(props: NookNoteLinksPanelProps) {
 		}
 
 		if (anyAllowed) {
-			return types
-				.filter((t) => t.archivedAt === "")
-				.map((t) => ({ id: t.id, label: t.label }));
+			return types.map((t) => ({ id: t.id, label: t.label }));
 		}
 
 		return Array.from(allowed)

@@ -64,12 +64,10 @@ export function NookSidebar(props: NookSidebarProps) {
 	});
 
 	const rootTypes = createMemo(() =>
-		props.noteTypes.filter((t) => t.parentId === "" && t.archivedAt === ""),
+		props.noteTypes.filter((t) => t.parentId === ""),
 	);
 	const childrenOf = (parentId: string) =>
-		props.noteTypes.filter(
-			(t) => t.parentId === parentId && t.archivedAt === "",
-		);
+		props.noteTypes.filter((t) => t.parentId === parentId);
 
 	const ensureExpanded = (id: string) => {
 		setExpanded((e) => (e[id] === undefined ? { ...e, [id]: true } : e));
