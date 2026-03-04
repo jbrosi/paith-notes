@@ -1,7 +1,7 @@
 import { useNavigate } from "@solidjs/router";
 import { createResource, Show } from "solid-js";
 import styles from "../App.module.css";
-import { apiFetch } from "../auth/keycloak";
+import { apiFetch, login } from "../auth/keycloak";
 
 type PersonalNookResponse = {
 	nook: {
@@ -21,6 +21,11 @@ export default function NooksRedirect() {
 				Accept: "application/json",
 			},
 		});
+		if (res.status === 401) {
+			return {
+				nook: { id: "", name: "", is_personal: true },
+			} as PersonalNookResponse;
+		}
 		if (!res.ok) {
 			throw new Error(
 				`Failed to load personal nook: ${res.status} ${res.statusText}`,
@@ -44,7 +49,21 @@ export default function NooksRedirect() {
 					when={!data.error}
 					fallback={<pre class={styles.error}>{String(data.error)}</pre>}
 				>
-					<p class={styles.subtitle}>Redirecting to your personal nook…</p>
+					<Show
+						when={Boolean(data()?.nook?.id)}
+						fallback={
+							<div>
+								<p class={styles.subtitle}>
+									Your session timed out. Please log in again.
+								</p>
+								<button type="button" onClick={() => login()}>
+									Log in
+								</button>
+							</div>
+						}
+					>
+						<p class={styles.subtitle}>Redirecting to your personal nook…</p>
+					</Show>
 				</Show>
 			</Show>
 		</main>

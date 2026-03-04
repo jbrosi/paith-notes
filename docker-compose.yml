@@ -10,24 +10,21 @@ services:
       SERVER_NAME: ":8000"
       FRANKENPHP_WATCH: "1"
       DATABASE_URL: "postgresql://paith:paith@db:5432/paith"
-      S3_ENDPOINT: "http://rustfs:9000"
-      S3_PUBLIC_ENDPOINT: "http://localhost:8000"
-      S3_ACCESS_KEY: "rustfsadmin"
-      S3_SECRET_KEY: "rustfsadmin"
-      S3_BUCKET: "paith"
-      S3_FILES_BUCKET: "files"
       KEYCLOAK_ENABLED: ${KEYCLOAK_ENABLED:-0}
       KEYCLOAK_BASE_URL: ${KEYCLOAK_BASE_URL:-}
       KEYCLOAK_REALM: ${KEYCLOAK_REALM:-}
       KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:-}
+      KEYCLOAK_CLIENT_SECRET: ${KEYCLOAK_CLIENT_SECRET:-}
+      SESSION_SECRET: ${SESSION_SECRET:-}
       DEBUG_AUTH: ${DEBUG_AUTH:-0}
     depends_on:
       - frontend
       - db
-      - rustfs
+      - files
     volumes:
       - ./app:/app
       - ./Caddyfile:/etc/frankenphp/Caddyfile:ro
+      - files_data:/data
     ports:
       - "8000:8000"
 
@@ -56,18 +53,15 @@ services:
     command: ["php", "/app/worker/worker.php"]
     environment:
       DATABASE_URL: "postgresql://paith:paith@db:5432/paith"
-      S3_ENDPOINT: "http://rustfs:9000"
-      S3_ACCESS_KEY: "rustfsadmin"
-      S3_SECRET_KEY: "rustfsadmin"
-      S3_BUCKET: "paith"
-      S3_FILES_BUCKET: "files"
+      SESSION_SECRET: ${SESSION_SECRET:-}
     depends_on:
       db:
         condition: service_healthy
-      rustfs:
+      files:
         condition: service_started
     volumes:
       - ./app:/app
+      - files_data:/data
 
   db:
     image: docker.io/postgres:17-alpine
@@ -83,17 +77,15 @@ services:
       timeout: 5s
       retries: 10
 
-  rustfs:
-    image: docker.io/rustfs/rustfs:latest
-    command: ["/data"]
-    environment:
-      RUSTFS_ADDRESS: ":9000"
-      RUSTFS_CONSOLE_ENABLE: "true"
-      RUSTFS_ACCESS_KEY: "rustfsadmin"
-      RUSTFS_SECRET_KEY: "rustfsadmin"
-    ports:
-      - "9000:9000"
-      - "9001:9001"
+  files:
+    image: docker.io/nginx:1.29-alpine
+    command: ["sh", "-lc", "mkdir -p /data/tmp /data/notes && chown nginx:nginx /data /data/tmp /data/notes && exec nginx -g 'daemon off;'" ]
+    volumes:
+      - ./docker/files/nginx.conf:/etc/nginx/nginx.conf:ro
+      - files_data:/data:U
+    expose:
+      - "8080"
 
 volumes:
   frontend_node_modules:
+  files_data:

@@ -48,4 +48,10 @@ final class JsonResponse implements Response
     {
         return $this->body;
     }
+
+    public function withHeader(string $name, string $value): self
+    {
+        $this->headers[$name] = $value;
+        return $this;
+    }
 }

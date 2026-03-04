@@ -5,7 +5,7 @@ import {
 	onMount,
 	useContext,
 } from "solid-js";
-import { initKeycloak, keycloak } from "./keycloak";
+import { isAuthenticated, login, logout, logoutSso } from "./keycloak";
 
 export type AuthState = {
 	ready: () => boolean;
@@ -13,7 +13,7 @@ export type AuthState = {
 	error: () => string;
 	login: (redirectTo?: string) => void;
 	logout: () => void;
-	token: () => string;
+	logoutSso: () => void;
 };
 
 const AuthContext = createContext<AuthState>();
@@ -26,14 +26,8 @@ export function AuthProvider(props: { children: JSX.Element }) {
 	onMount(() => {
 		(async () => {
 			try {
-				const ok = await initKeycloak();
+				const ok = await isAuthenticated();
 				setAuthenticated(ok);
-
-				keycloak.onAuthSuccess = () => setAuthenticated(true);
-				keycloak.onAuthLogout = () => setAuthenticated(false);
-				keycloak.onTokenExpired = () => {
-					keycloak.updateToken(30).catch(() => setAuthenticated(false));
-				};
 			} catch (e) {
 				setError(String(e));
 				setAuthenticated(false);
@@ -48,23 +42,18 @@ export function AuthProvider(props: { children: JSX.Element }) {
 		authenticated,
 		error,
 		login: (redirectTo?: string) => {
-			keycloak
-				.login({
-					redirectUri: redirectTo
-						? `${window.location.origin}${redirectTo}`
-						: window.location.href,
-				})
-				.catch((e) => setError(String(e)));
+			try {
+				login(redirectTo);
+			} catch (e) {
+				setError(String(e));
+			}
 		},
 		logout: () => {
-			keycloak
-				.logout({ redirectUri: window.location.origin })
-				.catch((e) => setError(String(e)))
-				.finally(() => {
-					window.location.href = "/";
-				});
+			logout().catch((e) => setError(String(e)));
 		},
-		token: () => keycloak.token ?? "",
+		logoutSso: () => {
+			logoutSso().catch((e) => setError(String(e)));
+		},
 	};
 
 	return (

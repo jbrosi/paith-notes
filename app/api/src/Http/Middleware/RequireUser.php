@@ -4,7 +4,11 @@ declare(strict_types=1);
 
 namespace Paith\Notes\Api\Http\Middleware;
 
+use Paith\Notes\Api\Http\Auth\Cookies;
+use Paith\Notes\Api\Http\Auth\KeycloakOAuth;
 use Paith\Notes\Api\Http\Auth\KeycloakJwt;
+use Paith\Notes\Api\Http\Auth\SessionCrypto;
+use Paith\Notes\Api\Http\Auth\SessionStore;
 use Paith\Notes\Api\Http\Context;
 use Paith\Notes\Api\Http\HttpError;
 use Paith\Notes\Api\Http\Middleware;
@@ -35,20 +39,126 @@ final class RequireUser implements Middleware
     {
         if ((string)getenv('KEYCLOAK_ENABLED') === '1') {
             self::debugLog('RequireUser keycloak enabled');
-            $auth = trim($request->header('Authorization'));
-            if (!str_starts_with($auth, 'Bearer ')) {
-                throw new HttpError('Authorization bearer token is required', 401);
+            $jwt = '';
+            $sid = '';
+            $sessionPayload = null;
+
+            $cookieHeader = $request->header('Cookie');
+            if ($cookieHeader !== '') {
+                $cookies = Cookies::parseCookieHeader($cookieHeader);
+                $sid = $cookies[SessionStore::cookieName()] ?? '';
+                $sid = trim($sid);
+                if ($sid !== '') {
+                    try {
+                        $pdo = $context->pdo();
+                        $session = SessionStore::getSession($pdo, $sid);
+                        $crypto = SessionCrypto::fromEnv();
+                        $payloadJson = $crypto->decrypt($session['token_encrypted']);
+                        $payload = json_decode($payloadJson, true);
+                        if (is_array($payload)) {
+                            $sessionPayload = $payload;
+                            $access = $payload['access_token'] ?? '';
+                            if (is_string($access) && trim($access) !== '') {
+                                $jwt = trim($access);
+                                SessionStore::touchSession($pdo, $sid);
+                            }
+                        }
+                    } catch (RuntimeException) {
+                        $jwt = '';
+                    }
+                }
             }
 
-            $jwt = trim(substr($auth, strlen('Bearer ')));
             if ($jwt === '') {
-                throw new HttpError('Authorization bearer token is required', 401);
+                $auth = trim($request->header('Authorization'));
+                if (!str_starts_with($auth, 'Bearer ')) {
+                    throw new HttpError('not authenticated', 401);
+                }
+
+                $jwt = trim(substr($auth, strlen('Bearer ')));
+                if ($jwt === '') {
+                    throw new HttpError('not authenticated', 401);
+                }
             }
 
             try {
                 $claims = KeycloakJwt::fromEnv()->verifyAndDecode($jwt);
             } catch (RuntimeException $e) {
-                throw new HttpError($e->getMessage(), 401);
+                $msg = $e->getMessage();
+                $canRefresh = $sid !== '' && is_array($sessionPayload);
+                if ($canRefresh && $msg === 'JWT is expired') {
+                    $refresh = $sessionPayload['refresh_token'] ?? '';
+                    if (is_string($refresh) && trim($refresh) !== '') {
+                        $didRecover = false;
+                        $pdo = $context->pdo();
+                        $crypto = SessionCrypto::fromEnv();
+                        $oauth = KeycloakOAuth::fromEnv();
+
+                        $pdo->beginTransaction();
+                        try {
+                            $locked = SessionStore::getSessionForUpdate($pdo, $sid);
+                            $payloadJson2 = $crypto->decrypt($locked['token_encrypted']);
+                            $payload2 = json_decode($payloadJson2, true);
+                            $payloadArr = is_array($payload2) ? $payload2 : [];
+
+                            $access2 = $payloadArr['access_token'] ?? '';
+                            $access2 = is_string($access2) ? trim($access2) : '';
+
+                            if ($access2 !== '') {
+                                try {
+                                    $claims = KeycloakJwt::fromEnv()->verifyAndDecode($access2);
+                                    SessionStore::touchSession($pdo, $sid);
+                                    $pdo->commit();
+                                    $didRecover = true;
+                                } catch (RuntimeException $e2) {
+                                    if ($e2->getMessage() !== 'JWT is expired') {
+                                        throw $e2;
+                                    }
+                                }
+                            }
+
+                            if ($didRecover) {
+                                // Another request refreshed already while we waited on the row lock.
+                                // Continue with the recovered claims.
+                            } else {
+                                $refresh2 = $payloadArr['refresh_token'] ?? '';
+                                $refresh2 = is_string($refresh2) ? trim($refresh2) : '';
+                                if ($refresh2 === '') {
+                                    throw new RuntimeException('missing refresh token');
+                                }
+
+                                $newPayload = $oauth->refreshToken($refresh2);
+                                if (!array_key_exists('refresh_token', $newPayload) && array_key_exists('refresh_token', $payloadArr)) {
+                                    $newPayload['refresh_token'] = $payloadArr['refresh_token'];
+                                }
+
+                                $tokenEncrypted = $crypto->encrypt((string)json_encode($newPayload));
+                                SessionStore::updateSessionTokenEncrypted($pdo, $sid, $tokenEncrypted);
+                                SessionStore::touchSession($pdo, $sid);
+
+                                $pdo->commit();
+
+                                $accessNew = $newPayload['access_token'] ?? '';
+                                $accessNew = is_string($accessNew) ? trim($accessNew) : '';
+                                if ($accessNew === '') {
+                                    throw new RuntimeException('missing access token');
+                                }
+
+                                $claims = KeycloakJwt::fromEnv()->verifyAndDecode($accessNew);
+                                $didRecover = true;
+                            }
+                        } catch (Throwable $t) {
+                            if ($pdo->inTransaction()) {
+                                $pdo->rollBack();
+                            }
+                            throw new HttpError($t->getMessage(), 401);
+                        }
+
+                        // Continue with recovered $claims.
+                    }
+                }
+
+                throw new HttpError($msg, 401);
             }
 
             $rawGroups = $claims['groups'] ?? null;
@@ -127,7 +237,7 @@ final class RequireUser implements Middleware
         return $next($request, $context);
     }
 
-    private function findOrCreateUserFromKeycloak(PDO $pdo, array $claims): array
+    public function findOrCreateUserFromKeycloak(PDO $pdo, array $claims): array
     {
         $sub = $claims['sub'] ?? '';
         if (!is_string($sub) || $sub === '') {

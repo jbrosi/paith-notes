@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Paith\Notes\Worker;
 
-use Aws\S3\S3Client;
 use Paith\Notes\Shared\Db\GlobalSchema;
 use Paith\Notes\Shared\Env;
 use PDO;
@@ -19,8 +18,6 @@ final class Runner
             fwrite(STDERR, "DATABASE_URL is not set\n");
             exit(1);
         }
-
-        self::ensureBucket();
 
         $parts = parse_url($databaseUrl);
         if ($parts === false) {
@@ -54,6 +51,8 @@ final class Runner
 
         $workerId = sprintf('worker-%s-%d', gethostname() ?: 'unknown', getmypid());
 
+        $lastCleanupAt = 0;
+
         while (true) {
             try {
                 $pdo = $connect();
@@ -78,6 +77,17 @@ final class Runner
 
                 if ($job === false) {
                     $pdo->commit();
+
+                    $now = time();
+                    if ($now - $lastCleanupAt >= 30) {
+                        $lastCleanupAt = $now;
+                        try {
+                            self::cleanupExpiredUploads($connect());
+                        } catch (Throwable $e) {
+                            fwrite(STDERR, sprintf("cleanup error: %s (%s)\n", $e->getMessage(), get_class($e)));
+                        }
+                    }
+
                     sleep(2);
                     continue;
                 }
@@ -121,48 +131,51 @@ final class Runner
         }
     }
 
-    private static function ensureBucket(): void
+    private static function cleanupExpiredUploads(PDO $pdo): void
     {
-        $s3Endpoint = Env::get('S3_ENDPOINT');
-        $s3AccessKey = Env::get('S3_ACCESS_KEY');
-        $s3SecretKey = Env::get('S3_SECRET_KEY');
-        $s3Bucket = Env::get('S3_BUCKET');
-        $s3FilesBucket = Env::get('S3_FILES_BUCKET');
-
-        if ($s3Endpoint === '' || $s3AccessKey === '' || $s3SecretKey === '' || $s3Bucket === '') {
-            fwrite(STDERR, "warning: S3 env not fully set; skipping bucket setup\n");
-            return;
-        }
-
-        $endpoint = preg_replace('#/+$#', '', $s3Endpoint) ?? $s3Endpoint;
-
+        $pdo->beginTransaction();
         try {
-            $s3 = new S3Client([
-                'version' => 'latest',
-                'region' => 'us-east-1',
-                'endpoint' => $endpoint,
-                'use_path_style_endpoint' => true,
-                'credentials' => [
-                    'key' => $s3AccessKey,
-                    'secret' => $s3SecretKey,
-                ],
-            ]);
+            $sel = $pdo->prepare(
+                "select id, temp_object_key from global.file_uploads where finalized_at is null and expires_at <= now() order by expires_at limit 100 for update skip locked"
+            );
+            $sel->execute();
+            $rows = $sel->fetchAll(PDO::FETCH_ASSOC);
 
-            $exists = $s3->doesBucketExist($s3Bucket);
-            if (!$exists) {
-                $s3->createBucket(['Bucket' => $s3Bucket]);
+            if ($rows === []) {
+                $pdo->commit();
+                return;
             }
 
-            if ($s3FilesBucket !== '' && $s3FilesBucket !== $s3Bucket) {
-                $existsFiles = $s3->doesBucketExist($s3FilesBucket);
-                if (!$existsFiles) {
-                    $s3->createBucket(['Bucket' => $s3FilesBucket]);
+            $del = $pdo->prepare('delete from global.file_uploads where id = :id');
+
+            foreach ($rows as $r) {
+                if (!is_array($r)) {
+                    continue;
                 }
+
+                $id = is_scalar($r['id'] ?? null) ? (string)$r['id'] : '';
+                $key = is_scalar($r['temp_object_key'] ?? null) ? (string)$r['temp_object_key'] : '';
+                if ($id === '' || $key === '') {
+                    continue;
+                }
+                if (!str_starts_with($key, 'tmp/')) {
+                    continue;
+                }
+
+                $path = '/data/' . ltrim($key, '/');
+                if (is_file($path)) {
+                    @unlink($path);
+                }
+
+                $del->execute([':id' => $id]);
             }
 
-            fwrite(STDOUT, sprintf("ensured S3 bucket exists: %s (%s)\n", $s3Bucket, $endpoint));
+            $pdo->commit();
         } catch (Throwable $e) {
-            fwrite(STDERR, sprintf("warning: failed to ensure S3 bucket exists: %s (%s)\n", $e->getMessage(), get_class($e)));
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            throw $e;
         }
     }
 }

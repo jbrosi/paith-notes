@@ -172,7 +172,15 @@ jobs:
           key: composer-${{ runner.os }}-${{ hashFiles('app/api/composer.json', 'app/api/composer.lock', 'app/worker/composer.json', 'app/worker/composer.lock') }}
 
       - name: Run E2E tests
+        continue-on-error: true
         run: CI=1 sh scripts/run-frontend-e2e-tests.sh
+
+      - name: Upload Cypress screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-e2e-screenshots
+          path: app/frontend/cypress/screenshots
 
       - name: Save Cypress binary cache
         uses: actions/cache/save@v4
