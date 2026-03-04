@@ -55,6 +55,30 @@ If you want to run Postgres on the same host, `docker-compose.yml` includes a co
 DATABASE_URL=postgresql://paith:${POSTGRES_PASSWORD}@db:5432/paith
 ```
 
+## DATABASE_URL options (SSL, search_path)
+
+The application accepts `DATABASE_URL` in URL form (`postgresql://...`). Query parameters are mapped into the PostgreSQL PDO DSN.
+
+Common parameters:
+
+- `sslmode`
+- `sslrootcert`
+- `sslcert`
+- `sslkey`
+- `options` (e.g. `--search_path=...`)
+
+Example with TLS verification:
+
+```sh
+DATABASE_URL=postgresql://user:pass@db.example.com:5432/paith?sslmode=verify-full&sslrootcert=/run/secrets/pg_ca.crt
+```
+
+Example setting `search_path` via libpq options:
+
+```sh
+DATABASE_URL=postgresql://user:pass@db.example.com:5432/paith?options=--search_path%3Dglobal
+```
+
 ## Updating
 
 ```sh

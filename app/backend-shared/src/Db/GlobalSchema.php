@@ -13,6 +13,7 @@ final class GlobalSchema
         $pdo->exec('create extension if not exists pgcrypto');
         $pdo->exec('create extension if not exists pg_trgm');
         $pdo->exec('create schema if not exists global');
+        $pdo->exec("set search_path = pg_catalog, public, global");
 
         $pdo->exec("
             create table if not exists global.users (
