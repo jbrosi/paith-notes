@@ -35,7 +35,7 @@ final class NoteTypesController
         $this->ensureRootFileType($pdo, $nookId);
 
         $stmt = $pdo->prepare(
-            'select id, key, label, description, parent_id, applies_to_files, applies_to_notes, archived_at, created_at, updated_at '
+            'select id, key, label, description, parent_id, applies_to_files, applies_to_notes, created_at, updated_at '
             . 'from global.note_types where nook_id = :nook_id order by label asc'
         );
         $stmt->execute([':nook_id' => $nookId]);
@@ -55,7 +55,6 @@ final class NoteTypesController
                 'parent_id' => is_scalar($r['parent_id'] ?? null) ? (string)$r['parent_id'] : '',
                 'applies_to_files' => (bool)($r['applies_to_files'] ?? true),
                 'applies_to_notes' => (bool)($r['applies_to_notes'] ?? true),
-                'archived_at' => is_scalar($r['archived_at'] ?? null) ? (string)$r['archived_at'] : '',
                 'created_at' => is_scalar($r['created_at'] ?? null) ? (string)$r['created_at'] : '',
                 'updated_at' => is_scalar($r['updated_at'] ?? null) ? (string)$r['updated_at'] : '',
             ];
@@ -149,7 +148,6 @@ final class NoteTypesController
                     'parent_id' => $parentId,
                     'applies_to_files' => $appliesToFiles,
                     'applies_to_notes' => $appliesToNotes,
-                    'archived_at' => '',
                     'created_at' => is_scalar($row['created_at'] ?? null) ? (string)$row['created_at'] : '',
                     'updated_at' => is_scalar($row['updated_at'] ?? null) ? (string)$row['updated_at'] : '',
                 ],
@@ -234,7 +232,7 @@ final class NoteTypesController
         }
 
         if ($key !== $existingKey) {
-            $dupe = $pdo->prepare('select 1 from global.note_types where nook_id = :nook_id and key = :key and id != :id and archived_at is null');
+            $dupe = $pdo->prepare('select 1 from global.note_types where nook_id = :nook_id and key = :key and id != :id');
             $dupe->execute([':nook_id' => $nookId, ':key' => $key, ':id' => $typeId]);
             if ($dupe->fetchColumn()) {
                 throw new HttpError('key already exists', 409);
@@ -243,7 +241,7 @@ final class NoteTypesController
 
         $stmt = $pdo->prepare(
             'update global.note_types set key = :key, label = :label, description = :description, parent_id = :parent_id, applies_to_files = :applies_to_files, applies_to_notes = :applies_to_notes, updated_at = now() '
-            . 'where id = :id and nook_id = :nook_id and archived_at is null '
+            . 'where id = :id and nook_id = :nook_id '
             . 'returning description, created_at, updated_at'
         );
         $stmt->bindValue(':id', $typeId);
@@ -271,7 +269,6 @@ final class NoteTypesController
                 'parent_id' => $parentId,
                 'applies_to_files' => $appliesToFiles,
                 'applies_to_notes' => $appliesToNotes,
-                'archived_at' => '',
                 'created_at' => is_scalar($row['created_at'] ?? null) ? (string)$row['created_at'] : '',
                 'updated_at' => is_scalar($row['updated_at'] ?? null) ? (string)$row['updated_at'] : '',
             ],
@@ -312,23 +309,12 @@ final class NoteTypesController
             throw new HttpError('root file type cannot be deleted', 400);
         }
 
-        $stmt = $pdo->prepare(
-            'update global.note_types set archived_at = now(), updated_at = now() where id = :id and nook_id = :nook_id and archived_at is null returning id'
-        );
-        $stmt->execute([
-            ':id' => $typeId,
-            ':nook_id' => $nookId,
-        ]);
-
+        $stmt = $pdo->prepare('delete from global.note_types where id = :id and nook_id = :nook_id returning id');
+        $stmt->execute([':id' => $typeId, ':nook_id' => $nookId]);
         $id = $stmt->fetchColumn();
         if (!is_scalar($id) || (string)$id === '') {
             throw new HttpError('type not found', 404);
         }
-
-        $pdo->prepare('update global.notes set type_id = null where nook_id = :nook_id and type_id = :type_id')->execute([
-            ':nook_id' => $nookId,
-            ':type_id' => $typeId,
-        ]);
 
         return JsonResponse::ok([
             'deleted' => true,
@@ -397,7 +383,7 @@ final class NoteTypesController
         }
 
         if (!$isAll) {
-            $typeCheck = $pdo->prepare('select 1 from global.note_types where id = :id and nook_id = :nook_id and archived_at is null');
+            $typeCheck = $pdo->prepare('select 1 from global.note_types where id = :id and nook_id = :nook_id');
             $typeCheck->execute([':id' => $typeId, ':nook_id' => $nookId]);
             if (!$typeCheck->fetchColumn()) {
                 throw new HttpError('type not found', 404);
@@ -470,12 +456,12 @@ final class NoteTypesController
         } elseif ($includeSubtypes) {
             $stmt = $pdo->prepare(
                 'with recursive type_tree as (
-                    select id from global.note_types where id = :type_id and nook_id = :nook_id and archived_at is null
+                    select id from global.note_types where id = :type_id and nook_id = :nook_id
                     union all
                     select nt.id
                     from global.note_types nt
                     join type_tree tt on nt.parent_id = tt.id
-                    where nt.nook_id = :nook_id and nt.archived_at is null
+                    where nt.nook_id = :nook_id
                 )
                 select n.id, n.title, n.type, n.type_id, n.created_at,
                     coalesce(outgoing.cnt, 0) as outgoing_mentions_count,
@@ -509,10 +495,9 @@ final class NoteTypesController
                     where l.nook_id = :nook_id
                     group by l.target_note_id
                 ) incoming_links on incoming_links.note_id = n.id
-                where n.nook_id = :nook_id
-                    and n.type_id in (select id from type_tree)
-                    ' . $whereCursor . '
-                    ' . $whereSearch . '
+                where n.nook_id = :nook_id and n.type_id in (select id from type_tree)
+                ' . $whereCursor . '
+                ' . $whereSearch . '
                 order by n.created_at desc, n.id desc
                 limit :limit'
             );
@@ -651,7 +636,7 @@ final class NoteTypesController
 
     private function ensureRootFileType(PDO $pdo, string $nookId): void
     {
-        $check = $pdo->prepare('select 1 from global.note_types where nook_id = :nook_id and key = :key and archived_at is null');
+        $check = $pdo->prepare('select 1 from global.note_types where nook_id = :nook_id and key = :key');
         $check->execute([':nook_id' => $nookId, ':key' => self::ROOT_FILE_TYPE_KEY]);
         if ($check->fetchColumn()) {
             return;

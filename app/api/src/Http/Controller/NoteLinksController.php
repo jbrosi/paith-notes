@@ -159,7 +159,7 @@ final class NoteLinksController
 
         $predStmt = $pdo->prepare(
             'select key, forward_label, reverse_label, supports_start_date, supports_end_date '
-            . 'from global.link_predicates where id = :id and nook_id = :nook_id and archived_at is null'
+            . 'from global.link_predicates where id = :id and nook_id = :nook_id'
         );
         $predStmt->execute([':id' => $predicateId, ':nook_id' => $nookId]);
         $pred = $predStmt->fetch(PDO::FETCH_ASSOC);
@@ -370,7 +370,7 @@ final class NoteLinksController
             $seen[$current] = true;
             $out[] = $current;
 
-            $stmt = $pdo->prepare('select parent_id from global.note_types where id = :id and nook_id = :nook_id and archived_at is null');
+            $stmt = $pdo->prepare('select parent_id from global.note_types where id = :id and nook_id = :nook_id');
             $stmt->execute([':id' => $current, ':nook_id' => $nookId]);
             $parentRaw = $stmt->fetchColumn();
             $parent = is_scalar($parentRaw) ? trim((string)$parentRaw) : '';
@@ -422,7 +422,7 @@ final class NoteLinksController
 
     private function ensureDefaultRelatesTo(PDO $pdo, string $nookId): void
     {
-        $check = $pdo->prepare('select 1 from global.link_predicates where nook_id = :nook_id and key = :key and archived_at is null');
+        $check = $pdo->prepare('select 1 from global.link_predicates where nook_id = :nook_id and key = :key');
         $check->execute([':nook_id' => $nookId, ':key' => self::DEFAULT_RELATES_TO_KEY]);
         if ($check->fetchColumn()) {
             return;

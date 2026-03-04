@@ -33,8 +33,8 @@ final class LinkPredicatesController
         $this->ensureDefaultRelatesTo($pdo, $nookId);
 
         $stmt = $pdo->prepare(
-            'select id, key, forward_label, reverse_label, supports_start_date, supports_end_date, archived_at, created_at, updated_at '
-            . 'from global.link_predicates where nook_id = :nook_id and archived_at is null order by key asc'
+            'select id, key, forward_label, reverse_label, supports_start_date, supports_end_date, created_at, updated_at '
+            . 'from global.link_predicates where nook_id = :nook_id order by key asc'
         );
         $stmt->execute([':nook_id' => $nookId]);
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -52,7 +52,6 @@ final class LinkPredicatesController
                 'reverse_label' => is_scalar($r['reverse_label'] ?? null) ? (string)$r['reverse_label'] : '',
                 'supports_start_date' => (bool)($r['supports_start_date'] ?? false),
                 'supports_end_date' => (bool)($r['supports_end_date'] ?? false),
-                'archived_at' => is_scalar($r['archived_at'] ?? null) ? (string)$r['archived_at'] : '',
                 'created_at' => is_scalar($r['created_at'] ?? null) ? (string)$r['created_at'] : '',
                 'updated_at' => is_scalar($r['updated_at'] ?? null) ? (string)$r['updated_at'] : '',
             ];
@@ -106,7 +105,7 @@ final class LinkPredicatesController
         try {
             $pdo->beginTransaction();
 
-            $dupe = $pdo->prepare('select 1 from global.link_predicates where nook_id = :nook_id and key = :key and archived_at is null');
+            $dupe = $pdo->prepare('select 1 from global.link_predicates where nook_id = :nook_id and key = :key');
             $dupe->execute([':nook_id' => $nookId, ':key' => $key]);
             if ($dupe->fetchColumn()) {
                 throw new HttpError('key already exists', 409);
@@ -143,7 +142,6 @@ final class LinkPredicatesController
                     'reverse_label' => $reverse,
                     'supports_start_date' => $supportsStart,
                     'supports_end_date' => $supportsEnd,
-                    'archived_at' => '',
                     'created_at' => is_scalar($row['created_at'] ?? null) ? (string)$row['created_at'] : '',
                     'updated_at' => is_scalar($row['updated_at'] ?? null) ? (string)$row['updated_at'] : '',
                 ],
@@ -180,7 +178,7 @@ final class LinkPredicatesController
         $this->requireMember($pdo, $user, $nookId);
         $this->ensureDefaultRelatesTo($pdo, $nookId);
 
-        $keyCheck = $pdo->prepare('select key from global.link_predicates where id = :id and nook_id = :nook_id and archived_at is null');
+        $keyCheck = $pdo->prepare('select key from global.link_predicates where id = :id and nook_id = :nook_id');
         $keyCheck->execute([':id' => $predicateId, ':nook_id' => $nookId]);
         $existingKeyRaw = $keyCheck->fetchColumn();
         $existingKey = is_scalar($existingKeyRaw) ? (string)$existingKeyRaw : '';
@@ -218,7 +216,7 @@ final class LinkPredicatesController
         $supportsEnd = (bool)($data['supports_end_date'] ?? false);
 
         if ($key !== $existingKey) {
-            $dupe = $pdo->prepare('select 1 from global.link_predicates where nook_id = :nook_id and key = :key and id != :id and archived_at is null');
+            $dupe = $pdo->prepare('select 1 from global.link_predicates where nook_id = :nook_id and key = :key and id != :id');
             $dupe->execute([':nook_id' => $nookId, ':key' => $key, ':id' => $predicateId]);
             if ($dupe->fetchColumn()) {
                 throw new HttpError('key already exists', 409);
@@ -227,7 +225,7 @@ final class LinkPredicatesController
 
         $stmt = $pdo->prepare(
             'update global.link_predicates set key = :key, forward_label = :forward_label, reverse_label = :reverse_label, supports_start_date = :supports_start_date, supports_end_date = :supports_end_date, updated_at = now() '
-            . 'where id = :id and nook_id = :nook_id and archived_at is null '
+            . 'where id = :id and nook_id = :nook_id '
             . 'returning created_at, updated_at'
         );
         $stmt->bindValue(':id', $predicateId);
@@ -253,7 +251,6 @@ final class LinkPredicatesController
                 'reverse_label' => $reverse,
                 'supports_start_date' => $supportsStart,
                 'supports_end_date' => $supportsEnd,
-                'archived_at' => '',
                 'created_at' => is_scalar($row['created_at'] ?? null) ? (string)$row['created_at'] : '',
                 'updated_at' => is_scalar($row['updated_at'] ?? null) ? (string)$row['updated_at'] : '',
             ],
@@ -284,7 +281,7 @@ final class LinkPredicatesController
         $this->requireMember($pdo, $user, $nookId);
         $this->ensureDefaultRelatesTo($pdo, $nookId);
 
-        $keyCheck = $pdo->prepare('select key from global.link_predicates where id = :id and nook_id = :nook_id and archived_at is null');
+        $keyCheck = $pdo->prepare('select key from global.link_predicates where id = :id and nook_id = :nook_id');
         $keyCheck->execute([':id' => $predicateId, ':nook_id' => $nookId]);
         $existingKeyRaw = $keyCheck->fetchColumn();
         $existingKey = is_scalar($existingKeyRaw) ? (string)$existingKeyRaw : '';
@@ -295,9 +292,7 @@ final class LinkPredicatesController
             throw new HttpError('relates_to cannot be deleted', 400);
         }
 
-        $stmt = $pdo->prepare(
-            'update global.link_predicates set archived_at = now(), updated_at = now() where id = :id and nook_id = :nook_id and archived_at is null returning id'
-        );
+        $stmt = $pdo->prepare('delete from global.link_predicates where id = :id and nook_id = :nook_id returning id');
         $stmt->execute([':id' => $predicateId, ':nook_id' => $nookId]);
         $id = $stmt->fetchColumn();
         if (!is_scalar($id) || (string)$id === '') {
@@ -333,7 +328,7 @@ final class LinkPredicatesController
 
         $this->requireMember($pdo, $user, $nookId);
 
-        $check = $pdo->prepare('select 1 from global.link_predicates where id = :id and nook_id = :nook_id and archived_at is null');
+        $check = $pdo->prepare('select 1 from global.link_predicates where id = :id and nook_id = :nook_id');
         $check->execute([':id' => $predicateId, ':nook_id' => $nookId]);
         if (!$check->fetchColumn()) {
             throw new HttpError('predicate not found', 404);
@@ -387,7 +382,7 @@ final class LinkPredicatesController
 
         $this->requireMember($pdo, $user, $nookId);
 
-        $check = $pdo->prepare('select 1 from global.link_predicates where id = :id and nook_id = :nook_id and archived_at is null');
+        $check = $pdo->prepare('select 1 from global.link_predicates where id = :id and nook_id = :nook_id');
         $check->execute([':id' => $predicateId, ':nook_id' => $nookId]);
         if (!$check->fetchColumn()) {
             throw new HttpError('predicate not found', 404);
@@ -418,14 +413,14 @@ final class LinkPredicatesController
             }
 
             if ($sourceTypeId !== '') {
-                $t = $pdo->prepare('select 1 from global.note_types where id = :id and nook_id = :nook_id and archived_at is null');
+                $t = $pdo->prepare('select 1 from global.note_types where id = :id and nook_id = :nook_id');
                 $t->execute([':id' => $sourceTypeId, ':nook_id' => $nookId]);
                 if (!$t->fetchColumn()) {
                     throw new HttpError('source type not found', 404);
                 }
             }
             if ($targetTypeId !== '') {
-                $t = $pdo->prepare('select 1 from global.note_types where id = :id and nook_id = :nook_id and archived_at is null');
+                $t = $pdo->prepare('select 1 from global.note_types where id = :id and nook_id = :nook_id');
                 $t->execute([':id' => $targetTypeId, ':nook_id' => $nookId]);
                 if (!$t->fetchColumn()) {
                     throw new HttpError('target type not found', 404);
@@ -474,7 +469,7 @@ final class LinkPredicatesController
 
     private function ensureDefaultRelatesTo(PDO $pdo, string $nookId): void
     {
-        $check = $pdo->prepare('select 1 from global.link_predicates where nook_id = :nook_id and key = :key and archived_at is null');
+        $check = $pdo->prepare('select 1 from global.link_predicates where nook_id = :nook_id and key = :key');
         $check->execute([':nook_id' => $nookId, ':key' => self::DEFAULT_RELATES_TO_KEY]);
         if ($check->fetchColumn()) {
             return;

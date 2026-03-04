@@ -47,7 +47,6 @@ export function PrimaryTypeSelect(props: { store: NookStore }) {
 											parentId: "",
 											appliesToFiles: true,
 											appliesToNotes: true,
-											archivedAt: "",
 											createdAt: undefined,
 											updatedAt: undefined,
 										},

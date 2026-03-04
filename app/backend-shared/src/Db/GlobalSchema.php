@@ -89,7 +89,6 @@ final class GlobalSchema
                 parent_id uuid null references global.note_types(id) on delete set null,
                 applies_to_files boolean not null default true,
                 applies_to_notes boolean not null default true,
-                archived_at timestamptz null,
                 created_at timestamptz not null default now(),
                 updated_at timestamptz not null default now()
             );
@@ -97,6 +96,11 @@ final class GlobalSchema
 
         $pdo->exec("alter table global.note_types add column if not exists description text not null default ''");
 
+        // Remove former soft-delete column (we prefer hard deletes; history can be added later).
+        $pdo->exec('alter table global.note_types drop column if exists archived_at');
+
+        $pdo->exec('drop index if exists global.note_types_nook_key_uidx');
+        $pdo->exec('drop index if exists note_types_nook_key_uidx');
         $pdo->exec('create unique index if not exists note_types_nook_key_uidx on global.note_types (nook_id, key)');
         $pdo->exec('create index if not exists note_types_nook_id_idx on global.note_types (nook_id)');
         $pdo->exec('create index if not exists note_types_parent_id_idx on global.note_types (parent_id)');
@@ -181,14 +185,18 @@ final class GlobalSchema
                 reverse_label text not null,
                 supports_start_date boolean not null default false,
                 supports_end_date boolean not null default false,
-                archived_at timestamptz null,
                 created_at timestamptz not null default now(),
                 updated_at timestamptz not null default now()
             );
         ");
 
+        // Remove former soft-delete column (we prefer hard deletes; history can be added later).
+        $pdo->exec('alter table global.link_predicates drop column if exists archived_at');
+
         $pdo->exec('create index if not exists link_predicates_nook_id_idx on global.link_predicates (nook_id)');
-        $pdo->exec("create unique index if not exists link_predicates_nook_key_uidx on global.link_predicates (nook_id, key) where archived_at is null");
+        $pdo->exec('drop index if exists global.link_predicates_nook_key_uidx');
+        $pdo->exec('drop index if exists link_predicates_nook_key_uidx');
+        $pdo->exec("create unique index if not exists link_predicates_nook_key_uidx on global.link_predicates (nook_id, key)");
 
         $pdo->exec(" 
             create table if not exists global.link_predicate_rules (
