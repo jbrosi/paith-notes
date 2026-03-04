@@ -207,16 +207,7 @@ final class AuthController
             ]);
         }
 
-        $host = trim($request->header('Host'));
-        if ($host === '') {
-            $host = 'localhost:8000';
-        }
-        $proto = trim($request->header('X-Forwarded-Proto'));
-        if ($proto === '') {
-            $proto = 'http';
-        }
-
-        $postLogout = $proto . '://' . $host . '/';
+        $postLogout = $this->publicBaseUrlForRequest($request) . '/';
         $endSession = $baseUrl . '/realms/' . rawurlencode($realm) . '/protocol/openid-connect/logout';
 
         $params = [
@@ -235,15 +226,30 @@ final class AuthController
 
     private function callbackUrlForRequest(Request $request): string
     {
-        $host = trim($request->header('Host'));
+        return $this->publicBaseUrlForRequest($request) . '/api/auth/callback';
+    }
+
+    private function publicBaseUrlForRequest(Request $request): string
+    {
+        $envBase = trim((string)getenv('PUBLIC_BASE_URL'));
+        if ($envBase !== '') {
+            return rtrim($envBase, '/');
+        }
+
+        $host = trim($request->header('X-Forwarded-Host'));
+        if ($host === '') {
+            $host = trim($request->header('Host'));
+        }
         if ($host === '') {
             $host = 'localhost:8000';
         }
+
         $proto = trim($request->header('X-Forwarded-Proto'));
         if ($proto === '') {
             $proto = 'http';
         }
-        return $proto . '://' . $host . '/api/auth/callback';
+
+        return $proto . '://' . $host;
     }
 
     private function isSecureRequest(Request $request): bool

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Paith\Notes\Api\Http;
 
+use Paith\Notes\Shared\Db\DatabaseUrl;
 use Paith\Notes\Shared\Db\GlobalSchema;
 use Paith\Notes\Shared\Env;
 use PDO;
@@ -14,28 +15,9 @@ final class Db
     public static function pdoFromEnv(): PDO
     {
         $databaseUrl = Env::get('DATABASE_URL');
-        if ($databaseUrl === '') {
-            throw new RuntimeException('DATABASE_URL is not set');
-        }
+        $cfg = DatabaseUrl::toPdoConfig($databaseUrl);
 
-        $parts = parse_url($databaseUrl);
-        if ($parts === false) {
-            throw new RuntimeException('DATABASE_URL is invalid');
-        }
-
-        $host = $parts['host'] ?? '';
-        $port = (int)($parts['port'] ?? 5432);
-        $user = $parts['user'] ?? '';
-        $pass = $parts['pass'] ?? '';
-        $dbName = ltrim((string)($parts['path'] ?? ''), '/');
-
-        if ($host === '' || $user === '' || $dbName === '') {
-            throw new RuntimeException('DATABASE_URL must include host, user, and database name');
-        }
-
-        $dsn = sprintf('pgsql:host=%s;port=%d;dbname=%s', $host, $port, $dbName);
-
-        $pdo = new PDO($dsn, $user, $pass, [
+        $pdo = new PDO($cfg['dsn'], $cfg['user'], $cfg['pass'], [
             PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
             PDO::ATTR_TIMEOUT => 2,
         ]);
