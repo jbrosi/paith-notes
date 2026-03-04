@@ -1,0 +1,65 @@
+services:
+  # Optional: self-contained Postgres (uncomment to run DB locally on the host)
+  # db:
+  #   image: docker.io/postgres:17-alpine
+  #   restart: unless-stopped
+  #   environment:
+  #     POSTGRES_DB: paith
+  #     POSTGRES_USER: paith
+  #     POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+  #   volumes:
+  #     - db_data:/var/lib/postgresql/data
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+  #     interval: 5s
+  #     timeout: 5s
+  #     retries: 20
+
+  app:
+    image: ${APP_IMAGE:-ghcr.io/OWNER/REPO/app:latest}
+    restart: unless-stopped
+    environment:
+      SERVER_NAME: ":8000"
+      # For external Postgres: set DATABASE_URL in .env
+      # For the optional local DB above:
+      # DATABASE_URL: postgresql://paith:${POSTGRES_PASSWORD}@db:5432/paith
+      DATABASE_URL: ${DATABASE_URL}
+      KEYCLOAK_ENABLED: ${KEYCLOAK_ENABLED:-0}
+      KEYCLOAK_BASE_URL: ${KEYCLOAK_BASE_URL:-}
+      KEYCLOAK_REALM: ${KEYCLOAK_REALM:-}
+      KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:-}
+      KEYCLOAK_CLIENT_SECRET: ${KEYCLOAK_CLIENT_SECRET:-}
+      SESSION_SECRET: ${SESSION_SECRET}
+      DEBUG_AUTH: ${DEBUG_AUTH:-0}
+    depends_on:
+      - files
+    volumes:
+      - files_data:/data
+    ports:
+      - "127.0.0.1:8000:8000"
+
+  worker:
+    image: ${WORKER_IMAGE:-ghcr.io/OWNER/REPO/worker:latest}
+    restart: unless-stopped
+    command: ["php", "/app/worker/worker.php"]
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      SESSION_SECRET: ${SESSION_SECRET}
+    depends_on:
+      - files
+    volumes:
+      - files_data:/data
+
+  files:
+    image: docker.io/nginx:1.29-alpine
+    restart: unless-stopped
+    command: ["sh", "-lc", "mkdir -p /data/tmp /data/notes && chown -R nginx:nginx /data && exec nginx -g 'daemon off;'" ]
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - files_data:/data
+    expose:
+      - "8080"
+
+volumes:
+  files_data:
+  # db_data:

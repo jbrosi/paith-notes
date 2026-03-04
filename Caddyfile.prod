@@ -1,0 +1,33 @@
+:8000 {
+    root * /srv/frontend
+    encode gzip zstd
+
+    @php {
+        path /health* /healthz* /api/*
+    }
+
+    @files {
+        path /files/*
+    }
+
+    handle @files {
+        reverse_proxy files:8080
+    }
+
+    handle @php {
+        root * /app/api
+        php_server {
+            file_server off
+            # Worker mode for the front controller
+            worker {
+                file /app/api/index.php
+                num 5
+            }
+        }
+    }
+
+    handle {
+        try_files {path} /index.html
+        file_server
+    }
+}
