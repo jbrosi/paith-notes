@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Paith\Notes\Api\Http;
 
 use Paith\Notes\Shared\Db\DatabaseUrl;
-use Paith\Notes\Shared\Db\GlobalSchema;
 use Paith\Notes\Shared\Env;
 use PDO;
 use RuntimeException;
@@ -21,8 +20,6 @@ final class Db
             PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
             PDO::ATTR_TIMEOUT => 2,
         ]);
-
-        GlobalSchema::ensure($pdo);
 
         return $pdo;
     }
