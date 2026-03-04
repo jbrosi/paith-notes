@@ -106,7 +106,6 @@ const NoteTypeApiSchema = z
 		parent_id: z.string().optional(),
 		applies_to_files: z.boolean().optional(),
 		applies_to_notes: z.boolean().optional(),
-		archived_at: z.string().optional(),
 		created_at: z.string().optional(),
 		updated_at: z.string().optional(),
 	})
@@ -119,7 +118,6 @@ const NoteTypeApiSchema = z
 		parentId: t.parent_id ?? "",
 		appliesToFiles: t.applies_to_files ?? true,
 		appliesToNotes: t.applies_to_notes ?? true,
-		archivedAt: t.archived_at ?? "",
 		createdAt: t.created_at,
 		updatedAt: t.updated_at,
 	}));
@@ -149,7 +147,6 @@ const LinkPredicateApiSchema = z
 		reverse_label: z.string(),
 		supports_start_date: z.boolean().optional(),
 		supports_end_date: z.boolean().optional(),
-		archived_at: z.string().optional(),
 		created_at: z.string().optional(),
 		updated_at: z.string().optional(),
 	})
@@ -161,7 +158,6 @@ const LinkPredicateApiSchema = z
 		reverseLabel: p.reverse_label,
 		supportsStartDate: p.supports_start_date ?? false,
 		supportsEndDate: p.supports_end_date ?? false,
-		archivedAt: p.archived_at ?? "",
 		createdAt: p.created_at,
 		updatedAt: p.updated_at,
 	}));

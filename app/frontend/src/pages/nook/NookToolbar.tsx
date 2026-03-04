@@ -44,9 +44,7 @@ export function NookToolbar(props: NookToolbarProps) {
 	);
 
 	const mentionTypeOptions = createMemo(() => {
-		return (props.noteTypes ?? [])
-			.filter((t) => t.archivedAt === "")
-			.map((t) => ({ id: t.id, label: t.label }));
+		return (props.noteTypes ?? []).map((t) => ({ id: t.id, label: t.label }));
 	});
 
 	return (
