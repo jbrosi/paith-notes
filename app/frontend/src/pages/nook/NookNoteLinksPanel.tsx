@@ -1,7 +1,7 @@
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import { apiFetch } from "../../auth/keycloak";
 import { Button } from "../../components/Button";
-import { NoteSearchSelect } from "../../components/NoteSearchSelect";
+import { RemoteNoteSearchSelect } from "../../components/RemoteNoteSearchSelect";
 import type { NookStore } from "./store";
 import {
 	type LinkPredicate,
@@ -30,19 +30,42 @@ export function NookNoteLinksPanel(props: NookNoteLinksPanelProps) {
 
 	const [newPredicateId, setNewPredicateId] = createSignal<string>("");
 	const [newTargetNoteId, setNewTargetNoteId] = createSignal<string>("");
-	const [targetTypeFilterId, setTargetTypeFilterId] = createSignal<string>("");
 	const [newStartDate, setNewStartDate] = createSignal<string>("");
 	const [newEndDate, setNewEndDate] = createSignal<string>("");
 
-	const notesById = createMemo(() => {
-		const map = new Map<string, string>();
-		for (const n of store().allNotes()) {
-			map.set(n.id, n.title);
+	const titleForLink = (l: NoteLink, id: string) => {
+		if (l.sourceNoteId === id) {
+			return l.sourceNoteTitle?.trim() ? l.sourceNoteTitle : id;
 		}
-		return map;
+		if (l.targetNoteId === id) {
+			return l.targetNoteTitle?.trim() ? l.targetNoteTitle : id;
+		}
+		return id;
+	};
+
+	const typeParentById = createMemo(() => {
+		const m = new Map<string, string>();
+		for (const t of store().noteTypes()) {
+			m.set(t.id, t.parentId);
+		}
+		return m;
 	});
 
-	const titleFor = (id: string) => notesById().get(id) ?? id;
+	const isSameOrDescendant = (childId: string, ancestorId: string) => {
+		const child = childId.trim();
+		const ancestor = ancestorId.trim();
+		if (child === "" || ancestor === "") return false;
+		if (child === ancestor) return true;
+		let cur = child;
+		const parentMap = typeParentById();
+		for (let i = 0; i < 64; i++) {
+			const p = parentMap.get(cur) ?? "";
+			if (p === "") return false;
+			if (p === ancestor) return true;
+			cur = p;
+		}
+		return false;
+	};
 
 	const loadPredicates = async () => {
 		if (nookId().trim() === "") return;
@@ -111,7 +134,7 @@ export function NookNoteLinksPanel(props: NookNoteLinksPanelProps) {
 		setError("");
 		try {
 			const res = await apiFetch(
-				`/api/nooks/${nookId()}/notes/${noteId()}/links?direction=both`,
+				`/api/nooks/${nookId()}/notes/${noteId()}/links?direction=both&depth=1`,
 				{ method: "GET" },
 			);
 			if (!res.ok) {
@@ -231,67 +254,7 @@ export function NookNoteLinksPanel(props: NookNoteLinksPanelProps) {
 		const pid = newPredicateId().trim();
 		void pid;
 		setNewTargetNoteId("");
-		setTargetTypeFilterId("");
 		void loadRules(pid);
-	});
-
-	const parentByTypeId = createMemo(() => {
-		const m = new Map<string, string>();
-		for (const t of store().noteTypes()) {
-			m.set(t.id, t.parentId);
-		}
-		return m;
-	});
-
-	const isSameOrDescendant = (childId: string, ancestorId: string) => {
-		const child = childId.trim();
-		const ancestor = ancestorId.trim();
-		if (child === "" || ancestor === "") return false;
-		if (child === ancestor) return true;
-		let cur = child;
-		for (let i = 0; i < 64; i++) {
-			const p = parentByTypeId().get(cur) ?? "";
-			if (p === "") return false;
-			if (p === ancestor) return true;
-			cur = p;
-		}
-		return false;
-	};
-
-	const targetCandidates = createMemo(() => {
-		const id = noteId().trim();
-		const sourceTypeId = store().typeId().trim();
-		const activeRules = rules();
-		return store()
-			.allNotes()
-			.filter((n) => n.id !== id)
-			.filter((n) => {
-				if (activeRules.length === 0) return true;
-				const targetTypeId = String(n.typeId ?? "").trim();
-				return activeRules.some((r) => {
-					const ruleSource = r.sourceTypeId.trim();
-					const ruleTarget = r.targetTypeId.trim();
-					const sourceOk =
-						ruleSource === "" ||
-						(sourceTypeId !== "" &&
-							(r.includeSourceSubtypes
-								? isSameOrDescendant(sourceTypeId, ruleSource)
-								: sourceTypeId === ruleSource));
-					if (!sourceOk) return false;
-					if (ruleTarget === "") return true;
-					if (targetTypeId === "") return false;
-					return r.includeTargetSubtypes
-						? isSameOrDescendant(targetTypeId, ruleTarget)
-						: targetTypeId === ruleTarget;
-				});
-			})
-			.map((n) => ({
-				id: n.id,
-				title: n.title,
-				subtitle:
-					n.type === "file" ? "File" : n.type === "person" ? "Person" : "Note",
-				typeId: n.typeId,
-			}));
 	});
 
 	const allowedTargetTypeOptions = createMemo(() => {
@@ -332,11 +295,26 @@ export function NookNoteLinksPanel(props: NookNoteLinksPanelProps) {
 			.sort((a, b) => a.label.localeCompare(b.label));
 	});
 
-	const typeNodes = createMemo(() =>
-		store()
-			.noteTypes()
-			.map((t) => ({ id: t.id, parentId: t.parentId })),
+	const allowedTargetTypeIds = createMemo(
+		() => new Set(allowedTargetTypeOptions().map((o) => o.id)),
 	);
+
+	const allowedTargetTypeLabel = createMemo(() => {
+		const opts = allowedTargetTypeOptions();
+		if (opts.length === 0) return "";
+		return opts.map((o) => o.label).join(", ");
+	});
+
+	const isTypeAllowed = (typeId: string) => {
+		const id = typeId.trim();
+		if (id === "") return false;
+		const allowed = allowedTargetTypeIds();
+		if (allowed.size === 0) return true;
+		for (const rootId of allowed) {
+			if (id === rootId || isSameOrDescendant(id, rootId)) return true;
+		}
+		return false;
+	};
 
 	return (
 		<div
@@ -390,22 +368,14 @@ export function NookNoteLinksPanel(props: NookNoteLinksPanelProps) {
 
 							<div>
 								<div>Target note</div>
-								<NoteSearchSelect
+								<RemoteNoteSearchSelect
 									value={newTargetNoteId()}
 									onChange={(id) => setNewTargetNoteId(id)}
-									options={targetCandidates()}
-									typeNodes={typeNodes()}
-									typeFilter={{
-										value: targetTypeFilterId(),
-										onChange: (next) => setTargetTypeFilterId(next),
-										options: allowedTargetTypeOptions(),
-										placeholder: "All types",
-										disabled: loading(),
-									}}
-									filters={{
-										typeId: targetTypeFilterId(),
-										includeSubtypes: true,
-									}}
+									nookId={nookId()}
+									noteTypes={store().noteTypes()}
+									excludeIds={[noteId()]}
+									isTypeAllowed={(id) => isTypeAllowed(id)}
+									allowedTypesLabel={allowedTargetTypeLabel()}
 									placeholder="Target note…"
 									disabled={loading()}
 								/>
@@ -471,7 +441,7 @@ export function NookNoteLinksPanel(props: NookNoteLinksPanelProps) {
 										<div style={{ flex: "1" }}>
 											<div>
 												<strong>{directionLabel(l)}</strong>{" "}
-												{titleFor(otherNoteId(l))}
+												{titleForLink(l, otherNoteId(l))}
 											</div>
 											<Show when={l.startDate !== "" || l.endDate !== ""}>
 												<div style={{ color: "#666", "font-size": "12px" }}>

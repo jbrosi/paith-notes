@@ -29,6 +29,7 @@ jobs:
       - name: Cleanup container package versions
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_OWNER: ${{ github.repository_owner }}
         run: |
           set -eu
 
@@ -37,7 +38,22 @@ jobs:
 
             echo "==> cleaning package: $pkg"
 
-            versions_json=$(gh api --paginate "/user/packages/container/${pkg}/versions?per_page=100" 2>/dev/null | jq -s 'add' || true)
+            fetch_versions() {
+              endpoint="$1"
+              gh api --paginate "$endpoint" 2>/dev/null | jq -s 'add'
+            }
+
+            versions_json=$(fetch_versions "/orgs/${GH_OWNER}/packages/container/${pkg}/versions?per_page=100" 2>/dev/null || true)
+            if [ -z "$versions_json" ]; then
+              versions_json=$(fetch_versions "/users/${GH_OWNER}/packages/container/${pkg}/versions?per_page=100" 2>/dev/null || true)
+            fi
+
+            # If we got a non-JSON response (404/403/etc.), jq will fail; treat it as "no versions" but print a hint.
+            if ! printf '%s' "$versions_json" | jq -e . >/dev/null 2>&1; then
+              echo "failed to fetch/parse versions for package: $pkg"
+              echo "hint: ensure the package exists under owner '${GH_OWNER}' and GITHUB_TOKEN has packages:write permissions"
+              return 0
+            fi
             if [ -z "$versions_json" ]; then
               echo "no versions found (or package does not exist): $pkg"
               return 0

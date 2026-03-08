@@ -35,13 +35,9 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 	const store = () => props.store;
 	const nookId = () => store().nookId();
 	const noteId = () => store().selectedId();
+	const [depth, setDepth] = createSignal<number>(2);
 	const selectNote = (id: string) => {
-		const target =
-			store()
-				.allNotes()
-				.find((n) => n.id === id) ?? null;
-		if (!target) return;
-		store().selectNote(target);
+		void store().onNoteLinkClick(id);
 	};
 
 	const [_loading, setLoading] = createSignal<boolean>(false);
@@ -50,15 +46,24 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 
 	const titleById = createMemo(() => {
 		const m = new Map<string, string>();
-		for (const n of store().allNotes()) m.set(n.id, n.title);
+		for (const l of links()) {
+			if (l.sourceNoteId.trim() !== "") {
+				m.set(
+					l.sourceNoteId,
+					l.sourceNoteTitle?.trim() ? l.sourceNoteTitle : l.sourceNoteId,
+				);
+			}
+			if (l.targetNoteId.trim() !== "") {
+				m.set(
+					l.targetNoteId,
+					l.targetNoteTitle?.trim() ? l.targetNoteTitle : l.targetNoteId,
+				);
+			}
+		}
 		return m;
 	});
 
 	const labelFor = (id: string) => titleById().get(id) ?? id;
-
-	const otherNoteId = (l: NoteLink) => {
-		return l.sourceNoteId === noteId() ? l.targetNoteId : l.sourceNoteId;
-	};
 
 	const loadLinks = async () => {
 		if (nookId().trim() === "") return;
@@ -66,11 +71,12 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 			setLinks([]);
 			return;
 		}
+		const d = depth();
 		setLoading(true);
 		setError("");
 		try {
 			const res = await apiFetch(
-				`/api/nooks/${nookId()}/notes/${noteId()}/links?direction=both`,
+				`/api/nooks/${nookId()}/notes/${noteId()}/links?direction=both&depth=${d}`,
 				{ method: "GET" },
 			);
 			if (!res.ok) {
@@ -96,19 +102,25 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 	const graph = createMemo((): { nodes: GraphNode[]; edges: GraphEdge[] } => {
 		const centerId = noteId().trim();
 		if (centerId === "") return { nodes: [], edges: [] };
+		const centerTitle = store().title().trim();
 
 		const nodes = new Map<string, GraphNode>();
-		nodes.set(centerId, { id: centerId, label: labelFor(centerId) });
+		nodes.set(centerId, {
+			id: centerId,
+			label: centerTitle !== "" ? centerTitle : labelFor(centerId),
+		});
 
 		const edges: GraphEdge[] = [];
 		for (const l of links()) {
-			const other = otherNoteId(l).trim();
-			if (other === "") continue;
-			nodes.set(other, { id: other, label: labelFor(other) });
+			const s = l.sourceNoteId.trim();
+			const t = l.targetNoteId.trim();
+			if (s === "" || t === "") continue;
+			if (!nodes.has(s)) nodes.set(s, { id: s, label: labelFor(s) });
+			if (!nodes.has(t)) nodes.set(t, { id: t, label: labelFor(t) });
 			edges.push({
-				source: centerId,
-				target: other,
-				label: l.sourceNoteId === centerId ? l.forwardLabel : l.reverseLabel,
+				source: s,
+				target: t,
+				label: l.forwardLabel,
 			});
 		}
 
@@ -364,6 +376,35 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 			<div style={{ display: "flex", "justify-content": "space-between" }}>
 				<div style={{ "font-weight": 600 }}>Graph</div>
 				<div style={{ display: "flex", gap: "6px" }}>
+					<label
+						style={{ display: "flex", gap: "6px", "align-items": "center" }}
+					>
+						<div style={{ "font-size": "12px", color: "#475569" }}>Depth</div>
+						<select
+							value={String(depth())}
+							onChange={(e) => {
+								const next = Number.parseInt(e.currentTarget.value, 10);
+								setDepth(
+									Number.isFinite(next) ? Math.min(5, Math.max(1, next)) : 2,
+								);
+							}}
+							disabled={noteId().trim() === ""}
+							style={{
+								border: "1px solid #ddd",
+								"border-radius": "6px",
+								background: "white",
+								padding: "4px 6px",
+								cursor: "pointer",
+								"font-size": "12px",
+							}}
+						>
+							<option value="1">1</option>
+							<option value="2">2</option>
+							<option value="3">3</option>
+							<option value="4">4</option>
+							<option value="5">5</option>
+						</select>
+					</label>
 					<button
 						type="button"
 						onClick={onCenter}
