@@ -5,7 +5,29 @@
 	padding: 1rem;
 	background-color: #f5f5f5;
 	border-bottom: 1px solid #ddd;
-	margin-bottom: 2rem;
+	margin-bottom: 0;
+}
+
+.nookBar {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.75rem;
+	padding: 0.5rem 1rem;
+	background-color: #fafafa;
+	border-bottom: 1px solid #eee;
+	margin-bottom: 0;
+}
+
+.nookBarGroup {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+}
+
+.iconButton {
+	padding: 0.375rem 0.5rem;
+	line-height: 1;
 }
 
 .links {

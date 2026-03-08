@@ -7,7 +7,7 @@ namespace Paith\Notes\Api\Http\Auth;
 use Paith\Notes\Shared\Env;
 use RuntimeException;
 
-final class KeycloakOAuth
+final class KeycloakOAuth implements OAuthTokenRefresher
 {
     private string $baseUrl;
     private string $realm;
