@@ -740,17 +740,26 @@ final class FileNotesController
 
     private function filePublicUrlForRequest(Request $request, string $objectKey, array $query = []): string
     {
-        $host = trim($request->header('Host'));
-        $proto = trim($request->header('X-Forwarded-Proto'));
-        if ($proto === '') {
-            $proto = 'http';
-        }
+        $envBase = trim((string)getenv('PUBLIC_BASE_URL'));
+        if ($envBase !== '') {
+            $base = rtrim($envBase, '/');
+        } else {
+            $host = trim($request->header('X-Forwarded-Host'));
+            if ($host === '') {
+                $host = trim($request->header('Host'));
+            }
 
-        if ($host === '') {
-            $host = 'localhost:8000';
-        }
+            $proto = trim($request->header('X-Forwarded-Proto'));
+            if ($proto === '') {
+                $proto = 'http';
+            }
 
-        $base = $proto . '://' . $host;
+            if ($host === '') {
+                $host = 'localhost:8000';
+            }
+
+            $base = $proto . '://' . $host;
+        }
         $path = '/files/' . ltrim($objectKey, '/');
 
         $q = [];

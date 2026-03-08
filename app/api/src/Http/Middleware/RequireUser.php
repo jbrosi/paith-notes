@@ -38,7 +38,10 @@ final class RequireUser implements Middleware
     public function handle(Request $request, Context $context, callable $next): Response
     {
         if ((string)getenv('KEYCLOAK_ENABLED') === '1') {
-            self::debugLog('RequireUser keycloak enabled');
+            self::debugLog('RequireUser keycloak enabled', [
+                'method' => $request->method(),
+                'path' => $request->path(),
+            ]);
             $jwt = '';
             $sid = '';
             $sessionPayload = null;
@@ -63,15 +66,37 @@ final class RequireUser implements Middleware
                                 SessionStore::touchSession($pdo, $sid);
                             }
                         }
-                    } catch (RuntimeException) {
+                    } catch (RuntimeException $e) {
+                        self::debugLog('RequireUser failed to load/decrypt session (falling back to Authorization header)', [
+                            'method' => $request->method(),
+                            'path' => $request->path(),
+                            'sid_present' => true,
+                            'error' => $e->getMessage(),
+                        ]);
                         $jwt = '';
                     }
+                } else {
+                    self::debugLog('RequireUser cookie header present but session cookie missing', [
+                        'method' => $request->method(),
+                        'path' => $request->path(),
+                        'cookie_name' => SessionStore::cookieName(),
+                    ]);
                 }
+            } else {
+                self::debugLog('RequireUser missing Cookie header', [
+                    'method' => $request->method(),
+                    'path' => $request->path(),
+                ]);
             }
 
             if ($jwt === '') {
                 $auth = trim($request->header('Authorization'));
                 if (!str_starts_with($auth, 'Bearer ')) {
+                    self::debugLog('RequireUser not authenticated (no JWT from session, no Authorization header)', [
+                        'method' => $request->method(),
+                        'path' => $request->path(),
+                        'sid_present' => $sid !== '',
+                    ]);
                     throw new HttpError('not authenticated', 401);
                 }
 
@@ -87,6 +112,7 @@ final class RequireUser implements Middleware
                 $msg = $e->getMessage();
                 $canRefresh = $sid !== '' && is_array($sessionPayload);
                 if ($canRefresh && $msg === 'JWT is expired') {
+                    self::debugLog('RequireUser JWT expired; attempting refresh');
                     $refresh = $sessionPayload['refresh_token'] ?? '';
                     if (is_string($refresh) && trim($refresh) !== '') {
                         $didRecover = false;
@@ -158,7 +184,11 @@ final class RequireUser implements Middleware
                     }
                 }
 
-                throw new HttpError($msg, 401);
+                self::debugLog('RequireUser JWT verification failed', [
+                    'error' => $msg,
+                    'can_refresh' => $canRefresh,
+                ]);
+                throw new HttpError($e->getMessage(), 401);
             }
 
             $rawGroups = $claims['groups'] ?? null;

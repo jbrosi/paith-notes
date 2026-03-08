@@ -8,6 +8,11 @@ import {
 	Show,
 } from "solid-js";
 import { Button } from "../../components/Button";
+import {
+	normalizeToken,
+	parseTypedSearch,
+	resolveTypeForTerm,
+} from "../../noteSearch";
 import type { NoteSummary, NoteType } from "./types";
 
 export type NookSidebarProps = {
@@ -16,6 +21,7 @@ export type NookSidebarProps = {
 	notesNextCursor: string;
 	noteTypes: NoteType[];
 	selectedTypeId: string;
+	activeTypeId: string;
 	selectedId: string;
 	onSelectType: (typeId: string) => void;
 	onCreateType: (input: {
@@ -38,12 +44,26 @@ export function NookSidebar(props: NookSidebarProps) {
 	const [expanded, setExpanded] = createSignal<Record<string, boolean>>({});
 	const [searchDraft, setSearchDraft] = createSignal<string>("");
 	const [lastSentQuery, setLastSentQuery] = createSignal<string>("");
+	const [searchHasFocus, setSearchHasFocus] = createSignal<boolean>(false);
 
 	onMount(() => {
 		const q = searchDraft();
 		setLastSentQuery(q);
 		props.onSetNotesQuery(q);
 	});
+
+	const effectiveActiveTypeId = createMemo(() => {
+		const active = props.activeTypeId.trim();
+		if (active === "") return props.selectedTypeId.trim();
+		if (props.noteTypes.some((t) => t.id === active)) return active;
+		return props.selectedTypeId.trim();
+	});
+
+	const isActiveType = (id: string) => {
+		const tid = id.trim();
+		const active = effectiveActiveTypeId();
+		return tid === active;
+	};
 
 	createEffect(() => {
 		const q = searchDraft();
@@ -54,6 +74,49 @@ export function NookSidebar(props: NookSidebarProps) {
 		}, 200);
 		return () => window.clearTimeout(t);
 	});
+
+	const parsedSearch = createMemo(() => parseTypedSearch(searchDraft()));
+
+	const matchingType = createMemo(() => {
+		const { typeTerm } = parsedSearch();
+		if (typeTerm === "") return null;
+		return resolveTypeForTerm(props.noteTypes, typeTerm);
+	});
+
+	const showUnknownTypeHint = createMemo(() => {
+		const { typeTerm } = parsedSearch();
+		if (typeTerm.trim() === "") return false;
+		if (props.noteTypes.length === 0) return false;
+		return matchingType() === null;
+	});
+
+	const typeSuggestions = createMemo(() => {
+		const s = String(searchDraft() ?? "").trim();
+		if (!searchHasFocus()) return [];
+		const parsed = parsedSearch();
+		const termRaw = s.includes(":") ? parsed.typeTerm : s;
+		const term = normalizeToken(termRaw);
+		if (term === "") return [];
+
+		const prefix: NoteType[] = [];
+		const contains: NoteType[] = [];
+		for (const t of props.noteTypes) {
+			const label = normalizeToken(t.label);
+			const key = normalizeToken(t.key);
+			if (label.startsWith(term) || key.startsWith(term)) {
+				prefix.push(t);
+				continue;
+			}
+			if (label.includes(term) || key.includes(term)) {
+				contains.push(t);
+			}
+		}
+		return [...prefix, ...contains].slice(0, 6);
+	});
+
+	const applyTypeSuggestion = (t: NoteType) => {
+		setSearchDraft(`${t.key}: `);
+	};
 
 	const typesById = createMemo(() => {
 		const map = new Map<string, NoteType>();
@@ -94,19 +157,20 @@ export function NookSidebar(props: NookSidebarProps) {
 	const renderTypeNode = (t: NoteType, depth: number) => {
 		const children = childrenOf(t.id);
 		const isOpen = expanded()[t.id] ?? true;
-		const isSelected = props.selectedTypeId === t.id;
 
 		return (
 			<div>
 				<div
 					style={{
+						width: "100%",
 						display: "flex",
 						gap: "6px",
 						"align-items": "center",
 						padding: "4px 6px",
-						"margin-left": `${depth * 12}px`,
+						"padding-left": `${6 + depth * 12}px`,
 						"border-radius": "6px",
-						background: isSelected ? "#f6f8fa" : "transparent",
+						background: "transparent",
+						border: "1px solid transparent",
 					}}
 				>
 					<button
@@ -116,12 +180,15 @@ export function NookSidebar(props: NookSidebarProps) {
 						}}
 						style={{
 							flex: "1",
-							border: "none",
-							background: "transparent",
+							border: isActiveType(t.id)
+								? "1px solid #007bff"
+								: "1px solid transparent",
+							background: isActiveType(t.id) ? "#e7f1ff" : "transparent",
 							padding: "2px 4px",
 							"text-align": "left",
 							cursor: "pointer",
-							"font-weight": 500,
+							"font-weight": isActiveType(t.id) ? 700 : 500,
+							"border-radius": "6px",
 						}}
 						title={t.key}
 					>
@@ -267,10 +334,14 @@ export function NookSidebar(props: NookSidebarProps) {
 							padding: "6px",
 							"text-align": "left",
 							"border-radius": "6px",
-							border: "1px solid #ddd",
-							background: props.selectedTypeId === "" ? "#f6f8fa" : "white",
+							border:
+								effectiveActiveTypeId() === ""
+									? "1px solid #007bff"
+									: "1px solid #ddd",
+							background: effectiveActiveTypeId() === "" ? "#e7f1ff" : "white",
 							cursor: "pointer",
 							"margin-bottom": "6px",
+							"font-weight": effectiveActiveTypeId() === "" ? 700 : 500,
 						}}
 					>
 						All notes
@@ -320,6 +391,10 @@ export function NookSidebar(props: NookSidebarProps) {
 						value={searchDraft()}
 						placeholder="Search…"
 						onInput={(e) => setSearchDraft(e.currentTarget.value)}
+						onFocus={() => setSearchHasFocus(true)}
+						onBlur={() => {
+							window.setTimeout(() => setSearchHasFocus(false), 150);
+						}}
 						style={{
 							width: "100%",
 							padding: "6px",
@@ -328,6 +403,54 @@ export function NookSidebar(props: NookSidebarProps) {
 							"margin-bottom": "8px",
 						}}
 					/>
+					<Show when={typeSuggestions().length > 0}>
+						<div
+							style={{
+								position: "relative",
+								"margin-top": "-6px",
+								"margin-bottom": "8px",
+							}}
+						>
+							<div
+								style={{
+									display: "flex",
+									gap: "6px",
+									"flex-wrap": "wrap",
+								}}
+							>
+								<For each={typeSuggestions()}>
+									{(t) => (
+										<button
+											type="button"
+											onClick={() => applyTypeSuggestion(t)}
+											style={{
+												border: "1px solid #ddd",
+												"border-radius": "999px",
+												padding: "2px 8px",
+												background: "white",
+												cursor: "pointer",
+												"font-size": "12px",
+											}}
+											title={t.label}
+										>
+											{t.key}:
+										</button>
+									)}
+								</For>
+							</div>
+						</div>
+					</Show>
+					<Show when={showUnknownTypeHint()}>
+						<div
+							style={{
+								color: "#b00020",
+								"font-size": "12px",
+								"margin-bottom": "8px",
+							}}
+						>
+							No type matches “{parsedSearch().typeTerm}”.
+						</div>
+					</Show>
 
 					<div>
 						<For each={props.notes}>

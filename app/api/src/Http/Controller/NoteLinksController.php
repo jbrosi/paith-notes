@@ -47,60 +47,109 @@ final class NoteLinksController
             throw new HttpError("direction must be one of out, in, both", 400);
         }
 
+        $depth = (int)trim($request->queryParam('depth'));
+        if ($depth <= 0) {
+            $depth = 1;
+        }
+        if ($depth > 5) {
+            $depth = 5;
+        }
+
         $noteCheck = $pdo->prepare('select 1 from global.notes where id = :id and nook_id = :nook_id');
         $noteCheck->execute([':id' => $noteId, ':nook_id' => $nookId]);
         if (!$noteCheck->fetchColumn()) {
             throw new HttpError('note not found', 404);
         }
 
-        $where = '';
-        if ($direction === 'out') {
-            $where = 'and l.source_note_id = :note_id';
-        } elseif ($direction === 'in') {
-            $where = 'and l.target_note_id = :note_id';
-        } else {
-            $where = 'and (l.source_note_id = :note_id or l.target_note_id = :note_id)';
-        }
-
-        $stmt = $pdo->prepare(
-            'select '
-            . 'l.id, l.predicate_id, l.source_note_id, l.target_note_id, l.start_date, l.end_date, l.former, l.created_at, l.updated_at, '
-            . 'p.key as predicate_key, p.forward_label, p.reverse_label, p.supports_start_date, p.supports_end_date '
-            . 'from global.note_links l '
-            . 'join global.link_predicates p on p.id = l.predicate_id '
-            . 'where l.nook_id = :nook_id ' . $where . ' '
-            . 'order by l.created_at desc'
-        );
-        $stmt->execute([':nook_id' => $nookId, ':note_id' => $noteId]);
-        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-        $links = [];
-        foreach ($rows as $r) {
-            if (!is_array($r)) {
-                continue;
+        $linksById = [];
+        $frontier = [$noteId => true];
+        for ($i = 0; $i < $depth; $i++) {
+            if ($frontier === []) {
+                break;
             }
 
-            $former = self::decodeJsonObject($r['former'] ?? null);
-            $links[] = [
-                'id' => is_scalar($r['id'] ?? null) ? (string)$r['id'] : '',
-                'nook_id' => $nookId,
-                'predicate_id' => is_scalar($r['predicate_id'] ?? null) ? (string)$r['predicate_id'] : '',
-                'predicate_key' => is_scalar($r['predicate_key'] ?? null) ? (string)$r['predicate_key'] : '',
-                'forward_label' => is_scalar($r['forward_label'] ?? null) ? (string)$r['forward_label'] : '',
-                'reverse_label' => is_scalar($r['reverse_label'] ?? null) ? (string)$r['reverse_label'] : '',
-                'supports_start_date' => (bool)($r['supports_start_date'] ?? false),
-                'supports_end_date' => (bool)($r['supports_end_date'] ?? false),
-                'source_note_id' => is_scalar($r['source_note_id'] ?? null) ? (string)$r['source_note_id'] : '',
-                'target_note_id' => is_scalar($r['target_note_id'] ?? null) ? (string)$r['target_note_id'] : '',
-                'start_date' => is_scalar($r['start_date'] ?? null) ? (string)$r['start_date'] : '',
-                'end_date' => is_scalar($r['end_date'] ?? null) ? (string)$r['end_date'] : '',
-                'former' => $former === [] ? (object)[] : $former,
-                'created_at' => is_scalar($r['created_at'] ?? null) ? (string)$r['created_at'] : '',
-                'updated_at' => is_scalar($r['updated_at'] ?? null) ? (string)$r['updated_at'] : '',
-            ];
+            $placeholders = [];
+            $params = [':nook_id' => $nookId];
+            $idx = 0;
+            foreach (array_keys($frontier) as $id) {
+                $idx++;
+                $key = ':id' . $idx;
+                $placeholders[] = $key;
+                $params[$key] = $id;
+            }
+            $in = implode(', ', $placeholders);
+
+            $where = '';
+            if ($direction === 'out') {
+                $where = 'and l.source_note_id in (' . $in . ')';
+            } elseif ($direction === 'in') {
+                $where = 'and l.target_note_id in (' . $in . ')';
+            } else {
+                $where = 'and (l.source_note_id in (' . $in . ') or l.target_note_id in (' . $in . '))';
+            }
+
+            $stmt = $pdo->prepare(
+                'select '
+                . 'l.id, l.predicate_id, l.source_note_id, l.target_note_id, l.start_date, l.end_date, l.former, l.created_at, l.updated_at, '
+                . 'p.key as predicate_key, p.forward_label, p.reverse_label, p.supports_start_date, p.supports_end_date, '
+                . 'ns.title as source_note_title, nt.title as target_note_title '
+                . 'from global.note_links l '
+                . 'join global.link_predicates p on p.id = l.predicate_id '
+                . 'join global.notes ns on ns.id = l.source_note_id '
+                . 'join global.notes nt on nt.id = l.target_note_id '
+                . 'where l.nook_id = :nook_id ' . $where . ' '
+                . 'order by l.created_at desc'
+            );
+            $stmt->execute($params);
+            $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            $nextFrontier = [];
+            foreach ($rows as $r) {
+                if (!is_array($r)) {
+                    continue;
+                }
+
+                $id = is_scalar($r['id'] ?? null) ? (string)$r['id'] : '';
+                if ($id === '' || isset($linksById[$id])) {
+                    continue;
+                }
+
+                $sourceId = is_scalar($r['source_note_id'] ?? null) ? (string)$r['source_note_id'] : '';
+                $targetId = is_scalar($r['target_note_id'] ?? null) ? (string)$r['target_note_id'] : '';
+
+                if ($sourceId !== '' && self::isUuid($sourceId)) {
+                    $nextFrontier[$sourceId] = true;
+                }
+                if ($targetId !== '' && self::isUuid($targetId)) {
+                    $nextFrontier[$targetId] = true;
+                }
+
+                $former = self::decodeJsonObject($r['former'] ?? null);
+                $linksById[$id] = [
+                    'id' => $id,
+                    'nook_id' => $nookId,
+                    'predicate_id' => is_scalar($r['predicate_id'] ?? null) ? (string)$r['predicate_id'] : '',
+                    'predicate_key' => is_scalar($r['predicate_key'] ?? null) ? (string)$r['predicate_key'] : '',
+                    'forward_label' => is_scalar($r['forward_label'] ?? null) ? (string)$r['forward_label'] : '',
+                    'reverse_label' => is_scalar($r['reverse_label'] ?? null) ? (string)$r['reverse_label'] : '',
+                    'supports_start_date' => (bool)($r['supports_start_date'] ?? false),
+                    'supports_end_date' => (bool)($r['supports_end_date'] ?? false),
+                    'source_note_id' => $sourceId,
+                    'source_note_title' => is_scalar($r['source_note_title'] ?? null) ? (string)$r['source_note_title'] : '',
+                    'target_note_id' => $targetId,
+                    'target_note_title' => is_scalar($r['target_note_title'] ?? null) ? (string)$r['target_note_title'] : '',
+                    'start_date' => is_scalar($r['start_date'] ?? null) ? (string)$r['start_date'] : '',
+                    'end_date' => is_scalar($r['end_date'] ?? null) ? (string)$r['end_date'] : '',
+                    'former' => $former === [] ? (object)[] : $former,
+                    'created_at' => is_scalar($r['created_at'] ?? null) ? (string)$r['created_at'] : '',
+                    'updated_at' => is_scalar($r['updated_at'] ?? null) ? (string)$r['updated_at'] : '',
+                ];
+            }
+
+            $frontier = $nextFrontier;
         }
 
-        return JsonResponse::ok(['links' => $links]);
+        return JsonResponse::ok(['links' => array_values($linksById)]);
     }
 
     public function create(Request $request, Context $context): Response

@@ -1,5 +1,10 @@
 import { createEffect, createMemo, createSignal } from "solid-js";
 import { apiFetch } from "../../auth/keycloak";
+import {
+	parseTypedSearch,
+	rankNotesByQuery,
+	resolveTypeIdForTerm,
+} from "../../noteSearch";
 import type { Mention, Note, NoteSummary, NoteType } from "./types";
 import {
 	MentionsResponseSchema,
@@ -73,6 +78,25 @@ export function createNookStore(nookId: () => string) {
 	const [incomingMentions, setIncomingMentions] = createSignal<Mention[]>([]);
 	const [fileUploadInProgress, setFileUploadInProgress] =
 		createSignal<boolean>(false);
+
+	const resolveTypeIdForTermInStore = (termRaw: string) =>
+		resolveTypeIdForTerm(noteTypes(), termRaw);
+
+	const setSelectedTypeIdFromUser = (next: string) => {
+		setSelectedTypeId(String(next ?? "").trim());
+		const parsed = parseTypedSearch(notesQuery());
+		if (!parsed.explicitNoType && parsed.typeTerm.trim() !== "") {
+			setNotesQuery(parsed.textTerm);
+		}
+	};
+
+	const activeTypeId = createMemo(() => {
+		const parsed = parseTypedSearch(notesQuery());
+		if (parsed.explicitNoType) return "";
+		const typedTypeId = resolveTypeIdForTermInStore(parsed.typeTerm);
+		const selected = selectedTypeId().trim();
+		return typedTypeId !== "" ? typedTypeId : selected;
+	});
 
 	const isEditing = () => mode() === "edit";
 	const filteredNotes = createMemo(() => notes());
@@ -485,10 +509,18 @@ export function createNookStore(nookId: () => string) {
 	const loadNotes = async (opts?: { reset?: boolean }) => {
 		if (nookId() === "") return;
 		const reset = opts?.reset ?? true;
-		const typeForList =
-			selectedTypeId().trim() === "" ? "all" : selectedTypeId().trim();
+		const parsed = parseTypedSearch(notesQuery());
+		const typedTypeId = resolveTypeIdForTermInStore(parsed.typeTerm);
+		const selected = selectedTypeId().trim();
+		const typeForList = parsed.explicitNoType
+			? "all"
+			: typedTypeId !== ""
+				? typedTypeId
+				: selected === ""
+					? "all"
+					: selected;
 		const cursor = reset ? "" : notesNextCursor();
-		const q = notesQuery().trim();
+		const q = parsed.textTerm.trim();
 
 		setLoading(true);
 		setError("");
@@ -519,7 +551,8 @@ export function createNookStore(nookId: () => string) {
 			}
 			const json = await res.json();
 			const body = NoteTypeNotesResponseSchema.parse(json);
-			setNotes(reset ? body.notes : [...notes(), ...body.notes]);
+			const nextNotes = reset ? body.notes : [...notes(), ...body.notes];
+			setNotes(rankNotesByQuery(nextNotes, q));
 			setNotesNextCursor(body.nextCursor);
 
 			const currentSelected = selectedId();
@@ -719,16 +752,19 @@ export function createNookStore(nookId: () => string) {
 		selectNote(found);
 	};
 
-	const insertMention = () => {
+	const insertMention = async () => {
 		if (!isEditing()) return;
 		const targetId = mentionTargetId();
 		if (targetId === "") return;
-		const target = notes().find((n) => n.id === targetId);
-		if (!target) return;
+		const target = notes().find((n) => n.id === targetId) ?? null;
+		const title = target?.title?.trim()
+			? target.title
+			: ((await loadNoteDetail(targetId))?.title ?? "");
+		if (title.trim() === "") return;
 		const shouldEmbed = mentionEmbedImage() && mentionCanEmbedImage();
 		const text = shouldEmbed
-			? `![${target.title}](note:${target.id})`
-			: `[${target.title}](note:${target.id})`;
+			? `![${title}](note:${targetId})`
+			: `[${title}](note:${targetId})`;
 		const prefix = content() === "" ? "" : "\n\n";
 		setContent(`${content()}${prefix}${text}`);
 	};
@@ -862,10 +898,10 @@ export function createNookStore(nookId: () => string) {
 	createEffect(() => {
 		void nookId();
 		void loadNoteTypes();
-		void loadNotes({ reset: true });
 	});
 
 	createEffect(() => {
+		void nookId();
 		void selectedTypeId();
 		void notesQuery();
 		void loadNotes({ reset: true });
@@ -1077,8 +1113,9 @@ export function createNookStore(nookId: () => string) {
 		setMode,
 		setMentionTargetId,
 		setMentionEmbedImage,
-		setSelectedTypeId,
+		setSelectedTypeId: setSelectedTypeIdFromUser,
 		setNotesQuery: (next: string) => setNotesQuery(String(next ?? "")),
+		activeTypeId,
 		setTypeId: (next: string) => setTypeId(next.trim()),
 		loadNotes,
 		loadMoreNotes,
