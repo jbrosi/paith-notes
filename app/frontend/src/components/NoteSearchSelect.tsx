@@ -9,8 +9,12 @@ export type NoteSearchOption = {
 
 export type NoteSearchSelectProps = {
 	value: string;
+	query?: string;
+	onQueryChange?: (nextQuery: string) => void;
+	onFocusChange?: (focused: boolean) => void;
 	options: NoteSearchOption[];
 	onChange: (nextId: string, option: NoteSearchOption | null) => void;
+	onSearchQueryChange?: (nextQuery: string) => void;
 	placeholder?: string;
 	disabled?: boolean;
 	excludeIds?: string[];
@@ -71,6 +75,14 @@ export function NoteSearchSelect(props: NoteSearchSelectProps) {
 	);
 
 	createEffect(() => {
+		const controlled = props.query;
+		if (controlled !== undefined) {
+			if (!hasFocus()) {
+				setDraft(String(controlled ?? ""));
+			}
+			return;
+		}
+
 		if (hasFocus()) return;
 		const s = selected();
 		if (s) {
@@ -184,6 +196,7 @@ export function NoteSearchSelect(props: NoteSearchSelectProps) {
 				const next = e.relatedTarget as Node | null;
 				if (!next || !e.currentTarget.contains(next)) {
 					setHasFocus(false);
+					props.onFocusChange?.(false);
 					close();
 				}
 			}}
@@ -196,10 +209,14 @@ export function NoteSearchSelect(props: NoteSearchSelectProps) {
 				onFocus={() => {
 					setHighlightIndex(-1);
 					open();
+					props.onFocusChange?.(true);
 				}}
 				onKeyDown={onKeyDown}
 				onInput={(e) => {
-					setDraft(e.currentTarget.value);
+					const next = e.currentTarget.value;
+					setDraft(next);
+					props.onQueryChange?.(next);
+					props.onSearchQueryChange?.(next);
 					props.onChange("", null);
 					open();
 				}}

@@ -35,6 +35,7 @@ export function NookMainPanel(props: NookMainPanelProps) {
 		<div style={{ flex: "1", "min-width": "0" }}>
 			<div class={notesStyles["add-note-container"]}>
 				<NookToolbar
+					nookId={store().nookId()}
 					mode={ui.mode()}
 					loading={store().loading()}
 					title={store().title()}
