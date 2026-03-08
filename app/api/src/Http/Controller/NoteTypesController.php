@@ -396,6 +396,15 @@ final class NoteTypesController
             $whereSearch = 'and n.title ilike :q';
         }
 
+        $kind = strtolower(trim($request->queryParam('kind')));
+        $whereKind = '';
+        if ($kind !== '') {
+            if (!in_array($kind, ['anything', 'person', 'file'], true)) {
+                throw new HttpError('kind must be one of anything, person, file', 400);
+            }
+            $whereKind = 'and n.type = :kind';
+        }
+
         $whereCursor = '';
         if ($cursorCreatedAt !== '' && $cursorId !== '') {
             $whereCursor = 'and (n.created_at, n.id) < (:cursor_created_at::timestamptz, :cursor_id::uuid)';
@@ -439,6 +448,7 @@ final class NoteTypesController
                 ) incoming_links on incoming_links.note_id = n.id
                 where n.nook_id = :nook_id ' . $whereCursor . '
                 ' . $whereSearch . '
+                ' . $whereKind . '
                 order by n.created_at desc, n.id desc
                 limit :limit'
             );
@@ -447,6 +457,9 @@ final class NoteTypesController
             $stmt->bindValue(':limit', $limitPlusOne, PDO::PARAM_INT);
             if ($q !== '') {
                 $stmt->bindValue(':q', '%' . $q . '%');
+            }
+            if ($kind !== '') {
+                $stmt->bindValue(':kind', $kind);
             }
             if ($cursorCreatedAt !== '' && $cursorId !== '') {
                 $stmt->bindValue(':cursor_created_at', $cursorCreatedAt);
@@ -498,6 +511,7 @@ final class NoteTypesController
                 where n.nook_id = :nook_id and n.type_id in (select id from type_tree)
                 ' . $whereCursor . '
                 ' . $whereSearch . '
+                ' . $whereKind . '
                 order by n.created_at desc, n.id desc
                 limit :limit'
             );
@@ -507,6 +521,9 @@ final class NoteTypesController
             $stmt->bindValue(':limit', $limitPlusOne, PDO::PARAM_INT);
             if ($q !== '') {
                 $stmt->bindValue(':q', '%' . $q . '%');
+            }
+            if ($kind !== '') {
+                $stmt->bindValue(':kind', $kind);
             }
             if ($cursorCreatedAt !== '' && $cursorId !== '') {
                 $stmt->bindValue(':cursor_created_at', $cursorCreatedAt);
@@ -549,6 +566,7 @@ final class NoteTypesController
                 ) incoming_links on incoming_links.note_id = n.id
                 where n.nook_id = :nook_id and n.type_id = :type_id ' . $whereCursor . '
                 ' . $whereSearch . '
+                ' . $whereKind . '
                 order by n.created_at desc, n.id desc
                 limit :limit'
             );
@@ -558,6 +576,9 @@ final class NoteTypesController
             $stmt->bindValue(':limit', $limitPlusOne, PDO::PARAM_INT);
             if ($q !== '') {
                 $stmt->bindValue(':q', '%' . $q . '%');
+            }
+            if ($kind !== '') {
+                $stmt->bindValue(':kind', $kind);
             }
             if ($cursorCreatedAt !== '' && $cursorId !== '') {
                 $stmt->bindValue(':cursor_created_at', $cursorCreatedAt);
