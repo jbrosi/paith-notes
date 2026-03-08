@@ -111,6 +111,7 @@ export default function Nook() {
 					notesNextCursor={store.notesNextCursor()}
 					noteTypes={store.noteTypes()}
 					selectedTypeId={store.selectedTypeId()}
+					activeTypeId={store.activeTypeId()}
 					selectedId={store.selectedId()}
 					onSelectType={(id) => store.setSelectedTypeId(id)}
 					onCreateType={(i) => void store.createNoteType(i)}

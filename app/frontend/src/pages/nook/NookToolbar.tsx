@@ -1,9 +1,10 @@
-import { createMemo, createSignal, Show } from "solid-js";
+import { Show } from "solid-js";
 import { Button } from "../../components/Button";
-import { NoteSearchSelect } from "../../components/NoteSearchSelect";
+import { RemoteNoteSearchSelect } from "../../components/RemoteNoteSearchSelect";
 import type { NoteSummary, NoteType } from "./types";
 
 export type NookToolbarProps = {
+	nookId: string;
 	mode: "view" | "edit";
 	loading: boolean;
 	title: string;
@@ -24,28 +25,6 @@ export type NookToolbarProps = {
 export function NookToolbar(props: NookToolbarProps) {
 	const isEditing = () => props.mode === "edit";
 	const canEmbedImage = () => props.mentionCanEmbedImage;
-	const [mentionTypeFilterId, setMentionTypeFilterId] =
-		createSignal<string>("");
-
-	const mentionOptions = createMemo(() => {
-		return props.notes
-			.filter((n) => n.id !== props.selectedId)
-			.map((n) => ({
-				id: n.id,
-				title: n.title,
-				subtitle:
-					n.type === "file" ? "File" : n.type === "person" ? "Person" : "Note",
-				typeId: n.typeId,
-			}));
-	});
-
-	const typeNodes = createMemo(() =>
-		(props.noteTypes ?? []).map((t) => ({ id: t.id, parentId: t.parentId })),
-	);
-
-	const mentionTypeOptions = createMemo(() => {
-		return (props.noteTypes ?? []).map((t) => ({ id: t.id, label: t.label }));
-	});
 
 	return (
 		<div
@@ -65,21 +44,14 @@ export function NookToolbar(props: NookToolbarProps) {
 			</Button>
 			<Show when={isEditing()}>
 				<div style={{ width: "220px" }}>
-					<NoteSearchSelect
+					<RemoteNoteSearchSelect
 						value={props.mentionTargetId}
-						options={mentionOptions()}
 						onChange={(id) => props.onChangeMentionTargetId(id)}
-						typeNodes={typeNodes()}
-						typeFilter={{
-							value: mentionTypeFilterId(),
-							onChange: (next) => setMentionTypeFilterId(next),
-							options: mentionTypeOptions(),
-							placeholder: "All types",
-							disabled: props.loading,
-						}}
-						filters={{ typeId: mentionTypeFilterId(), includeSubtypes: true }}
+						nookId={props.nookId}
+						noteTypes={props.noteTypes ?? []}
+						excludeIds={[props.selectedId]}
 						placeholder="Mention note…"
-						disabled={props.loading || props.notes.length === 0}
+						disabled={props.loading || props.nookId.trim() === ""}
 					/>
 				</div>
 				<label style={{ display: "flex", gap: "6px", "align-items": "center" }}>
