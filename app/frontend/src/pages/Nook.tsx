@@ -1,55 +1,105 @@
-import { useLocation, useNavigate, useParams } from "@solidjs/router";
-import {
-	createEffect,
-	createMemo,
-	createSignal,
-	Show,
-	untrack,
-} from "solid-js";
+import { useNavigate, useParams } from "@solidjs/router";
+import { createEffect, createMemo, onCleanup, onMount, Show, untrack } from "solid-js";
 import styles from "../App.module.css";
+
+import { Button } from "../components/Button";
+import { useUi } from "../ui/UiContext";
+import { NookDefaultLayout } from "./nook/NookDefaultLayout";
 import { NookGraphPanel } from "./nook/NookGraphPanel";
 import { NookLinksPanel } from "./nook/NookLinksPanel";
-import { NookMainPanel } from "./nook/NookMainPanel";
-import { NookSidebar } from "./nook/NookSidebar";
-import { NookStatusPanel } from "./nook/NookStatusPanel";
-import { NookTypeEditPanel } from "./nook/NookTypeEditPanel";
+import { NookMarkdownView } from "./nook/NookMarkdownView";
+import { NookSettingsLanding } from "./nook/NookSettingsLanding";
+import { NookTypesSettingsView } from "./nook/NookTypesSettingsView";
+import { useNook } from "./nook/NookContext";
 import { createNookStore } from "./nook/store";
 
 export default function Nook() {
 	const params = useParams();
-	const location = useLocation();
 	const navigate = useNavigate();
+	const ui = useUi();
+	const nookCtx = useNook();
 	const nookId = createMemo(() => String(params.nookId ?? ""));
-	const subPath = createMemo(() =>
-		String((params as { path?: string }).path ?? ""),
+	const subPath = createMemo(() => String((params as { path?: string }).path ?? ""));
+	const normalizedSubPath = createMemo(() =>
+		subPath().replace(/^\/+/u, "").replace(/\/+$/u, ""),
 	);
 	const store = createNookStore(nookId);
-	const [showMarkdown, setShowMarkdown] = createSignal<boolean>(false);
+	createEffect(() => {
+		nookCtx.setStore(store);
+	});
+	onCleanup(() => {
+		if (nookCtx.store() === store) {
+			nookCtx.setStore(null);
+		}
+	});
+	onMount(() => {
+		const handler = (e: BeforeUnloadEvent) => {
+			if (store.isDirty()) {
+				e.preventDefault();
+			}
+		};
+		window.addEventListener("beforeunload", handler);
+		onCleanup(() => window.removeEventListener("beforeunload", handler));
+	});
+
 	let isApplyingUrlSelection = false;
 	let lastUrlSelectRequestId = 0;
 
 	const typeEditId = createMemo(() => {
-		const p = subPath().replace(/^\/+/, "").replace(/\/+$/, "");
+		const p = normalizedSubPath();
 		if (p === "") return "";
 		const parts = p.split("/").filter(Boolean);
-		if (parts.length === 3 && parts[0] === "types" && parts[2] === "edit") {
-			return String(parts[1] ?? "");
+		if (
+			parts.length === 4 &&
+			parts[0] === "settings" &&
+			parts[1] === "types" &&
+			parts[3] === "edit"
+		) {
+			return String(parts[2] ?? "");
 		}
 		return "";
 	});
 
-	const showLinks = createMemo(() => {
-		const p = subPath().replace(/^\/+/, "").replace(/\/+$/, "");
-		return p === "links";
+	const showTypesSettings = createMemo(() => {
+		const p = normalizedSubPath();
+		return p === "settings/types" || p.startsWith("settings/types/");
 	});
 
-	const noteParam = createMemo(() => {
-		const sp = new URLSearchParams(location.search);
-		return String(sp.get("note") ?? "").trim();
+	const showLinks = createMemo(() => normalizedSubPath() === "settings/links");
+	const showSettings = createMemo(() => {
+		const p = normalizedSubPath();
+		return p === "settings" || p.startsWith("settings/");
+	});
+
+	const fullscreenGraphNoteId = createMemo(() => {
+		const m = normalizedSubPath().match(/^graph\/([^/]+)$/);
+		return m?.[1] ? String(m[1]) : "";
+	});
+
+	const isGraphFullscreen = createMemo(() => fullscreenGraphNoteId().trim() !== "");
+
+	const selectedNoteIdFromPath = createMemo(() => {
+		const m = normalizedSubPath().match(/^notes\/([^/]+)(?:\/markdown)?$/);
+		return m?.[1] ? String(m[1]) : "";
+	});
+
+	const isMarkdownRoute = createMemo(() =>
+		/^notes\/[^/]+\/markdown$/u.test(normalizedSubPath()),
+	);
+
+	const isNoteRoute = createMemo(() => {
+		const p = normalizedSubPath();
+		return p === "" || p.startsWith("notes/");
 	});
 
 	createEffect(() => {
-		const id = noteParam();
+		const id = (
+			isGraphFullscreen()
+				? fullscreenGraphNoteId()
+				: selectedNoteIdFromPath().trim() !== ""
+					? selectedNoteIdFromPath()
+					: ""
+		).trim();
 		void store.allNotes();
 		if (id === "") return;
 		const currentSelected = untrack(() => store.selectedId());
@@ -69,18 +119,31 @@ export default function Nook() {
 
 	createEffect(() => {
 		const id = store.selectedId().trim();
-		const sp = new URLSearchParams(location.search);
-		const current = String(sp.get("note") ?? "").trim();
+		if (isGraphFullscreen()) {
+			const current = fullscreenGraphNoteId().trim();
+			if (isApplyingUrlSelection) return;
+			if (id === "") return;
+			if (current === id) return;
+			navigate(
+				`/nooks/${encodeURIComponent(nookId())}/graph/${encodeURIComponent(id)}`,
+				{ replace: true },
+			);
+			return;
+		}
+		if (!isNoteRoute()) return;
+		const current = selectedNoteIdFromPath().trim();
 		if (isApplyingUrlSelection) return;
 		if (id === "") {
 			if (current === "") return;
-			sp.delete("note");
-		} else {
-			if (current === id) return;
-			sp.set("note", id);
+			navigate(`/nooks/${encodeURIComponent(nookId())}`, { replace: true });
+			return;
 		}
-		const next = `${location.pathname}${sp.toString() === "" ? "" : `?${sp.toString()}`}`;
-		navigate(next, { replace: true });
+		if (current === id) return;
+		const suffix = isMarkdownRoute() ? "/markdown" : "";
+		navigate(
+			`/nooks/${encodeURIComponent(nookId())}/notes/${encodeURIComponent(id)}${suffix}`,
+			{ replace: true },
+		);
 	});
 
 	createEffect(() => {
@@ -93,63 +156,80 @@ export default function Nook() {
 			t === "" ? "My Notes | Paith Notes" : `${t} | My Notes | Paith Notes`;
 	});
 
+	const goBackToNoteOrNook = () => {
+		const n = nookId().trim();
+		if (n === "") return;
+		const note = store.selectedId().trim();
+		if (note !== "") {
+			navigate(`/nooks/${encodeURIComponent(n)}/notes/${encodeURIComponent(note)}`);
+			return;
+		}
+		navigate(`/nooks/${encodeURIComponent(n)}`);
+	};
+
+	const openLinksSettings = () => {
+		const n = nookId().trim();
+		if (n === "") return;
+		navigate(`/nooks/${encodeURIComponent(n)}/settings/links`);
+	};
+
+	const openTypesSettings = () => {
+		const n = nookId().trim();
+		if (n === "") return;
+		navigate(`/nooks/${encodeURIComponent(n)}/settings/types`);
+	};
+
 	return (
 		<main class={styles["container-wide"]}>
-			<h1 class={styles.title}>My Notes</h1>
-			<p class={styles.subtitle}>Manage your notes here</p>
-
-			{nookId() !== "" ? (
-				<p class={styles.subtitle}>
-					Nook: <code>{nookId()}</code>
-				</p>
-			) : null}
-
-			<div style={{ display: "flex", gap: "16px", "align-items": "stretch" }}>
-				<NookSidebar
-					nookId={nookId()}
-					notes={store.notes()}
-					notesNextCursor={store.notesNextCursor()}
-					noteTypes={store.noteTypes()}
-					selectedTypeId={store.selectedTypeId()}
-					activeTypeId={store.activeTypeId()}
-					selectedId={store.selectedId()}
-					onSelectType={(id) => store.setSelectedTypeId(id)}
-					onCreateType={(i) => void store.createNoteType(i)}
-					onRenameType={(t, next) => void store.renameNoteType(t, next)}
-					onDeleteType={(t) => void store.deleteNoteType(t)}
-					onNew={store.newNote}
-					onSelect={store.selectNote}
-					onLoadMoreNotes={() => void store.loadMoreNotes()}
-					onSetNotesQuery={(q) => store.setNotesQuery(q)}
-					onQuickUploadFile={(f) => void store.quickUploadFile(f)}
-				/>
-
-				<div style={{ flex: "1", "min-width": "0" }}>
-					<Show
-						when={showLinks()}
-						fallback={
-							<Show
-								when={typeEditId() !== ""}
-								fallback={
-									<NookMainPanel
-										store={store}
-										showMarkdown={showMarkdown()}
-										onToggleMarkdown={() => setShowMarkdown((v) => !v)}
-									/>
-								}
-							>
-								<NookTypeEditPanel store={store} typeId={typeEditId()} />
+			<Show when={showLinks()} fallback={
+				<Show when={showSettings()} fallback={
+					<Show when={showTypesSettings()} fallback={
+						<Show when={isMarkdownRoute()} fallback={
+							<Show when={isGraphFullscreen()} fallback={
+								<NookDefaultLayout
+									nookId={nookId()}
+									store={store}
+									showGraph={ui.graphPanelOpen()}
+								/>
+							}>
+								<div style={{ width: "100%" }}>
+									<NookGraphPanel store={store} fullscreen={true} />
+								</div>
 							</Show>
-						}
-					>
-						<NookLinksPanel store={store} />
+						}>
+							<NookMarkdownView store={store} />
+						</Show>
+					}>
+						<NookTypesSettingsView
+							nookId={nookId()}
+							store={store}
+							typeEditId={typeEditId()}
+							onClose={goBackToNoteOrNook}
+						/>
 					</Show>
-
-					<NookStatusPanel store={store} />
+				}>
+					<NookSettingsLanding
+						onClose={goBackToNoteOrNook}
+						onOpenLinks={openLinksSettings}
+						onOpenTypes={openTypesSettings}
+					/>
+				</Show>
+			}>
+				<div style={{ width: "100%" }}>
+					<div
+						style={{
+							display: "flex",
+							"justify-content": "flex-end",
+							"margin-bottom": "12px",
+						}}
+					>
+						<Button variant="secondary" size="small" onClick={goBackToNoteOrNook}>
+							Close
+						</Button>
+					</div>
+					<NookLinksPanel store={store} />
 				</div>
-
-				<NookGraphPanel store={store} />
-			</div>
+			</Show>
 		</main>
 	);
 }

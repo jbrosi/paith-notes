@@ -1,4 +1,5 @@
 import { createEffect, createMemo, Show } from "solid-js";
+import { Portal } from "solid-js/web";
 import { useUi } from "../../ui/UiContext";
 import notesStyles from "../Notes.module.css";
 import { EditorSection } from "./components/EditorSection";
@@ -7,12 +8,11 @@ import { PrimaryTypeSelect } from "./components/PrimaryTypeSelect";
 import { TitleSection } from "./components/TitleSection";
 import { NookNoteLinksPanel } from "./NookNoteLinksPanel";
 import { NookToolbar } from "./NookToolbar";
+import { UnsavedChangesDialog } from "./UnsavedChangesDialog";
 import type { NookStore } from "./store";
 
 export type NookMainPanelProps = {
 	store: NookStore;
-	showMarkdown: boolean;
-	onToggleMarkdown: () => void;
 };
 
 export function NookMainPanel(props: NookMainPanelProps) {
@@ -32,6 +32,16 @@ export function NookMainPanel(props: NookMainPanelProps) {
 	});
 
 	return (
+		<>
+		<Show when={store().pendingNav() !== null}>
+			<Portal>
+				<UnsavedChangesDialog
+					onSave={() => void store().confirmPendingNav(true)}
+					onDiscard={() => void store().confirmPendingNav(false)}
+					onCancel={() => store().cancelPendingNav()}
+				/>
+			</Portal>
+		</Show>
 		<div style={{ flex: "1", "min-width": "0" }}>
 			<div class={notesStyles["add-note-container"]}>
 				<NookToolbar
@@ -45,7 +55,6 @@ export function NookMainPanel(props: NookMainPanelProps) {
 					mentionTargetId={store().mentionTargetId()}
 					mentionEmbedImage={store().mentionEmbedImage()}
 					mentionCanEmbedImage={store().mentionCanEmbedImage()}
-					onRefresh={() => void store().refreshCurrentNote()}
 					onChangeMentionTargetId={store().setMentionTargetId}
 					onChangeMentionEmbedImage={store().setMentionEmbedImage}
 					onInsertMention={store().insertMention}
@@ -53,28 +62,6 @@ export function NookMainPanel(props: NookMainPanelProps) {
 					onDelete={store().deleteNote}
 				/>
 			</div>
-
-			<button
-				type="button"
-				onClick={props.onToggleMarkdown}
-				style={{ "margin-bottom": "0.5rem" }}
-			>
-				{props.showMarkdown ? "Hide" : "Show"} markdown
-			</button>
-			<Show when={props.showMarkdown}>
-				<textarea
-					readOnly
-					value={store().content()}
-					style={{
-						width: "100%",
-						height: "180px",
-						"font-family": "monospace",
-						"box-sizing": "border-box",
-						padding: "8px",
-						"margin-bottom": "1rem",
-					}}
-				/>
-			</Show>
 
 			<Show when={store().mode() === "edit"}>
 				<PrimaryTypeSelect store={store()} />
@@ -88,5 +75,6 @@ export function NookMainPanel(props: NookMainPanelProps) {
 				<NookNoteLinksPanel store={store()} />
 			</Show>
 		</div>
+		</>
 	);
 }
