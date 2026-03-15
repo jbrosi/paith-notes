@@ -67,6 +67,9 @@ export function createNookStore(nookId: () => string) {
 		Record<string, unknown>
 	>({});
 	const [mode, setMode] = createSignal<"view" | "edit">("view");
+	const [isDirty, setIsDirty] = createSignal<boolean>(false);
+	type PendingNav = { proceed: () => Promise<void> };
+	const [pendingNav, setPendingNav] = createSignal<PendingNav | null>(null);
 	const [loading, setLoading] = createSignal<boolean>(false);
 	const [error, setError] = createSignal<string>("");
 	const [mentionTargetId, setMentionTargetId] = createSignal<string>("");
@@ -331,6 +334,11 @@ export function createNookStore(nookId: () => string) {
 			return;
 		}
 		setTitleIsManual(true);
+	};
+
+	const setContentFromUser = (next: string) => {
+		setContent(next);
+		if (mode() === "edit") setIsDirty(true);
 	};
 
 	const resolveEmbeddedImageSrc = async (noteId: string) => {
@@ -602,9 +610,11 @@ export function createNookStore(nookId: () => string) {
 		setMentionTargetId("");
 		setMentionEmbedImage(false);
 		setMode("edit");
+		setIsDirty(false);
 	};
 
 	const applyNoteDetail = (note: Note) => {
+		setIsDirty(false);
 		setTypeId(String(note.typeId ?? "").trim());
 		setTitle(note.title);
 		setContent(note.content);
@@ -738,7 +748,7 @@ export function createNookStore(nookId: () => string) {
 		setTitle(derived);
 	});
 
-	const onNoteLinkClick = async (noteId: string) => {
+	const onNoteLinkClickInternal = async (noteId: string) => {
 		let found = notes().find((n) => n.id === noteId);
 		if (!found) {
 			setSelectedTypeId("");
@@ -750,6 +760,14 @@ export function createNookStore(nookId: () => string) {
 			return;
 		}
 		selectNote(found);
+	};
+
+	const onNoteLinkClick = async (noteId: string) => {
+		if (isDirty()) {
+			setPendingNav({ proceed: () => onNoteLinkClickInternal(noteId) });
+			return;
+		}
+		await onNoteLinkClickInternal(noteId);
 	};
 
 	const insertMention = async () => {
@@ -766,7 +784,7 @@ export function createNookStore(nookId: () => string) {
 			? `![${title}](note:${targetId})`
 			: `[${title}](note:${targetId})`;
 		const prefix = content() === "" ? "" : "\n\n";
-		setContent(`${content()}${prefix}${text}`);
+		setContentFromUser(`${content()}${prefix}${text}`);
 	};
 
 	const saveNote = async () => {
@@ -893,6 +911,23 @@ export function createNookStore(nookId: () => string) {
 		} finally {
 			setLoading(false);
 		}
+	};
+
+	const confirmPendingNav = async (save: boolean) => {
+		const nav = pendingNav();
+		if (!nav) return;
+		setPendingNav(null);
+		if (save) {
+			await saveNote();
+			if (error() !== "") return;
+		} else {
+			setIsDirty(false);
+		}
+		await nav.proceed();
+	};
+
+	const cancelPendingNav = () => {
+		setPendingNav(null);
 	};
 
 	createEffect(() => {
@@ -1089,6 +1124,8 @@ export function createNookStore(nookId: () => string) {
 		fileInlineUrl,
 		formerProperties,
 		mode,
+		isDirty,
+		pendingNav,
 		loading,
 		error,
 		mentionTargetId,
@@ -1099,7 +1136,9 @@ export function createNookStore(nookId: () => string) {
 		fileUploadInProgress,
 		isEditing,
 		setTitle: setTitleFromUser,
-		setContent,
+		setContent: setContentFromUser,
+		confirmPendingNav,
+		cancelPendingNav,
 		setType,
 		setPersonFirstName,
 		setPersonLastName,
