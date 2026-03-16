@@ -14,9 +14,11 @@ services:
       - frontend
       - app
     volumes:
-      - .:/project
+      - ./app:/app
+      - ./scripts:/app/scripts
       - claude_home:/root
-    working_dir: /project
+      - frontend_node_modules:/app/frontend/node_modules
+    working_dir: /app
 
   app:
     image: ${APP_IMAGE:-notes-app}

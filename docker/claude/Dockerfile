@@ -7,6 +7,7 @@ RUN apt-get update && apt-get install -y \
     && add-apt-repository ppa:ondrej/php \
     && apt-get update && apt-get install -y \
     php8.4-cli php8.4-pgsql php8.4-mbstring php8.4-xml php8.4-curl \
+    php8.4-pcov php8.4-zip \
     && rm -rf /var/lib/apt/lists/*
 
 # Composer
@@ -23,4 +24,4 @@ RUN corepack enable
 # Claude CLI
 RUN npm install -g @anthropic-ai/claude-code
 
-WORKDIR /project
+WORKDIR /app
