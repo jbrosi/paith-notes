@@ -14,7 +14,6 @@ export type NookToolbarProps = {
 	mentionTargetId: string;
 	mentionEmbedImage: boolean;
 	mentionCanEmbedImage: boolean;
-	onRefresh: () => void;
 	onChangeMentionTargetId: (id: string) => void;
 	onChangeMentionEmbedImage: (next: boolean) => void;
 	onInsertMention: () => void;
@@ -35,13 +34,6 @@ export function NookToolbar(props: NookToolbarProps) {
 			}}
 		>
 			<div style={{ flex: "1" }} />
-			<Button
-				onClick={props.onRefresh}
-				variant="secondary"
-				disabled={props.loading}
-			>
-				Refresh
-			</Button>
 			<Show when={isEditing()}>
 				<div style={{ width: "220px" }}>
 					<RemoteNoteSearchSelect

@@ -21,5 +21,10 @@
       "Paith\\Notes\\Api\\": "src/",
       "Paith\\Notes\\Shared\\": "../backend-shared/src/"
     }
+  },
+  "autoload-dev": {
+    "psr-4": {
+      "Paith\\Notes\\Api\\Tests\\": "tests/"
+    }
   }
 }
