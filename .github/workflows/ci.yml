@@ -80,11 +80,8 @@ jobs:
       - name: Install PHP dependencies
         run: sh scripts/ci-install-php.sh
 
-      - name: PHPCS
-        run: sh scripts/php-lint.sh
-
-      - name: PHPStan
-        run: sh scripts/phpstan.sh
+      - name: PHP lint (phpcs + phpstan)
+        run: sh scripts/ci-lint-php.sh
 
   lint-frontend:
     runs-on: ubuntu-latest
