@@ -6,7 +6,7 @@ namespace Paith\Notes\Api\Http\Auth;
 
 use RuntimeException;
 
-final class KeycloakJwt
+final class KeycloakJwt implements JwtVerifier
 {
     private string $issuer;
 
@@ -96,7 +96,7 @@ final class KeycloakJwt
             throw new RuntimeException('invalid JWT audience');
         }
 
-        /** @var array<array-key, mixed> $payload */
+        /** @var array<string, mixed> $payload */
         return $payload;
     }
 
