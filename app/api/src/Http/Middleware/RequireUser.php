@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace Paith\Notes\Api\Http\Middleware;
 
 use Paith\Notes\Api\Http\Auth\Cookies;
-use Paith\Notes\Api\Http\Auth\KeycloakOAuth;
+use Paith\Notes\Api\Http\Auth\JwtVerifier;
 use Paith\Notes\Api\Http\Auth\KeycloakJwt;
+use Paith\Notes\Api\Http\Auth\KeycloakOAuth;
+use Paith\Notes\Api\Http\Auth\OAuthTokenRefresher;
 use Paith\Notes\Api\Http\Auth\SessionCrypto;
 use Paith\Notes\Api\Http\Auth\SessionStore;
 use Paith\Notes\Api\Http\Context;
@@ -20,6 +22,34 @@ use Throwable;
 
 final class RequireUser implements Middleware
 {
+    /**
+     * Proactively refresh the access token when it has less than this many seconds remaining.
+     * This covers both the proactive case (token still valid but close to expiry) and the
+     * reactive case (token already expired). Set to cover at least one typical Keycloak
+     * access-token lifetime so idle-but-open tabs always get a fresh token on next request.
+     */
+    private const TOKEN_REFRESH_THRESHOLD_SECS = 60;
+
+    private ?JwtVerifier $jwtVerifier;
+
+    private ?OAuthTokenRefresher $tokenRefresher;
+
+    public function __construct(?JwtVerifier $jwtVerifier = null, ?OAuthTokenRefresher $tokenRefresher = null)
+    {
+        $this->jwtVerifier = $jwtVerifier;
+        $this->tokenRefresher = $tokenRefresher;
+    }
+
+    private function jwtVerifier(): JwtVerifier
+    {
+        return $this->jwtVerifier ?? KeycloakJwt::fromEnv();
+    }
+
+    private function tokenRefresher(): OAuthTokenRefresher
+    {
+        return $this->tokenRefresher ?? KeycloakOAuth::fromEnv();
+    }
+
     private static function debugEnabled(): bool
     {
         return (string)getenv('DEBUG_AUTH') === '1';
@@ -107,88 +137,48 @@ final class RequireUser implements Middleware
             }
 
             try {
-                $claims = KeycloakJwt::fromEnv()->verifyAndDecode($jwt);
+                $claims = $this->jwtVerifier()->verifyAndDecode($jwt);
             } catch (RuntimeException $e) {
                 $msg = $e->getMessage();
                 $canRefresh = $sid !== '' && is_array($sessionPayload);
                 if ($canRefresh && $msg === 'JWT is expired') {
-                    self::debugLog('RequireUser JWT expired; attempting refresh');
+                    self::debugLog('RequireUser JWT expired; attempting reactive refresh');
                     $refresh = $sessionPayload['refresh_token'] ?? '';
-                    if (is_string($refresh) && trim($refresh) !== '') {
-                        $didRecover = false;
-                        $pdo = $context->pdo();
-                        $crypto = SessionCrypto::fromEnv();
-                        $oauth = KeycloakOAuth::fromEnv();
+                    if (!is_string($refresh) || trim($refresh) === '') {
+                        self::debugLog('RequireUser JWT expired but no refresh token in session');
+                        throw new HttpError('JWT is expired', 401);
+                    }
+                    try {
+                        $claims = $this->refreshIfNeeded($context->pdo(), $sid, $sessionPayload);
+                    } catch (Throwable $t) {
+                        self::debugLog('RequireUser reactive refresh failed', ['error' => $t->getMessage()]);
+                        throw new HttpError($t->getMessage(), 401);
+                    }
+                } else {
+                    self::debugLog('RequireUser JWT verification failed', [
+                        'error' => $msg,
+                        'can_refresh' => $canRefresh,
+                    ]);
+                    throw new HttpError($e->getMessage(), 401);
+                }
+            }
 
-                        $pdo->beginTransaction();
-                        try {
-                            $locked = SessionStore::getSessionForUpdate($pdo, $sid);
-                            $payloadJson2 = $crypto->decrypt($locked['token_encrypted']);
-                            $payload2 = json_decode($payloadJson2, true);
-                            $payloadArr = is_array($payload2) ? $payload2 : [];
-
-                            $access2 = $payloadArr['access_token'] ?? '';
-                            $access2 = is_string($access2) ? trim($access2) : '';
-
-                            if ($access2 !== '') {
-                                try {
-                                    $claims = KeycloakJwt::fromEnv()->verifyAndDecode($access2);
-                                    SessionStore::touchSession($pdo, $sid);
-                                    $pdo->commit();
-                                    $didRecover = true;
-                                } catch (RuntimeException $e2) {
-                                    if ($e2->getMessage() !== 'JWT is expired') {
-                                        throw $e2;
-                                    }
-                                }
-                            }
-
-                            if ($didRecover) {
-                                // Another request refreshed already while we waited on the row lock.
-                                // Continue with the recovered claims.
-                            } else {
-                                $refresh2 = $payloadArr['refresh_token'] ?? '';
-                                $refresh2 = is_string($refresh2) ? trim($refresh2) : '';
-                                if ($refresh2 === '') {
-                                    throw new RuntimeException('missing refresh token');
-                                }
-
-                                $newPayload = $oauth->refreshToken($refresh2);
-                                if (!array_key_exists('refresh_token', $newPayload) && array_key_exists('refresh_token', $payloadArr)) {
-                                    $newPayload['refresh_token'] = $payloadArr['refresh_token'];
-                                }
-
-                                $tokenEncrypted = $crypto->encrypt((string)json_encode($newPayload));
-                                SessionStore::updateSessionTokenEncrypted($pdo, $sid, $tokenEncrypted);
-                                SessionStore::touchSession($pdo, $sid);
-
-                                $pdo->commit();
-
-                                $accessNew = $newPayload['access_token'] ?? '';
-                                $accessNew = is_string($accessNew) ? trim($accessNew) : '';
-                                if ($accessNew === '') {
-                                    throw new RuntimeException('missing access token');
-                                }
-
-                                $claims = KeycloakJwt::fromEnv()->verifyAndDecode($accessNew);
-                                $didRecover = true;
-                            }
-                        } catch (Throwable $t) {
-                            if ($pdo->inTransaction()) {
-                                $pdo->rollBack();
-                            }
-                            throw new HttpError($t->getMessage(), 401);
-                        }
-
-                        // Continue with recovered $claims.
+            // Proactive refresh: if the access token expires soon, refresh it now while we
+            // still hold valid claims. This keeps tokens fresh for active sessions without
+            // requiring the user to reload when the token finally expires.
+            if ($sid !== '' && is_array($sessionPayload)) {
+                $exp = isset($claims['exp']) && is_numeric($claims['exp']) ? (int)$claims['exp'] : 0;
+                if ($exp > 0 && ($exp - time()) < self::TOKEN_REFRESH_THRESHOLD_SECS) {
+                    self::debugLog('RequireUser proactive token refresh', ['exp_in_secs' => $exp - time()]);
+                    try {
+                        $claims = $this->refreshIfNeeded($context->pdo(), $sid, $sessionPayload);
+                    } catch (Throwable $refreshErr) {
+                        // Non-fatal: proceed with the still-valid current claims.
+                        self::debugLog('RequireUser proactive refresh failed (proceeding with current token)', [
+                            'error' => $refreshErr->getMessage(),
+                        ]);
                     }
                 }
-
-                self::debugLog('RequireUser JWT verification failed', [
-                    'error' => $msg,
-                    'can_refresh' => $canRefresh,
-                ]);
-                throw new HttpError($e->getMessage(), 401);
             }
 
             $rawGroups = $claims['groups'] ?? null;
@@ -265,6 +255,87 @@ final class RequireUser implements Middleware
         }
 
         return $next($request, $context);
+    }
+
+    /**
+     * Acquire a row-level lock on the session and refresh the Keycloak access token if it is
+     * expired or has less than TOKEN_REFRESH_THRESHOLD_SECS remaining.
+     *
+     * The lock prevents multiple concurrent requests from all calling Keycloak's token
+     * endpoint simultaneously. If another request already refreshed the token while we
+     * were waiting for the lock, we use the already-fresh token without calling Keycloak again.
+     *
+     * @return array The verified JWT claims from the (possibly refreshed) access token.
+     * @throws RuntimeException|\Throwable on any unrecoverable error (caller converts to HttpError).
+     */
+    private function refreshIfNeeded(PDO $pdo, string $sid, array $sessionPayload): array
+    {
+        $crypto = SessionCrypto::fromEnv();
+        $oauth = $this->tokenRefresher();
+
+        $pdo->beginTransaction();
+        try {
+            $locked = SessionStore::getSessionForUpdate($pdo, $sid);
+            $payloadJson = $crypto->decrypt($locked['token_encrypted']);
+            $payloadArr = json_decode($payloadJson, true);
+            $payloadArr = is_array($payloadArr) ? $payloadArr : [];
+
+            // Re-check the DB token under the lock: another concurrent request may have
+            // already refreshed it, or it may simply have enough time left (proactive case).
+            $access = $payloadArr['access_token'] ?? '';
+            $access = is_string($access) ? trim($access) : '';
+            if ($access !== '') {
+                try {
+                    $freshClaims = $this->jwtVerifier()->verifyAndDecode($access);
+                    $exp = isset($freshClaims['exp']) && is_numeric($freshClaims['exp']) ? (int)$freshClaims['exp'] : 0;
+                    if ($exp > 0 && ($exp - time()) >= self::TOKEN_REFRESH_THRESHOLD_SECS) {
+                        // Token in DB is fresh enough – use it and skip the Keycloak call.
+                        SessionStore::touchSession($pdo, $sid);
+                        $pdo->commit();
+                        self::debugLog('RequireUser token already fresh in DB (concurrent refresh or race), skipping Keycloak call');
+                        return $freshClaims;
+                    }
+                    // Token is valid but close to expiry – fall through to refresh.
+                } catch (RuntimeException $e2) {
+                    if ($e2->getMessage() !== 'JWT is expired') {
+                        throw $e2;
+                    }
+                    // Token is expired – fall through to refresh.
+                }
+            }
+
+            $refresh = $payloadArr['refresh_token'] ?? '';
+            $refresh = is_string($refresh) ? trim($refresh) : '';
+            if ($refresh === '') {
+                throw new RuntimeException('missing refresh token');
+            }
+
+            $newPayload = $oauth->refreshToken($refresh);
+            // Some Keycloak configurations don't return a new refresh_token; preserve the old one.
+            if (!array_key_exists('refresh_token', $newPayload) && array_key_exists('refresh_token', $payloadArr)) {
+                $newPayload['refresh_token'] = $payloadArr['refresh_token'];
+            }
+
+            $tokenEncrypted = $crypto->encrypt((string)json_encode($newPayload));
+            SessionStore::updateSessionTokenEncrypted($pdo, $sid, $tokenEncrypted);
+            SessionStore::touchSession($pdo, $sid);
+            $pdo->commit();
+
+            $accessNew = $newPayload['access_token'] ?? '';
+            $accessNew = is_string($accessNew) ? trim($accessNew) : '';
+            if ($accessNew === '') {
+                throw new RuntimeException('missing access token after refresh');
+            }
+
+            $claims = $this->jwtVerifier()->verifyAndDecode($accessNew);
+            self::debugLog('RequireUser token refreshed successfully');
+            return $claims;
+        } catch (Throwable $t) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            throw $t;
+        }
     }
 
     public function findOrCreateUserFromKeycloak(PDO $pdo, array $claims): array
