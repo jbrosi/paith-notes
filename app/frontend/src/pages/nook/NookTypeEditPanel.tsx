@@ -35,7 +35,7 @@ export function NookTypeEditPanel(props: NookTypeEditPanelProps) {
 	});
 
 	const goBack = () => {
-		navigate(`/nooks/${store().nookId()}`, { replace: true });
+		navigate(`/nooks/${store().nookId()}/settings/types`, { replace: true });
 	};
 
 	const onSave = async () => {

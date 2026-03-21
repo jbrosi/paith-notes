@@ -1,4 +1,5 @@
 import { createEffect, createMemo, Show } from "solid-js";
+import { Portal } from "solid-js/web";
 import { useUi } from "../../ui/UiContext";
 import notesStyles from "../Notes.module.css";
 import { EditorSection } from "./components/EditorSection";
@@ -8,11 +9,10 @@ import { TitleSection } from "./components/TitleSection";
 import { NookNoteLinksPanel } from "./NookNoteLinksPanel";
 import { NookToolbar } from "./NookToolbar";
 import type { NookStore } from "./store";
+import { UnsavedChangesDialog } from "./UnsavedChangesDialog";
 
 export type NookMainPanelProps = {
 	store: NookStore;
-	showMarkdown: boolean;
-	onToggleMarkdown: () => void;
 };
 
 export function NookMainPanel(props: NookMainPanelProps) {
@@ -32,61 +32,49 @@ export function NookMainPanel(props: NookMainPanelProps) {
 	});
 
 	return (
-		<div style={{ flex: "1", "min-width": "0" }}>
-			<div class={notesStyles["add-note-container"]}>
-				<NookToolbar
-					nookId={store().nookId()}
-					mode={ui.mode()}
-					loading={store().loading()}
-					title={store().title()}
-					selectedId={store().selectedId()}
-					notes={store().allNotes()}
-					noteTypes={store().noteTypes()}
-					mentionTargetId={store().mentionTargetId()}
-					mentionEmbedImage={store().mentionEmbedImage()}
-					mentionCanEmbedImage={store().mentionCanEmbedImage()}
-					onRefresh={() => void store().refreshCurrentNote()}
-					onChangeMentionTargetId={store().setMentionTargetId}
-					onChangeMentionEmbedImage={store().setMentionEmbedImage}
-					onInsertMention={store().insertMention}
-					onSave={store().saveNote}
-					onDelete={store().deleteNote}
-				/>
+		<>
+			<Show when={store().pendingNav() !== null}>
+				<Portal>
+					<UnsavedChangesDialog
+						onSave={() => void store().confirmPendingNav(true)}
+						onDiscard={() => void store().confirmPendingNav(false)}
+						onCancel={() => store().cancelPendingNav()}
+					/>
+				</Portal>
+			</Show>
+			<div style={{ flex: "1", "min-width": "0" }}>
+				<div class={notesStyles["add-note-container"]}>
+					<NookToolbar
+						nookId={store().nookId()}
+						mode={ui.mode()}
+						loading={store().loading()}
+						title={store().title()}
+						selectedId={store().selectedId()}
+						notes={store().allNotes()}
+						noteTypes={store().noteTypes()}
+						mentionTargetId={store().mentionTargetId()}
+						mentionEmbedImage={store().mentionEmbedImage()}
+						mentionCanEmbedImage={store().mentionCanEmbedImage()}
+						onChangeMentionTargetId={store().setMentionTargetId}
+						onChangeMentionEmbedImage={store().setMentionEmbedImage}
+						onInsertMention={store().insertMention}
+						onSave={store().saveNote}
+						onDelete={store().deleteNote}
+					/>
+				</div>
+
+				<Show when={store().mode() === "edit"}>
+					<PrimaryTypeSelect store={store()} />
+				</Show>
+
+				<FilePanel store={store()} />
+				<TitleSection store={store()} primaryTypeLabel={primaryTypeLabel} />
+				<EditorSection store={store()} />
+
+				<Show when={store().selectedId() !== ""}>
+					<NookNoteLinksPanel store={store()} />
+				</Show>
 			</div>
-
-			<button
-				type="button"
-				onClick={props.onToggleMarkdown}
-				style={{ "margin-bottom": "0.5rem" }}
-			>
-				{props.showMarkdown ? "Hide" : "Show"} markdown
-			</button>
-			<Show when={props.showMarkdown}>
-				<textarea
-					readOnly
-					value={store().content()}
-					style={{
-						width: "100%",
-						height: "180px",
-						"font-family": "monospace",
-						"box-sizing": "border-box",
-						padding: "8px",
-						"margin-bottom": "1rem",
-					}}
-				/>
-			</Show>
-
-			<Show when={store().mode() === "edit"}>
-				<PrimaryTypeSelect store={store()} />
-			</Show>
-
-			<FilePanel store={store()} />
-			<TitleSection store={store()} primaryTypeLabel={primaryTypeLabel} />
-			<EditorSection store={store()} />
-
-			<Show when={store().selectedId() !== ""}>
-				<NookNoteLinksPanel store={store()} />
-			</Show>
-		</div>
+		</>
 	);
 }
