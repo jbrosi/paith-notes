@@ -1412,10 +1412,10 @@
   resolved "https://registry.yarnpkg.com/@rollup/rollup-win32-x64-msvc/-/rollup-win32-x64-msvc-4.59.0.tgz#4584a8a87b29188a4c1fe987a9fcf701e256d86c"
   integrity sha512-2HRCml6OztYXyJXAvdDXPKcawukWY2GpR5/nxKp4iBgiO3wcoEGkAaqctIbZcNB6KlUQBIqt8VYkNSj2397EfA==
 
-"@solidjs/router@^0.15.4":
-  version "0.15.4"
-  resolved "https://registry.yarnpkg.com/@solidjs/router/-/router-0.15.4.tgz#e2b2d797541dcbdc36641e5f610f93ab4fa11c8a"
-  integrity sha512-WOpgg9a9T638cR+5FGbFi/IV4l2FpmBs1GpIMSPa0Ce9vyJN7Wts+X2PqMf9IYn0zUj2MlSJtm1gp7/HI/n5TQ==
+"@solidjs/router@^0.16.1":
+  version "0.16.1"
+  resolved "https://registry.yarnpkg.com/@solidjs/router/-/router-0.16.1.tgz#18f896f17b761f91f27f3dbe5f1d47aa0b81a72a"
+  integrity sha512-IhyjedgC6LRpw/8CPGGI89FrV+r0xTHzOl2c4CRyzYQ1bLepJxbVI1LLKvsavMWY5TRBRacV7hAeOhuTXkjiqg==
 
 "@types/babel__core@^7.20.4":
   version "7.20.5"
