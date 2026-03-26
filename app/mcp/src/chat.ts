@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import type express from 'express';
 import Anthropic from '@anthropic-ai/sdk';
+import rateLimit from 'express-rate-limit';
 import { TOOLS, executeTool } from './chat-tools.js';
 
 const DEFAULT_MODEL = 'claude-sonnet-4-6';
@@ -454,8 +455,16 @@ async function streamConversation(
 export function createChatRouter(apiBase: string): Router {
   const router = Router();
 
+  const chatRateLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 60,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Too many requests, please try again later.' },
+  });
+
   // POST /nooks/:nookId/chat — start or continue a conversation
-  router.post('/nooks/:nookId/chat', async (req, res) => {
+  router.post('/nooks/:nookId/chat', chatRateLimiter, async (req, res) => {
     const cookieHeader = req.headers.cookie ?? '';
     const ok = await verifySession(cookieHeader, apiBase);
     if (!ok) {
@@ -463,7 +472,7 @@ export function createChatRouter(apiBase: string): Router {
       return;
     }
 
-    const nook_id = validateNookId(req.params.nookId);
+    const nook_id = validateNookId(String(req.params.nookId));
     const { message, model, conversation_id, context_note_id, context_note_title, context_note_type } = req.body as Record<string, unknown>;
 
     if (typeof message !== 'string' || message.trim() === '') {
@@ -521,7 +530,7 @@ export function createChatRouter(apiBase: string): Router {
   });
 
   // POST /nooks/:nookId/chat/tool-result — user approved or denied tool calls, continue conversation
-  router.post('/nooks/:nookId/chat/tool-result', async (req, res) => {
+  router.post('/nooks/:nookId/chat/tool-result', chatRateLimiter, async (req, res) => {
     const cookieHeader = req.headers.cookie ?? '';
     const ok = await verifySession(cookieHeader, apiBase);
     if (!ok) {
@@ -529,7 +538,7 @@ export function createChatRouter(apiBase: string): Router {
       return;
     }
 
-    const nook_id = validateNookId(req.params.nookId);
+    const nook_id = validateNookId(String(req.params.nookId));
 
     type ToolResult = { tool_use_id: string; tool_name: string; tool_input: Record<string, unknown>; approved: boolean };
     const { conversation_id, model, tool_results, context_note_id, context_note_title, context_note_type } = req.body as {
