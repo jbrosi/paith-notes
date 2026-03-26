@@ -121,6 +121,14 @@ async function recordNoteConvLink(
 
 // ─── Display name resolution ─────────────────────────────────────────────────
 
+// Accepts only UUID v4 format, which is the ID format used throughout this app.
+const NOOK_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function validateNookId(nookId: string): string {
+  if (!NOOK_ID_RE.test(nookId)) throw new Error(`Invalid nookId: ${nookId}`);
+  return nookId;
+}
+
 type ResolvedName = { label: string; url?: string };
 
 async function resolveDisplayNames(
@@ -129,6 +137,7 @@ async function resolveDisplayNames(
   apiBase: string,
   cookie: string,
 ): Promise<Record<string, ResolvedName>> {
+  const safeNookId = encodeURIComponent(validateNookId(nookId));
   const names: Record<string, ResolvedName> = {};
   const noteIds = new Set<string>();
   const predicateIds = new Set<string>();
@@ -143,19 +152,19 @@ async function resolveDisplayNames(
   await Promise.all([
     ...Array.from(noteIds).map(async (noteId) => {
       try {
-        const res = await fetch(`${apiBase}/api/nooks/${nookId}/notes/${noteId}`, {
+        const res = await fetch(`${apiBase}/api/nooks/${safeNookId}/notes/${encodeURIComponent(noteId)}`, {
           headers: { Cookie: cookie },
         });
         if (res.ok) {
           const data = await res.json() as { note?: { title?: string } };
-          names[noteId] = { label: data.note?.title ?? noteId, url: `/nooks/${nookId}/notes/${noteId}` };
+          names[noteId] = { label: data.note?.title ?? noteId, url: `/nooks/${safeNookId}/notes/${encodeURIComponent(noteId)}` };
         }
       } catch { /* best-effort */ }
     }),
     predicateIds.size > 0
       ? (async () => {
           try {
-            const res = await fetch(`${apiBase}/api/nooks/${nookId}/link-predicates`, {
+            const res = await fetch(`${apiBase}/api/nooks/${safeNookId}/link-predicates`, {
               headers: { Cookie: cookie },
             });
             if (res.ok) {
@@ -454,7 +463,7 @@ export function createChatRouter(apiBase: string): Router {
       return;
     }
 
-    const nook_id = req.params.nookId;
+    const nook_id = validateNookId(req.params.nookId);
     const { message, model, conversation_id, context_note_id, context_note_title, context_note_type } = req.body as Record<string, unknown>;
 
     if (typeof message !== 'string' || message.trim() === '') {
@@ -520,7 +529,7 @@ export function createChatRouter(apiBase: string): Router {
       return;
     }
 
-    const nook_id = req.params.nookId;
+    const nook_id = validateNookId(req.params.nookId);
 
     type ToolResult = { tool_use_id: string; tool_name: string; tool_input: Record<string, unknown>; approved: boolean };
     const { conversation_id, model, tool_results, context_note_id, context_note_title, context_note_type } = req.body as {
