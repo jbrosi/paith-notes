@@ -424,6 +424,15 @@ export function Nav() {
 											<path d="M17 8.5 L13 16" />
 										</svg>
 									</Button>
+									<Button
+										variant={ui.chatPanelOpen() ? "primary" : "secondary"}
+										size="small"
+										onClick={() => ui.toggleChatPanel()}
+										aria-pressed={ui.chatPanelOpen()}
+										title={ui.chatPanelOpen() ? "Hide chat" : "Open AI chat"}
+									>
+										Chat
+									</Button>
 								</div>
 							</>
 						}

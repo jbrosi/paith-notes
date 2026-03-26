@@ -55,6 +55,34 @@ final class NoteLinksController
             $depth = 5;
         }
 
+        $predicateIds = [];
+        $predicateIdsRaw = trim($request->queryParam('predicate_ids'));
+        if ($predicateIdsRaw !== '') {
+            foreach (explode(',', $predicateIdsRaw) as $pid) {
+                $pid = trim($pid);
+                if (self::isUuid($pid)) {
+                    $predicateIds[] = $pid;
+                }
+            }
+        }
+
+        // Optional filter: only surface links where source or target is one of these type IDs.
+        // BFS traversal still expands through all nodes regardless of this filter.
+        $nodeTypeIds = [];
+        $nodeTypeIdsRaw = trim($request->queryParam('node_type_ids'));
+        if ($nodeTypeIdsRaw !== '') {
+            foreach (explode(',', $nodeTypeIdsRaw) as $tid) {
+                $tid = trim($tid);
+                if (self::isUuid($tid)) {
+                    $nodeTypeIds[] = $tid;
+                }
+            }
+        }
+
+        // Optional search term: only surface links where at least one connected note (excl. start)
+        // matches by title or content (trigram-compatible LIKE). Traversal is unaffected.
+        $q = strtolower(trim($request->queryParam('q')));
+
         $noteCheck = $pdo->prepare('select 1 from global.notes where id = :id and nook_id = :nook_id');
         $noteCheck->execute([':id' => $noteId, ':nook_id' => $nookId]);
         if (!$noteCheck->fetchColumn()) {
@@ -88,16 +116,28 @@ final class NoteLinksController
                 $where = 'and (l.source_note_id in (' . $in . ') or l.target_note_id in (' . $in . '))';
             }
 
+            $wherePredicates = '';
+            if ($predicateIds !== []) {
+                $pidPlaceholders = [];
+                foreach ($predicateIds as $pi => $pid) {
+                    $pkey = ':pid' . $pi;
+                    $pidPlaceholders[] = $pkey;
+                    $params[$pkey] = $pid;
+                }
+                $wherePredicates = 'and l.predicate_id in (' . implode(', ', $pidPlaceholders) . ')';
+            }
+
             $stmt = $pdo->prepare(
                 'select '
                 . 'l.id, l.predicate_id, l.source_note_id, l.target_note_id, l.start_date, l.end_date, l.former, l.created_at, l.updated_at, '
                 . 'p.key as predicate_key, p.forward_label, p.reverse_label, p.supports_start_date, p.supports_end_date, '
-                . 'ns.title as source_note_title, nt.title as target_note_title '
+                . 'ns.title as source_note_title, ns.type_id as source_type_id, '
+                . 'nt.title as target_note_title, nt.type_id as target_type_id '
                 . 'from global.note_links l '
                 . 'join global.link_predicates p on p.id = l.predicate_id '
                 . 'join global.notes ns on ns.id = l.source_note_id '
                 . 'join global.notes nt on nt.id = l.target_note_id '
-                . 'where l.nook_id = :nook_id ' . $where . ' '
+                . 'where l.nook_id = :nook_id ' . $where . ' ' . $wherePredicates . ' '
                 . 'order by l.created_at desc'
             );
             $stmt->execute($params);
@@ -110,18 +150,31 @@ final class NoteLinksController
                 }
 
                 $id = is_scalar($r['id'] ?? null) ? (string)$r['id'] : '';
-                if ($id === '' || isset($linksById[$id])) {
+                if ($id === '') {
                     continue;
                 }
 
-                $sourceId = is_scalar($r['source_note_id'] ?? null) ? (string)$r['source_note_id'] : '';
-                $targetId = is_scalar($r['target_note_id'] ?? null) ? (string)$r['target_note_id'] : '';
+                $sourceId     = is_scalar($r['source_note_id'] ?? null) ? (string)$r['source_note_id'] : '';
+                $targetId     = is_scalar($r['target_note_id'] ?? null) ? (string)$r['target_note_id'] : '';
+                $sourceTypeId = is_scalar($r['source_type_id'] ?? null) ? (string)$r['source_type_id'] : '';
+                $targetTypeId = is_scalar($r['target_type_id'] ?? null) ? (string)$r['target_type_id'] : '';
 
+                // Always expand frontier regardless of type filter (so we traverse through all nodes)
                 if ($sourceId !== '' && self::isUuid($sourceId)) {
                     $nextFrontier[$sourceId] = true;
                 }
                 if ($targetId !== '' && self::isUuid($targetId)) {
                     $nextFrontier[$targetId] = true;
+                }
+
+                // Skip already-seen links
+                if (isset($linksById[$id])) {
+                    continue;
+                }
+
+                // Apply node type filter to results (but not to traversal above)
+                if ($nodeTypeIds !== [] && !in_array($sourceTypeId, $nodeTypeIds, true) && !in_array($targetTypeId, $nodeTypeIds, true)) {
+                    continue;
                 }
 
                 $former = self::decodeJsonObject($r['former'] ?? null);
@@ -136,8 +189,10 @@ final class NoteLinksController
                     'supports_end_date' => (bool)($r['supports_end_date'] ?? false),
                     'source_note_id' => $sourceId,
                     'source_note_title' => is_scalar($r['source_note_title'] ?? null) ? (string)$r['source_note_title'] : '',
+                    'source_type_id' => $sourceTypeId,
                     'target_note_id' => $targetId,
                     'target_note_title' => is_scalar($r['target_note_title'] ?? null) ? (string)$r['target_note_title'] : '',
+                    'target_type_id' => $targetTypeId,
                     'start_date' => is_scalar($r['start_date'] ?? null) ? (string)$r['start_date'] : '',
                     'end_date' => is_scalar($r['end_date'] ?? null) ? (string)$r['end_date'] : '',
                     'former' => $former === [] ? (object)[] : $former,
@@ -147,6 +202,48 @@ final class NoteLinksController
             }
 
             $frontier = $nextFrontier;
+        }
+
+        // Post-BFS search filter: keep only links where at least one endpoint (excluding the
+        // starting note) matches the query by title or content.
+        if ($q !== '' && $linksById !== []) {
+            $noteIdSet = [];
+            foreach ($linksById as $link) {
+                if ($link['source_note_id'] !== $noteId) {
+                    $noteIdSet[$link['source_note_id']] = true;
+                }
+                if ($link['target_note_id'] !== $noteId) {
+                    $noteIdSet[$link['target_note_id']] = true;
+                }
+            }
+
+            $matchingIds = [];
+            if ($noteIdSet !== []) {
+                $placeholders = [];
+                $qParams = [':q' => '%' . $q . '%'];
+                foreach (array_keys($noteIdSet) as $i => $id) {
+                    $key = ':nid' . $i;
+                    $placeholders[] = $key;
+                    $qParams[$key] = $id;
+                }
+                $in = implode(', ', $placeholders);
+                $matchStmt = $pdo->prepare(
+                    "select id from global.notes where id in ($in) and (lower(title) like :q or lower(content) like :q)"
+                );
+                $matchStmt->execute($qParams);
+                foreach ($matchStmt->fetchAll(PDO::FETCH_COLUMN) as $mid) {
+                    $matchingIds[(string)$mid] = true;
+                }
+            }
+
+            foreach (array_keys($linksById) as $linkId) {
+                $link = $linksById[$linkId];
+                $srcMatch = $link['source_note_id'] !== $noteId && isset($matchingIds[$link['source_note_id']]);
+                $tgtMatch = $link['target_note_id'] !== $noteId && isset($matchingIds[$link['target_note_id']]);
+                if (!$srcMatch && !$tgtMatch) {
+                    unset($linksById[$linkId]);
+                }
+            }
         }
 
         return JsonResponse::ok(['links' => array_values($linksById)]);

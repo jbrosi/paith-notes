@@ -1,0 +1,93 @@
+.popup {
+	position: fixed;
+	background: #fff;
+	border: 1px solid #e5e7eb;
+	border-radius: 6px;
+	box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+	z-index: 1000;
+	min-width: 180px;
+	max-width: 260px;
+	overflow: hidden;
+	font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+	font-size: 0.8125rem;
+}
+
+.infoBtn {
+	display: block;
+	width: 100%;
+	padding: 8px 12px;
+	background: none;
+	border: none;
+	text-align: left;
+	cursor: pointer;
+}
+
+.infoBtn:hover {
+	background: #f3f4f6;
+}
+
+.infoContent {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+}
+
+.openIcon {
+	flex-shrink: 0;
+	color: #9ca3af;
+	opacity: 0;
+	transition: opacity 0.1s;
+}
+
+.infoBtn:hover .openIcon {
+	opacity: 1;
+}
+
+.title {
+	font-weight: 500;
+	color: #111827;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.meta {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	margin-top: 2px;
+	color: #6b7280;
+	font-size: 0.75rem;
+}
+
+.dot {
+	opacity: 0.5;
+}
+
+.uuid {
+	font-family: monospace;
+}
+
+.divider {
+	height: 1px;
+	background: #e5e7eb;
+}
+
+.btn {
+	display: block;
+	width: 100%;
+	padding: 7px 12px;
+	background: none;
+	border: none;
+	text-align: left;
+	cursor: pointer;
+	color: #6b7280;
+	line-height: 1.4;
+	font-size: 0.8125rem;
+}
+
+.btn:hover {
+	background: #f3f4f6;
+	color: #111827;
+}

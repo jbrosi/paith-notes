@@ -1,0 +1,117 @@
+.container {
+	border: 1px solid #fbbf24;
+	border-radius: 8px;
+	background: #fffbeb;
+	padding: 12px;
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	font-size: 0.875rem;
+}
+
+.title {
+	font-weight: 600;
+	color: #92400e;
+	margin: 0 0 4px;
+}
+
+.toolItem {
+	background: #fff;
+	border: 1px solid #e5e7eb;
+	border-radius: 6px;
+	padding: 8px;
+	font-family: monospace;
+	font-size: 0.8125rem;
+	word-break: break-all;
+	white-space: pre-wrap;
+}
+
+.toolItem.write {
+	border-color: #fbbf24;
+}
+
+.toolItem.destructive {
+	border-color: #ef4444;
+	background: #fef2f2;
+}
+
+.toolName {
+	font-weight: 600;
+	color: #1d4ed8;
+	margin-bottom: 4px;
+	display: flex;
+	align-items: center;
+	gap: 6px;
+}
+
+.destructive .toolName {
+	color: #b91c1c;
+}
+
+.badge {
+	font-size: 0.6875rem;
+	font-weight: 600;
+	padding: 1px 5px;
+	border-radius: 3px;
+	font-family: inherit;
+}
+
+.badgeWrite {
+	background: #fef3c7;
+	color: #92400e;
+}
+
+.badgeDestructive {
+	background: #fee2e2;
+	color: #b91c1c;
+}
+
+.inputTable {
+	display: flex;
+	flex-direction: column;
+	gap: 3px;
+	margin-top: 4px;
+}
+
+.inputRow {
+	display: flex;
+	gap: 8px;
+	align-items: baseline;
+	font-family: monospace;
+	font-size: 0.8125rem;
+}
+
+.inputKey {
+	color: #6b7280;
+	white-space: nowrap;
+	flex-shrink: 0;
+}
+
+.inputKey::after {
+	content: ":";
+}
+
+.inputVal {
+	color: #111827;
+	word-break: break-all;
+}
+
+.noteLink {
+	color: #1d4ed8;
+	text-decoration: underline;
+}
+
+.noteLink:hover {
+	color: #1e40af;
+}
+
+.resolvedLabel {
+	color: #111827;
+	font-style: italic;
+}
+
+.actions {
+	display: flex;
+	gap: 8px;
+	margin-top: 4px;
+}

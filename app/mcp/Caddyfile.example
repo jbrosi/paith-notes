@@ -1,0 +1,19 @@
+# Example Caddy reverse proxy snippet for the paith-notes AI service.
+#
+# Drop this into your existing Caddyfile (or import it) so that
+# the browser can reach /chat and /mcp on the same origin as the PHP app.
+#
+# Assumes:
+#   - mcp container is reachable at http://mcp:3000 (docker compose service name)
+#   - your main site is already defined (e.g. notes.example.com)
+
+notes.example.com {
+    # PHP API + frontend — handled by your existing FrankenPHP / nginx block
+    # (shown here for context only; keep your existing config)
+    # reverse_proxy /api/* http://api:80
+
+    # AI service: nook-scoped chat endpoints + MCP endpoint
+    reverse_proxy /nooks/*/chat* http://mcp:3000
+    reverse_proxy /mcp*          http://mcp:3000
+    reverse_proxy /.well-known/oauth-protected-resource http://mcp:3000
+}

@@ -250,7 +250,7 @@ jobs:
           path: app/api/coverage
 
       - name: SonarCloud Scan
-        uses: SonarSource/sonarcloud-github-action@v3
+        uses: SonarSource/sonarqube-scan-action@v4
         env:
           SONAR_TOKEN: ${{ env.SONAR_TOKEN }}
         with:

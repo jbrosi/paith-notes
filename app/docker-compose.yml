@@ -1,0 +1,25 @@
+services:
+  mcp:
+    build: ./mcp
+    ports:
+      - "3001:3000"
+    # Secrets (ANTHROPIC_API_KEY) live outside the repo — never in /app.
+    # Create ~/.config/paith/mcp.env with:
+    #   ANTHROPIC_API_KEY=sk-ant-...
+    # Alternatively, just export ANTHROPIC_API_KEY in your shell; the
+    # ${VAR:-} substitutions below will pick it up without any file.
+    env_file:
+      - path: ~/.config/paith/mcp.env
+        required: false        # won't fail if the file doesn't exist
+    environment:
+      # Where your Keycloak instance is reachable from inside the container
+      KEYCLOAK_BASE_URL: ${KEYCLOAK_BASE_URL:-http://keycloak:8080}
+      KEYCLOAK_REALM: ${KEYCLOAK_REALM:-master}
+      # Your PHP API — use the service name if running in the same compose, or VPN address
+      API_BASE_URL: ${API_BASE_URL:-http://api}
+      # Public URL of this MCP server (used in OAuth metadata)
+      MCP_SERVER_URL: ${MCP_SERVER_URL:-https://mcp.paith.example.com}
+      # ANTHROPIC_API_KEY is loaded from env_file above (or host env).
+      # Only set it here if you're not using either of those methods.
+      #ANTHROPIC_API_KEY: sk-ant-...
+    restart: unless-stopped

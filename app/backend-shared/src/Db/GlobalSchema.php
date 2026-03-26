@@ -82,7 +82,10 @@ final class GlobalSchema
 
             $pdo->exec('create index if not exists notes_nook_id_idx on global.notes (nook_id)');
             $pdo->exec('create index if not exists notes_created_by_idx on global.notes (created_by)');
-            $pdo->exec('create index if not exists notes_title_trgm_idx on global.notes using gin (title gin_trgm_ops)');
+            $pdo->exec('create index if not exists notes_title_trgm_idx on global.notes using gin (lower(title) gin_trgm_ops)');
+            $pdo->exec('create index if not exists notes_content_trgm_idx on global.notes using gin (lower(content) gin_trgm_ops)');
+            $pdo->exec("alter table global.notes add column if not exists updated_at timestamptz not null default now()");
+            $pdo->exec('create index if not exists notes_updated_at_idx on global.notes (nook_id, updated_at desc)');
 
             $pdo->exec(" 
                 create table if not exists global.note_types (
@@ -287,6 +290,65 @@ final class GlobalSchema
 
             $pdo->exec('create index if not exists jobs_status_available_idx on global.jobs (status, available_at)');
             $pdo->exec('create index if not exists jobs_locked_at_idx on global.jobs (locked_at)');
+
+            $pdo->exec("
+                create table if not exists global.conversations (
+                    id          uuid        primary key default gen_random_uuid(),
+                    nook_id     uuid        not null references global.nooks(id) on delete cascade,
+                    user_id     uuid        not null references global.users(id) on delete cascade,
+                    title       text        not null default '',
+                    model       text        not null,
+                    created_at  timestamptz not null default now(),
+                    updated_at  timestamptz not null default now()
+                );
+            ");
+
+            $pdo->exec('create index if not exists conversations_nook_user_idx on global.conversations (nook_id, user_id)');
+
+            $pdo->exec("
+                create table if not exists global.conversation_messages (
+                    id              uuid        primary key default gen_random_uuid(),
+                    conversation_id uuid        not null references global.conversations(id) on delete cascade,
+                    role            text        not null,
+                    content         jsonb       not null,
+                    model           text        null,
+                    created_at      timestamptz not null default now()
+                );
+            ");
+
+            $pdo->exec('create index if not exists conversation_messages_conversation_idx on global.conversation_messages (conversation_id, created_at)');
+
+            // Block-level conversation storage: one row per content block, grouped by turn_id
+            $pdo->exec("
+                create table if not exists global.conversation_blocks (
+                    id              uuid        primary key default gen_random_uuid(),
+                    conversation_id uuid        not null references global.conversations(id) on delete cascade,
+                    turn_id         uuid        not null,
+                    role            text        not null,
+                    block_index     int         not null default 0,
+                    block_type      text        not null,
+                    content         jsonb       not null,
+                    model           text        null,
+                    created_at      timestamptz not null default now()
+                );
+            ");
+
+            $pdo->exec('create index if not exists conv_blocks_conv_idx on global.conversation_blocks (conversation_id, created_at, block_index)');
+            $pdo->exec('create index if not exists conv_blocks_turn_idx on global.conversation_blocks (turn_id, block_index)');
+
+            // Links between AI memory notes and the conversation block where they were written
+            $pdo->exec("
+                create table if not exists global.note_conversation_links (
+                    note_id         uuid        not null references global.notes(id) on delete cascade,
+                    conversation_id uuid        not null references global.conversations(id) on delete cascade,
+                    block_id        uuid        null references global.conversation_blocks(id) on delete set null,
+                    created_at      timestamptz not null default now(),
+                    primary key (note_id, conversation_id)
+                );
+            ");
+
+            $pdo->exec('create index if not exists note_conv_links_note_idx on global.note_conversation_links (note_id)');
+            $pdo->exec('create index if not exists note_conv_links_conv_idx on global.note_conversation_links (conversation_id)');
         } finally {
             $pdo->exec("select pg_advisory_unlock(hashtext('paith_notes_global_schema_ensure'))");
         }

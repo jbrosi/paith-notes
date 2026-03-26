@@ -1,0 +1,55 @@
+.message {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	max-width: 100%;
+}
+
+.user {
+	align-items: flex-end;
+}
+
+.assistant {
+	align-items: flex-start;
+}
+
+.bubble {
+	padding: 8px 12px;
+	border-radius: 12px;
+	font-size: 0.875rem;
+	line-height: 1.5;
+	white-space: pre-wrap;
+	word-break: break-word;
+	max-width: 85%;
+}
+
+.user .bubble {
+	background: #3b82f6;
+	color: #fff;
+	border-bottom-right-radius: 3px;
+}
+
+.assistant .bubble {
+	background: #f3f4f6;
+	color: #111827;
+	border-bottom-left-radius: 3px;
+}
+
+.toolChip {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	padding: 4px 8px;
+	background: #fef3c7;
+	border: 1px solid #fbbf24;
+	border-radius: 6px;
+	font-size: 0.75rem;
+	color: #92400e;
+	font-family: monospace;
+	max-width: 85%;
+	word-break: break-all;
+}
+
+.streaming {
+	opacity: 0.7;
+}
