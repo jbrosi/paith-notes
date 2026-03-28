@@ -2,8 +2,8 @@
 declare(strict_types=1);
 
 $autoloaders = [
-    '/app/api/vendor/autoload.php',
-    '/app/worker/vendor/autoload.php',
+    __DIR__ . '/api/vendor/autoload.php',
+    __DIR__ . '/worker/vendor/autoload.php',
 ];
 
 foreach ($autoloaders as $autoload) {

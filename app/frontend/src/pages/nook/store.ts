@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createSignal } from "solid-js";
+import { batch, createEffect, createMemo, createSignal } from "solid-js";
 import { apiFetch } from "../../auth/keycloak";
 import {
 	parseTypedSearch,
@@ -129,7 +129,7 @@ export function createNookStore(nookId: () => string) {
 				method: "GET",
 			});
 			if (res.status === 401) {
-				setNoteTypes([]);
+				if (noteTypes().length > 0) setNoteTypes([]);
 				return;
 			}
 			if (!res.ok) {
@@ -365,7 +365,10 @@ export function createNookStore(nookId: () => string) {
 		if (id === "") return null;
 		if (nookId() === "") return null;
 		const cached = noteDetailCache.get(id);
-		if (cached) return cached;
+		if (cached) {
+			if (selectedId() === id) applyNoteDetail(cached);
+			return cached;
+		}
 
 		const requestId = ++lastDetailRequestId;
 		try {
@@ -516,6 +519,7 @@ export function createNookStore(nookId: () => string) {
 
 	const loadNotes = async (opts?: { reset?: boolean }) => {
 		if (nookId() === "") return;
+		if (needsLogin()) return;
 		const reset = opts?.reset ?? true;
 		const parsed = parseTypedSearch(notesQuery());
 		const typedTypeId = resolveTypeIdForTermInStore(parsed.typeTerm);
@@ -532,7 +536,6 @@ export function createNookStore(nookId: () => string) {
 
 		setLoading(true);
 		setError("");
-		setNeedsLogin(false);
 		try {
 			const qs = new URLSearchParams();
 			qs.set("include_subtypes", "1");
@@ -545,11 +548,13 @@ export function createNookStore(nookId: () => string) {
 				{ method: "GET" },
 			);
 			if (res.status === 401) {
-				setNotes([]);
-				setNotesNextCursor("");
-				setSelectedId("");
-				setNeedsLogin(true);
-				setError("Your session timed out. Please log in again.");
+				batch(() => {
+					setNotes([]);
+					setNotesNextCursor("");
+					setSelectedId("");
+					setNeedsLogin(true);
+					setError("Your session timed out. Please log in again.");
+				});
 				return;
 			}
 			if (!res.ok) {
@@ -665,7 +670,6 @@ export function createNookStore(nookId: () => string) {
 		setSelectedId(note.id);
 		setTypeId(String(note.typeId ?? "").trim());
 		setTitle(note.title);
-		setContent("");
 		setType(
 			note.type === "person"
 				? "person"

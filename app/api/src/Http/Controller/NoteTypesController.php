@@ -15,6 +15,7 @@ use Throwable;
 final class NoteTypesController
 {
     private const ROOT_FILE_TYPE_KEY = 'file';
+    private const AI_MEMORY_TYPE_KEY = 'ai-memory';
     private const TYPE_ID_ALL = 'all';
 
     public function list(Request $request, Context $context): Response
@@ -33,6 +34,7 @@ final class NoteTypesController
         $this->requireMember($pdo, $user, $nookId);
 
         $this->ensureRootFileType($pdo, $nookId);
+        $this->ensureAiMemoryType($pdo, $nookId);
 
         $stmt = $pdo->prepare(
             'select id, key, label, description, parent_id, applies_to_files, applies_to_notes, created_at, updated_at '
@@ -193,6 +195,9 @@ final class NoteTypesController
         if ($existingKey === self::ROOT_FILE_TYPE_KEY) {
             throw new HttpError('root file type cannot be modified', 400);
         }
+        if ($existingKey === self::AI_MEMORY_TYPE_KEY) {
+            throw new HttpError('ai-memory type cannot be modified', 400);
+        }
 
         $data = $request->jsonBody();
 
@@ -308,6 +313,9 @@ final class NoteTypesController
         if ($existingKey === self::ROOT_FILE_TYPE_KEY) {
             throw new HttpError('root file type cannot be deleted', 400);
         }
+        if ($existingKey === self::AI_MEMORY_TYPE_KEY) {
+            throw new HttpError('ai-memory type cannot be deleted', 400);
+        }
 
         $stmt = $pdo->prepare('delete from global.note_types where id = :id and nook_id = :nook_id returning id');
         $stmt->execute([':id' => $typeId, ':nook_id' => $nookId]);
@@ -368,6 +376,7 @@ final class NoteTypesController
             if (!is_array($obj)) {
                 throw new HttpError('cursor is invalid', 400);
             }
+            // Support both legacy {created_at, id} and current {created_at (sort_val), id}
             $cursorCreatedAtRaw = $obj['created_at'] ?? '';
             $cursorIdRaw = $obj['id'] ?? '';
             $cursorCreatedAt = is_string($cursorCreatedAtRaw) ? trim($cursorCreatedAtRaw) : '';
@@ -390,10 +399,20 @@ final class NoteTypesController
             }
         }
 
-        $q = trim($request->queryParam('q'));
+        // Sort param: newest (default), oldest, updated_newest, updated_oldest
+        $sortParam = strtolower(trim($request->queryParam('sort')));
+        if (!in_array($sortParam, ['newest', 'oldest', 'updated_newest', 'updated_oldest'], true)) {
+            $sortParam = 'newest';
+        }
+        $sortCol = str_starts_with($sortParam, 'updated') ? 'updated_at' : 'created_at';
+        $sortDir = str_ends_with($sortParam, 'oldest') ? 'asc' : 'desc';
+        $cursorOp = $sortDir === 'asc' ? '>' : '<';
+        $orderBy = "order by n.{$sortCol} {$sortDir}, n.id {$sortDir}";
+
+        $q = strtolower(trim($request->queryParam('q')));
         $whereSearch = '';
         if ($q !== '') {
-            $whereSearch = 'and n.title ilike :q';
+            $whereSearch = 'and (lower(n.title) like :q or lower(n.content) like :q)';
         }
 
         $kind = strtolower(trim($request->queryParam('kind')));
@@ -406,20 +425,18 @@ final class NoteTypesController
         }
 
         $whereCursor = '';
-        if ($cursorCreatedAt !== '' && $cursorId !== '') {
-            $whereCursor = 'and (n.created_at, n.id) < (:cursor_created_at::timestamptz, :cursor_id::uuid)';
+        if ($cursor !== '') {
+            $whereCursor = "and (n.{$sortCol}, n.id) {$cursorOp} (:cursor_sort_val::timestamptz, :cursor_id::uuid)";
         }
 
         $limitPlusOne = $limit + 1;
 
-        if ($isAll) {
-            $stmt = $pdo->prepare(
-                'select n.id, n.title, n.type, n.type_id, n.created_at,
+        $selectCols = 'select n.id, n.title, n.type, n.type_id, n.created_at, n.updated_at,
                     coalesce(outgoing.cnt, 0) as outgoing_mentions_count,
                     coalesce(incoming.cnt, 0) as incoming_mentions_count,
                     coalesce(outgoing_links.cnt, 0) as outgoing_links_count,
-                    coalesce(incoming_links.cnt, 0) as incoming_links_count
-                from global.notes n
+                    coalesce(incoming_links.cnt, 0) as incoming_links_count';
+        $joinCounts = '
                 left join (
                     select nm.source_note_id as note_id, count(*)::int as cnt
                     from global.note_mentions nm
@@ -445,11 +462,17 @@ final class NoteTypesController
                     from global.note_links l
                     where l.nook_id = :nook_id
                     group by l.target_note_id
-                ) incoming_links on incoming_links.note_id = n.id
+                ) incoming_links on incoming_links.note_id = n.id';
+
+        if ($isAll) {
+            $stmt = $pdo->prepare(
+                $selectCols . '
+                from global.notes n'
+                . $joinCounts . '
                 where n.nook_id = :nook_id ' . $whereCursor . '
                 ' . $whereSearch . '
                 ' . $whereKind . '
-                order by n.created_at desc, n.id desc
+                ' . $orderBy . '
                 limit :limit'
             );
 
@@ -461,8 +484,8 @@ final class NoteTypesController
             if ($kind !== '') {
                 $stmt->bindValue(':kind', $kind);
             }
-            if ($cursorCreatedAt !== '' && $cursorId !== '') {
-                $stmt->bindValue(':cursor_created_at', $cursorCreatedAt);
+            if ($cursor !== '') {
+                $stmt->bindValue(':cursor_sort_val', $cursorCreatedAt);
                 $stmt->bindValue(':cursor_id', $cursorId);
             }
             $stmt->execute();
@@ -476,43 +499,14 @@ final class NoteTypesController
                     join type_tree tt on nt.parent_id = tt.id
                     where nt.nook_id = :nook_id
                 )
-                select n.id, n.title, n.type, n.type_id, n.created_at,
-                    coalesce(outgoing.cnt, 0) as outgoing_mentions_count,
-                    coalesce(incoming.cnt, 0) as incoming_mentions_count,
-                    coalesce(outgoing_links.cnt, 0) as outgoing_links_count,
-                    coalesce(incoming_links.cnt, 0) as incoming_links_count
-                from global.notes n
-                left join (
-                    select nm.source_note_id as note_id, count(*)::int as cnt
-                    from global.note_mentions nm
-                    join global.notes nn on nn.id = nm.source_note_id
-                    where nn.nook_id = :nook_id
-                    group by nm.source_note_id
-                ) outgoing on outgoing.note_id = n.id
-                left join (
-                    select nm.target_note_id as note_id, count(*)::int as cnt
-                    from global.note_mentions nm
-                    join global.notes nn on nn.id = nm.target_note_id
-                    where nn.nook_id = :nook_id
-                    group by nm.target_note_id
-                ) incoming on incoming.note_id = n.id
-                left join (
-                    select l.source_note_id as note_id, count(*)::int as cnt
-                    from global.note_links l
-                    where l.nook_id = :nook_id
-                    group by l.source_note_id
-                ) outgoing_links on outgoing_links.note_id = n.id
-                left join (
-                    select l.target_note_id as note_id, count(*)::int as cnt
-                    from global.note_links l
-                    where l.nook_id = :nook_id
-                    group by l.target_note_id
-                ) incoming_links on incoming_links.note_id = n.id
+                ' . $selectCols . '
+                from global.notes n'
+                . $joinCounts . '
                 where n.nook_id = :nook_id and n.type_id in (select id from type_tree)
                 ' . $whereCursor . '
                 ' . $whereSearch . '
                 ' . $whereKind . '
-                order by n.created_at desc, n.id desc
+                ' . $orderBy . '
                 limit :limit'
             );
 
@@ -525,49 +519,20 @@ final class NoteTypesController
             if ($kind !== '') {
                 $stmt->bindValue(':kind', $kind);
             }
-            if ($cursorCreatedAt !== '' && $cursorId !== '') {
-                $stmt->bindValue(':cursor_created_at', $cursorCreatedAt);
+            if ($cursor !== '') {
+                $stmt->bindValue(':cursor_sort_val', $cursorCreatedAt);
                 $stmt->bindValue(':cursor_id', $cursorId);
             }
             $stmt->execute();
         } else {
             $stmt = $pdo->prepare(
-                'select n.id, n.title, n.type, n.type_id, n.created_at,
-                    coalesce(outgoing.cnt, 0) as outgoing_mentions_count,
-                    coalesce(incoming.cnt, 0) as incoming_mentions_count,
-                    coalesce(outgoing_links.cnt, 0) as outgoing_links_count,
-                    coalesce(incoming_links.cnt, 0) as incoming_links_count
-                from global.notes n
-                left join (
-                    select nm.source_note_id as note_id, count(*)::int as cnt
-                    from global.note_mentions nm
-                    join global.notes nn on nn.id = nm.source_note_id
-                    where nn.nook_id = :nook_id
-                    group by nm.source_note_id
-                ) outgoing on outgoing.note_id = n.id
-                left join (
-                    select nm.target_note_id as note_id, count(*)::int as cnt
-                    from global.note_mentions nm
-                    join global.notes nn on nn.id = nm.target_note_id
-                    where nn.nook_id = :nook_id
-                    group by nm.target_note_id
-                ) incoming on incoming.note_id = n.id
-                left join (
-                    select l.source_note_id as note_id, count(*)::int as cnt
-                    from global.note_links l
-                    where l.nook_id = :nook_id
-                    group by l.source_note_id
-                ) outgoing_links on outgoing_links.note_id = n.id
-                left join (
-                    select l.target_note_id as note_id, count(*)::int as cnt
-                    from global.note_links l
-                    where l.nook_id = :nook_id
-                    group by l.target_note_id
-                ) incoming_links on incoming_links.note_id = n.id
+                $selectCols . '
+                from global.notes n'
+                . $joinCounts . '
                 where n.nook_id = :nook_id and n.type_id = :type_id ' . $whereCursor . '
                 ' . $whereSearch . '
                 ' . $whereKind . '
-                order by n.created_at desc, n.id desc
+                ' . $orderBy . '
                 limit :limit'
             );
 
@@ -580,8 +545,8 @@ final class NoteTypesController
             if ($kind !== '') {
                 $stmt->bindValue(':kind', $kind);
             }
-            if ($cursorCreatedAt !== '' && $cursorId !== '') {
-                $stmt->bindValue(':cursor_created_at', $cursorCreatedAt);
+            if ($cursor !== '') {
+                $stmt->bindValue(':cursor_sort_val', $cursorCreatedAt);
                 $stmt->bindValue(':cursor_id', $cursorId);
             }
             $stmt->execute();
@@ -609,6 +574,7 @@ final class NoteTypesController
                 'type' => is_scalar($r['type'] ?? null) ? (string)$r['type'] : 'anything',
                 'type_id' => is_scalar($r['type_id'] ?? null) ? (string)$r['type_id'] : '',
                 'created_at' => is_scalar($r['created_at'] ?? null) ? (string)$r['created_at'] : '',
+                'updated_at' => is_scalar($r['updated_at'] ?? null) ? (string)$r['updated_at'] : '',
                 'outgoing_mentions_count' => is_scalar($r['outgoing_mentions_count'] ?? null) ? (int)$r['outgoing_mentions_count'] : 0,
                 'incoming_mentions_count' => is_scalar($r['incoming_mentions_count'] ?? null) ? (int)$r['incoming_mentions_count'] : 0,
                 'outgoing_links_count' => is_scalar($r['outgoing_links_count'] ?? null) ? (int)$r['outgoing_links_count'] : 0,
@@ -619,10 +585,10 @@ final class NoteTypesController
         if ($hasMore && $rows !== []) {
             $last = $rows[count($rows) - 1];
             if (is_array($last)) {
-                $lastCreatedAt = is_scalar($last['created_at'] ?? null) ? (string)$last['created_at'] : '';
+                $lastSortVal = is_scalar($last[$sortCol] ?? null) ? (string)$last[$sortCol] : '';
                 $lastId = is_scalar($last['id'] ?? null) ? (string)$last['id'] : '';
-                if ($lastCreatedAt !== '' && $lastId !== '' && self::isUuid($lastId)) {
-                    $payload = json_encode(['created_at' => $lastCreatedAt, 'id' => $lastId]);
+                if ($lastSortVal !== '' && $lastId !== '' && self::isUuid($lastId)) {
+                    $payload = json_encode(['created_at' => $lastSortVal, 'id' => $lastId]);
                     if (is_string($payload)) {
                         $nextCursor = base64_encode($payload);
                     }
@@ -653,6 +619,26 @@ final class NoteTypesController
             throw new HttpError('forbidden', 403);
         }
         return $row;
+    }
+
+    private function ensureAiMemoryType(PDO $pdo, string $nookId): void
+    {
+        $check = $pdo->prepare('select 1 from global.note_types where nook_id = :nook_id and key = :key');
+        $check->execute([':nook_id' => $nookId, ':key' => self::AI_MEMORY_TYPE_KEY]);
+        if ($check->fetchColumn()) {
+            return;
+        }
+
+        $stmt = $pdo->prepare(
+            'insert into global.note_types (nook_id, key, label, description, parent_id, applies_to_files, applies_to_notes) '
+            . 'values (:nook_id, :key, :label, :description, null, false, true)'
+        );
+        $stmt->execute([
+            ':nook_id' => $nookId,
+            ':key' => self::AI_MEMORY_TYPE_KEY,
+            ':label' => 'AI Memory',
+            ':description' => 'Notes that the AI assistant can read and write freely without requiring user approval.',
+        ]);
     }
 
     private function ensureRootFileType(PDO $pdo, string $nookId): void

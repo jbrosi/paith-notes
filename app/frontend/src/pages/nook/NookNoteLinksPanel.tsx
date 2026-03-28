@@ -1,6 +1,8 @@
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
+import { Portal } from "solid-js/web";
 import { apiFetch } from "../../auth/keycloak";
 import { Button } from "../../components/Button";
+import { LinkPopup } from "../../components/LinkPopup";
 import { RemoteNoteSearchSelect } from "../../components/RemoteNoteSearchSelect";
 import type { NookStore } from "./store";
 import {
@@ -28,10 +30,14 @@ export function NookNoteLinksPanel(props: NookNoteLinksPanelProps) {
 	const [links, setLinks] = createSignal<NoteLink[]>([]);
 	const [rules, setRules] = createSignal<LinkPredicateRule[]>([]);
 
+	const [popupLinkId, setPopupLinkId] = createSignal<string>("");
+	const [popupPos, setPopupPos] = createSignal({ x: 0, y: 0 });
+
 	const [newPredicateId, setNewPredicateId] = createSignal<string>("");
 	const [newTargetNoteId, setNewTargetNoteId] = createSignal<string>("");
 	const [newStartDate, setNewStartDate] = createSignal<string>("");
 	const [newEndDate, setNewEndDate] = createSignal<string>("");
+	const [showAddForm, setShowAddForm] = createSignal<boolean>(false);
 
 	const titleForLink = (l: NoteLink, id: string) => {
 		if (l.sourceNoteId === id) {
@@ -194,6 +200,7 @@ export function NookNoteLinksPanel(props: NookNoteLinksPanelProps) {
 			setLinks([body.link, ...links()]);
 			setNewStartDate("");
 			setNewEndDate("");
+			setShowAddForm(false);
 		} catch (e) {
 			setError(String(e));
 		} finally {
@@ -248,6 +255,7 @@ export function NookNoteLinksPanel(props: NookNoteLinksPanelProps) {
 		setNewTargetNoteId("");
 		setNewStartDate("");
 		setNewEndDate("");
+		setShowAddForm(false);
 	});
 
 	createEffect(() => {
@@ -341,79 +349,89 @@ export function NookNoteLinksPanel(props: NookNoteLinksPanelProps) {
 					style={{ display: "flex", "flex-direction": "column", gap: "10px" }}
 				>
 					<Show when={store().mode() === "edit"}>
-						<div
-							style={{
-								display: "grid",
-								"grid-template-columns": "1fr 1fr",
-								gap: "8px",
-							}}
-						>
-							<label>
-								Predicate
-								<select
-									value={newPredicateId()}
-									onChange={(e) => setNewPredicateId(e.currentTarget.value)}
-									disabled={loading()}
-									style={{ width: "100%", padding: "6px" }}
-								>
-									<For each={predicates()}>
-										{(p) => (
-											<option value={p.id}>
-												{p.key} ({p.forwardLabel} / {p.reverseLabel})
-											</option>
-										)}
-									</For>
-								</select>
-							</label>
+						<div>
+							<Button
+								variant="secondary"
+								onClick={() => setShowAddForm((v) => !v)}
+							>
+								{showAddForm() ? "Cancel" : "+ Add link"}
+							</Button>
+						</div>
+						<Show when={showAddForm()}>
+							<div
+								style={{
+									display: "grid",
+									"grid-template-columns": "1fr 1fr",
+									gap: "8px",
+								}}
+							>
+								<label>
+									Predicate
+									<select
+										value={newPredicateId()}
+										onChange={(e) => setNewPredicateId(e.currentTarget.value)}
+										disabled={loading()}
+										style={{ width: "100%", padding: "6px" }}
+									>
+										<For each={predicates()}>
+											{(p) => (
+												<option value={p.id}>
+													{p.key} ({p.forwardLabel} / {p.reverseLabel})
+												</option>
+											)}
+										</For>
+									</select>
+								</label>
 
-							<div>
-								<div>Target note</div>
-								<RemoteNoteSearchSelect
-									value={newTargetNoteId()}
-									onChange={(id) => setNewTargetNoteId(id)}
-									nookId={nookId()}
-									noteTypes={store().noteTypes()}
-									excludeIds={[noteId()]}
-									isTypeAllowed={(id) => isTypeAllowed(id)}
-									allowedTypesLabel={allowedTargetTypeLabel()}
-									placeholder="Target note…"
-									disabled={loading()}
-								/>
+								<div>
+									<div>Target note</div>
+									<RemoteNoteSearchSelect
+										value={newTargetNoteId()}
+										onChange={(id) => setNewTargetNoteId(id)}
+										nookId={nookId()}
+										noteTypes={store().noteTypes()}
+										excludeIds={[noteId()]}
+										isTypeAllowed={(id) => isTypeAllowed(id)}
+										allowedTypesLabel={allowedTargetTypeLabel()}
+										placeholder="Target note…"
+										disabled={loading()}
+									/>
+								</div>
 							</div>
-						</div>
 
-						<div
-							style={{
-								display: "grid",
-								"grid-template-columns": "1fr 1fr",
-								gap: "8px",
-							}}
-						>
-							<label>
-								Start date
-								<input
-									type="date"
-									value={newStartDate()}
-									onInput={(e) => setNewStartDate(e.currentTarget.value)}
-									disabled={loading()}
-									style={{ width: "100%", padding: "6px" }}
-								/>
-							</label>
-							<label>
-								End date
-								<input
-									type="date"
-									value={newEndDate()}
-									onInput={(e) => setNewEndDate(e.currentTarget.value)}
-									disabled={loading()}
-									style={{ width: "100%", padding: "6px" }}
-								/>
-							</label>
-						</div>
+							<div
+								style={{
+									display: "grid",
+									"grid-template-columns": "1fr 1fr",
+									gap: "8px",
+								}}
+							>
+								<label>
+									Start date
+									<input
+										type="date"
+										value={newStartDate()}
+										onInput={(e) => setNewStartDate(e.currentTarget.value)}
+										disabled={loading()}
+										style={{ width: "100%", padding: "6px" }}
+									/>
+								</label>
+								<label>
+									End date
+									<input
+										type="date"
+										value={newEndDate()}
+										onInput={(e) => setNewEndDate(e.currentTarget.value)}
+										disabled={loading()}
+										style={{ width: "100%", padding: "6px" }}
+									/>
+								</label>
+							</div>
 
-						<Button onClick={() => void createLink()} disabled={loading()}>
-							Add link
-						</Button>
+							<Button onClick={() => void createLink()} disabled={loading()}>
+								Add link
+							</Button>
+						</Show>
 					</Show>
 
 					<div>
@@ -426,9 +444,16 @@ export function NookNoteLinksPanel(props: NookNoteLinksPanelProps) {
 						>
 							<For each={links()}>
 								{(l) => (
-									<div
+									<button
+										type="button"
+										onClick={(e) => {
+											setPopupPos({ x: e.clientX, y: e.clientY });
+											setPopupLinkId(l.id);
+										}}
 										style={{
 											display: "flex",
+											width: "100%",
+											"text-align": "left",
 											gap: "8px",
 											"align-items": "center",
 											padding: "6px",
@@ -436,6 +461,8 @@ export function NookNoteLinksPanel(props: NookNoteLinksPanelProps) {
 											"border-radius": "6px",
 											"margin-bottom": "6px",
 											background: "white",
+											cursor: "pointer",
+											font: "inherit",
 										}}
 									>
 										<div style={{ flex: "1" }}>
@@ -450,20 +477,50 @@ export function NookNoteLinksPanel(props: NookNoteLinksPanelProps) {
 												</div>
 											</Show>
 										</div>
-										<Show when={store().mode() === "edit"}>
-											<Button
-												variant="secondary"
-												onClick={() => void deleteLink(l.id)}
-												disabled={loading()}
-											>
-												Delete
-											</Button>
-										</Show>
-									</div>
+										<svg
+											width="12"
+											height="12"
+											viewBox="0 0 12 12"
+											fill="none"
+											style={{ "flex-shrink": "0", color: "#9ca3af" }}
+										>
+											<title>Options</title>
+											<circle cx="2" cy="6" r="1.5" fill="currentColor" />
+											<circle cx="6" cy="6" r="1.5" fill="currentColor" />
+											<circle cx="10" cy="6" r="1.5" fill="currentColor" />
+										</svg>
+									</button>
 								)}
 							</For>
 						</Show>
 					</div>
+
+					<Show when={popupLinkId() !== ""}>
+						{(() => {
+							const l = links().find((x) => x.id === popupLinkId());
+							if (!l) return null;
+							const otherId = otherNoteId(l);
+							return (
+								<Portal mount={document.body}>
+									<LinkPopup
+										x={popupPos().x}
+										y={popupPos().y}
+										nookId={nookId()}
+										noteId={otherId}
+										noteTitle={titleForLink(l, otherId)}
+										predicate={directionLabel(l)}
+										onOpen={() => void store().onNoteLinkClick(otherId)}
+										onRemove={
+											store().mode() === "edit"
+												? () => void deleteLink(l.id)
+												: undefined
+										}
+										onClose={() => setPopupLinkId("")}
+									/>
+								</Portal>
+							);
+						})()}
+					</Show>
 				</div>
 			</Show>
 		</div>

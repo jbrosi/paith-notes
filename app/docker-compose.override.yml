@@ -1,0 +1,8 @@
+services:
+  mcp:
+    build:
+      context: ./mcp
+      target: dev
+    volumes:
+      - ./mcp/src:/app/src
+    # tsx --watch restarts on any src/ change; no rebuild needed during dev

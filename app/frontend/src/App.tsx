@@ -5,8 +5,18 @@ import { NookProvider } from "./pages/nook/NookContext";
 export default function App(props: RouteSectionProps) {
 	return (
 		<NookProvider>
-			<Nav />
-			{props.children}
+			<div
+				style={{
+					display: "flex",
+					"flex-direction": "column",
+					height: "100%",
+				}}
+			>
+				<Nav />
+				<div style={{ flex: "1", "min-height": "0", overflow: "hidden" }}>
+					{props.children}
+				</div>
+			</div>
 		</NookProvider>
 	);
 }

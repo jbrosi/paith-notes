@@ -1,15 +1,13 @@
 #!/usr/bin/env sh
+# Install frontend dependencies for CI (no Docker required — run after setup-node in CI).
 set -eu
 
 ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-cd "$ROOT_DIR"
 
 mkdir -p "$ROOT_DIR/.ci-cache/yarn"
+export YARN_CACHE_FOLDER="$ROOT_DIR/.ci-cache/yarn"
+export COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 
-PROJECT=${PROJECT:-notes-ci-frontend}
-
-docker compose -f docker-compose.yml --project-name "$PROJECT" run --rm --no-deps \
-  -v "$ROOT_DIR/.ci-cache/yarn:/tmp/yarn-cache" \
-  -e YARN_CACHE_FOLDER=/tmp/yarn-cache \
-  -e CYPRESS_INSTALL_BINARY=0 \
-  frontend sh -lc "export COREPACK_ENABLE_DOWNLOAD_PROMPT=0 && corepack enable && yarn install"
+cd "$ROOT_DIR/app/frontend"
+corepack enable
+yarn install

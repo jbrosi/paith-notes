@@ -16,6 +16,9 @@ export type UiState = {
 	typesPanelOpen: () => boolean;
 	setTypesPanelOpen: (next: boolean) => void;
 	toggleTypesPanel: () => void;
+	chatPanelOpen: () => boolean;
+	setChatPanelOpen: (next: boolean) => void;
+	toggleChatPanel: () => void;
 };
 
 const UiContext = createContext<UiState>();
@@ -23,11 +26,13 @@ const UiContext = createContext<UiState>();
 const MODE_STORAGE_KEY = "paith-notes:mode";
 const GRAPH_PANEL_OPEN_STORAGE_KEY = "paith-notes:graphPanelOpen";
 const TYPES_PANEL_OPEN_STORAGE_KEY = "paith-notes:typesPanelOpen";
+const CHAT_PANEL_OPEN_STORAGE_KEY = "paith-notes:chatPanelOpen";
 
 export function UiProvider(props: { children: JSX.Element }) {
 	const [mode, setModeSignal] = createSignal<"view" | "edit">("view");
 	const [graphPanelOpen, setGraphPanelOpenSignal] = createSignal<boolean>(true);
 	const [typesPanelOpen, setTypesPanelOpenSignal] = createSignal<boolean>(true);
+	const [chatPanelOpen, setChatPanelOpenSignal] = createSignal<boolean>(false);
 
 	onMount(() => {
 		try {
@@ -47,6 +52,13 @@ export function UiProvider(props: { children: JSX.Element }) {
 			const v = window.localStorage.getItem(TYPES_PANEL_OPEN_STORAGE_KEY);
 			if (v === "0") setTypesPanelOpenSignal(false);
 			if (v === "1") setTypesPanelOpenSignal(true);
+		} catch {
+			// ignore
+		}
+		try {
+			const v = window.localStorage.getItem(CHAT_PANEL_OPEN_STORAGE_KEY);
+			if (v === "0") setChatPanelOpenSignal(false);
+			if (v === "1") setChatPanelOpenSignal(true);
 		} catch {
 			// ignore
 		}
@@ -85,9 +97,22 @@ export function UiProvider(props: { children: JSX.Element }) {
 		}
 	};
 
+	const setChatPanelOpen = (next: boolean) => {
+		setChatPanelOpenSignal(Boolean(next));
+		try {
+			window.localStorage.setItem(
+				CHAT_PANEL_OPEN_STORAGE_KEY,
+				next ? "1" : "0",
+			);
+		} catch {
+			// ignore
+		}
+	};
+
 	const toggleMode = () => setMode(mode() === "edit" ? "view" : "edit");
 	const toggleGraphPanel = () => setGraphPanelOpen(!graphPanelOpen());
 	const toggleTypesPanel = () => setTypesPanelOpen(!typesPanelOpen());
+	const toggleChatPanel = () => setChatPanelOpen(!chatPanelOpen());
 
 	return (
 		<UiContext.Provider
@@ -101,6 +126,9 @@ export function UiProvider(props: { children: JSX.Element }) {
 				typesPanelOpen,
 				setTypesPanelOpen,
 				toggleTypesPanel,
+				chatPanelOpen,
+				setChatPanelOpen,
+				toggleChatPanel,
 			}}
 		>
 			{props.children}

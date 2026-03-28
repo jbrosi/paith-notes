@@ -14,5 +14,11 @@ export default defineConfig({
     allowedHosts: true,
     port: 5173,
     strictPort: true,
+    proxy: {
+      '^/nooks/[^/]+/chat': {
+        target: process.env.MCP_URL ?? 'http://localhost:3001',
+        changeOrigin: true,
+      },
+    },
   },
 });
