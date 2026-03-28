@@ -232,7 +232,10 @@ final class NoteLinksController
                 );
                 $matchStmt->execute($qParams);
                 foreach ($matchStmt->fetchAll(PDO::FETCH_COLUMN) as $mid) {
-                    $matchingIds[(string)$mid] = true;
+                    $midStr = is_scalar($mid) ? (string)$mid : '';
+                    if ($midStr !== '') {
+                        $matchingIds[$midStr] = true;
+                    }
                 }
             }
 

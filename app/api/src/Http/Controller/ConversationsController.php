@@ -54,12 +54,12 @@ final class ConversationsController
 
         return JsonResponse::ok([
             'conversation' => [
-                'id'         => (string)$row['id'],
+                'id'         => is_scalar($row['id'] ?? null) ? (string)$row['id'] : '',
                 'nook_id'    => $nookId,
                 'title'      => $title,
                 'model'      => $model,
-                'created_at' => (string)$row['created_at'],
-                'updated_at' => (string)$row['updated_at'],
+                'created_at' => is_scalar($row['created_at'] ?? null) ? (string)$row['created_at'] : '',
+                'updated_at' => is_scalar($row['updated_at'] ?? null) ? (string)$row['updated_at'] : '',
             ],
         ]);
     }
@@ -94,12 +94,12 @@ final class ConversationsController
                 continue;
             }
             $conversations[] = [
-                'id'         => (string)$row['id'],
+                'id'         => is_scalar($row['id'] ?? null) ? (string)$row['id'] : '',
                 'nook_id'    => $nookId,
-                'title'      => (string)$row['title'],
-                'model'      => (string)$row['model'],
-                'created_at' => (string)$row['created_at'],
-                'updated_at' => (string)$row['updated_at'],
+                'title'      => is_scalar($row['title'] ?? null) ? (string)$row['title'] : '',
+                'model'      => is_scalar($row['model'] ?? null) ? (string)$row['model'] : '',
+                'created_at' => is_scalar($row['created_at'] ?? null) ? (string)$row['created_at'] : '',
+                'updated_at' => is_scalar($row['updated_at'] ?? null) ? (string)$row['updated_at'] : '',
             ];
         }
 
@@ -126,7 +126,7 @@ final class ConversationsController
         // Decode without associative flag so empty JSON objects (tool_use input:{})
         // are preserved as stdClass and re-encode correctly as {} rather than [].
         $body     = json_decode($request->body());
-        $messages = is_array($body->messages ?? null) ? $body->messages : null;
+        $messages = (is_object($body) && is_array($body->messages ?? null)) ? $body->messages : null;
         if ($messages === null || $messages === []) {
             throw new HttpError('messages must be a non-empty array', 400);
         }
@@ -187,10 +187,10 @@ final class ConversationsController
                 }
 
                 $blockData = [
-                    'id'          => (string)$row['id'],
+                    'id'          => is_scalar($row['id'] ?? null) ? (string)$row['id'] : '',
                     'block_type'  => $blockType,
                     'block_index' => (int)$blockIndex,
-                    'created_at'  => (string)$row['created_at'],
+                    'created_at'  => is_scalar($row['created_at'] ?? null) ? (string)$row['created_at'] : '',
                 ];
 
                 // Expose tool_use_id so callers can match saved blocks to pending tool uses
@@ -247,25 +247,31 @@ final class ConversationsController
             if (!is_array($row)) {
                 continue;
             }
-            $turnId = (string)$row['turn_id'];
+            $turnId = is_scalar($row['turn_id'] ?? null) ? (string)$row['turn_id'] : '';
+            if ($turnId === '') {
+                continue;
+            }
             if (!isset($turns[$turnId])) {
+                $createdAt = $row['turn_started_at'] ?? $row['created_at'] ?? null;
                 $turns[$turnId] = [
                     'id'              => $turnId,
                     'conversation_id' => $conversationId,
-                    'role'            => (string)$row['role'],
+                    'role'            => is_scalar($row['role'] ?? null) ? (string)$row['role'] : '',
                     'model'           => isset($row['model']) && is_string($row['model']) ? $row['model'] : null,
                     'content'         => [],
-                    'created_at'      => (string)($row['turn_started_at'] ?? $row['created_at']),
+                    'created_at'      => is_scalar($createdAt) ? (string)$createdAt : '',
                 ];
                 $turnOrder[] = $turnId;
             }
             $blockContent = json_decode(is_string($row['content']) ? $row['content'] : 'null');
             if ($blockContent !== null) {
-                $turns[$turnId]['content'][] = $blockContent;
+                $content = is_array($turns[$turnId]['content'] ?? null) ? $turns[$turnId]['content'] : [];
+                $content[] = $blockContent;
+                $turns[$turnId]['content'] = $content;
             }
         }
 
-        $messages = array_values(array_map(static fn(string $id) => $turns[$id], $turnOrder));
+        $messages = array_map(static fn(string $id) => $turns[$id], $turnOrder);
 
         return JsonResponse::ok(['messages' => $messages]);
     }
@@ -324,7 +330,7 @@ final class ConversationsController
         }
     }
 
-    /** @return array<string, mixed> */
+    /** @return array<mixed, mixed> */
     private function requireConversationOwner(PDO $pdo, array $user, string $conversationId): array
     {
         $stmt = $pdo->prepare('

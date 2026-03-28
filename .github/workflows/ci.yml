@@ -18,6 +18,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          tools: composer
+          coverage: none
+
       - name: Prepare CI cache dirs
         run: mkdir -p .ci-cache/composer
 
@@ -41,6 +47,10 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
 
       - name: Prepare CI cache dirs
         run: mkdir -p .ci-cache/yarn
@@ -68,6 +78,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          tools: composer
+          coverage: none
+
       - name: Prepare CI cache dirs
         run: mkdir -p .ci-cache/composer
 
@@ -91,6 +107,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
       - name: Prepare CI cache dirs
         run: mkdir -p .ci-cache/yarn
 
@@ -100,7 +120,10 @@ jobs:
           path: .ci-cache/yarn
           key: yarn-${{ runner.os }}-${{ hashFiles('app/frontend/package.json', 'app/frontend/yarn.lock') }}
 
-      - name: Frontend lint (Biome)
+      - name: Install frontend dependencies
+        run: sh scripts/ci-install-frontend.sh
+
+      - name: Frontend lint (Biome + stylelint + tsc)
         run: sh scripts/ci-lint-frontend.sh
 
   test-frontend-component:

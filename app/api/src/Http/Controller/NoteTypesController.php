@@ -425,7 +425,7 @@ final class NoteTypesController
         }
 
         $whereCursor = '';
-        if ($cursorCreatedAt !== '' && $cursorId !== '') {
+        if ($cursor !== '') {
             $whereCursor = "and (n.{$sortCol}, n.id) {$cursorOp} (:cursor_sort_val::timestamptz, :cursor_id::uuid)";
         }
 
@@ -484,7 +484,7 @@ final class NoteTypesController
             if ($kind !== '') {
                 $stmt->bindValue(':kind', $kind);
             }
-            if ($cursorCreatedAt !== '' && $cursorId !== '') {
+            if ($cursor !== '') {
                 $stmt->bindValue(':cursor_sort_val', $cursorCreatedAt);
                 $stmt->bindValue(':cursor_id', $cursorId);
             }
@@ -519,7 +519,7 @@ final class NoteTypesController
             if ($kind !== '') {
                 $stmt->bindValue(':kind', $kind);
             }
-            if ($cursorCreatedAt !== '' && $cursorId !== '') {
+            if ($cursor !== '') {
                 $stmt->bindValue(':cursor_sort_val', $cursorCreatedAt);
                 $stmt->bindValue(':cursor_id', $cursorId);
             }
@@ -545,7 +545,7 @@ final class NoteTypesController
             if ($kind !== '') {
                 $stmt->bindValue(':kind', $kind);
             }
-            if ($cursorCreatedAt !== '' && $cursorId !== '') {
+            if ($cursor !== '') {
                 $stmt->bindValue(':cursor_sort_val', $cursorCreatedAt);
                 $stmt->bindValue(':cursor_id', $cursorId);
             }

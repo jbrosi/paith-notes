@@ -1,19 +1,19 @@
 parameters:
   level: 10
   paths:
-    - /app/api/src
-    - /app/worker/src
-    - /app/backend-shared/src
+    - api/src
+    - worker/src
+    - backend-shared/src
   tmpDir: /tmp/phpstan
   bootstrapFiles:
-    - /app/phpstan-bootstrap.php
+    - phpstan-bootstrap.php
   reportUnmatchedIgnoredErrors: true
 
   excludePaths:
     analyse:
-      - /app/**/vendor
+      - '*/vendor/*'
 
   ignoreErrors:
     - identifier: missingType.iterableValue
     - message: '#While loop condition is always true\.#'
-      path: /app/worker/src/Runner.php
+      path: worker/src/Runner.php
