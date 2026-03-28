@@ -1,31 +1,13 @@
 #!/usr/bin/env sh
+# Run PHP tests (pest) without Docker — used in CI after setup-php with a postgres service.
+# Requires DATABASE_URL env var pointing to a running PostgreSQL instance.
 set -eu
 
 ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-cd "$ROOT_DIR"
+export COMPOSER_CACHE_DIR="$ROOT_DIR/.ci-cache/composer"
 
-mkdir -p "$ROOT_DIR/.ci-cache/composer"
+mkdir -p "$ROOT_DIR/.ci-cache/composer" /data/tmp /data/notes
 
-COMPOSE_FILE="docker-compose.api-tests.yml"
-PROJECT=${PROJECT:-notes-ci-php-tests}
-
-cleanup() {
-  docker compose -f "$COMPOSE_FILE" --project-name "$PROJECT" down -v --remove-orphans >/dev/null 2>&1 || true
-}
-trap 'status=$?; cleanup || true; exit $status' EXIT INT TERM
-
-docker compose -f "$COMPOSE_FILE" --project-name "$PROJECT" build worker
-
-docker compose -f "$COMPOSE_FILE" --project-name "$PROJECT" up -d db files
-
-docker compose -f "$COMPOSE_FILE" --project-name "$PROJECT" run --rm --no-deps \
-  -v "$ROOT_DIR/.ci-cache/composer:/tmp/composer-cache" \
-  -e COMPOSER_CACHE_DIR=/tmp/composer-cache \
-  worker composer install --working-dir=/app/worker --no-interaction --prefer-dist
-
-docker compose -f "$COMPOSE_FILE" --project-name "$PROJECT" run --rm --no-deps \
-  -v "$ROOT_DIR/.ci-cache/composer:/tmp/composer-cache" \
-  -e COMPOSER_CACHE_DIR=/tmp/composer-cache \
-  worker composer install --working-dir=/app/api --no-interaction --prefer-dist
-
-docker compose -f "$COMPOSE_FILE" --project-name "$PROJECT" run --rm worker sh -lc "mkdir -p /app/api/coverage && cd /app/api && php -d pcov.enabled=1 vendor/bin/pest --coverage --coverage-clover=/app/api/coverage/clover.xml"
+cd "$ROOT_DIR/app/api"
+mkdir -p coverage
+php -d pcov.enabled=1 vendor/bin/pest --coverage --coverage-clover=coverage/clover.xml

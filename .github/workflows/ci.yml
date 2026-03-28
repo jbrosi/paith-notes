@@ -214,8 +214,33 @@ jobs:
     needs:
       - install-php
 
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: paith
+          POSTGRES_USER: paith
+          POSTGRES_PASSWORD: paith
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+        ports:
+          - 5432:5432
+
+    env:
+      DATABASE_URL: postgresql://paith:paith@localhost:5432/paith
+
     steps:
       - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          tools: composer
+          extensions: pdo_pgsql, pcov
+          coverage: pcov
 
       - name: Prepare CI cache dirs
         run: mkdir -p .ci-cache/composer
@@ -225,6 +250,9 @@ jobs:
         with:
           path: .ci-cache/composer
           key: composer-${{ runner.os }}-${{ hashFiles('app/api/composer.json', 'app/api/composer.lock', 'app/worker/composer.json', 'app/worker/composer.lock') }}
+
+      - name: Install PHP dependencies
+        run: sh scripts/ci-install-php.sh
 
       - name: Pest (with coverage)
         run: sh scripts/ci-test-php.sh
