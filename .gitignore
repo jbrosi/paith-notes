@@ -13,4 +13,4 @@ app/mcp/dist/
 
 scripts/claude.sh
 
-docker/
+docker/claude/
