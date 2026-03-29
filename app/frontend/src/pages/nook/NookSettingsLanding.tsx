@@ -23,7 +23,7 @@ const PRESET_ACCENTS = [
 	{ color: "#6366f1", label: "Indigo" },
 ];
 
-type SeedOverride = {
+type SeedDef = {
 	key: string;
 	cssVar: string;
 	label: string;
@@ -31,7 +31,14 @@ type SeedOverride = {
 	defaultDark: string;
 };
 
-const SEED_OVERRIDES: SeedOverride[] = [
+const SEEDS: SeedDef[] = [
+	{
+		key: "accent",
+		cssVar: "--seed-accent",
+		label: "Accent",
+		defaultLight: "#3b82f6",
+		defaultDark: "#6baaff",
+	},
 	{
 		key: "bg",
 		cssVar: "--seed-bg",
@@ -64,15 +71,15 @@ const SEED_OVERRIDES: SeedOverride[] = [
 
 const STORAGE_PREFIX = "paith-notes:seed:";
 
-function seedStorageKey(nookId: string, key: string) {
-	return `${STORAGE_PREFIX}${nookId}:${key}`;
+function storageKey(nookId: string, mode: string, key: string) {
+	return `${STORAGE_PREFIX}${nookId}:${mode}:${key}`;
 }
 
-function loadSeedOverrides(nookId: string): Record<string, string> {
+function loadOverrides(nookId: string, mode: string): Record<string, string> {
 	const result: Record<string, string> = {};
-	for (const s of SEED_OVERRIDES) {
+	for (const s of SEEDS) {
 		try {
-			const v = window.localStorage.getItem(seedStorageKey(nookId, s.key));
+			const v = window.localStorage.getItem(storageKey(nookId, mode, s.key));
 			if (v && /^#[0-9a-f]{6}$/i.test(v)) result[s.key] = v;
 		} catch {
 			// ignore
@@ -81,62 +88,107 @@ function loadSeedOverrides(nookId: string): Record<string, string> {
 	return result;
 }
 
-function applySeedOverride(key: string, value: string) {
-	const seed = SEED_OVERRIDES.find((s) => s.key === key);
-	if (!seed) return;
-	if (value) {
-		document.documentElement.style.setProperty(seed.cssVar, value);
-	} else {
-		document.documentElement.style.removeProperty(seed.cssVar);
+function applyOverrides(overrides: Record<string, string>) {
+	for (const s of SEEDS) {
+		const val = overrides[s.key];
+		if (val) {
+			document.documentElement.style.setProperty(s.cssVar, val);
+		} else {
+			document.documentElement.style.removeProperty(s.cssVar);
+		}
 	}
 }
 
-/** Called when navigating to a nook — applies all stored seed overrides */
+function currentMode(): "light" | "dark" {
+	return document.documentElement.getAttribute("data-theme") === "dark" ||
+		(document.documentElement.getAttribute("data-theme") !== "light" &&
+			window.matchMedia("(prefers-color-scheme: dark)").matches)
+		? "dark"
+		: "light";
+}
+
+/** Called when navigating to a nook — applies stored seed overrides for current mode */
 export function applyNookSeeds(nookId: string) {
-	const overrides = loadSeedOverrides(nookId);
-	for (const s of SEED_OVERRIDES) {
-		applySeedOverride(s.key, overrides[s.key] ?? "");
-	}
+	const mode = currentMode();
+	const overrides = loadOverrides(nookId, mode);
+	applyOverrides(overrides);
 }
 
 export function NookSettingsLanding(props: NookSettingsLandingProps) {
 	const ui = useUi();
 	const [showAdvanced, setShowAdvanced] = createSignal(false);
-	const [overrides, setOverrides] = createSignal<Record<string, string>>({});
+	const [lightOverrides, setLightOverrides] = createSignal<
+		Record<string, string>
+	>({});
+	const [darkOverrides, setDarkOverrides] = createSignal<
+		Record<string, string>
+	>({});
+
+	const mode = () => currentMode();
+	const activeOverrides = () =>
+		mode() === "dark" ? darkOverrides() : lightOverrides();
 
 	onMount(() => {
-		setOverrides(loadSeedOverrides(props.nookId));
+		setLightOverrides(loadOverrides(props.nookId, "light"));
+		setDarkOverrides(loadOverrides(props.nookId, "dark"));
 	});
 
-	const setSeedOverride = (key: string, value: string) => {
-		const next = { ...overrides(), [key]: value };
-		if (!value) delete next[key];
-		setOverrides(next);
-		applySeedOverride(key, value);
-		try {
-			const storageKey = seedStorageKey(props.nookId, key);
+	const setOverride = (seedKey: string, value: string) => {
+		const m = mode();
+		const setter = m === "dark" ? setDarkOverrides : setLightOverrides;
+		const current = m === "dark" ? darkOverrides() : lightOverrides();
+		const next = { ...current };
+		if (value) {
+			next[seedKey] = value;
+		} else {
+			delete next[seedKey];
+		}
+		setter(next);
+
+		// Apply
+		const seed = SEEDS.find((s) => s.key === seedKey);
+		if (seed) {
 			if (value) {
-				window.localStorage.setItem(storageKey, value);
+				document.documentElement.style.setProperty(seed.cssVar, value);
 			} else {
-				window.localStorage.removeItem(storageKey);
+				document.documentElement.style.removeProperty(seed.cssVar);
+			}
+		}
+
+		// Persist
+		try {
+			const key = storageKey(props.nookId, m, seedKey);
+			if (value) {
+				window.localStorage.setItem(key, value);
+			} else {
+				window.localStorage.removeItem(key);
 			}
 		} catch {
 			// ignore
 		}
 	};
 
-	const resetAllSeeds = () => {
-		for (const s of SEED_OVERRIDES) {
-			setSeedOverride(s.key, "");
-		}
+	const setAccent = (color: string) => {
+		setOverride("accent", color);
+		// Also update UiContext so the accent signal reflects it
+		ui.setAccentColor(color, props.nookId);
 	};
 
-	const isDark = () =>
-		document.documentElement.getAttribute("data-theme") === "dark" ||
-		(document.documentElement.getAttribute("data-theme") !== "light" &&
-			window.matchMedia("(prefers-color-scheme: dark)").matches);
+	const resetAll = () => {
+		const m = mode();
+		for (const s of SEEDS) {
+			setOverride(s.key, "");
+		}
+		if (m === "dark") {
+			setDarkOverrides({});
+		} else {
+			setLightOverrides({});
+		}
+		ui.resetAccentColor(props.nookId);
+	};
 
-	const hasOverrides = () => Object.keys(overrides()).length > 0;
+	const hasOverrides = () => Object.keys(activeOverrides()).length > 0;
+	const advancedSeeds = () => SEEDS.filter((s) => s.key !== "accent");
 
 	return (
 		<div class={styles.container}>
@@ -155,19 +207,21 @@ export function NookSettingsLanding(props: NookSettingsLandingProps) {
 			</div>
 
 			<div class={styles.section}>
-				<div class={styles.sectionTitle}>Accent color</div>
+				<div class={styles.sectionTitle}>
+					Accent color
+					<span class={styles.modeTag}>{mode()}</span>
+				</div>
 				<p class={styles.hint}>
-					Choose an accent color for this nook. All UI colors are derived from
-					it.
+					Pick an accent for {mode()} mode. Switch theme to set the other.
 				</p>
 				<div class={styles.presets}>
 					<For each={PRESET_ACCENTS}>
 						{(preset) => (
 							<button
 								type="button"
-								class={`${styles.presetSwatch} ${ui.accentColor() === preset.color ? styles.presetActive : ""}`}
+								class={`${styles.presetSwatch} ${activeOverrides().accent === preset.color ? styles.presetActive : ""}`}
 								style={{ background: preset.color }}
-								onClick={() => ui.setAccentColor(preset.color, props.nookId)}
+								onClick={() => setAccent(preset.color)}
 								title={preset.label}
 							/>
 						)}
@@ -178,20 +232,21 @@ export function NookSettingsLanding(props: NookSettingsLandingProps) {
 						Custom
 						<input
 							type="color"
-							value={ui.accentColor() || "#3b82f6"}
-							onInput={(e) =>
-								ui.setAccentColor(e.currentTarget.value, props.nookId)
+							value={
+								activeOverrides().accent ||
+								(mode() === "dark" ? "#6baaff" : "#3b82f6")
 							}
+							onInput={(e) => setAccent(e.currentTarget.value)}
 							class={styles.customPicker}
 						/>
 					</label>
-					<Show when={ui.accentColor() !== ""}>
+					<Show when={activeOverrides().accent}>
 						<button
 							type="button"
 							class={styles.resetBtn}
-							onClick={() => ui.resetAccentColor(props.nookId)}
+							onClick={() => setAccent("")}
 						>
-							Reset to default
+							Reset
 						</button>
 					</Show>
 				</div>
@@ -203,35 +258,36 @@ export function NookSettingsLanding(props: NookSettingsLandingProps) {
 					class={styles.advancedToggle}
 					onClick={() => setShowAdvanced((v) => !v)}
 				>
-					{showAdvanced() ? "Hide" : "Show"} advanced color overrides
+					{showAdvanced() ? "Hide" : "Show"} advanced overrides
 					<span class={styles.advancedArrow}>{showAdvanced() ? "▴" : "▾"}</span>
+					<span class={styles.modeTag}>{mode()}</span>
 				</button>
 				<Show when={showAdvanced()}>
 					<p class={styles.hint}>
-						Override individual seed colors. By default these derive from your
-						accent + theme. Changes apply instantly.
+						Override seed colors for {mode()} mode. Switch theme to customize
+						the other.
 					</p>
 					<div class={styles.seedGrid}>
-						<For each={SEED_OVERRIDES}>
+						<For each={advancedSeeds()}>
 							{(seed) => {
 								const defaultVal = () =>
-									isDark() ? seed.defaultDark : seed.defaultLight;
+									mode() === "dark" ? seed.defaultDark : seed.defaultLight;
 								return (
 									<label class={styles.seedRow}>
 										<span class={styles.seedLabel}>{seed.label}</span>
 										<input
 											type="color"
-											value={overrides()[seed.key] || defaultVal()}
+											value={activeOverrides()[seed.key] || defaultVal()}
 											onInput={(e) =>
-												setSeedOverride(seed.key, e.currentTarget.value)
+												setOverride(seed.key, e.currentTarget.value)
 											}
 											class={styles.customPicker}
 										/>
-										<Show when={overrides()[seed.key]}>
+										<Show when={activeOverrides()[seed.key]}>
 											<button
 												type="button"
 												class={styles.resetBtn}
-												onClick={() => setSeedOverride(seed.key, "")}
+												onClick={() => setOverride(seed.key, "")}
 											>
 												Reset
 											</button>
@@ -242,12 +298,8 @@ export function NookSettingsLanding(props: NookSettingsLandingProps) {
 						</For>
 					</div>
 					<Show when={hasOverrides()}>
-						<button
-							type="button"
-							class={styles.resetBtn}
-							onClick={resetAllSeeds}
-						>
-							Reset all overrides
+						<button type="button" class={styles.resetBtn} onClick={resetAll}>
+							Reset all ({mode()})
 						</button>
 					</Show>
 				</Show>

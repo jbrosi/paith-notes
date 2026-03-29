@@ -97,6 +97,18 @@
 	background: var(--color-bg-hover);
 }
 
+.modeTag {
+	font-size: 0.6875rem;
+	font-weight: 600;
+	padding: 1px 6px;
+	border-radius: 4px;
+	background: var(--color-bg-hover);
+	color: var(--color-text-muted);
+	text-transform: uppercase;
+	letter-spacing: 0.03em;
+	margin-left: 6px;
+}
+
 .advancedToggle {
 	background: none;
 	border: none;

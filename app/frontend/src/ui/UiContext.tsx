@@ -52,7 +52,7 @@ const TYPES_PANEL_OPEN_STORAGE_KEY = "paith-notes:typesPanelOpen";
 const CHAT_PANEL_OPEN_STORAGE_KEY = "paith-notes:chatPanelOpen";
 const ACTIVE_PANEL_STORAGE_KEY = "paith-notes:activePanel";
 const THEME_STORAGE_KEY = "paith-notes:theme";
-const ACCENT_COLOR_STORAGE_KEY = "paith-notes:accentColor";
+const _ACCENT_COLOR_STORAGE_KEY = "paith-notes:accentColor";
 
 export function UiProvider(props: { children: JSX.Element }) {
 	const [mode, setModeSignal] = createSignal<"view" | "edit">("view");
@@ -192,16 +192,25 @@ export function UiProvider(props: { children: JSX.Element }) {
 		}
 	};
 
-	const accentKey = (nookId?: string) => {
-		const id = nookId || currentNookIdForAccent;
-		return id ? `${ACCENT_COLOR_STORAGE_KEY}:${id}` : ACCENT_COLOR_STORAGE_KEY;
+	const currentModeStr = (): string => {
+		const attr = document.documentElement.getAttribute("data-theme");
+		if (attr === "dark") return "dark";
+		if (attr === "light") return "light";
+		return window.matchMedia("(prefers-color-scheme: dark)").matches
+			? "dark"
+			: "light";
 	};
 
+	const accentStorageKey = (nookId: string) =>
+		`paith-notes:seed:${nookId}:${currentModeStr()}:accent`;
+
 	const setAccentColor = (color: string, nookId?: string) => {
+		const id = nookId || currentNookIdForAccent;
 		setAccentColorSignal(color);
 		applyAccentColor(color);
+		if (!id) return;
 		try {
-			const key = accentKey(nookId);
+			const key = accentStorageKey(id);
 			if (color) {
 				window.localStorage.setItem(key, color);
 			} else {
@@ -217,7 +226,7 @@ export function UiProvider(props: { children: JSX.Element }) {
 	const loadNookAccent = (nookId: string) => {
 		currentNookIdForAccent = nookId;
 		try {
-			const v = window.localStorage.getItem(accentKey(nookId));
+			const v = window.localStorage.getItem(accentStorageKey(nookId));
 			if (v && /^#[0-9a-f]{6}$/i.test(v)) {
 				setAccentColorSignal(v);
 				applyAccentColor(v);
