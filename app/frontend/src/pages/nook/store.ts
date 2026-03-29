@@ -973,6 +973,45 @@ export function createNookStore(nookId: () => string) {
 		void loadNoteTypes();
 	});
 
+	// Clear all state when switching nooks
+	let prevNookId = nookId();
+	createEffect(() => {
+		const current = nookId();
+		if (prevNookId !== current) {
+			prevNookId = current;
+			batch(() => {
+				setSelectedId("");
+				setTitle("");
+				setTitleIsManual(false);
+				setContent("");
+				setType("anything");
+				setPersonFirstName("");
+				setPersonLastName("");
+				setPersonDateOfBirth("");
+				setFileFilename("");
+				setFileExtension("");
+				setFileFilesize("");
+				setFileMimeType("");
+				setFileChecksum("");
+				setFileInlineUrl("");
+				setFormerProperties({});
+				setMode("view");
+				setIsDirty(false);
+				setError("");
+				setNotes([]);
+				setNotesNextCursor("");
+				setNoteTypes([]);
+				setOutgoingMentions([]);
+				setIncomingMentions([]);
+				setMentionTargetId("");
+				setMentionEmbedImage(false);
+				setNeedsLogin(false);
+			});
+			noteDetailCache.clear();
+			fileInlineUrlCache.clear();
+		}
+	});
+
 	createEffect(() => {
 		void nookId();
 		void selectedTypeIds();
