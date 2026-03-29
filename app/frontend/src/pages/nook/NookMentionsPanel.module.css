@@ -1,0 +1,68 @@
+.container {
+	margin-top: 1rem;
+}
+
+.title {
+	font-weight: 600;
+	margin-bottom: 6px;
+}
+
+.columns {
+	display: flex;
+	gap: 16px;
+}
+
+.column {
+	flex: 1;
+	min-width: 0;
+}
+
+.columnTitle {
+	color: var(--color-text-muted);
+	margin-bottom: 6px;
+}
+
+.empty {
+	color: var(--color-text-faint);
+}
+
+.mentionBtn {
+	width: 100%;
+	padding: 6px 8px;
+	text-align: left;
+	border: 1px solid var(--color-border);
+	border-radius: 6px;
+	background: var(--color-bg);
+	cursor: pointer;
+	margin-bottom: 6px;
+	font-family: inherit;
+	font-size: inherit;
+	color: inherit;
+}
+
+.mentionBtn:hover {
+	background: var(--color-bg-hover);
+}
+
+.mentionTitle {
+	font-weight: 600;
+}
+
+.mentionMeta {
+	display: flex;
+	gap: 8px;
+	align-items: center;
+}
+
+.mentionSubtitle {
+	color: var(--color-text-muted);
+}
+
+.typeBadge {
+	font-size: 12px;
+	padding: 2px 6px;
+	border-radius: 999px;
+	border: 1px solid var(--color-primary-border);
+	background: var(--color-bg-selected);
+	color: var(--color-link);
+}

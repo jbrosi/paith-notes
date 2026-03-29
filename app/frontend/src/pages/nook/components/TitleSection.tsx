@@ -1,6 +1,7 @@
 import { createEffect, createMemo, createSignal, Show } from "solid-js";
 import { NoteTypeSearchSelect } from "../../../components/NoteTypeSearchSelect";
 import type { NookStore } from "../store";
+import styles from "./TitleSection.module.css";
 
 export function TitleSection(props: { store: NookStore }) {
 	const [editingTitle, setEditingTitle] = createSignal(false);
@@ -27,19 +28,25 @@ export function TitleSection(props: { store: NookStore }) {
 		}, 0);
 	};
 
-	// Reset editing state when mode changes to view or note changes
 	createEffect(() => {
 		if (props.store.mode() === "view") setEditingTitle(false);
 	});
 	createEffect(() => {
-		void props.store.selectedId();
-		setEditingTitle(false);
+		const id = props.store.selectedId();
+		if (id === "" && props.store.mode() === "edit") {
+			setEditingTitle(true);
+			window.setTimeout(() => {
+				titleInputRef?.focus();
+				titleInputRef?.select();
+			}, 50);
+		} else {
+			setEditingTitle(false);
+		}
 	});
 
 	return (
 		<Show when={isVisible()}>
-			<div style={{ "margin-bottom": "0.75rem" }}>
-				{/* Title — h1 in view/idle, inline input when editing */}
+			<div class={styles.wrapper}>
 				<Show
 					when={props.store.mode() === "edit" && editingTitle()}
 					fallback={
@@ -48,34 +55,15 @@ export function TitleSection(props: { store: NookStore }) {
 							onKeyDown={(e) => {
 								if (e.key === "Enter") activateTitle();
 							}}
-							style={{
-								margin: "0",
-								"font-size": "1.6rem",
-								"font-weight": "700",
-								"line-height": "1.25",
-								cursor: props.store.mode() === "edit" ? "text" : "default",
-								color: props.store.title().trim() === "" ? "#aaa" : "inherit",
-								padding: "1px 0",
-								display: "flex",
-								"align-items": "baseline",
-								gap: "6px",
-							}}
+							class={`${styles.heading} ${props.store.mode() === "edit" ? styles.headingEditable : ""} ${props.store.title().trim() === "" ? styles.headingEmpty : ""}`}
 						>
 							<span>{props.store.title().trim() || "(untitled)"}</span>
 							<Show
 								when={props.store.mode() === "edit" && props.store.isDirty()}
 							>
 								<span
+									class={styles.dirtyDot}
 									title="Unsaved changes — click Save or press Ctrl+S"
-									style={{
-										"font-size": "0.6rem",
-										"font-weight": "400",
-										color: "#0969da",
-										"vertical-align": "super",
-										"line-height": "1",
-										cursor: "default",
-										"flex-shrink": "0",
-									}}
 								>
 									●
 								</span>
@@ -93,38 +81,16 @@ export function TitleSection(props: { store: NookStore }) {
 							if (e.key === "Enter" || e.key === "Escape")
 								setEditingTitle(false);
 						}}
-						style={{
-							width: "100%",
-							"font-size": "1.6rem",
-							"font-weight": "700",
-							"line-height": "1.25",
-							border: "none",
-							"border-bottom": "2px solid #0969da",
-							outline: "none",
-							padding: "0 0 1px",
-							"box-sizing": "border-box",
-							background: "transparent",
-							"font-family": "inherit",
-						}}
+						class={styles.titleInput}
 					/>
 				</Show>
 
-				{/* Type badge / selector */}
-				<div style={{ "margin-top": "6px" }}>
+				<div class={styles.typeRow}>
 					<Show
 						when={props.store.mode() === "edit"}
 						fallback={
 							<span
-								style={{
-									display: "inline-block",
-									padding: "2px 10px",
-									"border-radius": "999px",
-									border: "1px solid #d0d7de",
-									background: "#f6f8fa",
-									"font-size": "12px",
-									"font-weight": "500",
-									color: primaryTypeLabel().trim() !== "" ? "#444" : "#999",
-								}}
+								class={`${styles.typeBadge} ${primaryTypeLabel().trim() === "" ? styles.typeBadgeEmpty : ""}`}
 							>
 								{primaryTypeLabel().trim() !== ""
 									? primaryTypeLabel()

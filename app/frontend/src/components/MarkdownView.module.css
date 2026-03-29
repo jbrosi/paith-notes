@@ -3,7 +3,7 @@
 	min-height: 80px;
 	font-size: 0.875rem;
 	line-height: 1.6;
-	color: #111827;
+	color: var(--color-text);
 	overflow-wrap: break-word;
 }
 
@@ -57,13 +57,13 @@
 .markdown blockquote {
 	margin: 0.3em 0 0.5em;
 	padding: 0.3em 0.8em;
-	border-left: 3px solid #d1d5db;
-	color: #6b7280;
+	border-left: 3px solid var(--color-border-medium);
+	color: var(--color-text-muted);
 }
 
 .markdown pre {
-	background: #1f2937;
-	color: #e5e7eb;
+	background: var(--color-bg-code);
+	color: var(--color-text-code);
 	padding: 10px 12px;
 	border-radius: 6px;
 	font-size: 0.8125rem;
@@ -78,7 +78,7 @@
 }
 
 .markdown :not(pre) > code {
-	background: rgb(0 0 0 / 7%);
+	background: var(--color-bg-inline-code);
 	padding: 1px 5px;
 	border-radius: 3px;
 }
@@ -95,19 +95,19 @@
 
 .markdown th,
 .markdown td {
-	border: 1px solid #d1d5db;
+	border: 1px solid var(--color-border-medium);
 	padding: 4px 8px;
 	text-align: left;
 }
 
 .markdown th {
-	background: #f3f4f6;
+	background: var(--color-bg-hover);
 	font-weight: 600;
 }
 
 .markdown hr {
 	border: none;
-	border-top: 1px solid #e5e7eb;
+	border-top: 1px solid var(--color-border-medium);
 	margin: 0.8em 0;
 }
 
@@ -118,14 +118,68 @@
 
 /* Note links — styled distinctly from regular links */
 .markdown a[href^="note-ref:"] {
-	color: #1f5fbf;
+	color: var(--color-link);
 	text-decoration: underline;
 	text-decoration-style: dotted;
-	text-decoration-color: #93b4e0;
+	text-decoration-color: var(--color-link-underline);
 	cursor: pointer;
 }
 
 .markdown a[href^="note-ref:"]:hover {
-	color: #1e40af;
+	color: var(--color-link-hover);
 	text-decoration-style: solid;
 }
+
+/* Mermaid diagrams — classes set via JS, not CSS modules */
+/* stylelint-disable selector-pseudo-class-no-unknown, selector-class-pattern */
+.markdown :global(.mermaid-diagram) {
+	margin: 0.5em 0;
+	overflow-x: auto;
+}
+
+.markdown :global(.mermaid-diagram) svg {
+	max-width: 100%;
+	height: auto;
+}
+
+/* Override mermaid's baked-in colors with CSS for theme reactivity */
+.markdown :global(.mermaid-diagram) :global(.node) rect,
+.markdown :global(.mermaid-diagram) :global(.node) circle,
+.markdown :global(.mermaid-diagram) :global(.node) polygon {
+	fill: var(--color-primary-bg) !important;
+	stroke: var(--color-primary-border) !important;
+}
+
+.markdown :global(.mermaid-diagram) :global(.nodeLabel),
+.markdown :global(.mermaid-diagram) :global(.label) {
+	color: var(--color-text) !important;
+	fill: var(--color-text) !important;
+}
+
+.markdown :global(.mermaid-diagram) :global(.edgeLabel) {
+	background-color: var(--color-bg) !important;
+	color: var(--color-text-muted) !important;
+}
+
+.markdown :global(.mermaid-diagram) :global(.edgePath) path {
+	stroke: var(--color-text-muted) !important;
+}
+
+.markdown :global(.mermaid-diagram) :global(.arrowheadPath) {
+	fill: var(--color-text-muted) !important;
+}
+
+.markdown :global(.mermaid-diagram) :global(.cluster) rect {
+	fill: var(--color-bg-selected) !important;
+	stroke: var(--color-primary-border) !important;
+}
+
+.markdown :global(.mermaid-diagram) :global(.cluster) :global(.nodeLabel) {
+	color: var(--color-text-secondary) !important;
+	fill: var(--color-text-secondary) !important;
+}
+
+.markdown :global(.mermaid-error) {
+	border-left: 3px solid var(--color-danger-border);
+}
+/* stylelint-enable selector-pseudo-class-no-unknown, selector-class-pattern */

@@ -1,0 +1,18 @@
+.container {
+	width: 100%;
+}
+
+.textarea {
+	width: 100%;
+	height: calc(100vh - 220px);
+	font-family:
+		ui-monospace, "Cascadia Code", "Source Code Pro", menlo, consolas, monospace;
+	box-sizing: border-box;
+	padding: 12px;
+	background: var(--color-bg);
+	color: var(--color-text);
+	border: 1px solid var(--color-border-light);
+	border-radius: 6px;
+	resize: none;
+	outline: none;
+}

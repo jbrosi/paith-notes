@@ -75,47 +75,40 @@ export function EditorSection(props: {
 				when={isViewMode()}
 				fallback={
 					<>
-						<div
-							style={{
-								border: "1px solid #eee",
-								"border-radius": "6px",
+						<MilkdownEditor
+							value={props.store.content()}
+							onChange={props.store.setContent}
+							readonly={false}
+							onNoteLinkClick={(id) => {
+								props.notePreview?.dismiss();
+								void props.store.onNoteLinkClick(id);
 							}}
-						>
-							<MilkdownEditor
-								value={props.store.content()}
-								onChange={props.store.setContent}
-								readonly={false}
-								onNoteLinkClick={(id) => {
-									props.notePreview?.dismiss();
-									void props.store.onNoteLinkClick(id);
-								}}
-								onNoteLinkPopup={(noteId, x, y) => {
-									if (!props.notePreview) return;
-									props.notePreview.show(noteId, x, y, {
-										immediate: true,
-										onOpen: (id) => void props.store.onNoteLinkClick(id),
-										actions: [
-											{
-												label: "Remove link",
-												danger: true,
-												onClick: () => editorHandle?.removeLinkAt(x, y),
-											},
-										],
-									});
-								}}
-								resolveEmbeddedImageSrc={(id) =>
-									props.store.resolveEmbeddedImageSrc(id)
-								}
-								uploadEmbeddedImage={(f) => props.store.uploadEmbeddedImage(f)}
-								resolveNoteTitle={resolveNoteTitle}
-								onMentionStart={handleMentionStart}
-								onMentionQuery={handleMentionQuery}
-								onMentionCancel={handleMentionCancel}
-								onEditorReady={(handle) => {
-									editorHandle = handle;
-								}}
-							/>
-						</div>
+							onNoteLinkPopup={(noteId, x, y) => {
+								if (!props.notePreview) return;
+								props.notePreview.show(noteId, x, y, {
+									immediate: true,
+									onOpen: (id) => void props.store.onNoteLinkClick(id),
+									actions: [
+										{
+											label: "Remove link",
+											danger: true,
+											onClick: () => editorHandle?.removeLinkAt(x, y),
+										},
+									],
+								});
+							}}
+							resolveEmbeddedImageSrc={(id) =>
+								props.store.resolveEmbeddedImageSrc(id)
+							}
+							uploadEmbeddedImage={(f) => props.store.uploadEmbeddedImage(f)}
+							resolveNoteTitle={resolveNoteTitle}
+							onMentionStart={handleMentionStart}
+							onMentionQuery={handleMentionQuery}
+							onMentionCancel={handleMentionCancel}
+							onEditorReady={(handle) => {
+								editorHandle = handle;
+							}}
+						/>
 
 						<Show when={mentionActive()}>
 							<Portal mount={document.body}>

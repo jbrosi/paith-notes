@@ -6,6 +6,18 @@ import {
 	useContext,
 } from "solid-js";
 
+export type MobilePanel = "content" | "links" | "graph" | "chat" | "markdown";
+
+export const MOBILE_PANELS: MobilePanel[] = [
+	"content",
+	"links",
+	"graph",
+	"chat",
+	"markdown",
+];
+
+export type ThemeMode = "system" | "light" | "dark";
+
 export type UiState = {
 	mode: () => "view" | "edit";
 	setMode: (next: "view" | "edit") => void;
@@ -19,6 +31,17 @@ export type UiState = {
 	chatPanelOpen: () => boolean;
 	setChatPanelOpen: (next: boolean) => void;
 	toggleChatPanel: () => void;
+	activePanel: () => MobilePanel;
+	setActivePanel: (next: MobilePanel) => void;
+	nextPanel: () => void;
+	prevPanel: () => void;
+	theme: () => ThemeMode;
+	setTheme: (next: ThemeMode) => void;
+	cycleTheme: () => void;
+	accentColor: () => string;
+	setAccentColor: (color: string, nookId?: string) => void;
+	resetAccentColor: (nookId?: string) => void;
+	loadNookAccent: (nookId: string) => void;
 };
 
 const UiContext = createContext<UiState>();
@@ -27,12 +50,19 @@ const MODE_STORAGE_KEY = "paith-notes:mode";
 const GRAPH_PANEL_OPEN_STORAGE_KEY = "paith-notes:graphPanelOpen";
 const TYPES_PANEL_OPEN_STORAGE_KEY = "paith-notes:typesPanelOpen";
 const CHAT_PANEL_OPEN_STORAGE_KEY = "paith-notes:chatPanelOpen";
+const ACTIVE_PANEL_STORAGE_KEY = "paith-notes:activePanel";
+const THEME_STORAGE_KEY = "paith-notes:theme";
+const _ACCENT_COLOR_STORAGE_KEY = "paith-notes:accentColor";
 
 export function UiProvider(props: { children: JSX.Element }) {
 	const [mode, setModeSignal] = createSignal<"view" | "edit">("view");
 	const [graphPanelOpen, setGraphPanelOpenSignal] = createSignal<boolean>(true);
 	const [typesPanelOpen, setTypesPanelOpenSignal] = createSignal<boolean>(true);
 	const [chatPanelOpen, setChatPanelOpenSignal] = createSignal<boolean>(false);
+	const [activePanel, setActivePanelSignal] =
+		createSignal<MobilePanel>("content");
+	const [theme, setThemeSignal] = createSignal<ThemeMode>("system");
+	const [accentColor, setAccentColorSignal] = createSignal("");
 
 	onMount(() => {
 		try {
@@ -59,6 +89,22 @@ export function UiProvider(props: { children: JSX.Element }) {
 			const v = window.localStorage.getItem(CHAT_PANEL_OPEN_STORAGE_KEY);
 			if (v === "0") setChatPanelOpenSignal(false);
 			if (v === "1") setChatPanelOpenSignal(true);
+		} catch {
+			// ignore
+		}
+		try {
+			const v = window.localStorage.getItem(ACTIVE_PANEL_STORAGE_KEY);
+			if (v === "content" || v === "links" || v === "graph" || v === "chat")
+				setActivePanelSignal(v);
+		} catch {
+			// ignore
+		}
+		try {
+			const v = window.localStorage.getItem(THEME_STORAGE_KEY);
+			if (v === "light" || v === "dark" || v === "system") {
+				setThemeSignal(v);
+				applyTheme(v);
+			}
 		} catch {
 			// ignore
 		}
@@ -109,6 +155,108 @@ export function UiProvider(props: { children: JSX.Element }) {
 		}
 	};
 
+	const setActivePanel = (next: MobilePanel) => {
+		setActivePanelSignal(next);
+		try {
+			window.localStorage.setItem(ACTIVE_PANEL_STORAGE_KEY, next);
+		} catch {
+			// ignore
+		}
+	};
+
+	const applyTheme = (t: ThemeMode) => {
+		if (t === "system") {
+			document.documentElement.removeAttribute("data-theme");
+		} else {
+			document.documentElement.setAttribute("data-theme", t);
+		}
+	};
+
+	const setTheme = (next: ThemeMode) => {
+		setThemeSignal(next);
+		applyTheme(next);
+		try {
+			window.localStorage.setItem(THEME_STORAGE_KEY, next);
+		} catch {
+			// ignore
+		}
+	};
+
+	let currentNookIdForAccent = "";
+
+	const applyAccentColor = (color: string) => {
+		if (color) {
+			document.documentElement.style.setProperty("--seed-accent", color);
+		} else {
+			document.documentElement.style.removeProperty("--seed-accent");
+		}
+	};
+
+	const currentModeStr = (): string => {
+		const attr = document.documentElement.getAttribute("data-theme");
+		if (attr === "dark") return "dark";
+		if (attr === "light") return "light";
+		return window.matchMedia("(prefers-color-scheme: dark)").matches
+			? "dark"
+			: "light";
+	};
+
+	const accentStorageKey = (nookId: string) =>
+		`paith-notes:seed:${nookId}:${currentModeStr()}:accent`;
+
+	const setAccentColor = (color: string, nookId?: string) => {
+		const id = nookId || currentNookIdForAccent;
+		setAccentColorSignal(color);
+		applyAccentColor(color);
+		if (!id) return;
+		try {
+			const key = accentStorageKey(id);
+			if (color) {
+				window.localStorage.setItem(key, color);
+			} else {
+				window.localStorage.removeItem(key);
+			}
+		} catch {
+			// ignore
+		}
+	};
+
+	const resetAccentColor = (nookId?: string) => setAccentColor("", nookId);
+
+	const loadNookAccent = (nookId: string) => {
+		currentNookIdForAccent = nookId;
+		try {
+			const v = window.localStorage.getItem(accentStorageKey(nookId));
+			if (v && /^#[0-9a-f]{6}$/i.test(v)) {
+				setAccentColorSignal(v);
+				applyAccentColor(v);
+			} else {
+				setAccentColorSignal("");
+				applyAccentColor("");
+			}
+		} catch {
+			// ignore
+		}
+	};
+
+	const cycleTheme = () => {
+		const order: ThemeMode[] = ["system", "light", "dark"];
+		const idx = order.indexOf(theme());
+		setTheme(order[(idx + 1) % order.length]);
+	};
+
+	const nextPanel = () => {
+		const idx = MOBILE_PANELS.indexOf(activePanel());
+		setActivePanel(MOBILE_PANELS[(idx + 1) % MOBILE_PANELS.length]);
+	};
+
+	const prevPanel = () => {
+		const idx = MOBILE_PANELS.indexOf(activePanel());
+		setActivePanel(
+			MOBILE_PANELS[(idx - 1 + MOBILE_PANELS.length) % MOBILE_PANELS.length],
+		);
+	};
+
 	const toggleMode = () => setMode(mode() === "edit" ? "view" : "edit");
 	const toggleGraphPanel = () => setGraphPanelOpen(!graphPanelOpen());
 	const toggleTypesPanel = () => setTypesPanelOpen(!typesPanelOpen());
@@ -129,6 +277,17 @@ export function UiProvider(props: { children: JSX.Element }) {
 				chatPanelOpen,
 				setChatPanelOpen,
 				toggleChatPanel,
+				activePanel,
+				setActivePanel,
+				nextPanel,
+				prevPanel,
+				theme,
+				setTheme,
+				cycleTheme,
+				accentColor,
+				setAccentColor,
+				resetAccentColor,
+				loadNookAccent,
 			}}
 		>
 			{props.children}

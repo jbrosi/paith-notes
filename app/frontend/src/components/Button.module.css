@@ -5,12 +5,8 @@
 	font-size: 1rem;
 	font-weight: 500;
 	cursor: pointer;
-	transition: all 0.2s ease;
+	transition: all 0.15s ease;
 	font-family: inherit;
-}
-
-.button:hover {
-	opacity: 0.9;
 }
 
 .button:active {
@@ -24,30 +20,34 @@
 
 /* Variants */
 .primary {
-	background-color: #3b82f6;
-	color: white;
+	background-color: var(--color-primary-light);
+	color: var(--color-text-on-primary);
 }
 
-.primary:hover {
-	background-color: #2563eb;
+.primary:hover:not(:disabled) {
+	background-color: var(--color-primary-hover);
 }
 
 .secondary {
-	background-color: #6b7280;
-	color: white;
+	background-color: var(--color-bg-secondary);
+	color: var(--color-text-secondary);
+	border: 1px solid var(--color-border);
 }
 
-.secondary:hover {
-	background-color: #4b5563;
+.secondary:hover:not(:disabled) {
+	background-color: var(--color-primary-bg);
+	border-color: var(--color-primary-border);
+	color: var(--color-primary);
 }
 
 .danger {
-	background-color: #ef4444;
-	color: white;
+	background-color: transparent;
+	color: var(--color-danger);
+	border: 1px solid var(--color-danger);
 }
 
-.danger:hover {
-	background-color: #dc2626;
+.danger:hover:not(:disabled) {
+	background-color: var(--color-danger-bg);
 }
 
 /* Sizes */

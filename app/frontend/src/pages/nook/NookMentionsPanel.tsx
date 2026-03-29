@@ -1,5 +1,6 @@
 import { For, Show } from "solid-js";
 import type { NotePreviewController } from "./NookDefaultLayout";
+import styles from "./NookMentionsPanel.module.css";
 import type { Mention, NoteSummary } from "./types";
 
 export type NookMentionsPanelProps = {
@@ -17,21 +18,20 @@ export function NookMentionsPanel(props: NookMentionsPanelProps) {
 	};
 
 	return (
-		<div style={{ "margin-top": "1rem" }}>
-			<div style={{ "font-weight": "600", "margin-bottom": "6px" }}>
-				Mentions
-			</div>
-			<div style={{ display: "flex", gap: "16px" }}>
-				<div style={{ flex: "1", "min-width": "0" }}>
-					<div style={{ color: "#666", "margin-bottom": "6px" }}>Outgoing</div>
+		<div class={styles.container}>
+			<div class={styles.title}>Mentions</div>
+			<div class={styles.columns}>
+				<div class={styles.column}>
+					<div class={styles.columnTitle}>Outgoing</div>
 					<Show
 						when={props.outgoing.length > 0}
-						fallback={<div style={{ color: "#999" }}>None</div>}
+						fallback={<div class={styles.empty}>None</div>}
 					>
 						<For each={props.outgoing}>
 							{(m) => (
 								<button
 									type="button"
+									class={styles.mentionBtn}
 									onClick={() => props.onOpenNote(m.noteId)}
 									onMouseEnter={(e) =>
 										props.notePreview?.show(m.noteId, e.clientX, e.clientY, {
@@ -39,38 +39,13 @@ export function NookMentionsPanel(props: NookMentionsPanelProps) {
 										})
 									}
 									onMouseLeave={() => props.notePreview?.hide()}
-									style={{
-										width: "100%",
-										padding: "6px 8px",
-										"text-align": "left",
-										border: "1px solid #ddd",
-										"border-radius": "6px",
-										background: "white",
-										cursor: "pointer",
-										"margin-bottom": "6px",
-									}}
 								>
-									<div style={{ "font-weight": "600" }}>
+									<div class={styles.mentionTitle}>
 										{m.linkTitle || m.noteTitle}
 									</div>
-									<div
-										style={{
-											display: "flex",
-											gap: "8px",
-											"align-items": "center",
-										}}
-									>
-										<div style={{ color: "#666" }}>{m.noteTitle}</div>
-										<span
-											style={{
-												"font-size": "12px",
-												padding: "2px 6px",
-												"border-radius": "999px",
-												border: "1px solid #c9def7",
-												background: "#eef5ff",
-												color: "#1f5fbf",
-											}}
-										>
+									<div class={styles.mentionMeta}>
+										<div class={styles.mentionSubtitle}>{m.noteTitle}</div>
+										<span class={styles.typeBadge}>
 											{noteTypeLabel(m.noteId)}
 										</span>
 									</div>
@@ -79,16 +54,17 @@ export function NookMentionsPanel(props: NookMentionsPanelProps) {
 						</For>
 					</Show>
 				</div>
-				<div style={{ flex: "1", "min-width": "0" }}>
-					<div style={{ color: "#666", "margin-bottom": "6px" }}>Incoming</div>
+				<div class={styles.column}>
+					<div class={styles.columnTitle}>Incoming</div>
 					<Show
 						when={props.incoming.length > 0}
-						fallback={<div style={{ color: "#999" }}>None</div>}
+						fallback={<div class={styles.empty}>None</div>}
 					>
 						<For each={props.incoming}>
 							{(m) => (
 								<button
 									type="button"
+									class={styles.mentionBtn}
 									onClick={() => props.onOpenNote(m.noteId)}
 									onMouseEnter={(e) =>
 										props.notePreview?.show(m.noteId, e.clientX, e.clientY, {
@@ -96,39 +72,14 @@ export function NookMentionsPanel(props: NookMentionsPanelProps) {
 										})
 									}
 									onMouseLeave={() => props.notePreview?.hide()}
-									style={{
-										width: "100%",
-										padding: "6px 8px",
-										"text-align": "left",
-										border: "1px solid #ddd",
-										"border-radius": "6px",
-										background: "white",
-										cursor: "pointer",
-										"margin-bottom": "6px",
-									}}
 								>
-									<div
-										style={{
-											display: "flex",
-											gap: "8px",
-											"align-items": "center",
-										}}
-									>
-										<div style={{ "font-weight": "600" }}>{m.noteTitle}</div>
-										<span
-											style={{
-												"font-size": "12px",
-												padding: "2px 6px",
-												"border-radius": "999px",
-												border: "1px solid #c9def7",
-												background: "#eef5ff",
-												color: "#1f5fbf",
-											}}
-										>
+									<div class={styles.mentionMeta}>
+										<div class={styles.mentionTitle}>{m.noteTitle}</div>
+										<span class={styles.typeBadge}>
 											{noteTypeLabel(m.noteId)}
 										</span>
 									</div>
-									<div style={{ color: "#666" }}>{m.linkTitle}</div>
+									<div class={styles.mentionSubtitle}>{m.linkTitle}</div>
 								</button>
 							)}
 						</For>

@@ -1,0 +1,132 @@
+/* stylelint-disable selector-class-pattern */
+
+/*
+ * highlight.js token colors — themed via CSS custom properties.
+ * No separate light/dark stylesheets needed; colors switch with the theme.
+ * Background and base foreground come from --color-bg-code / --color-text-code
+ * in MarkdownView.module.css / milkdown-overrides.css.
+ */
+
+/* ── Light theme tokens ──────────────────────────────────── */
+
+:root {
+	--hljs-keyword: #a626a4;
+	--hljs-string: #50a14f;
+	--hljs-number: #986801;
+	--hljs-comment: #a0a1a7;
+	--hljs-function: #4078f2;
+	--hljs-class: #c18401;
+	--hljs-variable: #e45649;
+	--hljs-attr: #986801;
+	--hljs-tag: #e45649;
+	--hljs-builtin: #c18401;
+	--hljs-meta: #a0a1a7;
+}
+
+/* ── Dark theme tokens ───────────────────────────────────── */
+
+@media (prefers-color-scheme: dark) {
+	:root:not([data-theme="light"]) {
+		--hljs-keyword: #c678dd;
+		--hljs-string: #98c379;
+		--hljs-number: #d19a66;
+		--hljs-comment: #5f6680;
+		--hljs-function: #61afef;
+		--hljs-class: #e5c07b;
+		--hljs-variable: #e06c75;
+		--hljs-attr: #d19a66;
+		--hljs-tag: #e06c75;
+		--hljs-builtin: #e5c07b;
+		--hljs-meta: #5f6680;
+	}
+}
+
+[data-theme="dark"] {
+	--hljs-keyword: #c678dd;
+	--hljs-string: #98c379;
+	--hljs-number: #d19a66;
+	--hljs-comment: #5f6680;
+	--hljs-function: #61afef;
+	--hljs-class: #e5c07b;
+	--hljs-variable: #e06c75;
+	--hljs-attr: #d19a66;
+	--hljs-tag: #e06c75;
+	--hljs-builtin: #e5c07b;
+	--hljs-meta: #5f6680;
+}
+
+/* ── Apply to hljs classes ───────────────────────────────── */
+
+.hljs {
+	background: transparent !important;
+	color: inherit !important;
+}
+
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-literal,
+.hljs-type {
+	color: var(--hljs-keyword);
+}
+
+.hljs-string,
+.hljs-regexp,
+.hljs-addition {
+	color: var(--hljs-string);
+}
+
+.hljs-number {
+	color: var(--hljs-number);
+}
+
+.hljs-comment,
+.hljs-quote,
+.hljs-deletion {
+	color: var(--hljs-comment);
+	font-style: italic;
+}
+
+.hljs-title,
+.hljs-title\.function,
+.hljs-section {
+	color: var(--hljs-function);
+}
+
+.hljs-title\.class,
+.hljs-class {
+	color: var(--hljs-class);
+}
+
+.hljs-variable,
+.hljs-template-variable,
+.hljs-name {
+	color: var(--hljs-variable);
+}
+
+.hljs-attr,
+.hljs-attribute,
+.hljs-symbol {
+	color: var(--hljs-attr);
+}
+
+.hljs-tag {
+	color: var(--hljs-tag);
+}
+
+.hljs-built_in,
+.hljs-builtin-name {
+	color: var(--hljs-builtin);
+}
+
+.hljs-meta,
+.hljs-doctag {
+	color: var(--hljs-meta);
+}
+
+.hljs-strong {
+	font-weight: 700;
+}
+
+.hljs-emphasis {
+	font-style: italic;
+}

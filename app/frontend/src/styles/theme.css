@@ -1,0 +1,208 @@
+/* ═══════════════════════════════════════════════════════════
+   Theme system — all colors derived from 5 seed values:
+     --seed-accent    Primary accent (buttons, links, selections)
+     --seed-bg        Base background
+     --seed-text      Base text
+     --seed-danger    Error/destructive actions
+     --seed-warning   Caution/attention
+
+   Everything else is derived via color-mix().
+   To create a new theme, just change the 5 seeds.
+   ═══════════════════════════════════════════════════════════ */
+
+/* ── Light theme ─────────────────────────────────────────── */
+
+:root {
+	/* Seed colors */
+	--seed-accent: #3b82f6;
+	--seed-bg: #fff;
+	--seed-text: #111827;
+	--seed-danger: #dc2626;
+	--seed-warning: #d97706;
+	--seed-success: #16a34a;
+	--seed-info: #0891b2;
+	--seed-surface: #f8fafc;
+	--seed-muted: #64748b;
+
+	/* Backgrounds — derived from seed-bg */
+	--color-bg: var(--seed-bg);
+	--color-bg-secondary: color-mix(
+		in srgb,
+		var(--seed-bg) 96%,
+		var(--seed-text)
+	);
+	--color-bg-tertiary: color-mix(in srgb, var(--seed-bg) 93%, var(--seed-text));
+	--color-bg-hover: color-mix(in srgb, var(--seed-bg) 90%, var(--seed-text));
+	--color-bg-active: color-mix(in srgb, var(--seed-bg) 85%, var(--seed-text));
+	--color-bg-selected: color-mix(
+		in srgb,
+		var(--seed-bg) 90%,
+		var(--seed-accent)
+	);
+	--color-bg-code: color-mix(in srgb, var(--seed-bg) 95%, var(--seed-text));
+	--color-bg-inline-code: color-mix(in srgb, var(--seed-text) 7%, transparent);
+	--color-bg-overlay: color-mix(in srgb, var(--seed-text) 30%, transparent);
+
+	/* Text — derived from seed-text */
+	--color-text: var(--seed-text);
+	--color-text-secondary: color-mix(
+		in srgb,
+		var(--seed-text) 75%,
+		var(--seed-bg)
+	);
+	--color-text-muted: color-mix(in srgb, var(--seed-text) 50%, var(--seed-bg));
+	--color-text-faint: color-mix(in srgb, var(--seed-text) 35%, var(--seed-bg));
+	--color-text-on-dark: color-mix(
+		in srgb,
+		var(--seed-bg) 90%,
+		var(--seed-text)
+	);
+	--color-text-on-primary: #fff;
+	--color-text-code: color-mix(in srgb, var(--seed-text) 90%, var(--seed-bg));
+
+	/* Primary — derived from seed-accent */
+	--color-primary: color-mix(in srgb, var(--seed-accent) 85%, var(--seed-text));
+	--color-primary-hover: color-mix(
+		in srgb,
+		var(--seed-accent) 70%,
+		var(--seed-text)
+	);
+	--color-primary-light: var(--seed-accent);
+	--color-primary-bg: color-mix(
+		in srgb,
+		var(--seed-accent) 12%,
+		var(--seed-bg)
+	);
+	--color-primary-border: color-mix(
+		in srgb,
+		var(--seed-accent) 30%,
+		var(--seed-bg)
+	);
+
+	/* Danger — derived from seed-danger */
+	--color-danger: var(--seed-danger);
+	--color-danger-bg: color-mix(in srgb, var(--seed-danger) 8%, var(--seed-bg));
+	--color-danger-border: var(--seed-danger);
+
+	/* Warning — derived from seed-warning */
+	--color-warning-bg: color-mix(
+		in srgb,
+		var(--seed-warning) 12%,
+		var(--seed-bg)
+	);
+	--color-warning-border: var(--seed-warning);
+	--color-warning-text: color-mix(
+		in srgb,
+		var(--seed-warning) 80%,
+		var(--seed-text)
+	);
+
+	/* Success — derived from seed-success */
+	--color-success: var(--seed-success);
+	--color-success-bg: color-mix(
+		in srgb,
+		var(--seed-success) 10%,
+		var(--seed-bg)
+	);
+	--color-success-border: var(--seed-success);
+	--color-success-text: color-mix(
+		in srgb,
+		var(--seed-success) 80%,
+		var(--seed-text)
+	);
+
+	/* Info — derived from seed-info */
+	--color-info: var(--seed-info);
+	--color-info-bg: color-mix(in srgb, var(--seed-info) 10%, var(--seed-bg));
+	--color-info-border: var(--seed-info);
+	--color-info-text: color-mix(in srgb, var(--seed-info) 80%, var(--seed-text));
+
+	/* Surface — derived from seed-surface (cards, panels, elevated areas) */
+	--color-surface: var(--seed-surface);
+	--color-surface-hover: color-mix(
+		in srgb,
+		var(--seed-surface) 92%,
+		var(--seed-text)
+	);
+
+	/* Muted — derived from seed-muted (subdued UI elements, disabled states) */
+	--color-muted: var(--seed-muted);
+	--color-muted-bg: color-mix(in srgb, var(--seed-muted) 10%, var(--seed-bg));
+	--color-muted-text: color-mix(in srgb, var(--seed-muted) 70%, var(--seed-bg));
+
+	/* Borders — derived from seed-bg + seed-text */
+	--color-border: color-mix(in srgb, var(--seed-bg) 82%, var(--seed-text));
+	--color-border-light: color-mix(
+		in srgb,
+		var(--seed-bg) 88%,
+		var(--seed-text)
+	);
+	--color-border-medium: color-mix(
+		in srgb,
+		var(--seed-bg) 76%,
+		var(--seed-text)
+	);
+	--color-border-focus: var(--seed-accent);
+
+	/* Links — derived from seed-accent */
+	--color-link: color-mix(in srgb, var(--seed-accent) 80%, var(--seed-text));
+	--color-link-hover: color-mix(
+		in srgb,
+		var(--seed-accent) 65%,
+		var(--seed-text)
+	);
+	--color-link-underline: color-mix(
+		in srgb,
+		var(--seed-accent) 40%,
+		var(--seed-bg)
+	);
+
+	/* Accent palette — for charts, diagrams, tags */
+	--color-accent-1: var(--seed-accent);
+	--color-accent-2: color-mix(in srgb, var(--seed-accent) 70%, #10b981);
+	--color-accent-3: color-mix(in srgb, var(--seed-accent) 50%, #8b5cf6);
+	--color-accent-4: color-mix(in srgb, var(--seed-accent) 60%, #f59e0b);
+	--color-accent-5: color-mix(in srgb, var(--seed-accent) 40%, #ec4899);
+
+	/* Shadows */
+	--shadow-dropdown: 0 12px 24px
+		color-mix(in srgb, var(--seed-text) 12%, transparent);
+	--shadow-popover: 0 8px 24px
+		color-mix(in srgb, var(--seed-text) 12%, transparent);
+}
+
+/* ── Dark theme ──────────────────────────────────────────── */
+
+@media (prefers-color-scheme: dark) {
+	:root:not([data-theme="light"]) {
+		--seed-accent: #6baaff;
+		--seed-bg: #1a1d2e;
+		--seed-text: #e2e6f0;
+		--seed-danger: #f85149;
+		--seed-warning: #e3b341;
+		--seed-success: #4ade80;
+		--seed-info: #22d3ee;
+		--seed-surface: #1f2337;
+		--seed-muted: #8990a4;
+	}
+}
+
+[data-theme="dark"] {
+	--seed-accent: #6baaff;
+	--seed-bg: #1a1d2e;
+	--seed-text: #e2e6f0;
+	--seed-danger: #f85149;
+	--seed-warning: #e3b341;
+	--seed-success: #4ade80;
+	--seed-info: #22d3ee;
+	--seed-surface: #1f2337;
+	--seed-muted: #8990a4;
+}
+
+/* ── Base element colors ─────────────────────────────────── */
+
+html {
+	background: var(--color-bg);
+	color: var(--color-text);
+	color-scheme: light dark;
+}

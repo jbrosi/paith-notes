@@ -1,3 +1,4 @@
+import styles from "./NookMarkdownView.module.css";
 import type { NookStore } from "./store";
 
 export type NookMarkdownViewProps = {
@@ -6,17 +7,11 @@ export type NookMarkdownViewProps = {
 
 export function NookMarkdownView(props: NookMarkdownViewProps) {
 	return (
-		<div style={{ width: "100%" }}>
+		<div class={styles.container}>
 			<textarea
 				readOnly
 				value={props.store.content()}
-				style={{
-					width: "100%",
-					height: "calc(100vh - 220px)",
-					"font-family": "monospace",
-					"box-sizing": "border-box",
-					padding: "12px",
-				}}
+				class={styles.textarea}
 			/>
 		</div>
 	);
