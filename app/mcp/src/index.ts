@@ -25,6 +25,7 @@ if (!ANTHROPIC_API_KEY) {
 initAuth(KEYCLOAK_BASE_URL, KEYCLOAK_REALM);
 
 const app = express();
+app.set('trust proxy', 1); // behind Caddy reverse proxy
 app.use(express.json());
 
 // OAuth Protected Resource Metadata
