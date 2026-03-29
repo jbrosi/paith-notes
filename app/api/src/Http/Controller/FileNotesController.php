@@ -358,7 +358,7 @@ final class FileNotesController
             $expectedChecksumRaw = $row['expected_checksum'] ?? '';
             $expectedChecksum = is_scalar($expectedChecksumRaw) ? trim((string)$expectedChecksumRaw) : '';
 
-            $from = '/data/' . ltrim($tempObjectKey, '/');
+            $from = self::dataPath() . '/' . ltrim($tempObjectKey, '/');
             if (!file_exists($from)) {
                 throw new HttpError('temp upload missing', 404);
             }
@@ -412,7 +412,7 @@ final class FileNotesController
             }
 
             $objectKey = sprintf('notes/%s/files/%s', $nookId, $noteId);
-            $to = '/data/' . ltrim($objectKey, '/');
+            $to = self::dataPath() . '/' . ltrim($objectKey, '/');
             $dir = dirname($to);
             if (!is_dir($dir)) {
                 if (!mkdir($dir, 0777, true) && !is_dir($dir)) {
@@ -578,8 +578,8 @@ final class FileNotesController
                 }
             }
 
-            $from = '/data/' . ltrim($tempObjectKey, '/');
-            $to = '/data/' . ltrim($finalObjectKey, '/');
+            $from = self::dataPath() . '/' . ltrim($tempObjectKey, '/');
+            $to = self::dataPath() . '/' . ltrim($finalObjectKey, '/');
 
             if (!file_exists($from)) {
                 throw new HttpError('temp upload missing', 404);
@@ -789,6 +789,12 @@ final class FileNotesController
         }
         $encoded = json_encode($value, JSON_UNESCAPED_SLASHES);
         return is_string($encoded) ? $encoded : '{}';
+    }
+
+    private static function dataPath(): string
+    {
+        $path = trim((string)getenv('FILES_DATA_PATH'));
+        return $path !== '' ? rtrim($path, '/') : '/data';
     }
 
     private function isUuid(string $value): bool
