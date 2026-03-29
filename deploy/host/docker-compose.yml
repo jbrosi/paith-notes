@@ -51,6 +51,19 @@ services:
     volumes:
       - files_data:/data
 
+  # Optional: MCP server for AI integrations
+  # mcp:
+  #   image: ${MCP_IMAGE:-ghcr.io/OWNER/REPO/mcp:latest}
+  #   restart: unless-stopped
+  #   environment:
+  #     KEYCLOAK_BASE_URL: ${KEYCLOAK_BASE_URL:-}
+  #     KEYCLOAK_REALM: ${KEYCLOAK_REALM:-}
+  #     API_BASE_URL: http://app:8000
+  #     MCP_SERVER_URL: ${MCP_SERVER_URL:-}
+  #     ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+  #   depends_on:
+  #     - app
+
   files:
     image: docker.io/nginx:1.29-alpine
     restart: unless-stopped

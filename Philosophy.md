@@ -70,7 +70,7 @@ Paith Notes is not end-to-end encrypted by default.
 
 This is not an oversight. It is a conscious decision.
 
-Why Paith Notes does not claim E2EE
+**Why Paith Notes does not claim E2EE**
 
 In a web-based application:
 
@@ -78,7 +78,7 @@ In a web-based application:
 - Whoever controls the server can change that code.
 - A modified client can exfiltrate encryption keys or plaintext data.
 - Users cannot practically verify what code they are executing.
-- Claiming “zero-knowledge” or “end-to-end encryption” in this model often relies on trusting the very party the encryption claims to protect against.
+- Claiming "zero-knowledge" or "end-to-end encryption" in this model often relies on trusting the very party the encryption claims to protect against.
 
 Paith Notes refuses to make that promise.
 
@@ -88,7 +88,7 @@ Instead, the project assumes:
 - you trust the software you deploy
 - you prefer transparency over cryptographic theater
 
-What this enables
+**What this enables**
 
 By not enforcing E2EE, Paith Notes can provide:
 
@@ -100,7 +100,7 @@ By not enforcing E2EE, Paith Notes can provide:
 
 These features are difficult or impossible to provide honestly in a strict E2EE model without leaking metadata or shifting complexity to the client.
 
-What this does not mean
+**What this does not mean**
 
 This does not mean security is ignored.
 
@@ -128,19 +128,45 @@ Self-hosting is the real trust boundary:
 
 This model is simpler, more honest, and easier to reason about than promising cryptographic guarantees that depend on unverifiable assumptions.
 
-## 6. Explicit Non-Goals
+## 6. AI as a Tool, Within Boundaries You Control
+
+The name **Paith** reflects this principle directly: **Personal AI and Trust**.
+
+AI assistance is built into Paith Notes — but with deliberate constraints that reflect the project's broader values.
+
+**What this means in practice**
+
+- The AI service runs in a **separate, isolated container**. It is not embedded in the core application. If you do not want AI, you do not run that container.
+- The AI is **optional at the infrastructure level** — the rest of Paith Notes works fully without it.
+- The AI operates under **your session and your permissions**. It has no special access. It cannot do anything you cannot do yourself.
+- Every action that reads or modifies notes **requires your explicit approval** in the UI before it is executed. The only exceptions are read-only lookups and notes explicitly marked as AI memory — both of which are intentionally low-risk.
+- The AI does not have a background process, does not run on a schedule, and does not act unless you initiate a conversation.
+
+**What this is not**
+
+Paith Notes is not an AI content generation platform.
+
+The AI does not write your notes for you, does not suggest rewrites unprompted, and is not optimized for bulk content production. It is an assistant — one that happens to understand your note graph and can help you navigate, link, and reflect on what you have already written.
+
+**Why this matters**
+
+Most AI tool integrations today treat the AI as an autonomous agent with broad access and assume the user will catch any mistakes. Paith Notes inverts this: the AI is constrained by default, and access is expanded only through deliberate, explicit approval.
+
+This is not a limitation. It is a design choice that reflects what "trust" actually means.
+
+## 7. Explicit Non-Goals
 
 Paith Notes is intentionally not:
 
 - a real-time collaborative editor
 - a SaaS-first product
-- an AI-generated content platform
+- an AI content generation platform
 - a corporate knowledge base
 - a replacement for Google Docs or Notion
 
 Features that conflict with the core principles above are unlikely to be accepted, even if they are popular.
 
-## 7. Open Source with Boundaries
+## 8. Open Source with Boundaries
 
 Paith Notes is open source because:
 
@@ -155,7 +181,7 @@ Open source does not mean:
 - no direction
 
 Design decisions are intentional.
-Not every feature request aligns with the project’s goals.
+Not every feature request aligns with the project's goals.
 
 ## Closing
 
@@ -167,5 +193,5 @@ Paith Notes prefers:
 
 If these constraints resonate with you, you will probably enjoy using — or contributing to — this project.
 
-If they don’t, that’s okay.
+If they don't, that's okay.
 There are many excellent tools optimized for different values.

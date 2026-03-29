@@ -1,4 +1,5 @@
 # Security Policy
+
 ## Scope
 
 Paith Notes is a self-hosted, web-based note system.
@@ -38,7 +39,7 @@ Paith Notes is a web application. As such:
 - A malicious browser extension can access rendered content.
 - Session compromise compromises access.
 
-## The project prioritizes:
+The project prioritizes:
 
 - strict input validation
 - aggressive output sanitization
@@ -47,19 +48,28 @@ Paith Notes is a web application. As such:
 
 But no browser-based application can fully protect against a compromised client.
 
-## Local Caching
+## AI Integration Trust Model
 
-Optional local caching (if enabled) is intended only to protect against:
+Paith Notes includes an optional AI assistant. Its security boundaries are explicit:
 
-- offline disk access on shared or stolen devices
+**Isolation**
+- The AI service runs in a separate container, isolated from the core application.
+- It is optional — the core application has no dependency on it.
 
-It does not protect against:
+**Access**
+- The AI operates under the authenticated user's session. It has no elevated privileges.
+- It can only access data that the logged-in user can already access.
+- No separate AI account or token with broader permissions exists.
 
-- malicious scripts
-- compromised browsers
-- authenticated attackers
+**Approval**
+- Every action that reads or modifies notes requires explicit user confirmation before execution.
+- The only exceptions are read-only lookups (list, search, graph traversal) and AI memory notes — both intentionally low-risk operations.
+- Destructive or write operations are never auto-executed.
 
-Local caching should only be enabled on trusted devices.
+**What this means**
+The AI cannot do anything the user cannot do. The user approves every meaningful action. If the AI misbehaves or is manipulated via prompt injection in a note's content, the worst outcome is a proposed action the user declines — not an action already taken.
+
+This is not a guarantee against all attack vectors, but it is an honest, documented boundary.
 
 ## Reporting Security Issues
 
@@ -81,7 +91,7 @@ Responsible disclosure is appreciated.
 
 ## Supported Versions
 
-Paith Notes is currently pre-alpha.
+Paith Notes is currently early alpha.
 
 - No production stability is guaranteed.
 - Security fixes may not be backported.
@@ -95,8 +105,7 @@ Paith Notes values:
 
 - transparency over marketing claims
 - clear threat models over vague promises
-- boring, understandable security over “magic”
+- boring, understandable security over "magic"
 
-Se
-curity decisions are documented and intentional.
+Security decisions are documented and intentional.
 If something is not secure against a given threat, it is stated plainly.
