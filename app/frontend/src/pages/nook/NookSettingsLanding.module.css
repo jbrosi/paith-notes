@@ -9,6 +9,13 @@
 	margin-bottom: 16px;
 }
 
+.settingsNote {
+	font-size: 0.8125rem;
+	color: var(--color-text-faint);
+	margin: 0 0 16px;
+	font-style: italic;
+}
+
 .section {
 	margin-bottom: 24px;
 }

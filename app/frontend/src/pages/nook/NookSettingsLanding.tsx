@@ -221,6 +221,10 @@ export function NookSettingsLanding(props: NookSettingsLandingProps) {
 	return (
 		<div class={styles.container}>
 			<div class={styles.header}>Nook settings</div>
+			<p class={styles.settingsNote}>
+				These settings apply to this nook only and are stored in your current
+				browser. They won't sync to other devices.
+			</p>
 
 			<div class={styles.section}>
 				<div class={styles.sectionTitle}>Navigation</div>
