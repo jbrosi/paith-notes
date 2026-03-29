@@ -5,6 +5,7 @@ import notesStyles from "../Notes.module.css";
 import { EditorSection } from "./components/EditorSection";
 import { FilePanel } from "./components/FilePanel";
 import { TitleSection } from "./components/TitleSection";
+import { NookDashboard } from "./NookDashboard";
 import type { NotePreviewController } from "./NookDefaultLayout";
 import { NookNoteLinksPanel } from "./NookNoteLinksPanel";
 import { NookToolbar } from "./NookToolbar";
@@ -37,6 +38,9 @@ export function NookMainPanel(props: NookMainPanelProps) {
 		onCleanup(() => document.removeEventListener("keydown", onKeyDown));
 	});
 
+	const hasNote = () =>
+		store().selectedId() !== "" || store().mode() === "edit";
+
 	return (
 		<>
 			<Show when={store().pendingNav() !== null}>
@@ -49,25 +53,30 @@ export function NookMainPanel(props: NookMainPanelProps) {
 				</Portal>
 			</Show>
 			<div style={{ flex: "1", "min-width": "0" }}>
-				<div class={notesStyles["add-note-container"]}>
-					<NookToolbar
-						mode={ui.mode()}
-						loading={store().loading()}
-						title={store().title()}
-						selectedId={store().selectedId()}
-						onSave={store().saveNote}
-						onDelete={store().deleteNote}
-						onToggleMode={ui.toggleMode}
-						onNewNote={store().newNote}
-					/>
-				</div>
+				<Show when={hasNote()} fallback={<NookDashboard store={store()} />}>
+					<div class={notesStyles["add-note-container"]}>
+						<NookToolbar
+							mode={ui.mode()}
+							loading={store().loading()}
+							title={store().title()}
+							selectedId={store().selectedId()}
+							onSave={store().saveNote}
+							onDelete={store().deleteNote}
+							onToggleMode={ui.toggleMode}
+							onNewNote={store().newNote}
+						/>
+					</div>
 
-				<FilePanel store={store()} />
-				<TitleSection store={store()} />
-				<EditorSection store={store()} notePreview={props.notePreview} />
+					<FilePanel store={store()} />
+					<TitleSection store={store()} />
+					<EditorSection store={store()} notePreview={props.notePreview} />
 
-				<Show when={store().selectedId() !== ""}>
-					<NookNoteLinksPanel store={store()} notePreview={props.notePreview} />
+					<Show when={store().selectedId() !== ""}>
+						<NookNoteLinksPanel
+							store={store()}
+							notePreview={props.notePreview}
+						/>
+					</Show>
 				</Show>
 			</div>
 		</>
