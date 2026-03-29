@@ -53,10 +53,37 @@ export const TOOLS: Anthropic.Tool[] = [
   },
   {
     name: 'list_note_types',
-    description: 'List note types (taxonomy) defined in the current nook',
+    description: 'List note types (taxonomy) defined in the current nook. Returns both the raw list and a formatted hierarchy tree so you can see parent/child relationships at a glance. Always call this before creating a new type.',
     input_schema: {
       type: 'object',
       properties: {},
+    },
+  },
+  {
+    name: 'create_note_type',
+    description: 'Create a new note type in the current nook\'s taxonomy. Always call list_note_types first so you can see the existing hierarchy and choose the right parent. Show the user a summary like "Creating type \'Employee\' under \'Person\'" before proceeding. The key must be a unique lowercase slug (e.g. "employee", "project-phase").',
+    input_schema: {
+      type: 'object',
+      properties: {
+        label:       { type: 'string', description: 'Display name, e.g. "Employee"' },
+        key:         { type: 'string', description: 'Unique lowercase slug, e.g. "employee". Must be unique within the nook.' },
+        description: { type: 'string', description: 'Optional description of what this type represents' },
+        parent_id:   { type: 'string', description: 'UUID of the parent type. Omit for a root-level type.' },
+      },
+      required: ['label', 'key'],
+    },
+  },
+  {
+    name: 'update_note_type',
+    description: 'Update the label or description of an existing note type. Use this to rename a type or improve its description. Does not change the key or parent — those are structural changes that should be done in settings.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        type_id:     { type: 'string', description: 'UUID of the type to update' },
+        label:       { type: 'string', description: 'New display name' },
+        description: { type: 'string', description: 'New description' },
+      },
+      required: ['type_id'],
     },
   },
   {
@@ -198,8 +225,37 @@ export async function executeTool(
       await api('DELETE', `/api/nooks/${nookId}/notes/${noteId}`);
       return JSON.stringify({ success: true });
 
-    case 'list_note_types':
-      return JSON.stringify(await api('GET', `/api/nooks/${nookId}/note-types`));
+    case 'list_note_types': {
+      const data = await api('GET', `/api/nooks/${nookId}/note-types`) as { types?: Array<{ id: string; key: string; label: string; description: string; parent_id: string }> };
+      const types = data?.types ?? [];
+      const buildTree = (parentId: string, depth: number): string[] =>
+        types
+          .filter(t => (t.parent_id ?? '') === parentId)
+          .flatMap(t => [
+            `${'  '.repeat(depth)}- ${t.label} (id: ${t.id}, key: ${t.key}${t.description ? `, desc: "${t.description}"` : ''})`,
+            ...buildTree(t.id, depth + 1),
+          ]);
+      const hierarchy = buildTree('', 0).join('\n') || '(no types defined)';
+      return JSON.stringify({ types, hierarchy });
+    }
+
+    case 'create_note_type': {
+      const body: Record<string, unknown> = {
+        key:   String(input.key ?? ''),
+        label: String(input.label ?? ''),
+      };
+      if (input.description) body.description = String(input.description);
+      if (input.parent_id)   body.parent_id   = String(input.parent_id);
+      return JSON.stringify(await api('POST', `/api/nooks/${nookId}/note-types`, body));
+    }
+
+    case 'update_note_type': {
+      const typeId = String(input.type_id ?? '');
+      const body: Record<string, unknown> = {};
+      if (input.label !== undefined)       body.label       = String(input.label);
+      if (input.description !== undefined) body.description = String(input.description);
+      return JSON.stringify(await api('PUT', `/api/nooks/${nookId}/note-types/${typeId}`, body));
+    }
 
     case 'get_note_mentions':
       return JSON.stringify(await api('GET', `/api/nooks/${nookId}/notes/${noteId}/mentions`));
