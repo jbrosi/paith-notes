@@ -24,6 +24,24 @@ export function NookNotesSearchDropdown(props: NookNotesSearchDropdownProps) {
 
 	const query = createMemo(() => store()?.notesQuery() ?? "");
 
+	/** Active type filter labels — from dropdown or type: syntax */
+	const activeFilterLabels = createMemo(() => {
+		const s = store();
+		if (!s) return [];
+		const ids = s.activeTypeIds();
+		if (ids.size === 0) return [];
+		const types = s.noteTypes();
+		return [...ids]
+			.map((id) => types.find((t) => t.id === id)?.label ?? "")
+			.filter(Boolean);
+	});
+
+	/** Whether the type filter comes from type: syntax (vs the dropdown) */
+	const isTypedFilter = createMemo(() => {
+		const parsed = parseTypedSearch(query());
+		return parsed.typeTerm.trim() !== "";
+	});
+
 	const typeSuggestions = createMemo(() => {
 		const s = query().trim();
 		if (s === "") return [];
@@ -187,7 +205,7 @@ export function NookNotesSearchDropdown(props: NookNotesSearchDropdownProps) {
 							}}
 						/>
 					</div>
-					{/* Type suggestion chips */}
+					{/* Type suggestion chips (while typing a type: prefix) */}
 					<Show when={typeSuggestions().length > 0}>
 						<div class={styles.typeSuggestions}>
 							<For each={typeSuggestions()}>
@@ -204,6 +222,29 @@ export function NookNotesSearchDropdown(props: NookNotesSearchDropdownProps) {
 							</For>
 						</div>
 					</Show>
+					{/* Active type filter indicator */}
+					<Show
+						when={
+							activeFilterLabels().length > 0 && typeSuggestions().length === 0
+						}
+					>
+						<div class={styles.activeFilter}>
+							<span class={styles.activeFilterLabel}>
+								Filtered by: {activeFilterLabels().join(", ")}
+							</span>
+							<Show when={!isTypedFilter()}>
+								<button
+									type="button"
+									class={styles.activeFilterClear}
+									onMouseDown={(e) => e.preventDefault()}
+									onClick={() => store()?.clearSelectedTypes()}
+									title="Clear type filter"
+								>
+									&times;
+								</button>
+							</Show>
+						</div>
+					</Show>
 					<div class={styles["dropdown-list"]}>
 						<For each={noteResults()}>
 							{(n) => (
@@ -218,6 +259,34 @@ export function NookNotesSearchDropdown(props: NookNotesSearchDropdownProps) {
 								</button>
 							)}
 						</For>
+					</div>
+					{/* Create note options */}
+					<div class={styles.dropdownFooter}>
+						<Show when={query().trim() !== "" && noteResults().length === 0}>
+							<button
+								type="button"
+								class={styles.createNoteItem}
+								onMouseDown={(e) => e.preventDefault()}
+								onClick={() => {
+									store()?.newNote();
+									store()?.setTitle(query().trim());
+									close();
+								}}
+							>
+								+ Create "{query().trim()}"
+							</button>
+						</Show>
+						<button
+							type="button"
+							class={styles.createNoteItem}
+							onMouseDown={(e) => e.preventDefault()}
+							onClick={() => {
+								store()?.newNote();
+								close();
+							}}
+						>
+							+ New note
+						</button>
 					</div>
 				</div>
 			</Show>

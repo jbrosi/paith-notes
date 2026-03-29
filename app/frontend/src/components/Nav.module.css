@@ -235,6 +235,17 @@
 	display: flex;
 }
 
+/* Left-aligned variant for menus on the left side of the nav */
+.overflowMenuLeft {
+	position: relative;
+}
+
+.overflowMenuLeft:focus-within .overflowContent {
+	display: flex;
+	right: auto;
+	left: 0;
+}
+
 .overflowItem {
 	display: flex;
 	align-items: center;
@@ -365,6 +376,148 @@
 	color: #1f5fbf;
 }
 
+/* Type filter toggle button */
+.filterToggle {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	padding: 0.375rem 0.5rem;
+	border: 1px solid #ddd;
+	border-radius: 4px;
+	background: white;
+	cursor: pointer;
+	color: #666;
+	line-height: 1;
+	position: relative;
+}
+
+.filterToggle:hover {
+	background: #e0e0e0;
+	color: #333;
+}
+
+.filterToggleActive {
+	color: #1d4ed8;
+	border-color: #93b4e0;
+	background: #eef5ff;
+}
+
+.filterToggleActive:hover {
+	background: #dbeafe;
+}
+
+.filterBadge {
+	font-size: 0.6875rem;
+	font-weight: 700;
+	min-width: 16px;
+	height: 16px;
+	line-height: 16px;
+	text-align: center;
+	border-radius: 999px;
+	background: #1d4ed8;
+	color: white;
+}
+
+/* Type checkbox items in filter dropdown */
+.typeCheckItem {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	width: 100%;
+	padding: 6px 10px;
+	cursor: pointer;
+	border-radius: 4px;
+	font-size: 0.875rem;
+}
+
+.typeCheckItem:hover {
+	background: #f3f4f6;
+}
+
+.typeCheckbox {
+	flex-shrink: 0;
+	width: 16px;
+	height: 16px;
+	accent-color: #1d4ed8;
+}
+
+.typeCheckLabel {
+	flex: 1;
+	min-width: 0;
+}
+
+/* Filter footer */
+.filterFooter {
+	border-top: 1px solid #eee;
+	padding: 6px 8px;
+	display: flex;
+	justify-content: flex-end;
+}
+
+.filterClearBtn {
+	background: none;
+	border: none;
+	cursor: pointer;
+	color: #6b7280;
+	font-size: 0.8125rem;
+	padding: 4px 8px;
+	border-radius: 4px;
+}
+
+.filterClearBtn:hover {
+	background: #f3f4f6;
+	color: #111;
+}
+
+/* Active type filter indicator */
+.activeFilter {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	padding: 6px 10px;
+	background: #eef5ff;
+	border-bottom: 1px solid #f3f4f6;
+	font-size: 0.8125rem;
+}
+
+.activeFilterLabel {
+	color: #1f5fbf;
+	font-weight: 500;
+}
+
+.activeFilterClear {
+	background: none;
+	border: none;
+	cursor: pointer;
+	color: #6b7280;
+	font-size: 1rem;
+	line-height: 1;
+	padding: 0 2px;
+}
+
+.activeFilterClear:hover {
+	color: #111;
+}
+
+/* Create note item in search dropdown */
+.createNoteItem {
+	display: block;
+	width: 100%;
+	padding: 8px 10px;
+	border: none;
+	background: none;
+	text-align: left;
+	cursor: pointer;
+	font-size: 0.875rem;
+	color: #1d4ed8;
+	font-weight: 500;
+	border-radius: 4px;
+}
+
+.createNoteItem:hover {
+	background: #eef5ff;
+}
+
 /* Search — icon inside input on desktop/tablet, standalone button on phone */
 .searchWrap {
 	position: relative;
@@ -405,6 +558,24 @@
 }
 
 .searchToggle:hover {
+	background: #e0e0e0;
+	color: #333;
+}
+
+.homeToggle {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: 0.375rem 0.5rem;
+	border: 1px solid #ddd;
+	border-radius: 4px;
+	background: white;
+	cursor: pointer;
+	color: #666;
+	line-height: 1;
+}
+
+.homeToggle:hover {
 	background: #e0e0e0;
 	color: #333;
 }

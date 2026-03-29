@@ -7,6 +7,7 @@ import About from "./pages/About.tsx";
 import Home from "./pages/Home.tsx";
 import Nook from "./pages/Nook.tsx";
 import NooksRedirect from "./pages/NooksRedirect.tsx";
+import "./styles/milkdown-overrides.css";
 import { UiProvider } from "./ui/UiContext";
 
 const root = document.getElementById("app");

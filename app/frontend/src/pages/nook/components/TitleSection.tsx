@@ -32,8 +32,17 @@ export function TitleSection(props: { store: NookStore }) {
 		if (props.store.mode() === "view") setEditingTitle(false);
 	});
 	createEffect(() => {
-		void props.store.selectedId();
-		setEditingTitle(false);
+		const id = props.store.selectedId();
+		if (id === "" && props.store.mode() === "edit") {
+			// New note — auto-focus title with text selected
+			setEditingTitle(true);
+			window.setTimeout(() => {
+				titleInputRef?.focus();
+				titleInputRef?.select();
+			}, 50);
+		} else {
+			setEditingTitle(false);
+		}
 	});
 
 	return (

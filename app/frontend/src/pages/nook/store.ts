@@ -43,7 +43,9 @@ export function createNookStore(nookId: () => string) {
 	const [notesNextCursor, setNotesNextCursor] = createSignal<string>("");
 	const [notesQuery, setNotesQuery] = createSignal<string>("");
 	const [noteTypes, setNoteTypes] = createSignal<NoteType[]>([]);
-	const [selectedTypeId, setSelectedTypeId] = createSignal<string>("");
+	const [selectedTypeIds, setSelectedTypeIds] = createSignal<Set<string>>(
+		new Set(),
+	);
 	const [needsLogin, setNeedsLogin] = createSignal<boolean>(false);
 	const [selectedId, setSelectedId] = createSignal<string>("");
 	const [typeId, setTypeId] = createSignal<string>("");
@@ -85,20 +87,38 @@ export function createNookStore(nookId: () => string) {
 	const resolveTypeIdForTermInStore = (termRaw: string) =>
 		resolveTypeIdForTerm(noteTypes(), termRaw);
 
-	const setSelectedTypeIdFromUser = (next: string) => {
-		setSelectedTypeId(String(next ?? "").trim());
+	const toggleSelectedTypeId = (id: string) => {
+		const trimmed = id.trim();
+		const current = new Set(selectedTypeIds());
+		if (trimmed === "") {
+			current.clear();
+		} else if (current.has(trimmed)) {
+			current.delete(trimmed);
+		} else {
+			current.add(trimmed);
+		}
+		setSelectedTypeIds(current);
 		const parsed = parseTypedSearch(notesQuery());
 		if (!parsed.explicitNoType && parsed.typeTerm.trim() !== "") {
 			setNotesQuery(parsed.textTerm);
 		}
 	};
 
-	const activeTypeId = createMemo(() => {
+	const clearSelectedTypes = () => setSelectedTypeIds(new Set<string>());
+
+	const activeTypeIds = createMemo((): Set<string> => {
 		const parsed = parseTypedSearch(notesQuery());
-		if (parsed.explicitNoType) return "";
+		if (parsed.explicitNoType) return new Set();
 		const typedTypeId = resolveTypeIdForTermInStore(parsed.typeTerm);
-		const selected = selectedTypeId().trim();
-		return typedTypeId !== "" ? typedTypeId : selected;
+		if (typedTypeId !== "") return new Set([typedTypeId]);
+		return selectedTypeIds();
+	});
+
+	// Single active type for API — use first if multi, or "all"
+	const activeTypeId = createMemo(() => {
+		const ids = activeTypeIds();
+		if (ids.size === 1) return [...ids][0];
+		return "";
 	});
 
 	const isEditing = () => mode() === "edit";
@@ -308,8 +328,10 @@ export function createNookStore(nookId: () => string) {
 				);
 			}
 			setNoteTypes(noteTypes().filter((t) => t.id !== type.id));
-			if (selectedTypeId() === type.id) {
-				setSelectedTypeId("");
+			if (selectedTypeIds().has(type.id)) {
+				const next = new Set(selectedTypeIds());
+				next.delete(type.id);
+				setSelectedTypeIds(next);
 			}
 			if (typeId() === type.id) {
 				setTypeId("");
@@ -523,14 +545,18 @@ export function createNookStore(nookId: () => string) {
 		const reset = opts?.reset ?? true;
 		const parsed = parseTypedSearch(notesQuery());
 		const typedTypeId = resolveTypeIdForTermInStore(parsed.typeTerm);
-		const selected = selectedTypeId().trim();
+		const selected = selectedTypeIds();
 		const typeForList = parsed.explicitNoType
 			? "all"
 			: typedTypeId !== ""
 				? typedTypeId
-				: selected === ""
-					? "all"
-					: selected;
+				: selected.size === 1
+					? [...selected][0]
+					: "all";
+		const multiTypeFilter =
+			!parsed.explicitNoType && typedTypeId === "" && selected.size > 1
+				? selected
+				: null;
 		const cursor = reset ? "" : notesNextCursor();
 		const q = parsed.textTerm.trim();
 
@@ -564,7 +590,14 @@ export function createNookStore(nookId: () => string) {
 			}
 			const json = await res.json();
 			const body = NoteTypeNotesResponseSchema.parse(json);
-			const nextNotes = reset ? body.notes : [...notes(), ...body.notes];
+			let fetched = body.notes;
+			// Client-side filter when multiple types selected
+			if (multiTypeFilter) {
+				fetched = fetched.filter(
+					(n) => n.typeId !== "" && multiTypeFilter.has(n.typeId),
+				);
+			}
+			const nextNotes = reset ? fetched : [...notes(), ...fetched];
 			setNotes(rankNotesByQuery(nextNotes, q));
 			setNotesNextCursor(body.nextCursor);
 
@@ -597,8 +630,9 @@ export function createNookStore(nookId: () => string) {
 
 	const newNote = () => {
 		setSelectedId("");
-		setTypeId(selectedTypeId().trim());
-		setTitle("");
+		const ids = selectedTypeIds();
+		setTypeId(ids.size === 1 ? [...ids][0] : "");
+		setTitle("New note");
 		setTitleIsManual(false);
 		setContent("");
 		setType("anything");
@@ -755,7 +789,7 @@ export function createNookStore(nookId: () => string) {
 	const onNoteLinkClickInternal = async (noteId: string) => {
 		let found = notes().find((n) => n.id === noteId);
 		if (!found) {
-			setSelectedTypeId("");
+			clearSelectedTypes();
 			await loadNotes({ reset: true });
 			found = notes().find((n) => n.id === noteId);
 		}
@@ -941,7 +975,7 @@ export function createNookStore(nookId: () => string) {
 
 	createEffect(() => {
 		void nookId();
-		void selectedTypeId();
+		void selectedTypeIds();
 		void notesQuery();
 		void loadNotes({ reset: true });
 	});
@@ -1109,7 +1143,7 @@ export function createNookStore(nookId: () => string) {
 		notesQuery,
 		noteTypes,
 		loadNoteTypes,
-		selectedTypeId,
+		selectedTypeIds,
 		typeId,
 		needsLogin,
 		selectedId,
@@ -1156,7 +1190,9 @@ export function createNookStore(nookId: () => string) {
 		setMode,
 		setMentionTargetId,
 		setMentionEmbedImage,
-		setSelectedTypeId: setSelectedTypeIdFromUser,
+		toggleSelectedTypeId,
+		clearSelectedTypes,
+		activeTypeIds,
 		setNotesQuery: (next: string) => setNotesQuery(String(next ?? "")),
 		activeTypeId,
 		setTypeId: (next: string) => setTypeId(next.trim()),

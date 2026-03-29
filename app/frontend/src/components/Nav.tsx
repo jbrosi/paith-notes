@@ -250,6 +250,39 @@ export function Nav() {
 							About
 						</A>
 					</span>
+					{/* Mobile: home icon with dropdown for Home/About */}
+					<span class={styles.showOnMobile}>
+						<div class={styles.overflowMenuLeft}>
+							<button
+								type="button"
+								class={styles.homeToggle}
+								title="Navigation"
+							>
+								<svg
+									aria-hidden="true"
+									width="18"
+									height="18"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="2"
+									stroke-linecap="round"
+									stroke-linejoin="round"
+								>
+									<path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+									<polyline points="9 22 9 12 15 12 15 22" />
+								</svg>
+							</button>
+							<div class={styles.overflowContent}>
+								<A href="/" end class={styles.overflowItem}>
+									Home
+								</A>
+								<A href="/about" class={styles.overflowItem}>
+									About
+								</A>
+							</div>
+						</div>
+					</span>
 					<Show
 						when={auth.ready() && auth.authenticated()}
 						fallback={
@@ -461,27 +494,10 @@ export function Nav() {
 						fallback={
 							<>
 								<div class={styles.nookBarGroup}>
-									<Button
-										variant="secondary"
-										size="small"
-										disabled={!storeReady()}
-										onClick={() => store()?.newNote()}
-										title="Create a new note"
-									>
-										New
-									</Button>
-									<NookTypeFilterDropdown store={store()} />
 									<NookNotesSearchDropdown store={store()} />
+									<NookTypeFilterDropdown store={store()} />
 								</div>
 								<div class={styles.nookBarGroup}>
-									<Button
-										variant="secondary"
-										size="small"
-										onClick={() => ui.toggleMode()}
-										title="Toggle edit/view mode"
-									>
-										Mode: {ui.mode() === "edit" ? "Edit" : "View"}
-									</Button>
 									<span class={styles.hideOnMobile}>
 										<Button
 											variant={isMarkdownPanel() ? "primary" : "secondary"}
@@ -549,9 +565,20 @@ export function Nav() {
 											<Button
 												variant="secondary"
 												size="small"
-												title="More options"
+												title="Switch panel"
 											>
-												⋯
+												{
+													{
+														content: "Note",
+														links: "Links",
+														graph: "Graph",
+														chat: "Chat",
+														markdown: "MD",
+													}[ui.activePanel()]
+												}{" "}
+												<span style={{ "font-size": "0.6rem", opacity: "0.6" }}>
+													▾
+												</span>
 											</Button>
 											<div class={styles.overflowContent}>
 												{(

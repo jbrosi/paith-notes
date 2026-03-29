@@ -7,11 +7,14 @@
 	height: 100%;
 }
 
-/* Scrollable column holding content + links on desktop */
+/* Scrollable column holding content + links */
 .mainScroll {
 	flex: 1;
 	min-width: 0;
 	overflow-y: auto;
+	max-width: 860px;
+	margin: 0 auto;
+	padding: 0 16px;
 }
 
 /* Markdown panel — hidden by default, shown when active */
@@ -43,6 +46,7 @@
 
 	.mainScroll {
 		overflow-y: visible;
+		padding: 0 24px;
 	}
 
 	/* Hide all panel sections by default */
@@ -80,6 +84,12 @@
 
 	.layout[data-active-panel="markdown"] .panelMarkdown {
 		display: block;
+	}
+}
+
+@media (width <= 640px) {
+	.mainScroll {
+		padding: 0 12px;
 	}
 }
 
