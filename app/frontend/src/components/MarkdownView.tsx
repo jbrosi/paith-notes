@@ -96,17 +96,27 @@ export function MarkdownView(props: Props) {
 		}
 	});
 
-	// After HTML is rendered, check for mermaid blocks and render them
+	// After HTML is rendered, highlight code blocks and render mermaid diagrams
 	createEffect(() => {
 		const rendered = html();
-		if (!containerEl || !rendered || !hasMermaid(props.content)) return;
+		if (!containerEl || !rendered) return;
 
 		// Defer to next microtask so innerHTML is applied first
 		queueMicrotask(() => {
 			if (!containerEl) return;
-			void import("./mermaid").then(({ renderMermaidBlocks }) =>
-				renderMermaidBlocks(containerEl as HTMLElement),
+			const el = containerEl as HTMLElement;
+
+			// Syntax highlighting (lazy)
+			void import("./highlight").then(({ highlightCodeBlocks }) =>
+				highlightCodeBlocks(el),
 			);
+
+			// Mermaid diagrams (lazy, only if content has mermaid blocks)
+			if (hasMermaid(props.content)) {
+				void import("./mermaid").then(({ renderMermaidBlocks }) =>
+					renderMermaidBlocks(el),
+				);
+			}
 		});
 	});
 
