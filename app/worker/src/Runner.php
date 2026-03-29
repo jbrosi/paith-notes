@@ -113,6 +113,14 @@ final class Runner
         }
     }
 
+    /**
+     * Public entry point for testing. In production this is called internally by run().
+     */
+    public static function runCleanupOnce(PDO $pdo): void
+    {
+        self::cleanupExpiredUploads($pdo);
+    }
+
     private static function cleanupExpiredUploads(PDO $pdo): void
     {
         $pdo->beginTransaction();
