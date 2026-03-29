@@ -12,9 +12,13 @@
 	flex: 1;
 	min-width: 0;
 	overflow-y: auto;
+	padding: 0 16px;
+}
+
+/* Center the content within the scroll area */
+.mainScrollInner {
 	max-width: 860px;
 	margin: 0 auto;
-	padding: 0 16px;
 }
 
 /* Markdown panel — hidden by default, shown when active */

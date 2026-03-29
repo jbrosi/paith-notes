@@ -1,0 +1,122 @@
+.wrapper {
+	position: relative;
+	display: inline-block;
+}
+
+/* Default pill trigger */
+.triggerPill {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	padding: 3px 10px;
+	border-radius: 999px;
+	border: 1px solid var(--color-border-medium);
+	background: var(--color-bg-hover);
+	cursor: pointer;
+	font-size: 12px;
+	font-weight: 500;
+	color: var(--color-text-secondary);
+	line-height: 1.6;
+	white-space: nowrap;
+}
+
+.triggerPill:disabled {
+	cursor: default;
+}
+
+.triggerPillEmpty {
+	color: var(--color-text-faint);
+}
+
+.triggerArrow {
+	opacity: 0.4;
+	font-size: 9px;
+	margin-left: 2px;
+}
+
+/* Dropdown panel */
+.dropdown {
+	position: absolute;
+	top: calc(100% + 4px);
+	left: 0;
+	z-index: 200;
+	background: var(--color-bg);
+	border: 1px solid var(--color-border-medium);
+	border-radius: 8px;
+	box-shadow: var(--shadow-popover);
+	min-width: 200px;
+	width: max-content;
+	max-width: 320px;
+	overflow: hidden;
+}
+
+.searchBox {
+	padding: 8px;
+}
+
+.searchInput {
+	width: 100%;
+	padding: 5px 8px;
+	border: 1px solid var(--color-border-medium);
+	border-radius: 6px;
+	font-size: 13px;
+	box-sizing: border-box;
+	outline: none;
+	background: var(--color-bg);
+	color: var(--color-text);
+}
+
+.list {
+	max-height: 280px;
+	overflow: auto;
+	padding-bottom: 6px;
+}
+
+.noneOption {
+	width: 100%;
+	padding: 6px 12px;
+	text-align: left;
+	border: none;
+	background: transparent;
+	cursor: pointer;
+	font-size: 13px;
+	color: var(--color-text-faint);
+}
+
+.noneOption:hover {
+	background: var(--color-bg-hover);
+}
+
+.emptyText {
+	padding: 6px 12px;
+	color: var(--color-text-faint);
+	font-size: 13px;
+}
+
+.typeOption {
+	width: 100%;
+	padding: 6px 12px;
+	text-align: left;
+	border: none;
+	background: transparent;
+	cursor: pointer;
+	font-size: 13px;
+	color: var(--color-text);
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+}
+
+.typeOption:hover {
+	background: var(--color-bg-hover);
+}
+
+.typeOptionActive {
+	background: var(--color-bg-selected);
+}
+
+.typeKey {
+	color: var(--color-text-faint);
+	font-size: 11px;
+	margin-left: 8px;
+}

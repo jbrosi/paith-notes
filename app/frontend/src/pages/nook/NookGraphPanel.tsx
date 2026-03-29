@@ -571,9 +571,9 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 		<div
 			style={{
 				width: fullscreen() ? "100%" : "300px",
-				border: "1px solid #eee",
+				border: "1px solid var(--color-border-light)",
 				"border-radius": "8px",
-				background: "#fafafa",
+				background: "var(--color-bg-secondary)",
 				padding: "10px",
 				"box-sizing": "border-box",
 			}}
@@ -584,7 +584,11 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 					<label
 						style={{ display: "flex", gap: "6px", "align-items": "center" }}
 					>
-						<div style={{ "font-size": "12px", color: "#475569" }}>Depth</div>
+						<div
+							style={{ "font-size": "12px", color: "var(--color-text-muted)" }}
+						>
+							Depth
+						</div>
 						<select
 							value={String(depth())}
 							onChange={(e) => {

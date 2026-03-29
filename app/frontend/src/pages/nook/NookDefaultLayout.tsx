@@ -86,11 +86,13 @@ export function NookDefaultLayout(props: NookDefaultLayoutProps) {
 			>
 				{/* Main scrollable area: content + links together on desktop */}
 				<div class={styles.mainScroll}>
-					<div class={styles.panelContent}>
-						<NookMainPanel store={props.store} notePreview={notePreview} />
-					</div>
-					<div class={styles.panelLinks}>
-						<NookStatusPanel store={props.store} notePreview={notePreview} />
+					<div class={styles.mainScrollInner}>
+						<div class={styles.panelContent}>
+							<NookMainPanel store={props.store} notePreview={notePreview} />
+						</div>
+						<div class={styles.panelLinks}>
+							<NookStatusPanel store={props.store} notePreview={notePreview} />
+						</div>
 					</div>
 				</div>
 

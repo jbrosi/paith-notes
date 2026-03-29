@@ -1,4 +1,5 @@
 import { createMemo, createSignal, For, Show } from "solid-js";
+import styles from "./NoteTypeSearchSelect.module.css";
 
 export type NoteTypeSelectItem = {
 	id: string;
@@ -14,7 +15,6 @@ export type NoteTypeSearchSelectProps = {
 	disabled?: boolean;
 	placeholder?: string;
 	noneLabel?: string;
-	/** When provided, applied as `class` on the trigger button (overrides inline pill styles). */
 	triggerClass?: string;
 };
 
@@ -107,7 +107,7 @@ export function NoteTypeSearchSelect(props: NoteTypeSearchSelectProps) {
 
 	return (
 		<div
-			style={{ position: "relative", display: "inline-block" }}
+			class={styles.wrapper}
 			onFocusOut={(e) => {
 				const next = e.relatedTarget as Node | null;
 				if (!next || !e.currentTarget.contains(next)) {
@@ -118,43 +118,19 @@ export function NoteTypeSearchSelect(props: NoteTypeSearchSelectProps) {
 			<Show
 				when={props.triggerClass}
 				fallback={
-					// Default: pill/badge style used in note detail
 					<button
 						type="button"
 						disabled={props.disabled}
 						onClick={doOpen}
-						style={{
-							display: "inline-flex",
-							"align-items": "center",
-							gap: "4px",
-							padding: "3px 10px",
-							"border-radius": "999px",
-							border: "1px solid #d0d7de",
-							background: props.value.trim() !== "" ? "#f6f8fa" : "#fafafa",
-							cursor: props.disabled ? "default" : "pointer",
-							"font-size": "12px",
-							"font-weight": "500",
-							color: props.value.trim() !== "" ? "#333" : "#888",
-							"line-height": "1.6",
-							"white-space": "nowrap",
-						}}
+						class={`${styles.triggerPill} ${props.value.trim() === "" ? styles.triggerPillEmpty : ""}`}
 					>
 						{triggerLabel()}
 						<Show when={!props.disabled}>
-							<span
-								style={{
-									opacity: "0.4",
-									"font-size": "9px",
-									"margin-left": "2px",
-								}}
-							>
-								▾
-							</span>
+							<span class={styles.triggerArrow}>▾</span>
 						</Show>
 					</button>
 				}
 			>
-				{/* triggerClass variant: used by nav, styles come from CSS module */}
 				<button
 					type="button"
 					class={props.triggerClass}
@@ -167,82 +143,34 @@ export function NoteTypeSearchSelect(props: NoteTypeSearchSelectProps) {
 			</Show>
 
 			<Show when={open()}>
-				<div
-					style={{
-						position: "absolute",
-						top: "calc(100% + 4px)",
-						left: "0",
-						"z-index": "200",
-						background: "white",
-						border: "1px solid #d0d7de",
-						"border-radius": "8px",
-						"box-shadow": "0 8px 24px rgba(0,0,0,0.12)",
-						"min-width": "200px",
-						width: "max-content",
-						"max-width": "320px",
-						overflow: "hidden",
-					}}
-				>
-					<div style={{ padding: "8px" }}>
+				<div class={styles.dropdown}>
+					<div class={styles.searchBox}>
 						<input
 							ref={inputRef}
 							type="text"
 							value={query()}
-							placeholder="Search types…"
+							placeholder="Search types..."
 							onInput={(e) => setQuery(e.currentTarget.value)}
 							onKeyDown={(e) => {
 								if (e.key === "Escape") doClose();
 							}}
-							style={{
-								width: "100%",
-								padding: "5px 8px",
-								border: "1px solid #d0d7de",
-								"border-radius": "6px",
-								"font-size": "13px",
-								"box-sizing": "border-box",
-								outline: "none",
-							}}
+							class={styles.searchInput}
 						/>
 					</div>
-					<div
-						style={{
-							"max-height": "280px",
-							overflow: "auto",
-							"padding-bottom": "6px",
-						}}
-					>
+					<div class={styles.list}>
 						<button
 							type="button"
+							class={styles.noneOption}
 							onMouseDown={(e) => {
 								e.preventDefault();
 								choose("");
-							}}
-							style={{
-								width: "100%",
-								padding: "6px 12px",
-								"text-align": "left",
-								border: "none",
-								background: "transparent",
-								cursor: "pointer",
-								"font-size": "13px",
-								color: "#888",
 							}}
 						>
 							{props.noneLabel ?? "(none)"}
 						</button>
 						<Show
 							when={treeItems().length > 0}
-							fallback={
-								<div
-									style={{
-										padding: "6px 12px",
-										color: "#888",
-										"font-size": "13px",
-									}}
-								>
-									No types found
-								</div>
-							}
+							fallback={<div class={styles.emptyText}>No types found</div>}
 						>
 							<For each={treeItems()}>
 								{(t) => (
@@ -252,33 +180,12 @@ export function NoteTypeSearchSelect(props: NoteTypeSearchSelectProps) {
 											e.preventDefault();
 											choose(t.id);
 										}}
-										style={{
-											width: "100%",
-											padding: "6px 12px",
-											"padding-left": `${12 + t.depth * 14}px`,
-											"text-align": "left",
-											border: "none",
-											background:
-												t.id === props.value ? "#f0f6ff" : "transparent",
-											cursor: "pointer",
-											"font-size": "13px",
-											color: "#333",
-											display: "flex",
-											"justify-content": "space-between",
-											"align-items": "center",
-										}}
+										class={`${styles.typeOption} ${t.id === props.value ? styles.typeOptionActive : ""}`}
+										style={{ "padding-left": `${12 + t.depth * 14}px` }}
 									>
 										<span>{t.label}</span>
 										<Show when={t.key.trim() !== ""}>
-											<span
-												style={{
-													color: "#888",
-													"font-size": "11px",
-													"margin-left": "8px",
-												}}
-											>
-												{t.key}
-											</span>
+											<span class={styles.typeKey}>{t.key}</span>
 										</Show>
 									</button>
 								)}
