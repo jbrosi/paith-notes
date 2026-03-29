@@ -20,6 +20,7 @@ services:
     working_dir: /workspace
 
   mcp:
+    image: ${MCP_IMAGE:-notes-mcp}
     build:
       context: ./app/mcp
       target: dev

@@ -14,6 +14,14 @@
         reverse_proxy files:8080
     }
 
+    @mcp {
+        path /nooks/*/chat* /mcp* /.well-known/oauth-protected-resource
+    }
+
+    handle @mcp {
+        reverse_proxy mcp:3000
+    }
+
     handle @php {
         root * /app/api
         php_server {

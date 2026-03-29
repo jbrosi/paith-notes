@@ -305,18 +305,8 @@ final class GlobalSchema
 
             $pdo->exec('create index if not exists conversations_nook_user_idx on global.conversations (nook_id, user_id)');
 
-            $pdo->exec("
-                create table if not exists global.conversation_messages (
-                    id              uuid        primary key default gen_random_uuid(),
-                    conversation_id uuid        not null references global.conversations(id) on delete cascade,
-                    role            text        not null,
-                    content         jsonb       not null,
-                    model           text        null,
-                    created_at      timestamptz not null default now()
-                );
-            ");
-
-            $pdo->exec('create index if not exists conversation_messages_conversation_idx on global.conversation_messages (conversation_id, created_at)');
+            // Drop legacy conversation_messages table (replaced by conversation_blocks)
+            $pdo->exec('drop table if exists global.conversation_messages');
 
             // Block-level conversation storage: one row per content block, grouped by turn_id
             $pdo->exec("
