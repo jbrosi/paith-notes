@@ -96,7 +96,7 @@ export function MarkdownView(props: Props) {
 		}
 	});
 
-	// After HTML is rendered, highlight code blocks and render mermaid diagrams
+	// After HTML is rendered, highlight code blocks and render mermaid
 	createEffect(() => {
 		const rendered = html();
 		if (!containerEl || !rendered) return;
