@@ -379,7 +379,7 @@ final class NotesController
             $pdo->beginTransaction();
 
             $stmt = $pdo->prepare(
-                'update global.notes set title = :title, content = :content, type = :type, type_id = :type_id, properties = :properties, former_properties = :former_properties where id = :id and nook_id = :nook_id returning id, created_at'
+                'update global.notes set title = :title, content = :content, type = :type, type_id = :type_id, properties = :properties, former_properties = :former_properties, updated_at = now() where id = :id and nook_id = :nook_id returning id, created_at, updated_at'
             );
             $stmt->execute([
                 ':id' => $noteId,

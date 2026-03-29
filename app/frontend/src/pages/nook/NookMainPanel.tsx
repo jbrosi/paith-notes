@@ -1,10 +1,9 @@
-import { createEffect, createMemo, Show } from "solid-js";
+import { createEffect, onCleanup, onMount, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 import { useUi } from "../../ui/UiContext";
 import notesStyles from "../Notes.module.css";
 import { EditorSection } from "./components/EditorSection";
 import { FilePanel } from "./components/FilePanel";
-import { PrimaryTypeSelect } from "./components/PrimaryTypeSelect";
 import { TitleSection } from "./components/TitleSection";
 import { NookNoteLinksPanel } from "./NookNoteLinksPanel";
 import { NookToolbar } from "./NookToolbar";
@@ -18,17 +17,22 @@ export type NookMainPanelProps = {
 export function NookMainPanel(props: NookMainPanelProps) {
 	const store = () => props.store;
 	const ui = useUi();
-	const primaryTypeLabel = createMemo(() => {
-		const tid = store().typeId().trim();
-		if (tid === "") return "";
-		const t = store()
-			.noteTypes()
-			.find((x) => x.id === tid);
-		return t ? t.label : "";
-	});
 
 	createEffect(() => {
 		store().setMode(ui.mode());
+	});
+
+	onMount(() => {
+		const onKeyDown = (e: KeyboardEvent) => {
+			if ((e.ctrlKey || e.metaKey) && e.key === "s") {
+				if (ui.mode() === "edit" && store().selectedId() !== "") {
+					e.preventDefault();
+					store().saveNote();
+				}
+			}
+		};
+		document.addEventListener("keydown", onKeyDown);
+		onCleanup(() => document.removeEventListener("keydown", onKeyDown));
 	});
 
 	return (
@@ -45,30 +49,17 @@ export function NookMainPanel(props: NookMainPanelProps) {
 			<div style={{ flex: "1", "min-width": "0" }}>
 				<div class={notesStyles["add-note-container"]}>
 					<NookToolbar
-						nookId={store().nookId()}
 						mode={ui.mode()}
 						loading={store().loading()}
 						title={store().title()}
 						selectedId={store().selectedId()}
-						notes={store().allNotes()}
-						noteTypes={store().noteTypes()}
-						mentionTargetId={store().mentionTargetId()}
-						mentionEmbedImage={store().mentionEmbedImage()}
-						mentionCanEmbedImage={store().mentionCanEmbedImage()}
-						onChangeMentionTargetId={store().setMentionTargetId}
-						onChangeMentionEmbedImage={store().setMentionEmbedImage}
-						onInsertMention={store().insertMention}
 						onSave={store().saveNote}
 						onDelete={store().deleteNote}
 					/>
 				</div>
 
-				<Show when={store().mode() === "edit"}>
-					<PrimaryTypeSelect store={store()} />
-				</Show>
-
 				<FilePanel store={store()} />
-				<TitleSection store={store()} primaryTypeLabel={primaryTypeLabel} />
+				<TitleSection store={store()} />
 				<EditorSection store={store()} />
 
 				<Show when={store().selectedId() !== ""}>

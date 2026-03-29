@@ -9,16 +9,35 @@ services:
     environment:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       DATABASE_URL: "postgresql://paith:paith@db:5432/paith"
+      HOME: /home/ubuntu
     depends_on:
       - db
       - frontend
       - app
     volumes:
-      - ./app:/app
-      - ./scripts:/app/scripts
+      - .:/workspace
       - claude_home:/root
-      - frontend_node_modules:/app/frontend/node_modules
-    working_dir: /app
+    working_dir: /workspace
+
+  mcp:
+    build:
+      context: ./app/mcp
+      target: dev
+    volumes:
+      - ./app/mcp/src:/app/src
+    ports:
+      - "3001:3000"
+    env_file:
+      - path: ~/.config/paith/mcp.env
+        required: false
+    environment:
+      KEYCLOAK_BASE_URL: ${KEYCLOAK_BASE_URL:-http://keycloak:8080}
+      KEYCLOAK_REALM: ${KEYCLOAK_REALM:-master}
+      API_BASE_URL: http://app:8000
+      MCP_SERVER_URL: ${MCP_SERVER_URL:-https://mcp.paith.example.com}
+    depends_on:
+      - app
+    restart: unless-stopped
 
   app:
     image: ${APP_IMAGE:-notes-app}
@@ -58,6 +77,7 @@ services:
       VITE_KEYCLOAK_URL: ${KEYCLOAK_BASE_URL:-}
       VITE_KEYCLOAK_REALM: ${KEYCLOAK_REALM:-}
       VITE_KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:-}
+      MCP_URL: http://mcp:3000
     volumes:
       - ./app/frontend:/app/frontend
       - frontend_node_modules:/app/frontend/node_modules

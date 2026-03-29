@@ -751,10 +751,15 @@ it('file notes can request upload and download presigned URLs', function (): voi
     );
     expect($claimPut['status'])->toBe(200);
 
-    if (!is_dir('/data/tmp')) {
-        @mkdir('/data/tmp', 0777, true);
+    $dataPath = trim((string)getenv('FILES_DATA_PATH'));
+    if ($dataPath === '') {
+        $dataPath = '/data';
     }
-    file_put_contents('/data/tmp/' . $uploadId, 'abc');
+    $tmpDir = rtrim($dataPath, '/') . '/tmp';
+    if (!is_dir($tmpDir)) {
+        @mkdir($tmpDir, 0777, true);
+    }
+    file_put_contents($tmpDir . '/' . $uploadId, 'abc');
 
     // Finalize creates the note for the file
     $finalize = App::handle(

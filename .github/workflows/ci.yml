@@ -18,6 +18,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          tools: composer
+          coverage: none
+
       - name: Prepare CI cache dirs
         run: mkdir -p .ci-cache/composer
 
@@ -41,6 +47,10 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
 
       - name: Prepare CI cache dirs
         run: mkdir -p .ci-cache/yarn
@@ -68,6 +78,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          tools: composer
+          coverage: none
+
       - name: Prepare CI cache dirs
         run: mkdir -p .ci-cache/composer
 
@@ -91,6 +107,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
       - name: Prepare CI cache dirs
         run: mkdir -p .ci-cache/yarn
 
@@ -100,7 +120,10 @@ jobs:
           path: .ci-cache/yarn
           key: yarn-${{ runner.os }}-${{ hashFiles('app/frontend/package.json', 'app/frontend/yarn.lock') }}
 
-      - name: Frontend lint (Biome)
+      - name: Install frontend dependencies
+        run: sh scripts/ci-install-frontend.sh
+
+      - name: Frontend lint (Biome + stylelint + tsc)
         run: sh scripts/ci-lint-frontend.sh
 
   test-frontend-component:
@@ -191,8 +214,33 @@ jobs:
     needs:
       - install-php
 
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: paith
+          POSTGRES_USER: paith
+          POSTGRES_PASSWORD: paith
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+        ports:
+          - 5432:5432
+
+    env:
+      DATABASE_URL: postgresql://paith:paith@localhost:5432/paith
+
     steps:
       - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          tools: composer
+          extensions: pdo_pgsql, pcov
+          coverage: pcov
 
       - name: Prepare CI cache dirs
         run: mkdir -p .ci-cache/composer
@@ -202,6 +250,9 @@ jobs:
         with:
           path: .ci-cache/composer
           key: composer-${{ runner.os }}-${{ hashFiles('app/api/composer.json', 'app/api/composer.lock', 'app/worker/composer.json', 'app/worker/composer.lock') }}
+
+      - name: Install PHP dependencies
+        run: sh scripts/ci-install-php.sh
 
       - name: Pest (with coverage)
         run: sh scripts/ci-test-php.sh
@@ -250,7 +301,7 @@ jobs:
           path: app/api/coverage
 
       - name: SonarCloud Scan
-        uses: SonarSource/sonarcloud-github-action@v3
+        uses: SonarSource/sonarqube-scan-action@v7
         env:
           SONAR_TOKEN: ${{ env.SONAR_TOKEN }}
         with:

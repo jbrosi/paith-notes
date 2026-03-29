@@ -36,14 +36,6 @@ if (root) {
 							)}
 						/>
 						<Route
-							path="/nooks/:nookId"
-							component={() => (
-								<RequireAuth redirectTo="/nooks">
-									<Nook />
-								</RequireAuth>
-							)}
-						/>
-						<Route
 							path="/nooks/:nookId/*path"
 							component={() => (
 								<RequireAuth redirectTo="/nooks">

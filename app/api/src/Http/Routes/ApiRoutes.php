@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Paith\Notes\Api\Http\Routes;
 
 use Paith\Notes\Api\Http\Controller\AuthController;
+use Paith\Notes\Api\Http\Controller\ChatController;
+use Paith\Notes\Api\Http\Controller\ConversationsController;
 use Paith\Notes\Api\Http\Controller\FileNotesController;
 use Paith\Notes\Api\Http\Controller\FilesController;
 use Paith\Notes\Api\Http\Controller\HealthController;
@@ -32,6 +34,12 @@ final class ApiRoutes
 
         // Used by the nginx files sidecar via auth_request
         $r->get('/files/auth', [FilesController::class, 'auth']);
+
+        $r->use('/chat', new RequireUser());
+        $r->use('/chat', new RequireGroup('paith/notes/'));
+
+        // Used by the Node.js chat service for forward-auth (browser session cookie → user identity)
+        $r->get('/chat/auth', [ChatController::class, 'auth']);
 
         $r->use('/files', new RequireUser());
         $r->use('/files', new RequireGroup('paith/notes/'));
@@ -81,6 +89,15 @@ final class ApiRoutes
 
         $r->post('/nooks/{nookId}/file/upload-url', [FileNotesController::class, 'fileUploadUrlInit']);
         $r->post('/nooks/{nookId}/file/finalize', [FileNotesController::class, 'fileFinalizeCreateNote']);
+
+        $r->use('/conversations', new RequireUser());
+        $r->use('/conversations', new RequireGroup('paith/notes/'));
+
+        $r->get('/conversations', [ConversationsController::class, 'list']);
+        $r->post('/conversations', [ConversationsController::class, 'create']);
+        $r->get('/conversations/{conversationId}/messages', [ConversationsController::class, 'listMessages']);
+        $r->post('/conversations/{conversationId}/messages', [ConversationsController::class, 'appendMessages']);
+        $r->post('/conversations/{conversationId}/note-links', [ConversationsController::class, 'createNoteLink']);
 
         $r->group('/module_1', [Module1Routes::class, 'register']);
     }
