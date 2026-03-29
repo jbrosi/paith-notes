@@ -72,16 +72,20 @@ async function resolveImages(
 	return result;
 }
 
+/** Quick check if content has mermaid fenced blocks (avoids lazy import when not needed) */
+function hasMermaid(content: string): boolean {
+	return /```mermaid\b/i.test(content);
+}
+
 export function MarkdownView(props: Props) {
 	const [html, setHtml] = createSignal("");
+	let containerEl: HTMLDivElement | undefined;
 
 	createEffect(() => {
 		const raw = props.content;
-		// Expand wiki-links synchronously
 		const expanded = expandWikiLinks(raw, props.resolveNoteTitle);
 
 		if (props.resolveEmbeddedImageSrc) {
-			// Resolve images async, then render
 			void resolveImages(expanded, props.resolveEmbeddedImageSrc).then(
 				(resolved) => {
 					setHtml(marked.parse(resolved) as string);
@@ -90,6 +94,20 @@ export function MarkdownView(props: Props) {
 		} else {
 			setHtml(marked.parse(expanded) as string);
 		}
+	});
+
+	// After HTML is rendered, check for mermaid blocks and render them
+	createEffect(() => {
+		const rendered = html();
+		if (!containerEl || !rendered || !hasMermaid(props.content)) return;
+
+		// Defer to next microtask so innerHTML is applied first
+		queueMicrotask(() => {
+			if (!containerEl) return;
+			void import("./mermaid").then(({ renderMermaidBlocks }) =>
+				renderMermaidBlocks(containerEl as HTMLElement),
+			);
+		});
 	});
 
 	const handleClick = (e: MouseEvent) => {
@@ -132,6 +150,7 @@ export function MarkdownView(props: Props) {
 		// biome-ignore lint/a11y/useKeyWithMouseEvents: hover preview is mouse-only
 		// biome-ignore lint/a11y/noStaticElementInteractions: event delegation on rendered HTML
 		<div
+			ref={containerEl}
 			class={`${styles.markdown} ${props.class ?? ""}`}
 			innerHTML={html()}
 			onClick={handleClick}

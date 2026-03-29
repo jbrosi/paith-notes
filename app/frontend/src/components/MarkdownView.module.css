@@ -129,3 +129,20 @@
 	color: #1e40af;
 	text-decoration-style: solid;
 }
+
+/* Mermaid diagrams — classes set via JS, not CSS modules */
+/* stylelint-disable selector-pseudo-class-no-unknown */
+.markdown :global(.mermaid-diagram) {
+	margin: 0.5em 0;
+	overflow-x: auto;
+}
+
+.markdown :global(.mermaid-diagram) svg {
+	max-width: 100%;
+	height: auto;
+}
+
+.markdown :global(.mermaid-error) {
+	border-left: 3px solid #ef4444;
+}
+/* stylelint-enable selector-pseudo-class-no-unknown */
