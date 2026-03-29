@@ -96,3 +96,43 @@
 	color: var(--color-text);
 	background: var(--color-bg-hover);
 }
+
+.advancedToggle {
+	background: none;
+	border: none;
+	cursor: pointer;
+	font-size: 0.875rem;
+	color: var(--color-text-muted);
+	padding: 4px 0;
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	margin-bottom: 8px;
+}
+
+.advancedToggle:hover {
+	color: var(--color-text);
+}
+
+.advancedArrow {
+	font-size: 0.7rem;
+}
+
+.seedGrid {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	margin-bottom: 12px;
+}
+
+.seedRow {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	font-size: 0.875rem;
+}
+
+.seedLabel {
+	min-width: 80px;
+	color: var(--color-text-secondary);
+}

@@ -17,7 +17,10 @@ import { useNook } from "./nook/NookContext";
 import { NookDefaultLayout } from "./nook/NookDefaultLayout";
 import { NookGraphPanel } from "./nook/NookGraphPanel";
 import { NookLinksPanel } from "./nook/NookLinksPanel";
-import { NookSettingsLanding } from "./nook/NookSettingsLanding";
+import {
+	applyNookSeeds,
+	NookSettingsLanding,
+} from "./nook/NookSettingsLanding";
 import { NookTypesSettingsView } from "./nook/NookTypesSettingsView";
 import { createNookStore } from "./nook/store";
 
@@ -37,7 +40,10 @@ export default function Nook() {
 	const [nookName, setNookName] = createSignal("");
 	createEffect(() => {
 		const id = nookId();
-		if (id) ui.loadNookAccent(id);
+		if (id) {
+			ui.loadNookAccent(id);
+			applyNookSeeds(id);
+		}
 	});
 	createEffect(() => {
 		nookCtx.setStore(store);
