@@ -6,7 +6,8 @@ set -eu
 ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 export COMPOSER_CACHE_DIR="$ROOT_DIR/.ci-cache/composer"
 
-mkdir -p "$ROOT_DIR/.ci-cache/composer" /data/tmp /data/notes
+mkdir -p "$ROOT_DIR/.ci-cache/composer" "$ROOT_DIR/.ci-cache/files-data/tmp" "$ROOT_DIR/.ci-cache/files-data/notes"
+export FILES_DATA_PATH="$ROOT_DIR/.ci-cache/files-data"
 
 cd "$ROOT_DIR/app/api"
 mkdir -p coverage
