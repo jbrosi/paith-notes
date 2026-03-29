@@ -17,7 +17,6 @@ import { useNook } from "./nook/NookContext";
 import { NookDefaultLayout } from "./nook/NookDefaultLayout";
 import { NookGraphPanel } from "./nook/NookGraphPanel";
 import { NookLinksPanel } from "./nook/NookLinksPanel";
-import { NookMarkdownView } from "./nook/NookMarkdownView";
 import { NookSettingsLanding } from "./nook/NookSettingsLanding";
 import { NookTypesSettingsView } from "./nook/NookTypesSettingsView";
 import { createNookStore } from "./nook/store";
@@ -118,13 +117,9 @@ export default function Nook() {
 	);
 
 	const selectedNoteIdFromPath = createMemo(() => {
-		const m = normalizedSubPath().match(/^notes\/([^/]+)(?:\/markdown)?$/);
+		const m = normalizedSubPath().match(/^notes\/([^/]+)$/);
 		return m?.[1] ? String(m[1]) : "";
 	});
-
-	const isMarkdownRoute = createMemo(() =>
-		/^notes\/[^/]+\/markdown$/u.test(normalizedSubPath()),
-	);
 
 	const isNoteRoute = createMemo(() => {
 		const p = normalizedSubPath();
@@ -178,9 +173,8 @@ export default function Nook() {
 			return;
 		}
 		if (current === id) return;
-		const suffix = isMarkdownRoute() ? "/markdown" : "";
 		navigate(
-			`/nooks/${encodeURIComponent(nookId())}/notes/${encodeURIComponent(id)}${suffix}`,
+			`/nooks/${encodeURIComponent(nookId())}/notes/${encodeURIComponent(id)}`,
 			{ replace: true },
 		);
 	});
@@ -242,25 +236,18 @@ export default function Nook() {
 								when={showTypesSettings()}
 								fallback={
 									<Show
-										when={isMarkdownRoute()}
+										when={isGraphFullscreen()}
 										fallback={
-											<Show
-												when={isGraphFullscreen()}
-												fallback={
-													<NookDefaultLayout
-														nookId={nookId()}
-														store={store}
-														showGraph={ui.graphPanelOpen()}
-													/>
-												}
-											>
-												<div style={{ width: "100%" }}>
-													<NookGraphPanel store={store} fullscreen={true} />
-												</div>
-											</Show>
+											<NookDefaultLayout
+												nookId={nookId()}
+												store={store}
+												showGraph={ui.graphPanelOpen()}
+											/>
 										}
 									>
-										<NookMarkdownView store={store} />
+										<div style={{ width: "100%" }}>
+											<NookGraphPanel store={store} fullscreen={true} />
+										</div>
 									</Show>
 								}
 							>

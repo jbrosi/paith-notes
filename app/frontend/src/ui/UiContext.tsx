@@ -6,6 +6,18 @@ import {
 	useContext,
 } from "solid-js";
 
+export type MobilePanel = "content" | "links" | "graph" | "chat" | "markdown";
+
+export const MOBILE_PANELS: MobilePanel[] = [
+	"content",
+	"links",
+	"graph",
+	"chat",
+	"markdown",
+];
+
+export type ThemeMode = "system" | "light" | "dark";
+
 export type UiState = {
 	mode: () => "view" | "edit";
 	setMode: (next: "view" | "edit") => void;
@@ -19,6 +31,13 @@ export type UiState = {
 	chatPanelOpen: () => boolean;
 	setChatPanelOpen: (next: boolean) => void;
 	toggleChatPanel: () => void;
+	activePanel: () => MobilePanel;
+	setActivePanel: (next: MobilePanel) => void;
+	nextPanel: () => void;
+	prevPanel: () => void;
+	theme: () => ThemeMode;
+	setTheme: (next: ThemeMode) => void;
+	cycleTheme: () => void;
 };
 
 const UiContext = createContext<UiState>();
@@ -27,12 +46,17 @@ const MODE_STORAGE_KEY = "paith-notes:mode";
 const GRAPH_PANEL_OPEN_STORAGE_KEY = "paith-notes:graphPanelOpen";
 const TYPES_PANEL_OPEN_STORAGE_KEY = "paith-notes:typesPanelOpen";
 const CHAT_PANEL_OPEN_STORAGE_KEY = "paith-notes:chatPanelOpen";
+const ACTIVE_PANEL_STORAGE_KEY = "paith-notes:activePanel";
+const THEME_STORAGE_KEY = "paith-notes:theme";
 
 export function UiProvider(props: { children: JSX.Element }) {
 	const [mode, setModeSignal] = createSignal<"view" | "edit">("view");
 	const [graphPanelOpen, setGraphPanelOpenSignal] = createSignal<boolean>(true);
 	const [typesPanelOpen, setTypesPanelOpenSignal] = createSignal<boolean>(true);
 	const [chatPanelOpen, setChatPanelOpenSignal] = createSignal<boolean>(false);
+	const [activePanel, setActivePanelSignal] =
+		createSignal<MobilePanel>("content");
+	const [theme, setThemeSignal] = createSignal<ThemeMode>("system");
 
 	onMount(() => {
 		try {
@@ -59,6 +83,22 @@ export function UiProvider(props: { children: JSX.Element }) {
 			const v = window.localStorage.getItem(CHAT_PANEL_OPEN_STORAGE_KEY);
 			if (v === "0") setChatPanelOpenSignal(false);
 			if (v === "1") setChatPanelOpenSignal(true);
+		} catch {
+			// ignore
+		}
+		try {
+			const v = window.localStorage.getItem(ACTIVE_PANEL_STORAGE_KEY);
+			if (v === "content" || v === "links" || v === "graph" || v === "chat")
+				setActivePanelSignal(v);
+		} catch {
+			// ignore
+		}
+		try {
+			const v = window.localStorage.getItem(THEME_STORAGE_KEY);
+			if (v === "light" || v === "dark" || v === "system") {
+				setThemeSignal(v);
+				applyTheme(v);
+			}
 		} catch {
 			// ignore
 		}
@@ -109,6 +149,51 @@ export function UiProvider(props: { children: JSX.Element }) {
 		}
 	};
 
+	const setActivePanel = (next: MobilePanel) => {
+		setActivePanelSignal(next);
+		try {
+			window.localStorage.setItem(ACTIVE_PANEL_STORAGE_KEY, next);
+		} catch {
+			// ignore
+		}
+	};
+
+	const applyTheme = (t: ThemeMode) => {
+		if (t === "system") {
+			document.documentElement.removeAttribute("data-theme");
+		} else {
+			document.documentElement.setAttribute("data-theme", t);
+		}
+	};
+
+	const setTheme = (next: ThemeMode) => {
+		setThemeSignal(next);
+		applyTheme(next);
+		try {
+			window.localStorage.setItem(THEME_STORAGE_KEY, next);
+		} catch {
+			// ignore
+		}
+	};
+
+	const cycleTheme = () => {
+		const order: ThemeMode[] = ["system", "light", "dark"];
+		const idx = order.indexOf(theme());
+		setTheme(order[(idx + 1) % order.length]);
+	};
+
+	const nextPanel = () => {
+		const idx = MOBILE_PANELS.indexOf(activePanel());
+		setActivePanel(MOBILE_PANELS[(idx + 1) % MOBILE_PANELS.length]);
+	};
+
+	const prevPanel = () => {
+		const idx = MOBILE_PANELS.indexOf(activePanel());
+		setActivePanel(
+			MOBILE_PANELS[(idx - 1 + MOBILE_PANELS.length) % MOBILE_PANELS.length],
+		);
+	};
+
 	const toggleMode = () => setMode(mode() === "edit" ? "view" : "edit");
 	const toggleGraphPanel = () => setGraphPanelOpen(!graphPanelOpen());
 	const toggleTypesPanel = () => setTypesPanelOpen(!typesPanelOpen());
@@ -129,6 +214,13 @@ export function UiProvider(props: { children: JSX.Element }) {
 				chatPanelOpen,
 				setChatPanelOpen,
 				toggleChatPanel,
+				activePanel,
+				setActivePanel,
+				nextPanel,
+				prevPanel,
+				theme,
+				setTheme,
+				cycleTheme,
 			}}
 		>
 			{props.children}

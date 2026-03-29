@@ -1,7 +1,7 @@
 .container {
-	border: 1px solid #fbbf24;
+	border: 1px solid var(--color-warning-border);
 	border-radius: 8px;
-	background: #fffbeb;
+	background: var(--color-warning-bg);
 	padding: 12px;
 	display: flex;
 	flex-direction: column;
@@ -11,13 +11,13 @@
 
 .title {
 	font-weight: 600;
-	color: #92400e;
+	color: var(--color-warning-text);
 	margin: 0 0 4px;
 }
 
 .toolItem {
-	background: #fff;
-	border: 1px solid #e5e7eb;
+	background: var(--color-bg);
+	border: 1px solid var(--color-border-medium);
 	border-radius: 6px;
 	padding: 8px;
 	font-family: monospace;
@@ -27,17 +27,17 @@
 }
 
 .toolItem.write {
-	border-color: #fbbf24;
+	border-color: var(--color-warning-border);
 }
 
 .toolItem.destructive {
-	border-color: #ef4444;
-	background: #fef2f2;
+	border-color: var(--color-danger-border);
+	background: var(--color-danger-bg);
 }
 
 .toolName {
 	font-weight: 600;
-	color: #1d4ed8;
+	color: var(--color-primary);
 	margin-bottom: 4px;
 	display: flex;
 	align-items: center;
@@ -45,7 +45,7 @@
 }
 
 .destructive .toolName {
-	color: #b91c1c;
+	color: var(--color-danger);
 }
 
 .badge {
@@ -57,13 +57,13 @@
 }
 
 .badgeWrite {
-	background: #fef3c7;
-	color: #92400e;
+	background: var(--color-warning-bg);
+	color: var(--color-warning-text);
 }
 
 .badgeDestructive {
-	background: #fee2e2;
-	color: #b91c1c;
+	background: var(--color-danger-bg);
+	color: var(--color-danger);
 }
 
 .inputTable {
@@ -82,7 +82,7 @@
 }
 
 .inputKey {
-	color: #6b7280;
+	color: var(--color-text-muted);
 	white-space: nowrap;
 	flex-shrink: 0;
 }
@@ -92,21 +92,21 @@
 }
 
 .inputVal {
-	color: #111827;
+	color: var(--color-text);
 	word-break: break-all;
 }
 
 .noteLink {
-	color: #1d4ed8;
+	color: var(--color-primary);
 	text-decoration: underline;
 }
 
 .noteLink:hover {
-	color: #1e40af;
+	color: var(--color-primary-hover);
 }
 
 .resolvedLabel {
-	color: #111827;
+	color: var(--color-text);
 	font-style: italic;
 }
 

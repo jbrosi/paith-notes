@@ -8,6 +8,7 @@ import {
 	Show,
 } from "solid-js";
 import { apiFetch } from "../../auth/keycloak";
+import styles from "./NookGraphPanel.module.css";
 import type { NookStore } from "./store";
 import { type NoteLink, NoteLinksListResponseSchema } from "./types";
 
@@ -569,22 +570,13 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 
 	return (
 		<div
-			style={{
-				width: fullscreen() ? "100%" : "300px",
-				border: "1px solid #eee",
-				"border-radius": "8px",
-				background: "#fafafa",
-				padding: "10px",
-				"box-sizing": "border-box",
-			}}
+			class={`${styles.container} ${fullscreen() ? styles.containerFullscreen : ""}`}
 		>
-			<div style={{ display: "flex", "justify-content": "space-between" }}>
-				<div style={{ "font-weight": 600 }}>Graph</div>
-				<div style={{ display: "flex", gap: "6px" }}>
-					<label
-						style={{ display: "flex", gap: "6px", "align-items": "center" }}
-					>
-						<div style={{ "font-size": "12px", color: "#475569" }}>Depth</div>
+			<div class={styles.header}>
+				<div class={styles.title}>Graph</div>
+				<div class={styles.controls}>
+					<label class={styles.controlLabel}>
+						<span class={styles.controlLabelText}>Depth</span>
 						<select
 							value={String(depth())}
 							onChange={(e) => {
@@ -594,14 +586,7 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 								);
 							}}
 							disabled={noteId().trim() === ""}
-							style={{
-								border: "1px solid #ddd",
-								"border-radius": "6px",
-								background: "white",
-								padding: "4px 6px",
-								cursor: "pointer",
-								"font-size": "12px",
-							}}
+							class={styles.controlSelect}
 						>
 							<option value="1">1</option>
 							<option value="2">2</option>
@@ -612,30 +597,18 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 					</label>
 					<button
 						type="button"
+						class={styles.controlBtn}
 						onClick={onCenter}
 						disabled={noteId().trim() === ""}
-						style={{
-							border: "1px solid #ddd",
-							"border-radius": "6px",
-							background: "white",
-							padding: "4px 8px",
-							cursor: "pointer",
-						}}
 					>
 						Center
 					</button>
 					<Show when={!fullscreen()}>
 						<button
 							type="button"
+							class={styles.controlBtn}
 							onClick={onFullscreen}
 							disabled={noteId().trim() === ""}
-							style={{
-								border: "1px solid #ddd",
-								"border-radius": "6px",
-								background: "white",
-								padding: "4px 8px",
-								cursor: "pointer",
-							}}
 						>
 							Fullscreen
 						</button>
@@ -643,14 +616,8 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 					<Show when={fullscreen()}>
 						<button
 							type="button"
+							class={styles.controlBtn}
 							onClick={onCloseFullscreen}
-							style={{
-								border: "1px solid #ddd",
-								"border-radius": "6px",
-								background: "white",
-								padding: "4px 8px",
-								cursor: "pointer",
-							}}
 						>
 							Close
 						</button>
@@ -664,14 +631,7 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 						ref={(el) => {
 							svgEl = el;
 						}}
-						style={{
-							width: "100%",
-							height: fullscreen() ? "calc(100vh - 160px)" : "420px",
-							background: "white",
-							border: "1px solid #eee",
-							"border-radius": "6px",
-							"margin-top": "8px",
-						}}
+						class={`${styles.svgCanvas} ${fullscreen() ? styles.svgCanvasFullscreen : ""}`}
 					/>
 				</Show>
 			</Show>

@@ -57,6 +57,8 @@ export function NookMainPanel(props: NookMainPanelProps) {
 						selectedId={store().selectedId()}
 						onSave={store().saveNote}
 						onDelete={store().deleteNote}
+						onToggleMode={ui.toggleMode}
+						onNewNote={store().newNote}
 					/>
 				</div>
 

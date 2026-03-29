@@ -24,17 +24,17 @@
 
 /* Variants */
 .primary {
-	background-color: #3b82f6;
-	color: white;
+	background-color: var(--color-primary-light);
+	color: var(--color-text-on-primary);
 }
 
 .primary:hover {
-	background-color: #2563eb;
+	background-color: var(--color-primary-light);
 }
 
 .secondary {
-	background-color: #6b7280;
-	color: white;
+	background-color: var(--color-text-muted);
+	color: var(--color-text-on-primary);
 }
 
 .secondary:hover {
@@ -42,8 +42,8 @@
 }
 
 .danger {
-	background-color: #ef4444;
-	color: white;
+	background-color: var(--color-danger-border);
+	color: var(--color-text-on-primary);
 }
 
 .danger:hover {

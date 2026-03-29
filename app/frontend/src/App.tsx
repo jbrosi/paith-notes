@@ -1,21 +1,14 @@
 import type { RouteSectionProps } from "@solidjs/router";
+import styles from "./App.module.css";
 import { Nav } from "./components/Nav";
 import { NookProvider } from "./pages/nook/NookContext";
 
 export default function App(props: RouteSectionProps) {
 	return (
 		<NookProvider>
-			<div
-				style={{
-					display: "flex",
-					"flex-direction": "column",
-					height: "100%",
-				}}
-			>
+			<div class={styles.appShell}>
 				<Nav />
-				<div style={{ flex: "1", "min-height": "0", overflow: "hidden" }}>
-					{props.children}
-				</div>
+				<div class={styles.appContent}>{props.children}</div>
 			</div>
 		</NookProvider>
 	);

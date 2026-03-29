@@ -1,0 +1,213 @@
+/* stylelint-disable selector-class-pattern, declaration-no-important */
+
+/* ── Variable + spacing overrides ────────────────────────── */
+
+.milkdown {
+	--crepe-font-default: inherit;
+	--crepe-font-title: inherit;
+	--crepe-font-code:
+		ui-monospace, "Cascadia Code", "Source Code Pro", menlo, consolas, monospace;
+	--crepe-color-background: transparent;
+	--crepe-color-surface: var(--color-bg-code);
+	--crepe-color-surface-low: var(--color-bg-code);
+	--crepe-color-on-surface: var(--color-text-on-dark);
+	--crepe-color-inline-code: var(--color-text);
+	--crepe-color-inline-area: var(--color-bg-inline-code);
+	--crepe-color-primary: var(--color-primary);
+	--crepe-color-outline: var(--color-border-medium);
+	--crepe-color-selected: var(--color-bg-selected);
+	--crepe-shadow-1: none;
+	--crepe-shadow-2: none;
+
+	padding: 8px 2px !important;
+	border: none !important;
+	box-shadow: none !important;
+}
+
+.milkdown .ProseMirror {
+	padding: 0 !important;
+	margin: 0 !important;
+	font-size: 0.875rem;
+	line-height: 1.6;
+	color: var(--color-text);
+	caret-color: var(--color-text);
+}
+
+.milkdown .ProseMirror:focus {
+	outline: none;
+}
+
+.milkdown .ProseMirror-focused {
+	--prosemirror-virtual-cursor-color: transparent;
+}
+
+.milkdown .editor {
+	padding: 0 !important;
+}
+
+/* ── Typography — match MarkdownView ─────────────────────── */
+
+.milkdown .ProseMirror p {
+	font-size: 0.875rem !important;
+	line-height: 1.6 !important;
+	padding: 0 !important;
+	margin: 0 0 0.5em !important;
+}
+
+.milkdown .ProseMirror p:last-child {
+	margin-bottom: 0 !important;
+}
+
+.milkdown .ProseMirror h1,
+.milkdown .ProseMirror h2,
+.milkdown .ProseMirror h3,
+.milkdown .ProseMirror h4,
+.milkdown .ProseMirror h5,
+.milkdown .ProseMirror h6 {
+	margin: 0.8em 0 0.3em !important;
+	font-weight: 600 !important;
+	line-height: 1.3 !important;
+	padding: 0 !important;
+}
+
+.milkdown .ProseMirror h1 {
+	font-size: 1.25rem !important;
+}
+
+.milkdown .ProseMirror h2 {
+	font-size: 1.125rem !important;
+}
+
+.milkdown .ProseMirror h3 {
+	font-size: 1rem !important;
+}
+
+.milkdown .ProseMirror h4,
+.milkdown .ProseMirror h5,
+.milkdown .ProseMirror h6 {
+	font-size: 0.875rem !important;
+}
+
+/* ── Lists ───────────────────────────────────────────────── */
+
+.milkdown .ProseMirror ul,
+.milkdown .ProseMirror ol {
+	margin: 0.3em 0 0.5em !important;
+	padding-left: 1.5em !important;
+}
+
+.milkdown .ProseMirror li {
+	margin-bottom: 0.15em;
+}
+
+/* ── Blockquote ──────────────────────────────────────────── */
+
+.milkdown .ProseMirror blockquote {
+	margin: 0.3em 0 0.5em !important;
+	padding: 0.3em 0.8em !important;
+	padding-left: 0.8em !important;
+	border-left: 3px solid var(--color-border-medium);
+	color: var(--color-text-muted);
+}
+
+.milkdown .ProseMirror blockquote::before {
+	display: none !important;
+}
+
+/* ── Code blocks ─────────────────────────────────────────── */
+
+.milkdown .milkdown-code-block {
+	background: var(--color-bg-code) !important;
+	padding: 10px 12px !important;
+	border-radius: 6px !important;
+	margin: 0.4em 0 !important;
+}
+
+.milkdown .milkdown-code-block .cm-editor {
+	background: var(--color-bg-code) !important;
+}
+
+.milkdown .milkdown-code-block .cm-gutters {
+	background: var(--color-bg-code) !important;
+}
+
+.milkdown .ProseMirror pre {
+	background: var(--color-bg-code) !important;
+	color: var(--color-text-on-dark) !important;
+	padding: 10px 12px !important;
+	border-radius: 6px !important;
+	font-size: 0.8125rem;
+	overflow-x: auto;
+	margin: 0.4em 0 !important;
+}
+
+.milkdown .ProseMirror code {
+	font-size: 0.8125rem !important;
+}
+
+.milkdown .ProseMirror :not(pre) > code {
+	background: var(--color-bg-inline-code) !important;
+	color: var(--color-text) !important;
+	padding: 1px 5px !important;
+	border-radius: 3px !important;
+}
+
+/* ── Table ───────────────────────────────────────────────── */
+
+.milkdown .ProseMirror table {
+	border-collapse: collapse;
+	margin: 0.4em 0;
+	font-size: 0.8125rem;
+}
+
+.milkdown .ProseMirror th,
+.milkdown .ProseMirror td {
+	border: 1px solid var(--color-border-medium);
+	padding: 4px 8px;
+	text-align: left;
+}
+
+.milkdown .ProseMirror th {
+	background: var(--color-bg-hover);
+	font-weight: 600;
+}
+
+/* ── HR ──────────────────────────────────────────────────── */
+
+.milkdown .ProseMirror hr {
+	border: none !important;
+	border-top: 1px solid var(--color-border-light) !important;
+	margin: 0.8em 0 !important;
+	background: none !important;
+	height: auto !important;
+	padding: 0 !important;
+}
+
+/* ── Images ──────────────────────────────────────────────── */
+
+.milkdown .ProseMirror img {
+	max-width: 100%;
+	border-radius: 6px;
+}
+
+/* ── Strong ──────────────────────────────────────────────── */
+
+.milkdown .ProseMirror strong {
+	font-weight: 600;
+}
+
+/* ── Links (note refs) ───────────────────────────────────── */
+
+.milkdown .ProseMirror a[href^="note-ref:"],
+.milkdown .ProseMirror a[href^="note:"] {
+	color: var(--color-link) !important;
+	text-decoration: underline;
+	text-decoration-style: dotted;
+	text-decoration-color: var(--color-link-underline);
+}
+
+.milkdown .ProseMirror a[href^="note-ref:"]:hover,
+.milkdown .ProseMirror a[href^="note:"]:hover {
+	color: var(--color-link-hover) !important;
+	text-decoration-style: solid;
+}

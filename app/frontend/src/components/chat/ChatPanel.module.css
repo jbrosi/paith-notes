@@ -4,9 +4,19 @@
 	width: 380px;
 	min-width: 320px;
 	max-width: 480px;
-	border-left: 1px solid #e5e7eb;
-	background: #fff;
+	height: 100%;
+	border-left: 1px solid var(--color-border-medium);
+	background: var(--color-bg);
 	overflow: hidden;
+}
+
+@media (width <= 1024px) {
+	.panel {
+		width: 100%;
+		min-width: 0;
+		max-width: none;
+		border-left: none;
+	}
 }
 
 /* ── Header ─────────────────────────────────────────────── */
@@ -16,7 +26,7 @@
 	align-items: center;
 	gap: 8px;
 	padding: 12px 16px;
-	border-bottom: 1px solid #e5e7eb;
+	border-bottom: 1px solid var(--color-border-medium);
 	flex-shrink: 0;
 }
 
@@ -32,7 +42,7 @@
 	border: none;
 	cursor: pointer;
 	padding: 4px 6px;
-	color: #6b7280;
+	color: var(--color-text-muted);
 	font-size: 0.875rem;
 	line-height: 1;
 	border-radius: 4px;
@@ -40,8 +50,8 @@
 }
 
 .backBtn:hover {
-	background: #f3f4f6;
-	color: #111;
+	background: var(--color-bg-hover);
+	color: var(--color-text);
 }
 
 .closeBtn {
@@ -49,7 +59,7 @@
 	border: none;
 	cursor: pointer;
 	padding: 4px;
-	color: #6b7280;
+	color: var(--color-text-muted);
 	font-size: 1.1rem;
 	line-height: 1;
 	border-radius: 4px;
@@ -57,8 +67,8 @@
 }
 
 .closeBtn:hover {
-	background: #f3f4f6;
-	color: #111;
+	background: var(--color-bg-hover);
+	color: var(--color-text);
 }
 
 /* ── Conversation list view ─────────────────────────────── */
@@ -80,7 +90,7 @@
 .listSectionTitle {
 	font-size: 0.75rem;
 	font-weight: 600;
-	color: #9ca3af;
+	color: var(--color-text-faint);
 	text-transform: uppercase;
 	letter-spacing: 0.05em;
 	padding: 8px 8px 4px;
@@ -101,12 +111,12 @@
 }
 
 .convItem:hover {
-	background: #f3f4f6;
+	background: var(--color-bg-hover);
 }
 
 .convTitle {
 	font-size: 0.875rem;
-	color: #111827;
+	color: var(--color-text);
 	white-space: nowrap;
 	overflow: hidden;
 	text-overflow: ellipsis;
@@ -114,25 +124,25 @@
 
 .convMeta {
 	font-size: 0.75rem;
-	color: #9ca3af;
+	color: var(--color-text-faint);
 }
 
 .listEmpty {
-	color: #9ca3af;
+	color: var(--color-text-faint);
 	font-size: 0.875rem;
 	text-align: center;
 	padding: 24px 16px;
 }
 
 .listLoading {
-	color: #9ca3af;
+	color: var(--color-text-faint);
 	font-size: 0.875rem;
 	padding: 16px;
 	text-align: center;
 }
 
 .newChatArea {
-	border-top: 1px solid #e5e7eb;
+	border-top: 1px solid var(--color-border-medium);
 	padding: 12px;
 	flex-shrink: 0;
 }
@@ -149,14 +159,14 @@
 }
 
 .empty {
-	color: #9ca3af;
+	color: var(--color-text-faint);
 	font-size: 0.875rem;
 	text-align: center;
 	padding: 32px 16px;
 }
 
 .inputArea {
-	border-top: 1px solid #e5e7eb;
+	border-top: 1px solid var(--color-border-medium);
 	padding: 12px;
 	flex-shrink: 0;
 }

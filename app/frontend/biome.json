@@ -17,6 +17,18 @@
       "recommended": true
     }
   },
+  "overrides": [
+    {
+      "includes": ["src/styles/milkdown-overrides.css", "src/pages/nook/NookDefaultLayout.module.css"],
+      "linter": {
+        "rules": {
+          "complexity": {
+            "noImportantStyles": "off"
+          }
+        }
+      }
+    }
+  ],
   "javascript": {
     "formatter": {
       "quoteStyle": "double"

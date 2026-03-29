@@ -15,7 +15,7 @@
 	min-height: 36px;
 	max-height: 120px;
 	padding: 8px 10px;
-	border: 1px solid #d1d5db;
+	border: 1px solid var(--color-border-medium);
 	border-radius: 8px;
 	font-size: 0.875rem;
 	font-family: inherit;
@@ -26,20 +26,20 @@
 
 .textarea:focus {
 	outline: none;
-	border-color: #3b82f6;
+	border-color: var(--color-primary-light);
 	box-shadow: 0 0 0 2px rgb(59 130 246 / 20%);
 }
 
 .textarea:disabled {
-	background: #f9fafb;
-	color: #9ca3af;
+	background: var(--color-bg-secondary);
+	color: var(--color-text-faint);
 }
 
 .sendBtn {
 	flex-shrink: 0;
 	padding: 8px 14px;
-	background: #3b82f6;
-	color: #fff;
+	background: var(--color-primary-light);
+	color: var(--color-text-on-primary);
 	border: none;
 	border-radius: 8px;
 	cursor: pointer;
@@ -54,16 +54,16 @@
 }
 
 .sendBtn:hover:not(:disabled) {
-	background: #2563eb;
+	background: var(--color-primary-light);
 }
 
 .modelSelect {
 	font-size: 0.75rem;
-	border: 1px solid #d1d5db;
+	border: 1px solid var(--color-border-medium);
 	border-radius: 6px;
 	padding: 2px 6px;
-	color: #6b7280;
-	background: #f9fafb;
+	color: var(--color-text-muted);
+	background: var(--color-bg-secondary);
 	font-family: inherit;
 	cursor: pointer;
 }

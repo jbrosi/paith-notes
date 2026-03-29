@@ -23,15 +23,15 @@
 }
 
 .user .bubble {
-	background: #3b82f6;
-	color: #fff;
+	background: var(--color-primary-light);
+	color: var(--color-text-on-primary);
 	border-bottom-right-radius: 3px;
 	white-space: pre-wrap;
 }
 
 .assistant .bubble {
-	background: #f3f4f6;
-	color: #111827;
+	background: var(--color-bg-hover);
+	color: var(--color-text);
 	border-bottom-left-radius: 3px;
 }
 
@@ -40,11 +40,11 @@
 	align-items: center;
 	gap: 6px;
 	padding: 4px 8px;
-	background: #fef3c7;
-	border: 1px solid #fbbf24;
+	background: var(--color-warning-bg);
+	border: 1px solid var(--color-warning-border);
 	border-radius: 6px;
 	font-size: 0.75rem;
-	color: #92400e;
+	color: var(--color-warning-text);
 	font-family: monospace;
 	max-width: 85%;
 	word-break: break-all;
@@ -55,12 +55,12 @@
 }
 
 .noteIdValue {
-	color: #1d4ed8;
+	color: var(--color-primary);
 	text-decoration: underline;
 	text-decoration-style: dotted;
 	cursor: default;
 }
 
 .noteIdValue:hover {
-	color: #1e40af;
+	color: var(--color-primary-hover);
 }
