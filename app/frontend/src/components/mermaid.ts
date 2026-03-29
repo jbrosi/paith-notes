@@ -50,7 +50,6 @@ export async function renderMermaidBlocks(
 			wrapper.innerHTML = svg;
 			pre.replaceWith(wrapper);
 		} catch {
-			// Leave the code block as-is if rendering fails
 			pre.classList.add("mermaid-error");
 		}
 	}

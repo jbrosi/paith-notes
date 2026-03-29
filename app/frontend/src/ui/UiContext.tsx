@@ -38,6 +38,10 @@ export type UiState = {
 	theme: () => ThemeMode;
 	setTheme: (next: ThemeMode) => void;
 	cycleTheme: () => void;
+	accentColor: () => string;
+	setAccentColor: (color: string, nookId?: string) => void;
+	resetAccentColor: (nookId?: string) => void;
+	loadNookAccent: (nookId: string) => void;
 };
 
 const UiContext = createContext<UiState>();
@@ -48,6 +52,7 @@ const TYPES_PANEL_OPEN_STORAGE_KEY = "paith-notes:typesPanelOpen";
 const CHAT_PANEL_OPEN_STORAGE_KEY = "paith-notes:chatPanelOpen";
 const ACTIVE_PANEL_STORAGE_KEY = "paith-notes:activePanel";
 const THEME_STORAGE_KEY = "paith-notes:theme";
+const _ACCENT_COLOR_STORAGE_KEY = "paith-notes:accentColor";
 
 export function UiProvider(props: { children: JSX.Element }) {
 	const [mode, setModeSignal] = createSignal<"view" | "edit">("view");
@@ -57,6 +62,7 @@ export function UiProvider(props: { children: JSX.Element }) {
 	const [activePanel, setActivePanelSignal] =
 		createSignal<MobilePanel>("content");
 	const [theme, setThemeSignal] = createSignal<ThemeMode>("system");
+	const [accentColor, setAccentColorSignal] = createSignal("");
 
 	onMount(() => {
 		try {
@@ -176,6 +182,63 @@ export function UiProvider(props: { children: JSX.Element }) {
 		}
 	};
 
+	let currentNookIdForAccent = "";
+
+	const applyAccentColor = (color: string) => {
+		if (color) {
+			document.documentElement.style.setProperty("--seed-accent", color);
+		} else {
+			document.documentElement.style.removeProperty("--seed-accent");
+		}
+	};
+
+	const currentModeStr = (): string => {
+		const attr = document.documentElement.getAttribute("data-theme");
+		if (attr === "dark") return "dark";
+		if (attr === "light") return "light";
+		return window.matchMedia("(prefers-color-scheme: dark)").matches
+			? "dark"
+			: "light";
+	};
+
+	const accentStorageKey = (nookId: string) =>
+		`paith-notes:seed:${nookId}:${currentModeStr()}:accent`;
+
+	const setAccentColor = (color: string, nookId?: string) => {
+		const id = nookId || currentNookIdForAccent;
+		setAccentColorSignal(color);
+		applyAccentColor(color);
+		if (!id) return;
+		try {
+			const key = accentStorageKey(id);
+			if (color) {
+				window.localStorage.setItem(key, color);
+			} else {
+				window.localStorage.removeItem(key);
+			}
+		} catch {
+			// ignore
+		}
+	};
+
+	const resetAccentColor = (nookId?: string) => setAccentColor("", nookId);
+
+	const loadNookAccent = (nookId: string) => {
+		currentNookIdForAccent = nookId;
+		try {
+			const v = window.localStorage.getItem(accentStorageKey(nookId));
+			if (v && /^#[0-9a-f]{6}$/i.test(v)) {
+				setAccentColorSignal(v);
+				applyAccentColor(v);
+			} else {
+				setAccentColorSignal("");
+				applyAccentColor("");
+			}
+		} catch {
+			// ignore
+		}
+	};
+
 	const cycleTheme = () => {
 		const order: ThemeMode[] = ["system", "light", "dark"];
 		const idx = order.indexOf(theme());
@@ -221,6 +284,10 @@ export function UiProvider(props: { children: JSX.Element }) {
 				theme,
 				setTheme,
 				cycleTheme,
+				accentColor,
+				setAccentColor,
+				resetAccentColor,
+				loadNookAccent,
 			}}
 		>
 			{props.children}

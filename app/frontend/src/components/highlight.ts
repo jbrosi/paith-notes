@@ -1,18 +1,12 @@
 /** Lazy-loaded syntax highlighter. Only imports highlight.js when first needed. */
 
 let hljsPromise: Promise<typeof import("highlight.js")> | null = null;
-let themeLoaded = false;
 
 function loadHljs() {
 	if (!hljsPromise) {
-		// highlight.js/lib/common includes ~40 popular languages
 		hljsPromise = import("highlight.js/lib/common");
-
-		// Load theme CSS once
-		if (!themeLoaded) {
-			themeLoaded = true;
-			import("highlight.js/styles/github-dark.min.css");
-		}
+		// Load both themes — CSS handles which one applies via prefers-color-scheme / data-theme
+		import("./highlight-themes.css");
 	}
 	return hljsPromise;
 }
@@ -27,7 +21,6 @@ export async function highlightCodeBlocks(
 	const codeBlocks = container.querySelectorAll<HTMLElement>("pre > code");
 	if (codeBlocks.length === 0) return;
 
-	// Only load if there are non-mermaid code blocks
 	const toHighlight = Array.from(codeBlocks).filter(
 		(el) => !el.classList.contains("language-mermaid"),
 	);
@@ -37,7 +30,6 @@ export async function highlightCodeBlocks(
 	const hljs = mod.default;
 
 	for (const code of toHighlight) {
-		// Skip if already highlighted
 		if (code.dataset.highlighted === "yes") continue;
 		hljs.highlightElement(code);
 	}

@@ -1,119 +1,202 @@
-/* ── Light theme (default) ────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════
+   Theme system — all colors derived from 5 seed values:
+     --seed-accent    Primary accent (buttons, links, selections)
+     --seed-bg        Base background
+     --seed-text      Base text
+     --seed-danger    Error/destructive actions
+     --seed-warning   Caution/attention
+
+   Everything else is derived via color-mix().
+   To create a new theme, just change the 5 seeds.
+   ═══════════════════════════════════════════════════════════ */
+
+/* ── Light theme ─────────────────────────────────────────── */
 
 :root {
-	--color-bg: #fff;
-	--color-bg-secondary: #fafafa;
-	--color-bg-tertiary: #f5f5f5;
-	--color-bg-hover: #f3f4f6;
-	--color-bg-selected: #eef5ff;
-	--color-bg-code: #0d1117;
-	--color-bg-inline-code: rgb(0 0 0 / 7%);
-	--color-bg-overlay: rgb(0 0 0 / 30%);
-	--color-text: #111827;
-	--color-text-secondary: #444;
-	--color-text-muted: #6b7280;
-	--color-text-faint: #9ca3af;
-	--color-text-on-dark: #e5e7eb;
+	/* Seed colors */
+	--seed-accent: #3b82f6;
+	--seed-bg: #fff;
+	--seed-text: #111827;
+	--seed-danger: #dc2626;
+	--seed-warning: #d97706;
+	--seed-success: #16a34a;
+	--seed-info: #0891b2;
+	--seed-surface: #f8fafc;
+	--seed-muted: #64748b;
+
+	/* Backgrounds — derived from seed-bg */
+	--color-bg: var(--seed-bg);
+	--color-bg-secondary: color-mix(
+		in srgb,
+		var(--seed-bg) 96%,
+		var(--seed-text)
+	);
+	--color-bg-tertiary: color-mix(in srgb, var(--seed-bg) 93%, var(--seed-text));
+	--color-bg-hover: color-mix(in srgb, var(--seed-bg) 90%, var(--seed-text));
+	--color-bg-active: color-mix(in srgb, var(--seed-bg) 85%, var(--seed-text));
+	--color-bg-selected: color-mix(
+		in srgb,
+		var(--seed-bg) 90%,
+		var(--seed-accent)
+	);
+	--color-bg-code: color-mix(in srgb, var(--seed-bg) 95%, var(--seed-text));
+	--color-bg-inline-code: color-mix(in srgb, var(--seed-text) 7%, transparent);
+	--color-bg-overlay: color-mix(in srgb, var(--seed-text) 30%, transparent);
+
+	/* Text — derived from seed-text */
+	--color-text: var(--seed-text);
+	--color-text-secondary: color-mix(
+		in srgb,
+		var(--seed-text) 75%,
+		var(--seed-bg)
+	);
+	--color-text-muted: color-mix(in srgb, var(--seed-text) 50%, var(--seed-bg));
+	--color-text-faint: color-mix(in srgb, var(--seed-text) 35%, var(--seed-bg));
+	--color-text-on-dark: color-mix(
+		in srgb,
+		var(--seed-bg) 90%,
+		var(--seed-text)
+	);
 	--color-text-on-primary: #fff;
-	--color-primary: #1d4ed8;
-	--color-primary-hover: #1e40af;
-	--color-primary-light: #3b82f6;
-	--color-primary-bg: #eef5ff;
-	--color-primary-border: #c9def7;
-	--color-danger: #b91c1c;
-	--color-danger-bg: #fef2f2;
-	--color-danger-border: #ef4444;
-	--color-warning-bg: #fef3c7;
-	--color-warning-border: #fbbf24;
-	--color-warning-text: #92400e;
-	--color-border: #ddd;
-	--color-border-light: #eee;
-	--color-border-medium: #d1d5db;
-	--color-border-focus: #3b82f6;
-	--color-link: #1f5fbf;
-	--color-link-hover: #1e40af;
-	--color-link-underline: #93b4e0;
-	--shadow-dropdown: 0 12px 24px rgb(0 0 0 / 12%);
-	--shadow-popover: 0 8px 24px rgb(0 0 0 / 12%);
+	--color-text-code: color-mix(in srgb, var(--seed-text) 90%, var(--seed-bg));
+
+	/* Primary — derived from seed-accent */
+	--color-primary: color-mix(in srgb, var(--seed-accent) 85%, var(--seed-text));
+	--color-primary-hover: color-mix(
+		in srgb,
+		var(--seed-accent) 70%,
+		var(--seed-text)
+	);
+	--color-primary-light: var(--seed-accent);
+	--color-primary-bg: color-mix(
+		in srgb,
+		var(--seed-accent) 12%,
+		var(--seed-bg)
+	);
+	--color-primary-border: color-mix(
+		in srgb,
+		var(--seed-accent) 30%,
+		var(--seed-bg)
+	);
+
+	/* Danger — derived from seed-danger */
+	--color-danger: var(--seed-danger);
+	--color-danger-bg: color-mix(in srgb, var(--seed-danger) 8%, var(--seed-bg));
+	--color-danger-border: var(--seed-danger);
+
+	/* Warning — derived from seed-warning */
+	--color-warning-bg: color-mix(
+		in srgb,
+		var(--seed-warning) 12%,
+		var(--seed-bg)
+	);
+	--color-warning-border: var(--seed-warning);
+	--color-warning-text: color-mix(
+		in srgb,
+		var(--seed-warning) 80%,
+		var(--seed-text)
+	);
+
+	/* Success — derived from seed-success */
+	--color-success: var(--seed-success);
+	--color-success-bg: color-mix(
+		in srgb,
+		var(--seed-success) 10%,
+		var(--seed-bg)
+	);
+	--color-success-border: var(--seed-success);
+	--color-success-text: color-mix(
+		in srgb,
+		var(--seed-success) 80%,
+		var(--seed-text)
+	);
+
+	/* Info — derived from seed-info */
+	--color-info: var(--seed-info);
+	--color-info-bg: color-mix(in srgb, var(--seed-info) 10%, var(--seed-bg));
+	--color-info-border: var(--seed-info);
+	--color-info-text: color-mix(in srgb, var(--seed-info) 80%, var(--seed-text));
+
+	/* Surface — derived from seed-surface (cards, panels, elevated areas) */
+	--color-surface: var(--seed-surface);
+	--color-surface-hover: color-mix(
+		in srgb,
+		var(--seed-surface) 92%,
+		var(--seed-text)
+	);
+
+	/* Muted — derived from seed-muted (subdued UI elements, disabled states) */
+	--color-muted: var(--seed-muted);
+	--color-muted-bg: color-mix(in srgb, var(--seed-muted) 10%, var(--seed-bg));
+	--color-muted-text: color-mix(in srgb, var(--seed-muted) 70%, var(--seed-bg));
+
+	/* Borders — derived from seed-bg + seed-text */
+	--color-border: color-mix(in srgb, var(--seed-bg) 82%, var(--seed-text));
+	--color-border-light: color-mix(
+		in srgb,
+		var(--seed-bg) 88%,
+		var(--seed-text)
+	);
+	--color-border-medium: color-mix(
+		in srgb,
+		var(--seed-bg) 76%,
+		var(--seed-text)
+	);
+	--color-border-focus: var(--seed-accent);
+
+	/* Links — derived from seed-accent */
+	--color-link: color-mix(in srgb, var(--seed-accent) 80%, var(--seed-text));
+	--color-link-hover: color-mix(
+		in srgb,
+		var(--seed-accent) 65%,
+		var(--seed-text)
+	);
+	--color-link-underline: color-mix(
+		in srgb,
+		var(--seed-accent) 40%,
+		var(--seed-bg)
+	);
+
+	/* Accent palette — for charts, diagrams, tags */
+	--color-accent-1: var(--seed-accent);
+	--color-accent-2: color-mix(in srgb, var(--seed-accent) 70%, #10b981);
+	--color-accent-3: color-mix(in srgb, var(--seed-accent) 50%, #8b5cf6);
+	--color-accent-4: color-mix(in srgb, var(--seed-accent) 60%, #f59e0b);
+	--color-accent-5: color-mix(in srgb, var(--seed-accent) 40%, #ec4899);
+
+	/* Shadows */
+	--shadow-dropdown: 0 12px 24px
+		color-mix(in srgb, var(--seed-text) 12%, transparent);
+	--shadow-popover: 0 8px 24px
+		color-mix(in srgb, var(--seed-text) 12%, transparent);
 }
 
 /* ── Dark theme ──────────────────────────────────────────── */
 
 @media (prefers-color-scheme: dark) {
 	:root:not([data-theme="light"]) {
-		--color-bg: #1a1d2e;
-		--color-bg-secondary: #1f2337;
-		--color-bg-tertiary: #252940;
-		--color-bg-hover: #2c3049;
-		--color-bg-selected: #253352;
-		--color-bg-code: #161928;
-		--color-bg-inline-code: rgb(255 255 255 / 10%);
-		--color-bg-overlay: rgb(0 0 0 / 50%);
-		--color-text: #e2e6f0;
-		--color-text-secondary: #c0c6d4;
-		--color-text-muted: #8990a4;
-		--color-text-faint: #5f6680;
-		--color-text-on-dark: #e2e6f0;
-		--color-text-on-primary: #fff;
-		--color-primary: #6baaff;
-		--color-primary-hover: #8ec0ff;
-		--color-primary-light: #6baaff;
-		--color-primary-bg: #253352;
-		--color-primary-border: #3a5580;
-		--color-danger: #f85149;
-		--color-danger-bg: #321517;
-		--color-danger-border: #f85149;
-		--color-warning-bg: #332814;
-		--color-warning-border: #9e6a03;
-		--color-warning-text: #e3b341;
-		--color-border: #333752;
-		--color-border-light: #282c44;
-		--color-border-medium: #3a3e58;
-		--color-border-focus: #6baaff;
-		--color-link: #6baaff;
-		--color-link-hover: #8ec0ff;
-		--color-link-underline: #3a5580;
-		--shadow-dropdown: 0 12px 24px rgb(0 0 0 / 40%);
-		--shadow-popover: 0 8px 24px rgb(0 0 0 / 40%);
+		--seed-accent: #6baaff;
+		--seed-bg: #1a1d2e;
+		--seed-text: #e2e6f0;
+		--seed-danger: #f85149;
+		--seed-warning: #e3b341;
+		--seed-success: #4ade80;
+		--seed-info: #22d3ee;
+		--seed-surface: #1f2337;
+		--seed-muted: #8990a4;
 	}
 }
 
-/* Explicit dark override */
 [data-theme="dark"] {
-	--color-bg: #1a1d2e;
-	--color-bg-secondary: #1f2337;
-	--color-bg-tertiary: #252940;
-	--color-bg-hover: #2c3049;
-	--color-bg-selected: #253352;
-	--color-bg-code: #161928;
-	--color-bg-inline-code: rgb(255 255 255 / 10%);
-	--color-bg-overlay: rgb(0 0 0 / 50%);
-	--color-text: #e2e6f0;
-	--color-text-secondary: #c0c6d4;
-	--color-text-muted: #8990a4;
-	--color-text-faint: #5f6680;
-	--color-text-on-dark: #e2e6f0;
-	--color-text-on-primary: #fff;
-	--color-primary: #6baaff;
-	--color-primary-hover: #8ec0ff;
-	--color-primary-light: #6baaff;
-	--color-primary-bg: #253352;
-	--color-primary-border: #3a5580;
-	--color-danger: #f85149;
-	--color-danger-bg: #321517;
-	--color-danger-border: #f85149;
-	--color-warning-bg: #332814;
-	--color-warning-border: #9e6a03;
-	--color-warning-text: #e3b341;
-	--color-border: #333752;
-	--color-border-light: #282c44;
-	--color-border-medium: #3a3e58;
-	--color-border-focus: #6baaff;
-	--color-link: #6baaff;
-	--color-link-hover: #8ec0ff;
-	--color-link-underline: #3a5580;
-	--shadow-dropdown: 0 12px 24px rgb(0 0 0 / 40%);
-	--shadow-popover: 0 8px 24px rgb(0 0 0 / 40%);
+	--seed-accent: #6baaff;
+	--seed-bg: #1a1d2e;
+	--seed-text: #e2e6f0;
+	--seed-danger: #f85149;
+	--seed-warning: #e3b341;
+	--seed-success: #4ade80;
+	--seed-info: #22d3ee;
+	--seed-surface: #1f2337;
+	--seed-muted: #8990a4;
 }
 
 /* ── Base element colors ─────────────────────────────────── */

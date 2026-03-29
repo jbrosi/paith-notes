@@ -19,7 +19,7 @@
   },
   "overrides": [
     {
-      "includes": ["src/styles/milkdown-overrides.css", "src/pages/nook/NookDefaultLayout.module.css"],
+      "includes": ["src/styles/milkdown-overrides.css", "src/pages/nook/NookDefaultLayout.module.css", "src/components/highlight-themes.css", "src/components/MarkdownView.module.css"],
       "linter": {
         "rules": {
           "complexity": {
