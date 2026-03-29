@@ -54,6 +54,20 @@ const SEEDS: SeedDef[] = [
 		defaultDark: "#e2e6f0",
 	},
 	{
+		key: "surface",
+		cssVar: "--seed-surface",
+		label: "Surface",
+		defaultLight: "#f8fafc",
+		defaultDark: "#1f2337",
+	},
+	{
+		key: "muted",
+		cssVar: "--seed-muted",
+		label: "Muted",
+		defaultLight: "#64748b",
+		defaultDark: "#8990a4",
+	},
+	{
 		key: "danger",
 		cssVar: "--seed-danger",
 		label: "Danger",
@@ -66,6 +80,20 @@ const SEEDS: SeedDef[] = [
 		label: "Warning",
 		defaultLight: "#d97706",
 		defaultDark: "#e3b341",
+	},
+	{
+		key: "success",
+		cssVar: "--seed-success",
+		label: "Success",
+		defaultLight: "#16a34a",
+		defaultDark: "#4ade80",
+	},
+	{
+		key: "info",
+		cssVar: "--seed-info",
+		label: "Info",
+		defaultLight: "#0891b2",
+		defaultDark: "#22d3ee",
 	},
 ];
 

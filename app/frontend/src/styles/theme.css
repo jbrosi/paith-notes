@@ -19,6 +19,10 @@
 	--seed-text: #111827;
 	--seed-danger: #dc2626;
 	--seed-warning: #d97706;
+	--seed-success: #16a34a;
+	--seed-info: #0891b2;
+	--seed-surface: #f8fafc;
+	--seed-muted: #64748b;
 
 	/* Backgrounds — derived from seed-bg */
 	--color-bg: var(--seed-bg);
@@ -93,6 +97,39 @@
 		var(--seed-text)
 	);
 
+	/* Success — derived from seed-success */
+	--color-success: var(--seed-success);
+	--color-success-bg: color-mix(
+		in srgb,
+		var(--seed-success) 10%,
+		var(--seed-bg)
+	);
+	--color-success-border: var(--seed-success);
+	--color-success-text: color-mix(
+		in srgb,
+		var(--seed-success) 80%,
+		var(--seed-text)
+	);
+
+	/* Info — derived from seed-info */
+	--color-info: var(--seed-info);
+	--color-info-bg: color-mix(in srgb, var(--seed-info) 10%, var(--seed-bg));
+	--color-info-border: var(--seed-info);
+	--color-info-text: color-mix(in srgb, var(--seed-info) 80%, var(--seed-text));
+
+	/* Surface — derived from seed-surface (cards, panels, elevated areas) */
+	--color-surface: var(--seed-surface);
+	--color-surface-hover: color-mix(
+		in srgb,
+		var(--seed-surface) 92%,
+		var(--seed-text)
+	);
+
+	/* Muted — derived from seed-muted (subdued UI elements, disabled states) */
+	--color-muted: var(--seed-muted);
+	--color-muted-bg: color-mix(in srgb, var(--seed-muted) 10%, var(--seed-bg));
+	--color-muted-text: color-mix(in srgb, var(--seed-muted) 70%, var(--seed-bg));
+
 	/* Borders — derived from seed-bg + seed-text */
 	--color-border: color-mix(in srgb, var(--seed-bg) 82%, var(--seed-text));
 	--color-border-light: color-mix(
@@ -143,6 +180,10 @@
 		--seed-text: #e2e6f0;
 		--seed-danger: #f85149;
 		--seed-warning: #e3b341;
+		--seed-success: #4ade80;
+		--seed-info: #22d3ee;
+		--seed-surface: #1f2337;
+		--seed-muted: #8990a4;
 	}
 }
 
@@ -152,6 +193,10 @@
 	--seed-text: #e2e6f0;
 	--seed-danger: #f85149;
 	--seed-warning: #e3b341;
+	--seed-success: #4ade80;
+	--seed-info: #22d3ee;
+	--seed-surface: #1f2337;
+	--seed-muted: #8990a4;
 }
 
 /* ── Base element colors ─────────────────────────────────── */
