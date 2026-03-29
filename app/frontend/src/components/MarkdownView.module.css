@@ -146,8 +146,8 @@
 .markdown :global(.mermaid-diagram) :global(.node) rect,
 .markdown :global(.mermaid-diagram) :global(.node) circle,
 .markdown :global(.mermaid-diagram) :global(.node) polygon {
-	fill: var(--color-bg-secondary) !important;
-	stroke: var(--color-border-medium) !important;
+	fill: var(--color-primary-bg) !important;
+	stroke: var(--color-primary-border) !important;
 }
 
 .markdown :global(.mermaid-diagram) :global(.nodeLabel),
@@ -162,21 +162,21 @@
 }
 
 .markdown :global(.mermaid-diagram) :global(.edgePath) path {
-	stroke: var(--color-border-medium) !important;
+	stroke: var(--color-text-muted) !important;
 }
 
 .markdown :global(.mermaid-diagram) :global(.arrowheadPath) {
-	fill: var(--color-border-medium) !important;
+	fill: var(--color-text-muted) !important;
 }
 
 .markdown :global(.mermaid-diagram) :global(.cluster) rect {
-	fill: var(--color-bg-tertiary) !important;
-	stroke: var(--color-border) !important;
+	fill: var(--color-bg-selected) !important;
+	stroke: var(--color-primary-border) !important;
 }
 
 .markdown :global(.mermaid-diagram) :global(.cluster) :global(.nodeLabel) {
-	color: var(--color-text-muted) !important;
-	fill: var(--color-text-muted) !important;
+	color: var(--color-text-secondary) !important;
+	fill: var(--color-text-secondary) !important;
 }
 
 .markdown :global(.mermaid-error) {
