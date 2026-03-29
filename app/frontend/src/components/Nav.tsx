@@ -29,6 +29,9 @@ export function Nav() {
 	const [nooks, setNooks] = createSignal<NookListItem[]>([]);
 	const [nooksLoading, setNooksLoading] = createSignal<boolean>(false);
 	const [nooksError, setNooksError] = createSignal<string>("");
+	const [showCreateNook, setShowCreateNook] = createSignal(false);
+	const [newNookName, setNewNookName] = createSignal("");
+	const [userName, setUserName] = createSignal<string>("");
 
 	const currentNookId = createMemo(() => {
 		const m = location.pathname.match(/^\/nooks\/([^/]+)/);
@@ -39,9 +42,7 @@ export function Nav() {
 		/^\/nooks\/[^/]+\/settings(\/|$)/.test(location.pathname),
 	);
 
-	const inNookMarkdown = createMemo(() =>
-		/^\/nooks\/[^/]+\/notes\/[^/]+\/markdown$/u.test(location.pathname),
-	);
+	const isMarkdownPanel = createMemo(() => ui.activePanel() === "markdown");
 
 	const store = createMemo(() => nook.store());
 	const storeReady = createMemo(() => store() !== null);
@@ -70,6 +71,25 @@ export function Nav() {
 		if (nooksLoading()) return;
 		if (nooks().length > 0) return;
 		void loadNooks();
+	});
+
+	createEffect(() => {
+		if (!auth.ready() || !auth.authenticated()) return;
+		if (userName() !== "") return;
+		void (async () => {
+			try {
+				const res = await apiFetch("/api/me", { method: "GET" });
+				if (!res.ok) return;
+				const body = (await res.json()) as {
+					user?: { first_name?: string; last_name?: string };
+				};
+				const first = body?.user?.first_name ?? "";
+				const last = body?.user?.last_name ?? "";
+				setUserName([first, last].filter(Boolean).join(" ") || "Account");
+			} catch {
+				// best-effort
+			}
+		})();
 	});
 
 	const loadNooks = async () => {
@@ -183,7 +203,7 @@ export function Nav() {
 	};
 
 	const onCreateNook = async () => {
-		const name = window.prompt("Nook name");
+		const name = newNookName().trim();
 		if (!name) return;
 		setNooksError("");
 		try {
@@ -206,6 +226,8 @@ export function Nav() {
 				throw new Error("Create nook response missing id");
 			}
 			await loadNooks();
+			setNewNookName("");
+			setShowCreateNook(false);
 			setNooksOpen(false);
 			window.localStorage.setItem(lastSelectedNookStorageKey, id);
 			navigate(`/nooks/${id}`);
@@ -218,12 +240,16 @@ export function Nav() {
 		<>
 			<nav class={styles.nav}>
 				<div class={styles.links}>
-					<A href="/" end activeClass="active">
-						Home
-					</A>
-					<A href="/about" activeClass="active">
-						About
-					</A>
+					<span class={styles.hideOnMobile}>
+						<A href="/" end activeClass="active">
+							Home
+						</A>
+					</span>
+					<span class={styles.hideOnMobile}>
+						<A href="/about" activeClass="active">
+							About
+						</A>
+					</span>
 					<Show
 						when={auth.ready() && auth.authenticated()}
 						fallback={
@@ -246,75 +272,140 @@ export function Nav() {
 								class={styles["dropdown-toggle"]}
 								onClick={() => toggleNooks()}
 							>
-								Nooks: {currentNookLabel()}
+								{currentNookLabel()}
 							</button>
-							<Show when={currentNookId().trim() !== ""}>
-								<Button
-									variant="secondary"
-									size="small"
-									class={styles.iconButton}
-									onClick={() => {
-										const n = currentNookId().trim();
-										if (n === "") return;
-										navigate(`/nooks/${encodeURIComponent(n)}/settings`);
-									}}
-									title="Nook settings"
-								>
-									<svg
-										aria-hidden="true"
-										width="16"
-										height="16"
-										viewBox="0 0 24 24"
-										fill="none"
-										stroke="currentColor"
-										stroke-width="2"
-										stroke-linecap="round"
-										stroke-linejoin="round"
-									>
-										<circle cx="12" cy="12" r="3" />
-										<path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-1.41 3.41h-.12a2 2 0 0 1-1.41-.59l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V22a2 2 0 0 1-4 0v-.12a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06A2 2 0 0 1 3.6 20.3a2 2 0 0 1 0-2.82l.06-.06A1.65 1.65 0 0 0 4 15.6a1.65 1.65 0 0 0-1.51-1H2a2 2 0 0 1 0-4h.12a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06A2 2 0 0 1 4.7 3.6a2 2 0 0 1 2.82 0l.06.06A1.65 1.65 0 0 0 9.4 4a1.65 1.65 0 0 0 1-1.51V2a2 2 0 0 1 4 0v.12a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06A2 2 0 0 1 20.4 4.7a2 2 0 0 1 0 2.82l-.06.06A1.65 1.65 0 0 0 20 9.4a1.65 1.65 0 0 0 1.51 1H22a2 2 0 0 1 0 4h-.12a1.65 1.65 0 0 0-1.48 1z" />
-									</svg>
-								</Button>
-							</Show>
 							<Show when={nooksOpen()}>
+								{/* biome-ignore lint/a11y/useKeyWithClickEvents: backdrop click closes */}
+								{/* biome-ignore lint/a11y/noStaticElementInteractions: backdrop click closes */}
+								<div
+									class={styles.dropdownBackdrop}
+									onClick={() => setNooksOpen(false)}
+								/>
 								<div class={styles["dropdown-menu"]}>
-									<div class={styles["dropdown-header"]}>
-										<Button
-											variant="secondary"
-											size="small"
-											onClick={() => void loadNooks()}
-											disabled={nooksLoading()}
+									<div class={styles.dropdownCloseBar}>
+										<span>{currentNookLabel()}</span>
+										<button
+											type="button"
+											onClick={() => setNooksOpen(false)}
+											style={{
+												background: "none",
+												border: "none",
+												"font-size": "1.25rem",
+												cursor: "pointer",
+												padding: "0 4px",
+												"line-height": "1",
+											}}
 										>
-											Refresh
-										</Button>
-										<Button
-											variant="primary"
-											size="small"
-											onClick={() => void onCreateNook()}
-										>
-											Create nook
-										</Button>
+											&times;
+										</button>
 									</div>
+									{/* Current nook */}
+									<Show when={currentNookId().trim() !== ""}>
+										<div class={styles.dropdownSection}>
+											<div class={styles.dropdownCurrentNook}>
+												{currentNookLabel()}
+											</div>
+											<button
+												type="button"
+												class={styles["dropdown-item"]}
+												onClick={() => {
+													setNooksOpen(false);
+													navigate(
+														`/nooks/${encodeURIComponent(currentNookId())}/settings`,
+													);
+												}}
+											>
+												Settings
+											</button>
+										</div>
+									</Show>
+									{/* Other nooks */}
 									<Show when={nooksError().trim() !== ""}>
 										<div class={styles["dropdown-error"]}>{nooksError()}</div>
 									</Show>
 									<Show when={!nooksLoading()} fallback={<div>Loading…</div>}>
-										<div class={styles["dropdown-list"]}>
-											<For each={nooks()}>
-												{(n) => (
-													<button
-														type="button"
-														class={styles["dropdown-item"]}
-														onClick={() => onSelectNook(n.id)}
+										{(() => {
+											const otherNooks = () =>
+												nooks().filter((n) => n.id !== currentNookId());
+											return (
+												<div class={styles.dropdownSection}>
+													<Show when={otherNooks().length > 0}>
+														<div class={styles.dropdownSectionTitle}>
+															Switch nook
+														</div>
+														<div class={styles["dropdown-list"]}>
+															<For each={otherNooks()}>
+																{(n) => (
+																	<button
+																		type="button"
+																		class={styles["dropdown-item"]}
+																		onClick={() => onSelectNook(n.id)}
+																	>
+																		<span>
+																			{n.is_personal ? "My notes" : n.name}
+																		</span>
+																		<span class={styles["dropdown-meta"]}>
+																			{n.role}
+																		</span>
+																	</button>
+																)}
+															</For>
+														</div>
+													</Show>
+													<Show
+														when={showCreateNook()}
+														fallback={
+															<div class={styles["dropdown-header"]}>
+																<Button
+																	variant="secondary"
+																	size="small"
+																	onClick={() => setShowCreateNook(true)}
+																>
+																	+ Create nook
+																</Button>
+															</div>
+														}
 													>
-														<span>{n.is_personal ? "My notes" : n.name}</span>
-														<span class={styles["dropdown-meta"]}>
-															{n.role}
-														</span>
-													</button>
-												)}
-											</For>
-										</div>
+														<div class={styles.createNookForm}>
+															<input
+																type="text"
+																value={newNookName()}
+																onInput={(e) =>
+																	setNewNookName(e.currentTarget.value)
+																}
+																onKeyDown={(e) => {
+																	if (e.key === "Enter") void onCreateNook();
+																	if (e.key === "Escape") {
+																		setShowCreateNook(false);
+																		setNewNookName("");
+																	}
+																}}
+																placeholder="Nook name..."
+																class={styles.createNookInput}
+															/>
+															<Button
+																variant="primary"
+																size="small"
+																onClick={() => void onCreateNook()}
+																disabled={newNookName().trim() === ""}
+															>
+																Create
+															</Button>
+															<Button
+																variant="secondary"
+																size="small"
+																onClick={() => {
+																	setShowCreateNook(false);
+																	setNewNookName("");
+																}}
+															>
+																Cancel
+															</Button>
+														</div>
+													</Show>
+												</div>
+											);
+										})()}
 									</Show>
 								</div>
 							</Show>
@@ -322,21 +413,43 @@ export function Nav() {
 					</Show>
 				</div>
 				<Show when={auth.ready() && auth.authenticated()}>
-					<div class={styles.actions}>
-						<Button
-							variant="secondary"
-							size="small"
-							onClick={() => auth.logout()}
-						>
-							Logout
-						</Button>
-						<Button
-							variant="secondary"
-							size="small"
-							onClick={() => auth.logoutSso()}
-						>
-							Logout SSO
-						</Button>
+					<div class={styles.dropdown}>
+						<button type="button" class={styles.userToggle} title="Account">
+							<svg
+								aria-hidden="true"
+								width="18"
+								height="18"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2"
+								stroke-linecap="round"
+								stroke-linejoin="round"
+							>
+								<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+								<circle cx="12" cy="7" r="4" />
+							</svg>
+							<span class={styles.userToggleName}>
+								{userName() || "Account"}
+							</span>
+						</button>
+						<div class={styles.userMenu}>
+							<div class={styles.userMenuName}>{userName() || "Account"}</div>
+							<button
+								type="button"
+								class={styles.overflowItem}
+								onClick={() => auth.logout()}
+							>
+								Logout
+							</button>
+							<button
+								type="button"
+								class={styles.overflowItem}
+								onClick={() => auth.logoutSso()}
+							>
+								Logout SSO
+							</button>
+						</div>
 					</div>
 				</Show>
 			</nav>
@@ -369,70 +482,102 @@ export function Nav() {
 									>
 										Mode: {ui.mode() === "edit" ? "Edit" : "View"}
 									</Button>
-									<Button
-										variant={inNookMarkdown() ? "primary" : "secondary"}
-										size="small"
-										disabled={
-											!storeReady() ||
-											(store()?.selectedId().trim() ?? "") === ""
-										}
-										onClick={() => {
-											const s = store();
-											if (!s) return;
-											const n = currentNookId().trim();
-											const id = s.selectedId().trim();
-											if (n === "" || id === "") return;
-											if (inNookMarkdown()) {
-												navigate(
-													`/nooks/${encodeURIComponent(n)}/notes/${encodeURIComponent(id)}`,
-												);
-												return;
+									<span class={styles.hideOnMobile}>
+										<Button
+											variant={isMarkdownPanel() ? "primary" : "secondary"}
+											size="small"
+											disabled={
+												!storeReady() ||
+												(store()?.selectedId().trim() ?? "") === ""
 											}
-											navigate(
-												`/nooks/${encodeURIComponent(n)}/notes/${encodeURIComponent(id)}/markdown`,
-											);
-										}}
-										aria-pressed={inNookMarkdown()}
-										title={inNookMarkdown() ? "Hide markdown" : "Show markdown"}
-									>
-										Markdown
-									</Button>
-									<Button
-										variant={ui.graphPanelOpen() ? "primary" : "secondary"}
-										size="small"
-										class={styles.iconButton}
-										onClick={() => ui.toggleGraphPanel()}
-										aria-pressed={ui.graphPanelOpen()}
-										title={ui.graphPanelOpen() ? "Hide graph" : "Show graph"}
-									>
-										<svg
-											aria-hidden="true"
-											width="16"
-											height="16"
-											viewBox="0 0 24 24"
-											fill="none"
-											stroke="currentColor"
-											stroke-width="2"
-											stroke-linecap="round"
-											stroke-linejoin="round"
+											onClick={() =>
+												ui.setActivePanel(
+													isMarkdownPanel() ? "content" : "markdown",
+												)
+											}
+											aria-pressed={isMarkdownPanel()}
+											title={
+												isMarkdownPanel() ? "Hide markdown" : "Show markdown"
+											}
 										>
-											<circle cx="6" cy="6" r="2" />
-											<circle cx="18" cy="6" r="2" />
-											<circle cx="12" cy="18" r="2" />
-											<path d="M8 7.5 L16 7.5" />
-											<path d="M7 8.5 L11 16" />
-											<path d="M17 8.5 L13 16" />
-										</svg>
-									</Button>
-									<Button
-										variant={ui.chatPanelOpen() ? "primary" : "secondary"}
-										size="small"
-										onClick={() => ui.toggleChatPanel()}
-										aria-pressed={ui.chatPanelOpen()}
-										title={ui.chatPanelOpen() ? "Hide chat" : "Open AI chat"}
-									>
-										Chat
-									</Button>
+											Markdown
+										</Button>
+									</span>
+									<span class={styles.hideOnMobile}>
+										<Button
+											variant={ui.graphPanelOpen() ? "primary" : "secondary"}
+											size="small"
+											class={styles.iconButton}
+											onClick={() => ui.toggleGraphPanel()}
+											aria-pressed={ui.graphPanelOpen()}
+											title={ui.graphPanelOpen() ? "Hide graph" : "Show graph"}
+										>
+											<svg
+												aria-hidden="true"
+												width="16"
+												height="16"
+												viewBox="0 0 24 24"
+												fill="none"
+												stroke="currentColor"
+												stroke-width="2"
+												stroke-linecap="round"
+												stroke-linejoin="round"
+											>
+												<circle cx="6" cy="6" r="2" />
+												<circle cx="18" cy="6" r="2" />
+												<circle cx="12" cy="18" r="2" />
+												<path d="M8 7.5 L16 7.5" />
+												<path d="M7 8.5 L11 16" />
+												<path d="M17 8.5 L13 16" />
+											</svg>
+										</Button>
+									</span>
+									<span class={styles.hideOnMobile}>
+										<Button
+											variant={ui.chatPanelOpen() ? "primary" : "secondary"}
+											size="small"
+											onClick={() => ui.toggleChatPanel()}
+											aria-pressed={ui.chatPanelOpen()}
+											title={ui.chatPanelOpen() ? "Hide chat" : "Open AI chat"}
+										>
+											Chat
+										</Button>
+									</span>
+									{/* Overflow menu — visible on mobile only */}
+									<span class={styles.showOnMobile}>
+										<div class={styles.overflowMenu}>
+											<Button
+												variant="secondary"
+												size="small"
+												title="More options"
+											>
+												⋯
+											</Button>
+											<div class={styles.overflowContent}>
+												{(
+													[
+														["content", "Note"],
+														["links", "Links & Mentions"],
+														["graph", "Graph"],
+														["chat", "Chat"],
+														["markdown", "Markdown Source"],
+													] as const
+												).map(([panel, label]) => (
+													<button
+														type="button"
+														class={`${styles.overflowItem} ${ui.activePanel() === panel ? styles.overflowItemActive : ""}`}
+														onClick={() => {
+															if (panel === "graph") ui.setGraphPanelOpen(true);
+															if (panel === "chat") ui.setChatPanelOpen(true);
+															ui.setActivePanel(panel);
+														}}
+													>
+														{label}
+													</button>
+												))}
+											</div>
+										</div>
+									</span>
 								</div>
 							</>
 						}

@@ -9,6 +9,15 @@
 	overflow: hidden;
 }
 
+@media (width <= 1024px) {
+	.panel {
+		width: 100%;
+		min-width: 0;
+		max-width: none;
+		border-left: none;
+	}
+}
+
 /* ── Header ─────────────────────────────────────────────── */
 
 .header {

@@ -1,3 +1,30 @@
+/* ── App shell ───────────────────────────────────────────── */
+
+.appShell {
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+}
+
+.appContent {
+	flex: 1;
+	min-height: 0;
+}
+
+/* On mobile/tablet: entire page scrolls naturally (nav scrolls away) */
+@media (width <= 1024px) {
+	.appShell {
+		height: auto;
+		min-height: 100%;
+	}
+
+	.appContent {
+		min-height: auto;
+	}
+}
+
+/* ── Legacy containers (non-nook pages) ──────────────────── */
+
 .container {
 	font-family:
 		system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu, Cantarell,

@@ -1,0 +1,136 @@
+/* ── Desktop (> 1024px): side-by-side panels ─────────────── */
+
+.layout {
+	display: flex;
+	gap: 16px;
+	align-items: stretch;
+	height: 100%;
+}
+
+/* Scrollable column holding content + links on desktop */
+.mainScroll {
+	flex: 1;
+	min-width: 0;
+	overflow-y: auto;
+}
+
+/* Markdown panel — hidden by default, shown when active */
+.panelMarkdown {
+	display: none;
+}
+
+.layout[data-active-panel="markdown"] .panelMarkdown {
+	display: block;
+	flex: 1;
+	min-width: 0;
+}
+
+/* Hide main content on desktop when markdown is active */
+.layout[data-active-panel="markdown"] .mainScroll {
+	display: none;
+}
+
+/* ── Mobile / Tablet (≤ 1024px): single panel at a time ── */
+
+@media (width <= 1024px) {
+	.layout {
+		display: block;
+		height: auto;
+		min-height: calc(100vh - 120px);
+		gap: 0;
+		touch-action: pan-y;
+	}
+
+	.mainScroll {
+		overflow-y: visible;
+	}
+
+	/* Hide all panel sections by default */
+	.panelContent,
+	.panelLinks,
+	.panelGraph,
+	.panelChat,
+	.panelMarkdown {
+		display: none;
+	}
+
+	/* Show active panel */
+	.layout[data-active-panel="content"] .panelContent {
+		display: block;
+	}
+
+	.layout[data-active-panel="links"] .panelLinks {
+		display: block;
+	}
+
+	.layout[data-active-panel="graph"] .panelGraph {
+		display: block;
+	}
+
+	/* Force graph panel child to full width (overrides inline 300px) */
+	.panelGraph > div {
+		width: 100% !important;
+	}
+
+	.layout[data-active-panel="chat"] .panelChat {
+		display: flex;
+		flex-direction: column;
+		min-height: calc(100vh - 160px);
+	}
+
+	.layout[data-active-panel="markdown"] .panelMarkdown {
+		display: block;
+	}
+}
+
+/* ── Panel indicator dots (mobile only) ──────────────────── */
+
+.panelIndicator {
+	display: none;
+}
+
+@media (width <= 1024px) {
+	.panelIndicator {
+		display: flex;
+		justify-content: center;
+		align-items: center;
+		gap: 8px;
+		padding: 10px 0;
+		flex-shrink: 0;
+		position: sticky;
+		bottom: 0;
+		background: rgb(255 255 255 / 90%);
+		backdrop-filter: blur(4px);
+		border-top: 1px solid #f3f4f6;
+	}
+
+	.dot {
+		width: 8px;
+		height: 8px;
+		border-radius: 50%;
+		background: #d1d5db;
+		border: none;
+		padding: 0;
+		cursor: pointer;
+		transition: background 0.2s;
+	}
+
+	.dot:hover {
+		background: #9ca3af;
+	}
+
+	.dotActive {
+		background: #3b82f6;
+	}
+
+	.dotActive:hover {
+		background: #2563eb;
+	}
+
+	.dotLabel {
+		font-size: 0.6875rem;
+		color: #6b7280;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+	}
+}
