@@ -600,14 +600,6 @@ export function createNookStore(nookId: () => string) {
 			const nextNotes = reset ? fetched : [...notes(), ...fetched];
 			setNotes(rankNotesByQuery(nextNotes, q));
 			setNotesNextCursor(body.nextCursor);
-
-			const currentSelected = selectedId();
-			if (reset && currentSelected === "" && (body?.notes?.length ?? 0) > 0) {
-				const first = body.notes[0];
-				if (first?.id) {
-					selectNote(first);
-				}
-			}
 		} catch (e) {
 			setError(String(e));
 		} finally {
