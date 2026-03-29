@@ -1,9 +1,9 @@
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
-import { Portal } from "solid-js/web";
 import { apiFetch } from "../../auth/keycloak";
 import { Button } from "../../components/Button";
-import { LinkPopup } from "../../components/LinkPopup";
+import type { PreviewAction } from "../../components/NotePreview";
 import { RemoteNoteSearchSelect } from "../../components/RemoteNoteSearchSelect";
+import type { NotePreviewController } from "./NookDefaultLayout";
 import type { NookStore } from "./store";
 import {
 	type LinkPredicate,
@@ -17,6 +17,7 @@ import {
 
 export type NookNoteLinksPanelProps = {
 	store: NookStore;
+	notePreview?: NotePreviewController;
 };
 
 export function NookNoteLinksPanel(props: NookNoteLinksPanelProps) {
@@ -29,9 +30,6 @@ export function NookNoteLinksPanel(props: NookNoteLinksPanelProps) {
 	const [predicates, setPredicates] = createSignal<LinkPredicate[]>([]);
 	const [links, setLinks] = createSignal<NoteLink[]>([]);
 	const [rules, setRules] = createSignal<LinkPredicateRule[]>([]);
-
-	const [popupLinkId, setPopupLinkId] = createSignal<string>("");
-	const [popupPos, setPopupPos] = createSignal({ x: 0, y: 0 });
 
 	const [newPredicateId, setNewPredicateId] = createSignal<string>("");
 	const [newTargetNoteId, setNewTargetNoteId] = createSignal<string>("");
@@ -171,6 +169,10 @@ export function NookNoteLinksPanel(props: NookNoteLinksPanelProps) {
 		const tid = newTargetNoteId().trim();
 		if (tid === "") {
 			setError("Choose a target note");
+			return;
+		}
+		if (tid === noteId().trim()) {
+			setError("Cannot link a note to itself");
 			return;
 		}
 
@@ -447,9 +449,32 @@ export function NookNoteLinksPanel(props: NookNoteLinksPanelProps) {
 									<button
 										type="button"
 										onClick={(e) => {
-											setPopupPos({ x: e.clientX, y: e.clientY });
-											setPopupLinkId(l.id);
+											const otherId = otherNoteId(l);
+											const actions: PreviewAction[] = [];
+											if (store().mode() === "edit") {
+												actions.push({
+													label: "Remove link",
+													danger: true,
+													onClick: () => void deleteLink(l.id),
+												});
+											}
+											props.notePreview?.show(otherId, e.clientX, e.clientY, {
+												immediate: true,
+												onOpen: (id) => void store().onNoteLinkClick(id),
+												actions,
+											});
 										}}
+										onMouseEnter={(e) =>
+											props.notePreview?.show(
+												otherNoteId(l),
+												e.clientX,
+												e.clientY,
+												{
+													onOpen: (id) => void store().onNoteLinkClick(id),
+												},
+											)
+										}
+										onMouseLeave={() => props.notePreview?.hide()}
 										style={{
 											display: "flex",
 											width: "100%",
@@ -477,50 +502,11 @@ export function NookNoteLinksPanel(props: NookNoteLinksPanelProps) {
 												</div>
 											</Show>
 										</div>
-										<svg
-											width="12"
-											height="12"
-											viewBox="0 0 12 12"
-											fill="none"
-											style={{ "flex-shrink": "0", color: "#9ca3af" }}
-										>
-											<title>Options</title>
-											<circle cx="2" cy="6" r="1.5" fill="currentColor" />
-											<circle cx="6" cy="6" r="1.5" fill="currentColor" />
-											<circle cx="10" cy="6" r="1.5" fill="currentColor" />
-										</svg>
 									</button>
 								)}
 							</For>
 						</Show>
 					</div>
-
-					<Show when={popupLinkId() !== ""}>
-						{(() => {
-							const l = links().find((x) => x.id === popupLinkId());
-							if (!l) return null;
-							const otherId = otherNoteId(l);
-							return (
-								<Portal mount={document.body}>
-									<LinkPopup
-										x={popupPos().x}
-										y={popupPos().y}
-										nookId={nookId()}
-										noteId={otherId}
-										noteTitle={titleForLink(l, otherId)}
-										predicate={directionLabel(l)}
-										onOpen={() => void store().onNoteLinkClick(otherId)}
-										onRemove={
-											store().mode() === "edit"
-												? () => void deleteLink(l.id)
-												: undefined
-										}
-										onClose={() => setPopupLinkId("")}
-									/>
-								</Portal>
-							);
-						})()}
-					</Show>
 				</div>
 			</Show>
 		</div>

@@ -1,5 +1,6 @@
 import { Show } from "solid-js";
 import { ChatPanel } from "../../components/chat/ChatPanel";
+import { createNotePreview } from "../../components/NotePreview";
 import { useUi } from "../../ui/UiContext";
 import { NookGraphPanel } from "./NookGraphPanel";
 import { NookMainPanel } from "./NookMainPanel";
@@ -12,8 +13,11 @@ export type NookDefaultLayoutProps = {
 	showGraph: boolean;
 };
 
+export type NotePreviewController = ReturnType<typeof createNotePreview>;
+
 export function NookDefaultLayout(props: NookDefaultLayoutProps) {
 	const ui = useUi();
+	const notePreview = createNotePreview(() => props.nookId);
 
 	return (
 		<div
@@ -25,8 +29,8 @@ export function NookDefaultLayout(props: NookDefaultLayoutProps) {
 			}}
 		>
 			<div style={{ flex: "1", "min-width": "0", "overflow-y": "auto" }}>
-				<NookMainPanel store={props.store} />
-				<NookStatusPanel store={props.store} />
+				<NookMainPanel store={props.store} notePreview={notePreview} />
+				<NookStatusPanel store={props.store} notePreview={notePreview} />
 			</div>
 
 			<Show when={props.showGraph}>
@@ -41,8 +45,11 @@ export function NookDefaultLayout(props: NookDefaultLayoutProps) {
 					currentNoteType={props.store.type() || undefined}
 					onClose={ui.toggleChatPanel}
 					onNavigateToNote={(id) => void props.store.onNoteLinkClick(id)}
+					notePreview={notePreview}
 				/>
 			</Show>
+
+			<notePreview.PreviewPopover />
 		</div>
 	);
 }

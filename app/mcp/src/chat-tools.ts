@@ -28,12 +28,12 @@ export const TOOLS: Anthropic.Tool[] = [
   },
   {
     name: 'update_note',
-    description: 'Update an existing note',
+    description: 'Update an existing note. Only include fields you want to change — omitted fields keep their current values.',
     input_schema: {
       type: 'object',
       properties: {
         note_id:    { type: 'string' },
-        title:      { type: 'string' },
+        title:      { type: 'string', description: 'New title. Omit to keep existing title.' },
         content:    { type: 'string', description: 'Note content in markdown. To link to another note use [[note:<note_id>]] — the title is resolved automatically. To embed a file note as an image use ![Note Title](note:<note_id>).' },
         properties: { type: 'object' },
       },

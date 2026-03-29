@@ -260,10 +260,10 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
 					: href.slice("note:".length)
 			).trim();
 			if (noteId === "") return;
-			if (props.readonly) {
-				props.onNoteLinkClick?.(noteId);
+			if (!props.readonly && props.onNoteLinkPopup) {
+				props.onNoteLinkPopup(noteId, e.clientX, e.clientY);
 			} else {
-				props.onNoteLinkPopup?.(noteId, e.clientX, e.clientY);
+				props.onNoteLinkClick?.(noteId);
 			}
 		};
 		rootEl.addEventListener("click", onRootClick);
