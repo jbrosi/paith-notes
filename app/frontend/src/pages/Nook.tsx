@@ -106,10 +106,7 @@ export default function Nook() {
 	});
 
 	const showLinks = createMemo(() => normalizedSubPath() === "settings/links");
-	const showSettings = createMemo(() => {
-		const p = normalizedSubPath();
-		return p === "settings" || p.startsWith("settings/");
-	});
+	const showSettings = createMemo(() => normalizedSubPath() === "settings");
 
 	const fullscreenGraphNoteId = createMemo(() => {
 		const m = normalizedSubPath().match(/^graph\/([^/]+)$/);
