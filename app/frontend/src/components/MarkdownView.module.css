@@ -63,7 +63,7 @@
 
 .markdown pre {
 	background: var(--color-bg-code);
-	color: var(--color-text-on-dark);
+	color: var(--color-text-code);
 	padding: 10px 12px;
 	border-radius: 6px;
 	font-size: 0.8125rem;

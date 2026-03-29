@@ -1,19 +1,33 @@
 /** Lazy-loaded syntax highlighter. Only imports highlight.js when first needed. */
 
 let hljsPromise: Promise<typeof import("highlight.js")> | null = null;
-let themeLoaded = false;
+let themeLoaded: "light" | "dark" | null = null;
+
+function isDarkMode(): boolean {
+	return (
+		document.documentElement.getAttribute("data-theme") === "dark" ||
+		(document.documentElement.getAttribute("data-theme") !== "light" &&
+			window.matchMedia("(prefers-color-scheme: dark)").matches)
+	);
+}
+
+function loadTheme() {
+	const mode = isDarkMode() ? "dark" : "light";
+	if (themeLoaded === mode) return;
+	themeLoaded = mode;
+	if (mode === "dark") {
+		import("highlight.js/styles/github-dark.min.css");
+	} else {
+		import("highlight.js/styles/github.min.css");
+	}
+}
 
 function loadHljs() {
 	if (!hljsPromise) {
 		// highlight.js/lib/common includes ~40 popular languages
 		hljsPromise = import("highlight.js/lib/common");
-
-		// Load theme CSS once
-		if (!themeLoaded) {
-			themeLoaded = true;
-			import("highlight.js/styles/github-dark.min.css");
-		}
 	}
+	loadTheme();
 	return hljsPromise;
 }
 

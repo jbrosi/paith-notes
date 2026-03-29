@@ -10,7 +10,7 @@
 	--crepe-color-background: transparent;
 	--crepe-color-surface: var(--color-bg-code);
 	--crepe-color-surface-low: var(--color-bg-code);
-	--crepe-color-on-surface: var(--color-text-on-dark);
+	--crepe-color-on-surface: var(--color-text-code);
 	--crepe-color-inline-code: var(--color-text);
 	--crepe-color-inline-area: var(--color-bg-inline-code);
 	--crepe-color-primary: var(--color-primary);
@@ -133,7 +133,7 @@
 
 .milkdown .ProseMirror pre {
 	background: var(--color-bg-code) !important;
-	color: var(--color-text-on-dark) !important;
+	color: var(--color-text-code) !important;
 	padding: 10px 12px !important;
 	border-radius: 6px !important;
 	font-size: 0.8125rem;
