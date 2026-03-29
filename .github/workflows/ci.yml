@@ -257,11 +257,13 @@ jobs:
       - name: Pest (with coverage)
         run: sh scripts/ci-test-php.sh
 
-      - name: Upload coverage artifact
+      - name: Upload coverage artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: api-coverage-clover
-          path: app/api/coverage/clover.xml
+          name: php-coverage-clover
+          path: |
+            app/api/coverage/clover.xml
+            app/worker/coverage/clover.xml
 
   sonarcloud:
     runs-on: ubuntu-latest
@@ -294,11 +296,11 @@ jobs:
             exit 1
           fi
 
-      - name: Download coverage artifact
+      - name: Download coverage artifacts
         uses: actions/download-artifact@v4
         with:
-          name: api-coverage-clover
-          path: app/api/coverage
+          name: php-coverage-clover
+          path: php-coverage
 
       - name: SonarCloud Scan
         uses: SonarSource/sonarqube-scan-action@v7
@@ -309,7 +311,7 @@ jobs:
             -Dsonar.organization=${{ vars.SONAR_ORGANIZATION }}
             -Dsonar.projectKey=${{ vars.SONAR_PROJECT_KEY }}
             -Dsonar.sources=app/api/src,app/worker/src,app/backend-shared/src,app/frontend/src
-            -Dsonar.php.coverage.reportPaths=app/api/coverage/clover.xml
+            -Dsonar.php.coverage.reportPaths=php-coverage/app/api/coverage/clover.xml,php-coverage/app/worker/coverage/clover.xml
             -Dsonar.exclusions=**/vendor/**,**/node_modules/**,**/coverage/**,app/frontend/dist/**
 
   ci-success:
