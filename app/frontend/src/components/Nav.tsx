@@ -480,6 +480,25 @@ export function Nav() {
 										? "Dark"
 										: "Light"}
 							</button>
+							<label class={styles.accentRow}>
+								<span>Accent</span>
+								<input
+									type="color"
+									value={ui.accentColor() || "#3b82f6"}
+									onInput={(e) => ui.setAccentColor(e.currentTarget.value)}
+									class={styles.accentPicker}
+								/>
+								<Show when={ui.accentColor() !== ""}>
+									<button
+										type="button"
+										class={styles.accentReset}
+										onClick={() => ui.resetAccentColor()}
+										title="Reset to default"
+									>
+										Reset
+									</button>
+								</Show>
+							</label>
 							<button
 								type="button"
 								class={styles.overflowItem}

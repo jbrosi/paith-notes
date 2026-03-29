@@ -38,6 +38,9 @@ export type UiState = {
 	theme: () => ThemeMode;
 	setTheme: (next: ThemeMode) => void;
 	cycleTheme: () => void;
+	accentColor: () => string;
+	setAccentColor: (color: string) => void;
+	resetAccentColor: () => void;
 };
 
 const UiContext = createContext<UiState>();
@@ -48,6 +51,7 @@ const TYPES_PANEL_OPEN_STORAGE_KEY = "paith-notes:typesPanelOpen";
 const CHAT_PANEL_OPEN_STORAGE_KEY = "paith-notes:chatPanelOpen";
 const ACTIVE_PANEL_STORAGE_KEY = "paith-notes:activePanel";
 const THEME_STORAGE_KEY = "paith-notes:theme";
+const ACCENT_COLOR_STORAGE_KEY = "paith-notes:accentColor";
 
 export function UiProvider(props: { children: JSX.Element }) {
 	const [mode, setModeSignal] = createSignal<"view" | "edit">("view");
@@ -57,6 +61,7 @@ export function UiProvider(props: { children: JSX.Element }) {
 	const [activePanel, setActivePanelSignal] =
 		createSignal<MobilePanel>("content");
 	const [theme, setThemeSignal] = createSignal<ThemeMode>("system");
+	const [accentColor, setAccentColorSignal] = createSignal("");
 
 	onMount(() => {
 		try {
@@ -98,6 +103,15 @@ export function UiProvider(props: { children: JSX.Element }) {
 			if (v === "light" || v === "dark" || v === "system") {
 				setThemeSignal(v);
 				applyTheme(v);
+			}
+		} catch {
+			// ignore
+		}
+		try {
+			const v = window.localStorage.getItem(ACCENT_COLOR_STORAGE_KEY);
+			if (v && /^#[0-9a-f]{6}$/i.test(v)) {
+				setAccentColorSignal(v);
+				applyAccentColor(v);
 			}
 		} catch {
 			// ignore
@@ -176,6 +190,30 @@ export function UiProvider(props: { children: JSX.Element }) {
 		}
 	};
 
+	const applyAccentColor = (color: string) => {
+		if (color) {
+			document.documentElement.style.setProperty("--seed-accent", color);
+		} else {
+			document.documentElement.style.removeProperty("--seed-accent");
+		}
+	};
+
+	const setAccentColor = (color: string) => {
+		setAccentColorSignal(color);
+		applyAccentColor(color);
+		try {
+			if (color) {
+				window.localStorage.setItem(ACCENT_COLOR_STORAGE_KEY, color);
+			} else {
+				window.localStorage.removeItem(ACCENT_COLOR_STORAGE_KEY);
+			}
+		} catch {
+			// ignore
+		}
+	};
+
+	const resetAccentColor = () => setAccentColor("");
+
 	const cycleTheme = () => {
 		const order: ThemeMode[] = ["system", "light", "dark"];
 		const idx = order.indexOf(theme());
@@ -221,6 +259,9 @@ export function UiProvider(props: { children: JSX.Element }) {
 				theme,
 				setTheme,
 				cycleTheme,
+				accentColor,
+				setAccentColor,
+				resetAccentColor,
 			}}
 		>
 			{props.children}
