@@ -55,7 +55,7 @@
 }
 
 .pre {
-	background: #f6f8fa;
+	background: var(--color-bg-hover);
 	padding: 12px;
 	border-radius: 8px;
 	overflow: auto;
@@ -71,7 +71,7 @@
 	padding: 8px 12px;
 	border: 1px solid #ccc;
 	border-radius: 8px;
-	background: white;
+	background: var(--color-bg);
 	cursor: pointer;
 }
 
@@ -85,7 +85,7 @@
 .spinner {
 	width: 16px;
 	height: 16px;
-	border: 2px solid #ddd;
+	border: 2px solid var(--color-border);
 	border-top-color: #555;
 	border-radius: 50%;
 	animation: spin 0.9s linear infinite;

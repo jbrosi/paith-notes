@@ -471,6 +471,18 @@ export function Nav() {
 							<button
 								type="button"
 								class={styles.overflowItem}
+								onClick={() => ui.cycleTheme()}
+							>
+								Theme:{" "}
+								{ui.theme() === "system"
+									? "Auto"
+									: ui.theme() === "dark"
+										? "Dark"
+										: "Light"}
+							</button>
+							<button
+								type="button"
+								class={styles.overflowItem}
 								onClick={() => auth.logout()}
 							>
 								Logout

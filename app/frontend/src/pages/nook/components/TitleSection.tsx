@@ -63,7 +63,10 @@ export function TitleSection(props: { store: NookStore }) {
 								"font-weight": "700",
 								"line-height": "1.25",
 								cursor: props.store.mode() === "edit" ? "text" : "default",
-								color: props.store.title().trim() === "" ? "#aaa" : "inherit",
+								color:
+									props.store.title().trim() === ""
+										? "var(--color-text-faint)"
+										: "inherit",
 								padding: "1px 0",
 								display: "flex",
 								"align-items": "baseline",
@@ -79,7 +82,7 @@ export function TitleSection(props: { store: NookStore }) {
 									style={{
 										"font-size": "0.6rem",
 										"font-weight": "400",
-										color: "#0969da",
+										color: "var(--color-primary)",
 										"vertical-align": "super",
 										"line-height": "1",
 										cursor: "default",
@@ -128,11 +131,14 @@ export function TitleSection(props: { store: NookStore }) {
 									display: "inline-block",
 									padding: "2px 10px",
 									"border-radius": "999px",
-									border: "1px solid #d0d7de",
-									background: "#f6f8fa",
+									border: "1px solid var(--color-border-medium)",
+									background: "var(--color-bg-hover)",
 									"font-size": "12px",
 									"font-weight": "500",
-									color: primaryTypeLabel().trim() !== "" ? "#444" : "#999",
+									color:
+										primaryTypeLabel().trim() !== ""
+											? "var(--color-text-secondary)"
+											: "var(--color-text-faint)",
 								}}
 							>
 								{primaryTypeLabel().trim() !== ""
