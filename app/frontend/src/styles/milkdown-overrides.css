@@ -30,7 +30,7 @@
 	font-size: 0.875rem;
 	line-height: 1.6;
 	color: var(--color-text);
-	caret-color: var(--color-text);
+	caret-color: var(--color-primary);
 }
 
 .milkdown .ProseMirror:focus {

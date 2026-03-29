@@ -35,9 +35,9 @@
 }
 
 .secondary:hover:not(:disabled) {
-	background-color: var(--color-bg-active);
-	border-color: var(--color-border-medium);
-	color: var(--color-text);
+	background-color: var(--color-primary-bg);
+	border-color: var(--color-primary-border);
+	color: var(--color-primary);
 }
 
 .danger {

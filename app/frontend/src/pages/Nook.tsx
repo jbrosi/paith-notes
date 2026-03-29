@@ -36,6 +36,10 @@ export default function Nook() {
 	const store = createNookStore(nookId);
 	const [nookName, setNookName] = createSignal("");
 	createEffect(() => {
+		const id = nookId();
+		if (id) ui.loadNookAccent(id);
+	});
+	createEffect(() => {
 		nookCtx.setStore(store);
 	});
 
@@ -261,6 +265,7 @@ export default function Nook() {
 						}
 					>
 						<NookSettingsLanding
+							nookId={nookId()}
 							onClose={goBackToNoteOrNook}
 							onOpenLinks={openLinksSettings}
 							onOpenTypes={openTypesSettings}

@@ -27,7 +27,7 @@
 .textarea:focus {
 	outline: none;
 	border-color: var(--color-primary-light);
-	box-shadow: 0 0 0 2px rgb(59 130 246 / 20%);
+	box-shadow: 0 0 0 2px color-mix(in srgb, var(--seed-accent) 20%, transparent);
 }
 
 .textarea:disabled {

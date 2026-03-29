@@ -39,8 +39,9 @@ export type UiState = {
 	setTheme: (next: ThemeMode) => void;
 	cycleTheme: () => void;
 	accentColor: () => string;
-	setAccentColor: (color: string) => void;
-	resetAccentColor: () => void;
+	setAccentColor: (color: string, nookId?: string) => void;
+	resetAccentColor: (nookId?: string) => void;
+	loadNookAccent: (nookId: string) => void;
 };
 
 const UiContext = createContext<UiState>();
@@ -103,15 +104,6 @@ export function UiProvider(props: { children: JSX.Element }) {
 			if (v === "light" || v === "dark" || v === "system") {
 				setThemeSignal(v);
 				applyTheme(v);
-			}
-		} catch {
-			// ignore
-		}
-		try {
-			const v = window.localStorage.getItem(ACCENT_COLOR_STORAGE_KEY);
-			if (v && /^#[0-9a-f]{6}$/i.test(v)) {
-				setAccentColorSignal(v);
-				applyAccentColor(v);
 			}
 		} catch {
 			// ignore
@@ -190,6 +182,8 @@ export function UiProvider(props: { children: JSX.Element }) {
 		}
 	};
 
+	let currentNookIdForAccent = "";
+
 	const applyAccentColor = (color: string) => {
 		if (color) {
 			document.documentElement.style.setProperty("--seed-accent", color);
@@ -198,21 +192,43 @@ export function UiProvider(props: { children: JSX.Element }) {
 		}
 	};
 
-	const setAccentColor = (color: string) => {
+	const accentKey = (nookId?: string) => {
+		const id = nookId || currentNookIdForAccent;
+		return id ? `${ACCENT_COLOR_STORAGE_KEY}:${id}` : ACCENT_COLOR_STORAGE_KEY;
+	};
+
+	const setAccentColor = (color: string, nookId?: string) => {
 		setAccentColorSignal(color);
 		applyAccentColor(color);
 		try {
+			const key = accentKey(nookId);
 			if (color) {
-				window.localStorage.setItem(ACCENT_COLOR_STORAGE_KEY, color);
+				window.localStorage.setItem(key, color);
 			} else {
-				window.localStorage.removeItem(ACCENT_COLOR_STORAGE_KEY);
+				window.localStorage.removeItem(key);
 			}
 		} catch {
 			// ignore
 		}
 	};
 
-	const resetAccentColor = () => setAccentColor("");
+	const resetAccentColor = (nookId?: string) => setAccentColor("", nookId);
+
+	const loadNookAccent = (nookId: string) => {
+		currentNookIdForAccent = nookId;
+		try {
+			const v = window.localStorage.getItem(accentKey(nookId));
+			if (v && /^#[0-9a-f]{6}$/i.test(v)) {
+				setAccentColorSignal(v);
+				applyAccentColor(v);
+			} else {
+				setAccentColorSignal("");
+				applyAccentColor("");
+			}
+		} catch {
+			// ignore
+		}
+	};
 
 	const cycleTheme = () => {
 		const order: ThemeMode[] = ["system", "light", "dark"];
@@ -262,6 +278,7 @@ export function UiProvider(props: { children: JSX.Element }) {
 				accentColor,
 				setAccentColor,
 				resetAccentColor,
+				loadNookAccent,
 			}}
 		>
 			{props.children}
