@@ -51,11 +51,11 @@
 }
 
 .nav a:hover {
-	background-color: #e0e0e0;
+	background-color: var(--color-bg-hover);
 }
 
 .nav a.active {
-	background-color: #007bff;
+	background-color: var(--color-primary-light);
 	color: var(--color-text-on-primary);
 }
 
@@ -77,7 +77,7 @@
 }
 
 .dropdown-toggle:hover {
-	background-color: #e0e0e0;
+	background-color: var(--color-bg-hover);
 }
 
 .dropdown-toggle:disabled {
@@ -108,7 +108,7 @@
 }
 
 .dropdown-error {
-	color: #b00020;
+	color: var(--color-danger);
 	font-size: 12px;
 	margin-bottom: 8px;
 }
@@ -137,7 +137,7 @@
 }
 
 .dropdown-item:hover {
-	background: #f0f0f0;
+	background: var(--color-bg-hover);
 }
 
 .dropdown-meta {
@@ -288,7 +288,7 @@
 }
 
 .userToggle:hover {
-	background: #e0e0e0;
+	background: var(--color-bg-hover);
 }
 
 .userToggleName {
@@ -392,7 +392,7 @@
 }
 
 .filterToggle:hover {
-	background: #e0e0e0;
+	background: var(--color-bg-hover);
 	color: var(--color-text-secondary);
 }
 
@@ -403,7 +403,7 @@
 }
 
 .filterToggleActive:hover {
-	background: #dbeafe;
+	background: var(--color-bg-selected);
 }
 
 .filterBadge {
@@ -558,7 +558,7 @@
 }
 
 .searchToggle:hover {
-	background: #e0e0e0;
+	background: var(--color-bg-hover);
 	color: var(--color-text-secondary);
 }
 
@@ -576,7 +576,7 @@
 }
 
 .homeToggle:hover {
-	background: #e0e0e0;
+	background: var(--color-bg-hover);
 	color: var(--color-text-secondary);
 }
 

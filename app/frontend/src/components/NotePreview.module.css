@@ -55,7 +55,7 @@
 }
 
 .headerClickable:hover {
-	background: #f9fafb;
+	background: var(--color-bg-hover);
 }
 
 .headerContent {
@@ -111,7 +111,7 @@
 /* Content snippet */
 .body {
 	padding: 6px 12px 10px;
-	color: #374151;
+	color: var(--color-text-secondary);
 	line-height: 1.5;
 	white-space: pre-wrap;
 	overflow-wrap: break-word;

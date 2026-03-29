@@ -23,10 +23,10 @@ export function NookMentionsPanel(props: NookMentionsPanelProps) {
 			</div>
 			<div style={{ display: "flex", gap: "16px" }}>
 				<div style={{ flex: "1", "min-width": "0" }}>
-					<div style={{ color: "#666", "margin-bottom": "6px" }}>Outgoing</div>
+					<div style={{ color: "var(--color-text-muted)", "margin-bottom": "6px" }}>Outgoing</div>
 					<Show
 						when={props.outgoing.length > 0}
-						fallback={<div style={{ color: "#999" }}>None</div>}
+						fallback={<div style={{ color: "var(--color-text-faint)" }}>None</div>}
 					>
 						<For each={props.outgoing}>
 							{(m) => (
@@ -60,15 +60,15 @@ export function NookMentionsPanel(props: NookMentionsPanelProps) {
 											"align-items": "center",
 										}}
 									>
-										<div style={{ color: "#666" }}>{m.noteTitle}</div>
+										<div style={{ color: "var(--color-text-muted)" }}>{m.noteTitle}</div>
 										<span
 											style={{
 												"font-size": "12px",
 												padding: "2px 6px",
 												"border-radius": "999px",
 												border: "1px solid #c9def7",
-												background: "#eef5ff",
-												color: "#1f5fbf",
+												background: "var(--color-bg-selected)",
+												color: "var(--color-link)",
 											}}
 										>
 											{noteTypeLabel(m.noteId)}
@@ -80,10 +80,10 @@ export function NookMentionsPanel(props: NookMentionsPanelProps) {
 					</Show>
 				</div>
 				<div style={{ flex: "1", "min-width": "0" }}>
-					<div style={{ color: "#666", "margin-bottom": "6px" }}>Incoming</div>
+					<div style={{ color: "var(--color-text-muted)", "margin-bottom": "6px" }}>Incoming</div>
 					<Show
 						when={props.incoming.length > 0}
-						fallback={<div style={{ color: "#999" }}>None</div>}
+						fallback={<div style={{ color: "var(--color-text-faint)" }}>None</div>}
 					>
 						<For each={props.incoming}>
 							{(m) => (
@@ -121,14 +121,14 @@ export function NookMentionsPanel(props: NookMentionsPanelProps) {
 												padding: "2px 6px",
 												"border-radius": "999px",
 												border: "1px solid #c9def7",
-												background: "#eef5ff",
-												color: "#1f5fbf",
+												background: "var(--color-bg-selected)",
+												color: "var(--color-link)",
 											}}
 										>
 											{noteTypeLabel(m.noteId)}
 										</span>
 									</div>
-									<div style={{ color: "#666" }}>{m.linkTitle}</div>
+									<div style={{ color: "var(--color-text-muted)" }}>{m.linkTitle}</div>
 								</button>
 							)}
 						</For>

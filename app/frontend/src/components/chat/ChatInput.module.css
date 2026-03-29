@@ -31,7 +31,7 @@
 }
 
 .textarea:disabled {
-	background: #f9fafb;
+	background: var(--color-bg-secondary);
 	color: var(--color-text-faint);
 }
 
@@ -63,7 +63,7 @@
 	border-radius: 6px;
 	padding: 2px 6px;
 	color: var(--color-text-muted);
-	background: #f9fafb;
+	background: var(--color-bg-secondary);
 	font-family: inherit;
 	cursor: pointer;
 }

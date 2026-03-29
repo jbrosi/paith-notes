@@ -333,7 +333,7 @@ export function NookNoteLinksPanel(props: NookNoteLinksPanelProps) {
 				padding: "8px 10px",
 				border: "1px solid #eee",
 				"border-radius": "8px",
-				background: "#fafafa",
+				background: "var(--color-bg-secondary)",
 			}}
 		>
 			<div style={{ display: "flex", "justify-content": "space-between" }}>
@@ -341,7 +341,7 @@ export function NookNoteLinksPanel(props: NookNoteLinksPanelProps) {
 			</div>
 
 			<Show when={error() !== ""}>
-				<pre style={{ color: "#b42318", "white-space": "pre-wrap" }}>
+				<pre style={{ color: "var(--color-danger)", "white-space": "pre-wrap" }}>
 					{error()}
 				</pre>
 			</Show>
@@ -442,7 +442,7 @@ export function NookNoteLinksPanel(props: NookNoteLinksPanelProps) {
 						</div>
 						<Show
 							when={links().length > 0}
-							fallback={<div style={{ color: "#666" }}>(none)</div>}
+							fallback={<div style={{ color: "var(--color-text-muted)" }}>(none)</div>}
 						>
 							<For each={links()}>
 								{(l) => (
@@ -496,7 +496,7 @@ export function NookNoteLinksPanel(props: NookNoteLinksPanelProps) {
 												{titleForLink(l, otherNoteId(l))}
 											</div>
 											<Show when={l.startDate !== "" || l.endDate !== ""}>
-												<div style={{ color: "#666", "font-size": "12px" }}>
+												<div style={{ color: "var(--color-text-muted)", "font-size": "12px" }}>
 													{l.startDate || "(no start)"} →{" "}
 													{l.endDate || "(no end)"}
 												</div>
