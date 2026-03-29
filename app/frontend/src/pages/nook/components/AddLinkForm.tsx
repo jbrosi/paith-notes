@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For } from "solid-js";
 import { apiFetch } from "../../../auth/keycloak";
 import { Button } from "../../../components/Button";
 import { RemoteNoteSearchSelect } from "../../../components/RemoteNoteSearchSelect";

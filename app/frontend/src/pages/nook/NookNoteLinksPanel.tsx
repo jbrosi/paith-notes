@@ -18,7 +18,7 @@ export function NookNoteLinksPanel(props: NookNoteLinksPanelProps) {
 	const nookId = () => store().nookId();
 	const noteId = () => store().selectedId();
 
-	const [loading, setLoading] = createSignal(false);
+	const [_loading, setLoading] = createSignal(false);
 	const [error, setError] = createSignal("");
 	const [links, setLinks] = createSignal<NoteLink[]>([]);
 	const [showAddForm, setShowAddForm] = createSignal(false);
