@@ -1,4 +1,5 @@
 import { For, Show } from "solid-js";
+import type { NotePreviewController } from "./NookDefaultLayout";
 import type { Mention, NoteSummary } from "./types";
 
 export type NookMentionsPanelProps = {
@@ -6,6 +7,7 @@ export type NookMentionsPanelProps = {
 	outgoing: Mention[];
 	incoming: Mention[];
 	onOpenNote: (noteId: string) => void;
+	notePreview?: NotePreviewController;
 };
 
 export function NookMentionsPanel(props: NookMentionsPanelProps) {
@@ -31,6 +33,12 @@ export function NookMentionsPanel(props: NookMentionsPanelProps) {
 								<button
 									type="button"
 									onClick={() => props.onOpenNote(m.noteId)}
+									onMouseEnter={(e) =>
+										props.notePreview?.show(m.noteId, e.clientX, e.clientY, {
+											onOpen: (id) => props.onOpenNote(id),
+										})
+									}
+									onMouseLeave={() => props.notePreview?.hide()}
 									style={{
 										width: "100%",
 										padding: "6px 8px",
@@ -82,6 +90,12 @@ export function NookMentionsPanel(props: NookMentionsPanelProps) {
 								<button
 									type="button"
 									onClick={() => props.onOpenNote(m.noteId)}
+									onMouseEnter={(e) =>
+										props.notePreview?.show(m.noteId, e.clientX, e.clientY, {
+											onOpen: (id) => props.onOpenNote(id),
+										})
+									}
+									onMouseLeave={() => props.notePreview?.hide()}
 									style={{
 										width: "100%",
 										padding: "6px 8px",

@@ -352,7 +352,14 @@ final class NotesController
 
         $formerProperties = $existingFormerProperties;
         if ($title === '') {
-            throw new HttpError('title is required', 400);
+            // If no title provided on update, keep the existing one
+            $existingTitleStmt = $pdo->prepare('select title from global.notes where id = :id and nook_id = :nook_id');
+            $existingTitleStmt->execute([':id' => $noteId, ':nook_id' => $nookId]);
+            $existingTitle = $existingTitleStmt->fetchColumn();
+            $title = is_string($existingTitle) ? trim($existingTitle) : '';
+            if ($title === '') {
+                throw new HttpError('title is required', 400);
+            }
         }
 
         if ($typeId !== null) {
