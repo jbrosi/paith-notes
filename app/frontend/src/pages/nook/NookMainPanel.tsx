@@ -5,6 +5,7 @@ import notesStyles from "../Notes.module.css";
 import { EditorSection } from "./components/EditorSection";
 import { FilePanel } from "./components/FilePanel";
 import { TitleSection } from "./components/TitleSection";
+import type { NotePreviewController } from "./NookDefaultLayout";
 import { NookNoteLinksPanel } from "./NookNoteLinksPanel";
 import { NookToolbar } from "./NookToolbar";
 import type { NookStore } from "./store";
@@ -12,6 +13,7 @@ import { UnsavedChangesDialog } from "./UnsavedChangesDialog";
 
 export type NookMainPanelProps = {
 	store: NookStore;
+	notePreview?: NotePreviewController;
 };
 
 export function NookMainPanel(props: NookMainPanelProps) {
@@ -60,10 +62,10 @@ export function NookMainPanel(props: NookMainPanelProps) {
 
 				<FilePanel store={store()} />
 				<TitleSection store={store()} />
-				<EditorSection store={store()} />
+				<EditorSection store={store()} notePreview={props.notePreview} />
 
 				<Show when={store().selectedId() !== ""}>
-					<NookNoteLinksPanel store={store()} />
+					<NookNoteLinksPanel store={store()} notePreview={props.notePreview} />
 				</Show>
 			</div>
 		</>

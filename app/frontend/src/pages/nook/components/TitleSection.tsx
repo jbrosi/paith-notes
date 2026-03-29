@@ -114,22 +114,22 @@ export function TitleSection(props: { store: NookStore }) {
 					<Show
 						when={props.store.mode() === "edit"}
 						fallback={
-							<Show when={primaryTypeLabel().trim() !== ""}>
-								<span
-									style={{
-										display: "inline-block",
-										padding: "2px 10px",
-										"border-radius": "999px",
-										border: "1px solid #d0d7de",
-										background: "#f6f8fa",
-										"font-size": "12px",
-										"font-weight": "500",
-										color: "#444",
-									}}
-								>
-									{primaryTypeLabel()}
-								</span>
-							</Show>
+							<span
+								style={{
+									display: "inline-block",
+									padding: "2px 10px",
+									"border-radius": "999px",
+									border: "1px solid #d0d7de",
+									background: "#f6f8fa",
+									"font-size": "12px",
+									"font-weight": "500",
+									color: primaryTypeLabel().trim() !== "" ? "#444" : "#999",
+								}}
+							>
+								{primaryTypeLabel().trim() !== ""
+									? primaryTypeLabel()
+									: "No type"}
+							</span>
 						}
 					>
 						<NoteTypeSearchSelect

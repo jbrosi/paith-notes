@@ -1,4 +1,5 @@
 import { For } from "solid-js";
+import type { NotePreviewController } from "../../pages/nook/NookDefaultLayout";
 import { Button } from "../Button";
 import type { ToolUse } from "./ChatMessage";
 import styles from "./ToolApproval.module.css";
@@ -25,16 +26,27 @@ type Props = {
 	onApprove: () => void;
 	onDeny: () => void;
 	disabled: boolean;
+	notePreview?: NotePreviewController;
 };
 
 function InputValue(props: {
 	value: unknown;
 	displayNames: Record<string, DisplayName>;
+	notePreview?: NotePreviewController;
 }) {
 	const str = String(props.value ?? "");
 	const resolved = () => props.displayNames[str];
+	/** Only show preview for values that resolved to a display name (i.e. note IDs) */
+	const hoverHandlers = () => {
+		if (!resolved() || !props.notePreview) return {};
+		return {
+			onMouseEnter: (e: MouseEvent) =>
+				props.notePreview?.show(str, e.clientX, e.clientY),
+			onMouseLeave: () => props.notePreview?.hide(),
+		};
+	};
 	return (
-		<span class={styles.inputVal}>
+		<span class={styles.inputVal} {...hoverHandlers()}>
 			{resolved() ? (
 				resolved()?.url ? (
 					<a
@@ -90,6 +102,7 @@ export function ToolApproval(props: Props) {
 											<InputValue
 												value={value}
 												displayNames={props.displayNames}
+												notePreview={props.notePreview}
 											/>
 										</div>
 									)}

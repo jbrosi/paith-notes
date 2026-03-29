@@ -23,6 +23,8 @@ type PendingApproval = {
 	contextNoteType?: string;
 };
 
+import type { NotePreviewController } from "../../pages/nook/NookDefaultLayout";
+
 type Props = {
 	nookId: string;
 	currentNoteId?: string;
@@ -30,6 +32,7 @@ type Props = {
 	currentNoteType?: string;
 	onClose: () => void;
 	onNavigateToNote?: (noteId: string) => void;
+	notePreview?: NotePreviewController;
 };
 
 async function fetchConversations(
@@ -538,7 +541,15 @@ export function ChatPanel(props: Props) {
 							<p class={styles.empty}>Ask anything about your notes.</p>
 						}
 					>
-						<For each={messages()}>{(m) => <ChatMessage message={m} />}</For>
+						<For each={messages()}>
+							{(m) => (
+								<ChatMessage
+									message={m}
+									notePreview={props.notePreview}
+									onNavigateToNote={props.onNavigateToNote}
+								/>
+							)}
+						</For>
 					</Show>
 
 					<Show when={pendingApproval() !== null}>
@@ -550,6 +561,7 @@ export function ChatPanel(props: Props) {
 							onApprove={() => void submitToolResults(true)}
 							onDeny={() => void submitToolResults(false)}
 							disabled={streaming()}
+							notePreview={props.notePreview}
 						/>
 					</Show>
 

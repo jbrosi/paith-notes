@@ -128,6 +128,8 @@ export function RemoteNoteSearchSelect(props: RemoteNoteSearchSelectProps) {
 		void effectiveTypeId();
 		void effectiveTextQuery();
 		void effectiveKind();
+		// Capture reactive values synchronously so Solid tracks them
+		const exclude = new Set<string>(props.excludeIds ?? []);
 		const t = window.setTimeout(() => {
 			void (async () => {
 				setHint("");
@@ -178,7 +180,6 @@ export function RemoteNoteSearchSelect(props: RemoteNoteSearchSelectProps) {
 					const json = await res.json();
 					const rawNotes = (json as { notes?: unknown })?.notes;
 					const list = Array.isArray(rawNotes) ? rawNotes : [];
-					const exclude = new Set<string>(props.excludeIds ?? []);
 					const out: NoteSearchOption[] = [];
 					for (const n of list) {
 						if (!n || typeof n !== "object") continue;
@@ -187,8 +188,7 @@ export function RemoteNoteSearchSelect(props: RemoteNoteSearchSelectProps) {
 						if (id.trim() === "" || exclude.has(id)) continue;
 						const optTypeId =
 							typeof obj.type_id === "string" ? obj.type_id : "";
-						if (props.isTypeAllowed) {
-							if (optTypeId.trim() === "") continue;
+						if (props.isTypeAllowed && optTypeId.trim() !== "") {
 							if (!props.isTypeAllowed(optTypeId)) continue;
 						}
 						const tLabel = typeLabelById().get(optTypeId.trim()) ?? "";

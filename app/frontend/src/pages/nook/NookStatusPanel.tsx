@@ -1,11 +1,13 @@
 import { Show } from "solid-js";
 import styles from "../../App.module.css";
 import { login } from "../../auth/keycloak";
+import type { NotePreviewController } from "./NookDefaultLayout";
 import { NookMentionsPanel } from "./NookMentionsPanel";
 import type { NookStore } from "./store";
 
 export type NookStatusPanelProps = {
 	store: NookStore;
+	notePreview?: NotePreviewController;
 };
 
 export function NookStatusPanel(props: NookStatusPanelProps) {
@@ -18,6 +20,7 @@ export function NookStatusPanel(props: NookStatusPanelProps) {
 				outgoing={store().outgoingMentions()}
 				incoming={store().incomingMentions()}
 				onOpenNote={(id) => void store().onNoteLinkClick(id)}
+				notePreview={props.notePreview}
 			/>
 
 			<Show when={store().needsLogin()}>
