@@ -1,20 +1,12 @@
-import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
+import { createEffect, createSignal, Show } from "solid-js";
 import { apiFetch } from "../../auth/keycloak";
 import { Button } from "../../components/Button";
-import type { PreviewAction } from "../../components/NotePreview";
-import { RemoteNoteSearchSelect } from "../../components/RemoteNoteSearchSelect";
+import { AddLinkForm } from "./components/AddLinkForm";
+import { LinkList } from "./components/LinkList";
 import type { NotePreviewController } from "./NookDefaultLayout";
 import css from "./NookNoteLinksPanel.module.css";
 import type { NookStore } from "./store";
-import {
-	type LinkPredicate,
-	type LinkPredicateRule,
-	LinkPredicateRulesListResponseSchema,
-	LinkPredicatesListResponseSchema,
-	type NoteLink,
-	NoteLinkResponseSchema,
-	NoteLinksListResponseSchema,
-} from "./types";
+import { type NoteLink, NoteLinksListResponseSchema } from "./types";
 
 export type NookNoteLinksPanelProps = {
 	store: NookStore;
@@ -26,108 +18,10 @@ export function NookNoteLinksPanel(props: NookNoteLinksPanelProps) {
 	const nookId = () => store().nookId();
 	const noteId = () => store().selectedId();
 
-	const [loading, setLoading] = createSignal<boolean>(false);
-	const [error, setError] = createSignal<string>("");
-	const [predicates, setPredicates] = createSignal<LinkPredicate[]>([]);
+	const [loading, setLoading] = createSignal(false);
+	const [error, setError] = createSignal("");
 	const [links, setLinks] = createSignal<NoteLink[]>([]);
-	const [rules, setRules] = createSignal<LinkPredicateRule[]>([]);
-
-	const [newPredicateId, setNewPredicateId] = createSignal<string>("");
-	const [newTargetNoteId, setNewTargetNoteId] = createSignal<string>("");
-	const [newStartDate, setNewStartDate] = createSignal<string>("");
-	const [newEndDate, setNewEndDate] = createSignal<string>("");
-	const [showAddForm, setShowAddForm] = createSignal<boolean>(false);
-
-	const titleForLink = (l: NoteLink, id: string) => {
-		if (l.sourceNoteId === id) {
-			return l.sourceNoteTitle?.trim() ? l.sourceNoteTitle : id;
-		}
-		if (l.targetNoteId === id) {
-			return l.targetNoteTitle?.trim() ? l.targetNoteTitle : id;
-		}
-		return id;
-	};
-
-	const typeParentById = createMemo(() => {
-		const m = new Map<string, string>();
-		for (const t of store().noteTypes()) {
-			m.set(t.id, t.parentId);
-		}
-		return m;
-	});
-
-	const isSameOrDescendant = (childId: string, ancestorId: string) => {
-		const child = childId.trim();
-		const ancestor = ancestorId.trim();
-		if (child === "" || ancestor === "") return false;
-		if (child === ancestor) return true;
-		let cur = child;
-		const parentMap = typeParentById();
-		for (let i = 0; i < 64; i++) {
-			const p = parentMap.get(cur) ?? "";
-			if (p === "") return false;
-			if (p === ancestor) return true;
-			cur = p;
-		}
-		return false;
-	};
-
-	const loadPredicates = async () => {
-		if (nookId().trim() === "") return;
-		setLoading(true);
-		setError("");
-		try {
-			const res = await apiFetch(`/api/nooks/${nookId()}/link-predicates`, {
-				method: "GET",
-			});
-			if (!res.ok) {
-				throw new Error(
-					`Failed to load link predicates: ${res.status} ${res.statusText}`,
-				);
-			}
-			const json = await res.json();
-			const body = LinkPredicatesListResponseSchema.parse(json);
-			setPredicates(body.predicates);
-			if (newPredicateId().trim() === "" && body.predicates.length > 0) {
-				setNewPredicateId(body.predicates[0].id);
-			}
-		} catch (e) {
-			setPredicates([]);
-			setError(String(e));
-		} finally {
-			setLoading(false);
-		}
-	};
-
-	const loadRules = async (predicateId: string) => {
-		const pid = predicateId.trim();
-		if (pid === "") {
-			setRules([]);
-			return;
-		}
-		if (nookId().trim() === "") return;
-		setLoading(true);
-		setError("");
-		try {
-			const res = await apiFetch(
-				`/api/nooks/${nookId()}/link-predicates/${pid}/rules`,
-				{ method: "GET" },
-			);
-			if (!res.ok) {
-				throw new Error(
-					`Failed to load rules: ${res.status} ${res.statusText}`,
-				);
-			}
-			const json = await res.json();
-			const body = LinkPredicateRulesListResponseSchema.parse(json);
-			setRules(body.rules);
-		} catch (e) {
-			setRules([]);
-			setError(String(e));
-		} finally {
-			setLoading(false);
-		}
-	};
+	const [showAddForm, setShowAddForm] = createSignal(false);
 
 	const loadLinks = async () => {
 		if (nookId().trim() === "") return;
@@ -142,13 +36,11 @@ export function NookNoteLinksPanel(props: NookNoteLinksPanelProps) {
 				`/api/nooks/${nookId()}/notes/${noteId()}/links?direction=both&depth=1`,
 				{ method: "GET" },
 			);
-			if (!res.ok) {
+			if (!res.ok)
 				throw new Error(
 					`Failed to load links: ${res.status} ${res.statusText}`,
 				);
-			}
-			const json = await res.json();
-			const body = NoteLinksListResponseSchema.parse(json);
+			const body = NoteLinksListResponseSchema.parse(await res.json());
 			setLinks(body.links);
 		} catch (e) {
 			setLinks([]);
@@ -158,78 +50,20 @@ export function NookNoteLinksPanel(props: NookNoteLinksPanelProps) {
 		}
 	};
 
-	const createLink = async () => {
-		if (nookId().trim() === "") return;
-		if (noteId().trim() === "") return;
-
-		const pid = newPredicateId().trim();
-		if (pid === "") {
-			setError("Choose a predicate");
-			return;
-		}
-		const tid = newTargetNoteId().trim();
-		if (tid === "") {
-			setError("Choose a target note");
-			return;
-		}
-		if (tid === noteId().trim()) {
-			setError("Cannot link a note to itself");
-			return;
-		}
-
-		setLoading(true);
-		setError("");
-		try {
-			const res = await apiFetch(
-				`/api/nooks/${nookId()}/notes/${noteId()}/links`,
-				{
-					method: "POST",
-					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({
-						predicate_id: pid,
-						target_note_id: tid,
-						start_date: newStartDate().trim() || undefined,
-						end_date: newEndDate().trim() || undefined,
-					}),
-				},
-			);
-			if (!res.ok) {
-				throw new Error(
-					`Failed to create link: ${res.status} ${res.statusText}`,
-				);
-			}
-			const json = await res.json();
-			const body = NoteLinkResponseSchema.parse(json);
-			setLinks([body.link, ...links()]);
-			setNewStartDate("");
-			setNewEndDate("");
-			setShowAddForm(false);
-		} catch (e) {
-			setError(String(e));
-		} finally {
-			setLoading(false);
-		}
-	};
-
 	const deleteLink = async (linkId: string) => {
-		if (nookId().trim() === "") return;
-		if (noteId().trim() === "") return;
-		const id = linkId.trim();
-		if (id === "") return;
-
+		if (!nookId().trim() || !noteId().trim() || !linkId.trim()) return;
 		setLoading(true);
 		setError("");
 		try {
 			const res = await apiFetch(
-				`/api/nooks/${nookId()}/notes/${noteId()}/links/${id}`,
+				`/api/nooks/${nookId()}/notes/${noteId()}/links/${linkId.trim()}`,
 				{ method: "DELETE" },
 			);
-			if (!res.ok) {
+			if (!res.ok)
 				throw new Error(
 					`Failed to delete link: ${res.status} ${res.statusText}`,
 				);
-			}
-			setLinks(links().filter((l) => l.id !== id));
+			setLinks(links().filter((l) => l.id !== linkId));
 		} catch (e) {
 			setError(String(e));
 		} finally {
@@ -237,95 +71,11 @@ export function NookNoteLinksPanel(props: NookNoteLinksPanelProps) {
 		}
 	};
 
-	const otherNoteId = (l: NoteLink) => {
-		return l.sourceNoteId === noteId() ? l.targetNoteId : l.sourceNoteId;
-	};
-
-	const directionLabel = (l: NoteLink) => {
-		return l.sourceNoteId === noteId() ? l.forwardLabel : l.reverseLabel;
-	};
-
-	createEffect(() => {
-		void loadPredicates();
-	});
-
-	createEffect(() => {
-		void loadLinks();
-	});
-
+	createEffect(() => void loadLinks());
 	createEffect(() => {
 		void noteId();
-		setNewTargetNoteId("");
-		setNewStartDate("");
-		setNewEndDate("");
 		setShowAddForm(false);
 	});
-
-	createEffect(() => {
-		const pid = newPredicateId().trim();
-		void pid;
-		setNewTargetNoteId("");
-		void loadRules(pid);
-	});
-
-	const allowedTargetTypeOptions = createMemo(() => {
-		const sourceTypeId = store().typeId().trim();
-		const activeRules = rules();
-		const types = store().noteTypes();
-		const typeById = new Map(types.map((t) => [t.id, t.label] as const));
-
-		if (activeRules.length === 0) {
-			return types.map((t) => ({ id: t.id, label: t.label }));
-		}
-
-		const allowed = new Set<string>();
-		let anyAllowed = false;
-		for (const r of activeRules) {
-			const ruleSource = r.sourceTypeId.trim();
-			const sourceOk =
-				ruleSource === "" ||
-				(sourceTypeId !== "" &&
-					(r.includeSourceSubtypes
-						? isSameOrDescendant(sourceTypeId, ruleSource)
-						: sourceTypeId === ruleSource));
-			if (!sourceOk) continue;
-			const ruleTarget = r.targetTypeId.trim();
-			if (ruleTarget === "") {
-				anyAllowed = true;
-				break;
-			}
-			allowed.add(ruleTarget);
-		}
-
-		if (anyAllowed) {
-			return types.map((t) => ({ id: t.id, label: t.label }));
-		}
-
-		return Array.from(allowed)
-			.map((id) => ({ id, label: typeById.get(id) ?? id }))
-			.sort((a, b) => a.label.localeCompare(b.label));
-	});
-
-	const allowedTargetTypeIds = createMemo(
-		() => new Set(allowedTargetTypeOptions().map((o) => o.id)),
-	);
-
-	const allowedTargetTypeLabel = createMemo(() => {
-		const opts = allowedTargetTypeOptions();
-		if (opts.length === 0) return "";
-		return opts.map((o) => o.label).join(", ");
-	});
-
-	const isTypeAllowed = (typeId: string) => {
-		const id = typeId.trim();
-		if (id === "") return false;
-		const allowed = allowedTargetTypeIds();
-		if (allowed.size === 0) return true;
-		for (const rootId of allowed) {
-			if (id === rootId || isSameOrDescendant(id, rootId)) return true;
-		}
-		return false;
-	};
 
 	return (
 		<div class={css.container}>
@@ -349,126 +99,27 @@ export function NookNoteLinksPanel(props: NookNoteLinksPanelProps) {
 							</Button>
 						</div>
 						<Show when={showAddForm()}>
-							<div class={css.formGrid}>
-								<label>
-									Predicate
-									<select
-										value={newPredicateId()}
-										onChange={(e) => setNewPredicateId(e.currentTarget.value)}
-										disabled={loading()}
-										class={css.formInput}
-									>
-										<For each={predicates()}>
-											{(p) => (
-												<option value={p.id}>
-													{p.key} ({p.forwardLabel} / {p.reverseLabel})
-												</option>
-											)}
-										</For>
-									</select>
-								</label>
-
-								<div>
-									<div>Target note</div>
-									<RemoteNoteSearchSelect
-										value={newTargetNoteId()}
-										onChange={(id) => setNewTargetNoteId(id)}
-										nookId={nookId()}
-										noteTypes={store().noteTypes()}
-										excludeIds={[noteId()]}
-										isTypeAllowed={(id) => isTypeAllowed(id)}
-										allowedTypesLabel={allowedTargetTypeLabel()}
-										placeholder="Target note…"
-										disabled={loading()}
-									/>
-								</div>
-							</div>
-
-							<div class={css.formGrid}>
-								<label>
-									Start date
-									<input
-										type="date"
-										value={newStartDate()}
-										onInput={(e) => setNewStartDate(e.currentTarget.value)}
-										disabled={loading()}
-										class={css.formInput}
-									/>
-								</label>
-								<label>
-									End date
-									<input
-										type="date"
-										value={newEndDate()}
-										onInput={(e) => setNewEndDate(e.currentTarget.value)}
-										disabled={loading()}
-										class={css.formInput}
-									/>
-								</label>
-							</div>
-
-							<Button onClick={() => void createLink()} disabled={loading()}>
-								Add link
-							</Button>
+							<AddLinkForm
+								store={store()}
+								nookId={nookId()}
+								noteId={noteId()}
+								onLinkCreated={(link) => {
+									setLinks([link, ...links()]);
+									setShowAddForm(false);
+								}}
+								onError={setError}
+							/>
 						</Show>
 					</Show>
 
-					<div>
-						<div class={css.sectionTitle}>Existing links</div>
-						<Show
-							when={links().length > 0}
-							fallback={<div class={css.emptyText}>(none)</div>}
-						>
-							<For each={links()}>
-								{(l) => (
-									<button
-										type="button"
-										onClick={(e) => {
-											const otherId = otherNoteId(l);
-											const actions: PreviewAction[] = [];
-											if (store().mode() === "edit") {
-												actions.push({
-													label: "Remove link",
-													danger: true,
-													onClick: () => void deleteLink(l.id),
-												});
-											}
-											props.notePreview?.show(otherId, e.clientX, e.clientY, {
-												immediate: true,
-												onOpen: (id) => void store().onNoteLinkClick(id),
-												actions,
-											});
-										}}
-										onMouseEnter={(e) =>
-											props.notePreview?.show(
-												otherNoteId(l),
-												e.clientX,
-												e.clientY,
-												{
-													onOpen: (id) => void store().onNoteLinkClick(id),
-												},
-											)
-										}
-										onMouseLeave={() => props.notePreview?.hide()}
-										class={css.linkBtn}
-									>
-										<div class={css.linkContent}>
-											<div>
-												<strong>{directionLabel(l)}</strong>{" "}
-												{titleForLink(l, otherNoteId(l))}
-											</div>
-											<Show when={l.startDate !== "" || l.endDate !== ""}>
-												<div class={css.linkDates}>
-													{l.startDate || "(no start)"} →{" "}
-													{l.endDate || "(no end)"}
-												</div>
-											</Show>
-										</div>
-									</button>
-								)}
-							</For>
-						</Show>
-					</div>
+					<LinkList
+						links={links()}
+						noteId={noteId()}
+						isEditing={store().mode() === "edit"}
+						notePreview={props.notePreview}
+						onOpenNote={(id) => void store().onNoteLinkClick(id)}
+						onDeleteLink={(id) => void deleteLink(id)}
+					/>
 				</div>
 			</Show>
 		</div>
