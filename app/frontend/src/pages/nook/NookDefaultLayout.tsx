@@ -46,14 +46,19 @@ export function NookDefaultLayout(props: NookDefaultLayoutProps) {
 				const gesture = new DragGesture(
 					layoutEl,
 					({ swipe: [swipeX], event }) => {
-						// Don't swipe if user is interacting with an input/editor
+						// Don't swipe if user is interacting with an editable input/editor
 						const target = event?.target as HTMLElement | null;
-						if (
-							target?.closest(
+						if (!target) return;
+						// Allow swipe on readonly textareas (e.g. markdown view)
+						if (target instanceof HTMLTextAreaElement && target.readOnly) {
+							// allow swipe
+						} else if (
+							target.closest(
 								"input, textarea, [contenteditable], .milkdown, .ProseMirror",
 							)
-						)
+						) {
 							return;
+						}
 
 						if (swipeX === -1) ui.nextPanel();
 						else if (swipeX === 1) ui.prevPanel();
