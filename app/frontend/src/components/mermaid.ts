@@ -1,22 +1,20 @@
 /** Lazy-loaded mermaid renderer. Only imports mermaid when first needed. */
 
 let mermaidPromise: Promise<typeof import("mermaid")> | null = null;
-let initialized = false;
+let lastTheme: "dark" | "light" | null = null;
 let renderCounter = 0;
+
+function isDarkMode(): boolean {
+	return (
+		document.documentElement.getAttribute("data-theme") === "dark" ||
+		(document.documentElement.getAttribute("data-theme") !== "light" &&
+			window.matchMedia("(prefers-color-scheme: dark)").matches)
+	);
+}
 
 function loadMermaid() {
 	if (!mermaidPromise) {
-		mermaidPromise = import("mermaid").then((mod) => {
-			if (!initialized) {
-				mod.default.initialize({
-					startOnLoad: false,
-					theme: "neutral",
-					securityLevel: "strict",
-				});
-				initialized = true;
-			}
-			return mod;
-		});
+		mermaidPromise = import("mermaid");
 	}
 	return mermaidPromise;
 }
@@ -34,6 +32,17 @@ export async function renderMermaidBlocks(
 	if (codeBlocks.length === 0) return;
 
 	const mod = await loadMermaid();
+	const currentTheme = isDarkMode() ? "dark" : "light";
+
+	// Re-initialize if theme changed
+	if (lastTheme !== currentTheme) {
+		lastTheme = currentTheme;
+		mod.default.initialize({
+			startOnLoad: false,
+			theme: currentTheme === "dark" ? "dark" : "neutral",
+			securityLevel: "strict",
+		});
+	}
 
 	for (const code of codeBlocks) {
 		const pre = code.parentElement;
@@ -50,7 +59,6 @@ export async function renderMermaidBlocks(
 			wrapper.innerHTML = svg;
 			pre.replaceWith(wrapper);
 		} catch {
-			// Leave the code block as-is if rendering fails
 			pre.classList.add("mermaid-error");
 		}
 	}
