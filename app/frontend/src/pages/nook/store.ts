@@ -600,14 +600,6 @@ export function createNookStore(nookId: () => string) {
 			const nextNotes = reset ? fetched : [...notes(), ...fetched];
 			setNotes(rankNotesByQuery(nextNotes, q));
 			setNotesNextCursor(body.nextCursor);
-
-			const currentSelected = selectedId();
-			if (reset && currentSelected === "" && (body?.notes?.length ?? 0) > 0) {
-				const first = body.notes[0];
-				if (first?.id) {
-					selectNote(first);
-				}
-			}
 		} catch (e) {
 			setError(String(e));
 		} finally {
@@ -971,6 +963,45 @@ export function createNookStore(nookId: () => string) {
 	createEffect(() => {
 		void nookId();
 		void loadNoteTypes();
+	});
+
+	// Clear all state when switching nooks
+	let prevNookId = nookId();
+	createEffect(() => {
+		const current = nookId();
+		if (prevNookId !== current) {
+			prevNookId = current;
+			batch(() => {
+				setSelectedId("");
+				setTitle("");
+				setTitleIsManual(false);
+				setContent("");
+				setType("anything");
+				setPersonFirstName("");
+				setPersonLastName("");
+				setPersonDateOfBirth("");
+				setFileFilename("");
+				setFileExtension("");
+				setFileFilesize("");
+				setFileMimeType("");
+				setFileChecksum("");
+				setFileInlineUrl("");
+				setFormerProperties({});
+				setMode("view");
+				setIsDirty(false);
+				setError("");
+				setNotes([]);
+				setNotesNextCursor("");
+				setNoteTypes([]);
+				setOutgoingMentions([]);
+				setIncomingMentions([]);
+				setMentionTargetId("");
+				setMentionEmbedImage(false);
+				setNeedsLogin(false);
+			});
+			noteDetailCache.clear();
+			fileInlineUrlCache.clear();
+		}
 	});
 
 	createEffect(() => {
