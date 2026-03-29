@@ -4,6 +4,7 @@ import { Button } from "../../components/Button";
 import type { PreviewAction } from "../../components/NotePreview";
 import { RemoteNoteSearchSelect } from "../../components/RemoteNoteSearchSelect";
 import type { NotePreviewController } from "./NookDefaultLayout";
+import css from "./NookNoteLinksPanel.module.css";
 import type { NookStore } from "./store";
 import {
 	type LinkPredicate,
@@ -327,29 +328,17 @@ export function NookNoteLinksPanel(props: NookNoteLinksPanelProps) {
 	};
 
 	return (
-		<div
-			style={{
-				"margin-top": "12px",
-				padding: "8px 10px",
-				border: "1px solid #eee",
-				"border-radius": "8px",
-				background: "var(--color-bg-secondary)",
-			}}
-		>
-			<div style={{ display: "flex", "justify-content": "space-between" }}>
-				<div style={{ "font-weight": 600 }}>Links</div>
+		<div class={css.container}>
+			<div class={css.header}>
+				<div class={css.title}>Links</div>
 			</div>
 
 			<Show when={error() !== ""}>
-				<pre style={{ color: "var(--color-danger)", "white-space": "pre-wrap" }}>
-					{error()}
-				</pre>
+				<pre class={css.error}>{error()}</pre>
 			</Show>
 
 			<Show when={noteId().trim() !== ""} fallback={<div>Select a note</div>}>
-				<div
-					style={{ display: "flex", "flex-direction": "column", gap: "10px" }}
-				>
+				<div class={css.content}>
 					<Show when={store().mode() === "edit"}>
 						<div>
 							<Button
@@ -360,20 +349,14 @@ export function NookNoteLinksPanel(props: NookNoteLinksPanelProps) {
 							</Button>
 						</div>
 						<Show when={showAddForm()}>
-							<div
-								style={{
-									display: "grid",
-									"grid-template-columns": "1fr 1fr",
-									gap: "8px",
-								}}
-							>
+							<div class={css.formGrid}>
 								<label>
 									Predicate
 									<select
 										value={newPredicateId()}
 										onChange={(e) => setNewPredicateId(e.currentTarget.value)}
 										disabled={loading()}
-										style={{ width: "100%", padding: "6px" }}
+										class={css.formInput}
 									>
 										<For each={predicates()}>
 											{(p) => (
@@ -401,13 +384,7 @@ export function NookNoteLinksPanel(props: NookNoteLinksPanelProps) {
 								</div>
 							</div>
 
-							<div
-								style={{
-									display: "grid",
-									"grid-template-columns": "1fr 1fr",
-									gap: "8px",
-								}}
-							>
+							<div class={css.formGrid}>
 								<label>
 									Start date
 									<input
@@ -415,7 +392,7 @@ export function NookNoteLinksPanel(props: NookNoteLinksPanelProps) {
 										value={newStartDate()}
 										onInput={(e) => setNewStartDate(e.currentTarget.value)}
 										disabled={loading()}
-										style={{ width: "100%", padding: "6px" }}
+										class={css.formInput}
 									/>
 								</label>
 								<label>
@@ -425,7 +402,7 @@ export function NookNoteLinksPanel(props: NookNoteLinksPanelProps) {
 										value={newEndDate()}
 										onInput={(e) => setNewEndDate(e.currentTarget.value)}
 										disabled={loading()}
-										style={{ width: "100%", padding: "6px" }}
+										class={css.formInput}
 									/>
 								</label>
 							</div>
@@ -437,12 +414,10 @@ export function NookNoteLinksPanel(props: NookNoteLinksPanelProps) {
 					</Show>
 
 					<div>
-						<div style={{ "font-weight": 600, "margin-bottom": "6px" }}>
-							Existing links
-						</div>
+						<div class={css.sectionTitle}>Existing links</div>
 						<Show
 							when={links().length > 0}
-							fallback={<div style={{ color: "var(--color-text-muted)" }}>(none)</div>}
+							fallback={<div class={css.emptyText}>(none)</div>}
 						>
 							<For each={links()}>
 								{(l) => (
@@ -475,28 +450,15 @@ export function NookNoteLinksPanel(props: NookNoteLinksPanelProps) {
 											)
 										}
 										onMouseLeave={() => props.notePreview?.hide()}
-										style={{
-											display: "flex",
-											width: "100%",
-											"text-align": "left",
-											gap: "8px",
-											"align-items": "center",
-											padding: "6px",
-											border: "1px solid #ddd",
-											"border-radius": "6px",
-											"margin-bottom": "6px",
-											background: "white",
-											cursor: "pointer",
-											font: "inherit",
-										}}
+										class={css.linkBtn}
 									>
-										<div style={{ flex: "1" }}>
+										<div class={css.linkContent}>
 											<div>
 												<strong>{directionLabel(l)}</strong>{" "}
 												{titleForLink(l, otherNoteId(l))}
 											</div>
 											<Show when={l.startDate !== "" || l.endDate !== ""}>
-												<div style={{ color: "var(--color-text-muted)", "font-size": "12px" }}>
+												<div class={css.linkDates}>
 													{l.startDate || "(no start)"} →{" "}
 													{l.endDate || "(no end)"}
 												</div>
