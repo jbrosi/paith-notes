@@ -44,6 +44,7 @@
 		display: block;
 		height: auto;
 		min-height: calc(100vh - 120px);
+		padding-bottom: 40px;
 		gap: 0;
 		touch-action: pan-y;
 	}
@@ -109,10 +110,12 @@
 		justify-content: center;
 		align-items: center;
 		gap: 8px;
-		padding: 10px 0;
-		flex-shrink: 0;
-		position: sticky;
+		padding: 8px 0;
+		position: fixed;
 		bottom: 0;
+		left: 0;
+		right: 0;
+		z-index: 40;
 		background: color-mix(in srgb, var(--color-bg) 90%, transparent);
 		backdrop-filter: blur(4px);
 		border-top: 1px solid var(--color-bg-hover);

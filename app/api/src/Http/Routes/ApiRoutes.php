@@ -13,6 +13,7 @@ use Paith\Notes\Api\Http\Controller\HealthController;
 use Paith\Notes\Api\Http\Controller\LinkPredicatesController;
 use Paith\Notes\Api\Http\Controller\MeController;
 use Paith\Notes\Api\Http\Controller\Module1Controller;
+use Paith\Notes\Api\Http\Controller\NookStatsController;
 use Paith\Notes\Api\Http\Controller\NoteTypesController;
 use Paith\Notes\Api\Http\Controller\NoteLinksController;
 use Paith\Notes\Api\Http\Controller\NooksController;
@@ -58,6 +59,7 @@ final class ApiRoutes
         $r->get('/nooks/personal', [NooksController::class, 'personal']);
         $r->post('/nooks', [NooksController::class, 'create']);
 
+        $r->get('/nooks/{nookId}/stats', [NookStatsController::class, 'stats']);
         $r->get('/nooks/{nookId}/note-types', [NoteTypesController::class, 'list']);
         $r->post('/nooks/{nookId}/note-types', [NoteTypesController::class, 'create']);
         $r->add('PUT', '/nooks/{nookId}/note-types/{typeId}', [NoteTypesController::class, 'update']);

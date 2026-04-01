@@ -15,4 +15,5 @@
 	border-radius: 6px;
 	resize: none;
 	outline: none;
+	touch-action: pan-y;
 }

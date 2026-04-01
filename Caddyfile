@@ -14,7 +14,7 @@
     }
 
     @mcp {
-        path /nooks/*/chat* /mcp* /.well-known/oauth-protected-resource
+        path /nooks/*/chat /nooks/*/chat/* /mcp* /.well-known/oauth-protected-resource
     }
 
     handle @mcp {
