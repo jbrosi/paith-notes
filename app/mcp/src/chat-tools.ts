@@ -19,7 +19,7 @@ export const TOOLS: Anthropic.Tool[] = [
       type: 'object',
       properties: {
         title:      { type: 'string' },
-        content:    { type: 'string', description: 'Note content in markdown. To link to another note use [[note:<note_id>]] — the title is resolved automatically. To embed a file note as an image use ![Note Title](note:<note_id>).' },
+        content:    { type: 'string', description: 'Note content in markdown. To link to another note use [[note:<full_uuid>]] with the complete UUID (never shorten) — the title is resolved automatically. To embed a file note as an image use ![Note Title](note:<full_uuid>).' },
         type_id:    { type: 'string', description: 'Note type ID' },
         properties: { type: 'object', description: 'Arbitrary JSON properties' },
       },
@@ -34,7 +34,7 @@ export const TOOLS: Anthropic.Tool[] = [
       properties: {
         note_id:    { type: 'string' },
         title:      { type: 'string', description: 'New title. Omit to keep existing title.' },
-        content:    { type: 'string', description: 'Note content in markdown. To link to another note use [[note:<note_id>]] — the title is resolved automatically. To embed a file note as an image use ![Note Title](note:<note_id>).' },
+        content:    { type: 'string', description: 'Note content in markdown. To link to another note use [[note:<full_uuid>]] with the complete UUID (never shorten) — the title is resolved automatically. To embed a file note as an image use ![Note Title](note:<full_uuid>).' },
         properties: { type: 'object' },
       },
       required: ['note_id'],
@@ -92,12 +92,13 @@ export const TOOLS: Anthropic.Tool[] = [
     input_schema: {
       type: 'object',
       properties: {
-        q:       { type: 'string', description: 'Text search query (searches title and content)' },
-        type_id: { type: 'string', description: 'Note type ID to filter by, or "all" for all types' },
-        sort:    { type: 'string', enum: ['newest', 'oldest', 'updated_newest', 'updated_oldest'], description: 'Sort order. Default: newest (created_at desc). Use updated_newest to find recently modified notes.' },
-        cursor:  { type: 'string', description: 'Pagination cursor from previous response' },
+        q:           { type: 'string', description: 'Text search query (searches title and content). Multiple words are split and matched independently. Use double quotes for exact phrases: "meeting notes" project. Leave empty to list all notes.' },
+        type_id:     { type: 'string', description: 'Note type ID to filter by, or "all" for all types' },
+        search_mode: { type: 'string', enum: ['and', 'or'], description: 'How to combine multiple search words. "and" (default): all words must match. "or": any word can match.' },
+        sort:        { type: 'string', enum: ['newest', 'oldest', 'updated_newest', 'updated_oldest'], description: 'Sort order. Default: newest (created_at desc). Use updated_newest to find recently modified notes.' },
+        cursor:      { type: 'string', description: 'Pagination cursor from previous response' },
       },
-      required: ['q'],
+      required: [],
     },
   },
   {
@@ -132,7 +133,12 @@ export const TOOLS: Anthropic.Tool[] = [
         },
         q: {
           type: 'string',
-          description: 'Only surface links where at least one connected note (excluding start) matches this term in title or content. Traversal is unaffected.',
+          description: 'Only surface links where at least one connected note (excluding start) matches this term in title or content. Multiple words are split and matched independently. Use double quotes for exact phrases. Traversal is unaffected.',
+        },
+        search_mode: {
+          type: 'string',
+          enum: ['and', 'or'],
+          description: 'How to combine multiple search words in q. "and" (default): all words must match. "or": any word can match.',
         },
       },
       required: ['note_id'],
@@ -267,6 +273,7 @@ export async function executeTool(
       const typeId = String(input.type_id ?? 'all');
       const params = new URLSearchParams();
       if (input.q) params.set('q', String(input.q));
+      if (input.search_mode) params.set('search_mode', String(input.search_mode));
       if (input.sort) params.set('sort', String(input.sort));
       if (input.cursor) params.set('cursor', String(input.cursor));
       const qs = params.toString() ? `?${params}` : '';
@@ -288,6 +295,7 @@ export async function executeTool(
         params.set('node_type_ids', (input.node_type_ids as string[]).join(','));
       }
       if (input.q) params.set('q', String(input.q));
+      if (input.search_mode) params.set('search_mode', String(input.search_mode));
       return JSON.stringify(await api('GET', `/api/nooks/${nookId}/notes/${noteId}/links?${params}`));
     }
 

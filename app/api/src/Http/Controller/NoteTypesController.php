@@ -410,10 +410,19 @@ final class NoteTypesController
         $orderBy = "order by n.{$sortCol} {$sortDir}, n.id {$sortDir}";
 
         $q = strtolower(trim($request->queryParam('q')));
-        $whereSearch = '';
-        if ($q !== '') {
-            $whereSearch = 'and (lower(n.title) like :q or lower(n.content) like :q)';
+        $searchMode = strtolower(trim($request->queryParam('search_mode')));
+        if (!in_array($searchMode, ['and', 'or'], true)) {
+            $searchMode = 'and';
         }
+
+        $search = \Paith\Notes\Shared\Search\SearchQueryParser::buildSearchClause($q, $searchMode);
+        $whereSearch = $search['where'];
+        $searchRank = $search['rank'];
+        $searchBindings = $search['bindings'];
+
+        $orderByWithRank = $searchRank !== '0'
+            ? "order by search_rank desc, n.{$sortCol} {$sortDir}, n.id {$sortDir}"
+            : $orderBy;
 
         $kind = strtolower(trim($request->queryParam('kind')));
         $whereKind = '';
@@ -431,11 +440,12 @@ final class NoteTypesController
 
         $limitPlusOne = $limit + 1;
 
-        $selectCols = 'select n.id, n.title, n.type, n.type_id, n.created_at, n.updated_at,
+        $selectCols = "select n.id, n.title, n.type, n.type_id, n.created_at, n.updated_at,
                     coalesce(outgoing.cnt, 0) as outgoing_mentions_count,
                     coalesce(incoming.cnt, 0) as incoming_mentions_count,
                     coalesce(outgoing_links.cnt, 0) as outgoing_links_count,
-                    coalesce(incoming_links.cnt, 0) as incoming_links_count';
+                    coalesce(incoming_links.cnt, 0) as incoming_links_count,
+                    {$searchRank} as search_rank";
         $joinCounts = '
                 left join (
                     select nm.source_note_id as note_id, count(*)::int as cnt
@@ -472,14 +482,14 @@ final class NoteTypesController
                 where n.nook_id = :nook_id ' . $whereCursor . '
                 ' . $whereSearch . '
                 ' . $whereKind . '
-                ' . $orderBy . '
+                ' . $orderByWithRank . '
                 limit :limit'
             );
 
             $stmt->bindValue(':nook_id', $nookId);
             $stmt->bindValue(':limit', $limitPlusOne, PDO::PARAM_INT);
-            if ($q !== '') {
-                $stmt->bindValue(':q', '%' . $q . '%');
+            foreach ($searchBindings as $param => $val) {
+                $stmt->bindValue($param, $val);
             }
             if ($kind !== '') {
                 $stmt->bindValue(':kind', $kind);
@@ -506,15 +516,15 @@ final class NoteTypesController
                 ' . $whereCursor . '
                 ' . $whereSearch . '
                 ' . $whereKind . '
-                ' . $orderBy . '
+                ' . $orderByWithRank . '
                 limit :limit'
             );
 
             $stmt->bindValue(':nook_id', $nookId);
             $stmt->bindValue(':type_id', $typeId);
             $stmt->bindValue(':limit', $limitPlusOne, PDO::PARAM_INT);
-            if ($q !== '') {
-                $stmt->bindValue(':q', '%' . $q . '%');
+            foreach ($searchBindings as $param => $val) {
+                $stmt->bindValue($param, $val);
             }
             if ($kind !== '') {
                 $stmt->bindValue(':kind', $kind);
@@ -532,15 +542,15 @@ final class NoteTypesController
                 where n.nook_id = :nook_id and n.type_id = :type_id ' . $whereCursor . '
                 ' . $whereSearch . '
                 ' . $whereKind . '
-                ' . $orderBy . '
+                ' . $orderByWithRank . '
                 limit :limit'
             );
 
             $stmt->bindValue(':nook_id', $nookId);
             $stmt->bindValue(':type_id', $typeId);
             $stmt->bindValue(':limit', $limitPlusOne, PDO::PARAM_INT);
-            if ($q !== '') {
-                $stmt->bindValue(':q', '%' . $q . '%');
+            foreach ($searchBindings as $param => $val) {
+                $stmt->bindValue($param, $val);
             }
             if ($kind !== '') {
                 $stmt->bindValue(':kind', $kind);

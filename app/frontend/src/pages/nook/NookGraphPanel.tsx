@@ -188,10 +188,25 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 			svg.transition().duration(150).call(zoom.transform, d3.zoomIdentity);
 		};
 
+		// Read theme colors from CSS variables
+		const cs = getComputedStyle(document.documentElement);
+		const tv = (name: string, fallback: string) =>
+			cs.getPropertyValue(name).trim() || fallback;
+		const colorEdge = tv("--color-border-medium", "#cbd5e1");
+		const colorNode = tv("--color-text-muted", "#94a3b8");
+		const colorNodeCenter = tv("--color-primary-light", "#0ea5e9");
+		const colorNodeHover = tv("--color-primary", "#0ea5e9");
+		const colorHighlight = tv("--seed-accent", "#f59e0b");
+		const colorLabel = tv("--color-text", "#334155");
+		const colorEdgeLabel = tv("--color-text-muted", "#64748b");
+		const colorEdgeLabelBg = tv("--color-bg", "#ffffff");
+		const colorHoverBg = tv("--color-bg-hover", "#e2e8f0");
+		const _colorNodeStroke = tv("--color-bg", "#ffffff");
+
 		const edges = g.edges.map((e) => ({ ...e }));
 		const nodes = g.nodes.map((n) => ({ ...n }));
 
-		const edgeG = viewport.append("g").attr("stroke", "#cbd5e1");
+		const edgeG = viewport.append("g").attr("stroke", colorEdge);
 		const nodeG = viewport.append("g");
 		const labelG = viewport.append("g");
 		const edgeLabelG = viewport.append("g");
@@ -305,7 +320,7 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 		const nodeSel = nodeLinkSel
 			.append("circle")
 			.attr("r", (d) => (d.id === centerId ? 9 : 6))
-			.attr("fill", (d) => (d.id === centerId ? "#0ea5e9" : "#94a3b8"))
+			.attr("fill", (d) => (d.id === centerId ? colorNodeCenter : colorNode))
 			.attr("stroke", "transparent")
 			.attr("stroke-width", 2)
 			.style("cursor", "pointer");
@@ -340,7 +355,7 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 			.append("text")
 			.text((d) => d.label)
 			.attr("font-size", 10)
-			.attr("fill", "#334155")
+			.attr("fill", colorLabel)
 			.attr("dominant-baseline", "middle");
 
 		labelGroupSel.each(function (this: SVGGElement) {
@@ -385,11 +400,11 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 			.append("text")
 			.text((d) => d.label)
 			.attr("font-size", 10)
-			.attr("fill", "#0f172a")
+			.attr("fill", colorEdgeLabel)
 			.attr("text-anchor", "middle")
 			.attr("dominant-baseline", "middle")
 			.style("paint-order", "stroke")
-			.style("stroke", "#ffffff")
+			.style("stroke", colorEdgeLabelBg)
 			.style("stroke-width", "3")
 			.style("pointer-events", "none")
 			.style("opacity", 0);
@@ -402,7 +417,9 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 
 			linkSel
 				.attr("stroke", (d) =>
-					edgeInPath(d.id) || hoveredEdgeId === d.id ? "#f59e0b" : "#cbd5e1",
+					edgeInPath(d.id) || hoveredEdgeId === d.id
+						? colorHighlight
+						: colorEdge,
 				)
 				.attr("stroke-width", (d) =>
 					edgeInPath(d.id) || hoveredEdgeId === d.id ? 2.5 : 1,
@@ -415,8 +432,9 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 
 			nodeSel
 				.attr("stroke", (d) => {
-					if (d.id === hoveredId) return "#0ea5e9";
-					if (hasFocus && inPath(d.id) && d.id !== centerId) return "#f59e0b";
+					if (d.id === hoveredId) return colorNodeHover;
+					if (hasFocus && inPath(d.id) && d.id !== centerId)
+						return colorHighlight;
 					return "transparent";
 				})
 				.attr("stroke-width", (d) => {
@@ -425,9 +443,9 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 					return 2;
 				})
 				.attr("fill", (d) => {
-					if (d.id === centerId) return "#0ea5e9";
-					if (d.id === hoveredId) return "#64748b";
-					return "#94a3b8";
+					if (d.id === centerId) return colorNodeCenter;
+					if (d.id === hoveredId) return colorEdgeLabel;
+					return colorNode;
 				});
 			nodeSel.style("opacity", (d) => {
 				if (!hasFocus) return 1;
@@ -443,7 +461,7 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 			});
 			labelTextSel.attr("font-weight", (d) => (d.id === hoveredId ? 700 : 400));
 			labelRectSel.attr("fill", (d) =>
-				d.id === hoveredId ? "#e2e8f0" : "transparent",
+				d.id === hoveredId ? colorHoverBg : "transparent",
 			);
 			edgeTextSel.style("opacity", (d) => {
 				if (hoveredEdgeId === d.id) return 1;

@@ -82,6 +82,17 @@ final class NoteLinksController
         // Optional search term: only surface links where at least one connected note (excl. start)
         // matches by title or content (trigram-compatible LIKE). Traversal is unaffected.
         $q = strtolower(trim($request->queryParam('q')));
+        $searchMode = strtolower(trim($request->queryParam('search_mode')));
+        if (!in_array($searchMode, ['and', 'or'], true)) {
+            $searchMode = 'and';
+        }
+        $search = \Paith\Notes\Shared\Search\SearchQueryParser::buildSearchClause(
+            $q,
+            $searchMode,
+            'lower(title)',
+            'lower(content)',
+            '',
+        );
 
         $noteCheck = $pdo->prepare('select 1 from global.notes where id = :id and nook_id = :nook_id');
         $noteCheck->execute([':id' => $noteId, ':nook_id' => $nookId]);
@@ -220,15 +231,21 @@ final class NoteLinksController
             $matchingIds = [];
             if ($noteIdSet !== []) {
                 $placeholders = [];
-                $qParams = [':q' => '%' . $q . '%'];
+                $qParams = [];
                 foreach (array_keys($noteIdSet) as $i => $id) {
                     $key = ':nid' . $i;
                     $placeholders[] = $key;
                     $qParams[$key] = $id;
                 }
                 $in = implode(', ', $placeholders);
+
+                $searchWhere = $search['where'] !== '' ? $search['where'] : 'true';
+                foreach ($search['bindings'] as $bp => $bv) {
+                    $qParams[$bp] = $bv;
+                }
+
                 $matchStmt = $pdo->prepare(
-                    "select id from global.notes where id in ($in) and (lower(title) like :q or lower(content) like :q)"
+                    "select id from global.notes where id in ($in) and $searchWhere"
                 );
                 $matchStmt->execute($qParams);
                 foreach ($matchStmt->fetchAll(PDO::FETCH_COLUMN) as $mid) {

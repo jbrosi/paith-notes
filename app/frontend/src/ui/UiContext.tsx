@@ -46,13 +46,11 @@ export type UiState = {
 
 const UiContext = createContext<UiState>();
 
-const MODE_STORAGE_KEY = "paith-notes:mode";
 const GRAPH_PANEL_OPEN_STORAGE_KEY = "paith-notes:graphPanelOpen";
 const TYPES_PANEL_OPEN_STORAGE_KEY = "paith-notes:typesPanelOpen";
 const CHAT_PANEL_OPEN_STORAGE_KEY = "paith-notes:chatPanelOpen";
 const ACTIVE_PANEL_STORAGE_KEY = "paith-notes:activePanel";
 const THEME_STORAGE_KEY = "paith-notes:theme";
-const _ACCENT_COLOR_STORAGE_KEY = "paith-notes:accentColor";
 
 export function UiProvider(props: { children: JSX.Element }) {
 	const [mode, setModeSignal] = createSignal<"view" | "edit">("view");
@@ -65,12 +63,7 @@ export function UiProvider(props: { children: JSX.Element }) {
 	const [accentColor, setAccentColorSignal] = createSignal("");
 
 	onMount(() => {
-		try {
-			const v = window.localStorage.getItem(MODE_STORAGE_KEY);
-			if (v === "edit" || v === "view") setModeSignal(v);
-		} catch {
-			// ignore
-		}
+		// Mode intentionally not restored from localStorage — always start in view
 		try {
 			const v = window.localStorage.getItem(GRAPH_PANEL_OPEN_STORAGE_KEY);
 			if (v === "0") setGraphPanelOpenSignal(false);
@@ -112,11 +105,6 @@ export function UiProvider(props: { children: JSX.Element }) {
 
 	const setMode = (next: "view" | "edit") => {
 		setModeSignal(next);
-		try {
-			window.localStorage.setItem(MODE_STORAGE_KEY, next);
-		} catch {
-			// ignore
-		}
 	};
 
 	const setGraphPanelOpen = (next: boolean) => {
