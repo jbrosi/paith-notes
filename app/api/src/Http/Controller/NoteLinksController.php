@@ -233,9 +233,11 @@ final class NoteLinksController
                 $in = implode(', ', $placeholders);
 
                 $words = \Paith\Notes\Shared\Search\SearchQueryParser::splitTerms($q);
-                if (count($words) <= 1) {
+                if (count($words) === 0) {
+                    $searchWhere = 'true';
+                } elseif (count($words) === 1) {
                     $searchWhere = '(lower(title) like :q0 or lower(content) like :q0)';
-                    $qParams[':q0'] = '%' . $q . '%';
+                    $qParams[':q0'] = '%' . $words[0] . '%';
                 } else {
                     $clauses = [];
                     foreach ($words as $wi => $word) {

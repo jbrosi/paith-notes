@@ -420,9 +420,11 @@ final class NoteTypesController
         $searchBindings = [];
         if ($q !== '') {
             $words = \Paith\Notes\Shared\Search\SearchQueryParser::splitTerms($q);
-            if (count($words) <= 1) {
+            if ($words === []) {
+                // Only quotes/whitespace — treat as no search
+            } elseif (count($words) === 1) {
                 $whereSearch = 'and (lower(n.title) like :q0 or lower(n.content) like :q0)';
-                $searchBindings[':q0'] = '%' . $q . '%';
+                $searchBindings[':q0'] = '%' . $words[0] . '%';
             } else {
                 $clauses = [];
                 foreach ($words as $i => $word) {
