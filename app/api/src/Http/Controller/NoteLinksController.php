@@ -86,6 +86,9 @@ final class NoteLinksController
         if (!in_array($searchMode, ['and', 'or'], true)) {
             $searchMode = 'and';
         }
+        $search = \Paith\Notes\Shared\Search\SearchQueryParser::buildSearchClause(
+            $q, $searchMode, 'lower(title)', 'lower(content)', '',
+        );
 
         $noteCheck = $pdo->prepare('select 1 from global.notes where id = :id and nook_id = :nook_id');
         $noteCheck->execute([':id' => $noteId, ':nook_id' => $nookId]);
@@ -232,21 +235,9 @@ final class NoteLinksController
                 }
                 $in = implode(', ', $placeholders);
 
-                $words = \Paith\Notes\Shared\Search\SearchQueryParser::splitTerms($q);
-                if (count($words) === 0) {
-                    $searchWhere = 'true';
-                } elseif (count($words) === 1) {
-                    $searchWhere = '(lower(title) like :q0 or lower(content) like :q0)';
-                    $qParams[':q0'] = '%' . $words[0] . '%';
-                } else {
-                    $clauses = [];
-                    foreach ($words as $wi => $word) {
-                        $param = ':q' . $wi;
-                        $clauses[] = "(lower(title) like {$param} or lower(content) like {$param})";
-                        $qParams[$param] = '%' . $word . '%';
-                    }
-                    $glue = $searchMode === 'or' ? ' or ' : ' and ';
-                    $searchWhere = '(' . implode($glue, $clauses) . ')';
+                $searchWhere = $search['where'] !== '' ? $search['where'] : 'true';
+                foreach ($search['bindings'] as $bp => $bv) {
+                    $qParams[$bp] = $bv;
                 }
 
                 $matchStmt = $pdo->prepare(

@@ -415,34 +415,12 @@ final class NoteTypesController
             $searchMode = 'and';
         }
 
-        $whereSearch = '';
-        /** @var array<string, string> $searchBindings */
-        $searchBindings = [];
-        $searchRank = '0';
-        if ($q !== '') {
-            $words = \Paith\Notes\Shared\Search\SearchQueryParser::splitTerms($q);
-            if ($words === []) {
-                // Only quotes/whitespace — treat as no search
-            } else {
-                $clauses = [];
-                $rankParts = [];
-                foreach ($words as $i => $word) {
-                    $param = ':q' . $i;
-                    $clauses[] = "(lower(n.title) like {$param} or lower(n.content) like {$param})";
-                    $searchBindings[$param] = '%' . $word . '%';
-                    // Trigram similarity score — title weighted 3x over content
-                    $rparam = ':r' . $i;
-                    $rankParts[] = "(similarity(lower(n.title), {$rparam}) * 3 + similarity(lower(n.content), {$rparam}))";
-                    $searchBindings[$rparam] = $word;
-                }
-                $glue = $searchMode === 'or' ? ' or ' : ' and ';
-                $whereSearch = 'and (' . implode($glue, $clauses) . ')';
-                $searchRank = '(' . implode(' + ', $rankParts) . ')';
-            }
-        }
+        $search = \Paith\Notes\Shared\Search\SearchQueryParser::buildSearchClause($q, $searchMode);
+        $whereSearch = $search['where'];
+        $searchRank = $search['rank'];
+        $searchBindings = $search['bindings'];
 
-        // When searching, rank by relevance first (title similarity weighted higher)
-        $orderByWithRank = $q !== '' && $searchRank !== '0'
+        $orderByWithRank = $searchRank !== '0'
             ? "order by search_rank desc, n.{$sortCol} {$sortDir}, n.id {$sortDir}"
             : $orderBy;
 
