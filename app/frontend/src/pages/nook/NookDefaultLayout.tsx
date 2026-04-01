@@ -4,9 +4,9 @@ import { createNotePreview } from "../../components/NotePreview";
 import { MOBILE_PANELS, type MobilePanel, useUi } from "../../ui/UiContext";
 import styles from "./NookDefaultLayout.module.css";
 import { NookGraphPanel } from "./NookGraphPanel";
+import { NookLinksAndMentionsPanel } from "./NookLinksAndMentionsPanel";
 import { NookMainPanel } from "./NookMainPanel";
 import { NookMarkdownView } from "./NookMarkdownView";
-import { NookStatusPanel } from "./NookStatusPanel";
 import type { NookStore } from "./store";
 
 export type NookDefaultLayoutProps = {
@@ -111,7 +111,10 @@ export function NookDefaultLayout(props: NookDefaultLayoutProps) {
 							<NookMainPanel store={props.store} notePreview={notePreview} />
 						</div>
 						<div class={styles.panelLinks}>
-							<NookStatusPanel store={props.store} notePreview={notePreview} />
+							<NookLinksAndMentionsPanel
+								store={props.store}
+								notePreview={notePreview}
+							/>
 						</div>
 					</div>
 				</div>

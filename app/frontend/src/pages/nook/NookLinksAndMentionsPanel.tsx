@@ -6,12 +6,14 @@ import { NookMentionsPanel } from "./NookMentionsPanel";
 import { NookNoteLinksPanel } from "./NookNoteLinksPanel";
 import type { NookStore } from "./store";
 
-export type NookStatusPanelProps = {
+export type NookLinksAndMentionsPanelProps = {
 	store: NookStore;
 	notePreview?: NotePreviewController;
 };
 
-export function NookStatusPanel(props: NookStatusPanelProps) {
+export function NookLinksAndMentionsPanel(
+	props: NookLinksAndMentionsPanelProps,
+) {
 	const store = () => props.store;
 
 	return (
