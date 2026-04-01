@@ -408,10 +408,6 @@ final class NoteTypesController
         $sortDir = str_ends_with($sortParam, 'oldest') ? 'asc' : 'desc';
         $cursorOp = $sortDir === 'asc' ? '>' : '<';
         $orderBy = "order by n.{$sortCol} {$sortDir}, n.id {$sortDir}";
-        // When searching, rank by relevance first (title similarity weighted higher)
-        $orderByWithRank = $q !== '' && $searchRank !== '0'
-            ? "order by search_rank desc, n.{$sortCol} {$sortDir}, n.id {$sortDir}"
-            : $orderBy;
 
         $q = strtolower(trim($request->queryParam('q')));
         $searchMode = strtolower(trim($request->queryParam('search_mode')));
@@ -444,6 +440,11 @@ final class NoteTypesController
                 $searchRank = '(' . implode(' + ', $rankParts) . ')';
             }
         }
+
+        // When searching, rank by relevance first (title similarity weighted higher)
+        $orderByWithRank = $q !== '' && $searchRank !== '0'
+            ? "order by search_rank desc, n.{$sortCol} {$sortDir}, n.id {$sortDir}"
+            : $orderBy;
 
         $kind = strtolower(trim($request->queryParam('kind')));
         $whereKind = '';
