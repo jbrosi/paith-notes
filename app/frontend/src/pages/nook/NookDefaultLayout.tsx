@@ -1,4 +1,4 @@
-import { For, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, For, onCleanup, onMount, Show } from "solid-js";
 import { ChatPanel } from "../../components/chat/ChatPanel";
 import { createNotePreview } from "../../components/NotePreview";
 import { MOBILE_PANELS, type MobilePanel, useUi } from "../../ui/UiContext";
@@ -29,6 +29,13 @@ export function NookDefaultLayout(props: NookDefaultLayoutProps) {
 	const ui = useUi();
 	const notePreview = createNotePreview(() => props.nookId);
 	let layoutEl: HTMLDivElement | undefined;
+
+	// Switch to content panel when a note is selected (mobile)
+	createEffect(() => {
+		if (props.store.selectedId() !== "" && ui.activePanel() !== "content") {
+			ui.setActivePanel("content");
+		}
+	});
 
 	// Swipe gesture (lazy-loaded, mobile only)
 	onMount(() => {
