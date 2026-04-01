@@ -232,7 +232,7 @@ final class NoteLinksController
                 }
                 $in = implode(', ', $placeholders);
 
-                $words = array_values(array_filter(preg_split('/\s+/', $q)));
+                $words = \Paith\Notes\Shared\Search\SearchQueryParser::splitTerms($q);
                 if (count($words) <= 1) {
                     $searchWhere = '(lower(title) like :q0 or lower(content) like :q0)';
                     $qParams[':q0'] = '%' . $q . '%';

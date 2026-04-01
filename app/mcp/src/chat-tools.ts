@@ -92,7 +92,7 @@ export const TOOLS: Anthropic.Tool[] = [
     input_schema: {
       type: 'object',
       properties: {
-        q:           { type: 'string', description: 'Text search query (searches title and content). Multiple words are split and matched independently. Leave empty to list all notes.' },
+        q:           { type: 'string', description: 'Text search query (searches title and content). Multiple words are split and matched independently. Use double quotes for exact phrases: "meeting notes" project. Leave empty to list all notes.' },
         type_id:     { type: 'string', description: 'Note type ID to filter by, or "all" for all types' },
         search_mode: { type: 'string', enum: ['and', 'or'], description: 'How to combine multiple search words. "and" (default): all words must match. "or": any word can match.' },
         sort:        { type: 'string', enum: ['newest', 'oldest', 'updated_newest', 'updated_oldest'], description: 'Sort order. Default: newest (created_at desc). Use updated_newest to find recently modified notes.' },
@@ -133,7 +133,7 @@ export const TOOLS: Anthropic.Tool[] = [
         },
         q: {
           type: 'string',
-          description: 'Only surface links where at least one connected note (excluding start) matches this term in title or content. Multiple words are split and matched independently. Traversal is unaffected.',
+          description: 'Only surface links where at least one connected note (excluding start) matches this term in title or content. Multiple words are split and matched independently. Use double quotes for exact phrases. Traversal is unaffected.',
         },
         search_mode: {
           type: 'string',

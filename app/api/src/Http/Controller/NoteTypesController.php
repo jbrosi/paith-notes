@@ -419,7 +419,7 @@ final class NoteTypesController
         /** @var array<string, string> $searchBindings */
         $searchBindings = [];
         if ($q !== '') {
-            $words = array_values(array_filter(preg_split('/\s+/', $q)));
+            $words = \Paith\Notes\Shared\Search\SearchQueryParser::splitTerms($q);
             if (count($words) <= 1) {
                 $whereSearch = 'and (lower(n.title) like :q0 or lower(n.content) like :q0)';
                 $searchBindings[':q0'] = '%' . $q . '%';
