@@ -52,3 +52,10 @@ if (root) {
 		root,
 	);
 }
+
+// Register service worker for PWA install prompt
+if ("serviceWorker" in navigator) {
+	navigator.serviceWorker.register("/sw.js").catch(() => {
+		// best-effort
+	});
+}

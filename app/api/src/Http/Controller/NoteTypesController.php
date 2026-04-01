@@ -415,27 +415,14 @@ final class NoteTypesController
             $searchMode = 'and';
         }
 
-        $whereSearch = '';
-        /** @var array<string, string> $searchBindings */
-        $searchBindings = [];
-        if ($q !== '') {
-            $words = \Paith\Notes\Shared\Search\SearchQueryParser::splitTerms($q);
-            if ($words === []) {
-                // Only quotes/whitespace — treat as no search
-            } elseif (count($words) === 1) {
-                $whereSearch = 'and (lower(n.title) like :q0 or lower(n.content) like :q0)';
-                $searchBindings[':q0'] = '%' . $words[0] . '%';
-            } else {
-                $clauses = [];
-                foreach ($words as $i => $word) {
-                    $param = ':q' . $i;
-                    $clauses[] = "(lower(n.title) like {$param} or lower(n.content) like {$param})";
-                    $searchBindings[$param] = '%' . $word . '%';
-                }
-                $glue = $searchMode === 'or' ? ' or ' : ' and ';
-                $whereSearch = 'and (' . implode($glue, $clauses) . ')';
-            }
-        }
+        $search = \Paith\Notes\Shared\Search\SearchQueryParser::buildSearchClause($q, $searchMode);
+        $whereSearch = $search['where'];
+        $searchRank = $search['rank'];
+        $searchBindings = $search['bindings'];
+
+        $orderByWithRank = $searchRank !== '0'
+            ? "order by search_rank desc, n.{$sortCol} {$sortDir}, n.id {$sortDir}"
+            : $orderBy;
 
         $kind = strtolower(trim($request->queryParam('kind')));
         $whereKind = '';
@@ -453,11 +440,12 @@ final class NoteTypesController
 
         $limitPlusOne = $limit + 1;
 
-        $selectCols = 'select n.id, n.title, n.type, n.type_id, n.created_at, n.updated_at,
+        $selectCols = "select n.id, n.title, n.type, n.type_id, n.created_at, n.updated_at,
                     coalesce(outgoing.cnt, 0) as outgoing_mentions_count,
                     coalesce(incoming.cnt, 0) as incoming_mentions_count,
                     coalesce(outgoing_links.cnt, 0) as outgoing_links_count,
-                    coalesce(incoming_links.cnt, 0) as incoming_links_count';
+                    coalesce(incoming_links.cnt, 0) as incoming_links_count,
+                    {$searchRank} as search_rank";
         $joinCounts = '
                 left join (
                     select nm.source_note_id as note_id, count(*)::int as cnt
@@ -494,7 +482,7 @@ final class NoteTypesController
                 where n.nook_id = :nook_id ' . $whereCursor . '
                 ' . $whereSearch . '
                 ' . $whereKind . '
-                ' . $orderBy . '
+                ' . $orderByWithRank . '
                 limit :limit'
             );
 
@@ -528,7 +516,7 @@ final class NoteTypesController
                 ' . $whereCursor . '
                 ' . $whereSearch . '
                 ' . $whereKind . '
-                ' . $orderBy . '
+                ' . $orderByWithRank . '
                 limit :limit'
             );
 
@@ -554,7 +542,7 @@ final class NoteTypesController
                 where n.nook_id = :nook_id and n.type_id = :type_id ' . $whereCursor . '
                 ' . $whereSearch . '
                 ' . $whereKind . '
-                ' . $orderBy . '
+                ' . $orderByWithRank . '
                 limit :limit'
             );
 
