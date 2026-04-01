@@ -87,7 +87,11 @@ final class NoteLinksController
             $searchMode = 'and';
         }
         $search = \Paith\Notes\Shared\Search\SearchQueryParser::buildSearchClause(
-            $q, $searchMode, 'lower(title)', 'lower(content)', '',
+            $q,
+            $searchMode,
+            'lower(title)',
+            'lower(content)',
+            '',
         );
 
         $noteCheck = $pdo->prepare('select 1 from global.notes where id = :id and nook_id = :nook_id');
