@@ -626,6 +626,9 @@
 	}
 
 	.nookBar {
+		position: sticky;
+		top: 0;
+		z-index: 40;
 		padding: 0.25rem 0.5rem;
 	}
 

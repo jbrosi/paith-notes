@@ -410,9 +410,31 @@ final class NoteTypesController
         $orderBy = "order by n.{$sortCol} {$sortDir}, n.id {$sortDir}";
 
         $q = strtolower(trim($request->queryParam('q')));
+        $searchMode = strtolower(trim($request->queryParam('search_mode')));
+        if (!in_array($searchMode, ['and', 'or'], true)) {
+            $searchMode = 'and';
+        }
+
         $whereSearch = '';
+        /** @var array<string, string> $searchBindings */
+        $searchBindings = [];
         if ($q !== '') {
-            $whereSearch = 'and (lower(n.title) like :q or lower(n.content) like :q)';
+            $words = \Paith\Notes\Shared\Search\SearchQueryParser::splitTerms($q);
+            if ($words === []) {
+                // Only quotes/whitespace — treat as no search
+            } elseif (count($words) === 1) {
+                $whereSearch = 'and (lower(n.title) like :q0 or lower(n.content) like :q0)';
+                $searchBindings[':q0'] = '%' . $words[0] . '%';
+            } else {
+                $clauses = [];
+                foreach ($words as $i => $word) {
+                    $param = ':q' . $i;
+                    $clauses[] = "(lower(n.title) like {$param} or lower(n.content) like {$param})";
+                    $searchBindings[$param] = '%' . $word . '%';
+                }
+                $glue = $searchMode === 'or' ? ' or ' : ' and ';
+                $whereSearch = 'and (' . implode($glue, $clauses) . ')';
+            }
         }
 
         $kind = strtolower(trim($request->queryParam('kind')));
@@ -478,8 +500,8 @@ final class NoteTypesController
 
             $stmt->bindValue(':nook_id', $nookId);
             $stmt->bindValue(':limit', $limitPlusOne, PDO::PARAM_INT);
-            if ($q !== '') {
-                $stmt->bindValue(':q', '%' . $q . '%');
+            foreach ($searchBindings as $param => $val) {
+                $stmt->bindValue($param, $val);
             }
             if ($kind !== '') {
                 $stmt->bindValue(':kind', $kind);
@@ -513,8 +535,8 @@ final class NoteTypesController
             $stmt->bindValue(':nook_id', $nookId);
             $stmt->bindValue(':type_id', $typeId);
             $stmt->bindValue(':limit', $limitPlusOne, PDO::PARAM_INT);
-            if ($q !== '') {
-                $stmt->bindValue(':q', '%' . $q . '%');
+            foreach ($searchBindings as $param => $val) {
+                $stmt->bindValue($param, $val);
             }
             if ($kind !== '') {
                 $stmt->bindValue(':kind', $kind);
@@ -539,8 +561,8 @@ final class NoteTypesController
             $stmt->bindValue(':nook_id', $nookId);
             $stmt->bindValue(':type_id', $typeId);
             $stmt->bindValue(':limit', $limitPlusOne, PDO::PARAM_INT);
-            if ($q !== '') {
-                $stmt->bindValue(':q', '%' . $q . '%');
+            foreach ($searchBindings as $param => $val) {
+                $stmt->bindValue($param, $val);
             }
             if ($kind !== '') {
                 $stmt->bindValue(':kind', $kind);

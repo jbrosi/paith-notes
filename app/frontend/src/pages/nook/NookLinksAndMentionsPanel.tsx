@@ -3,18 +3,25 @@ import styles from "../../App.module.css";
 import { login } from "../../auth/keycloak";
 import type { NotePreviewController } from "./NookDefaultLayout";
 import { NookMentionsPanel } from "./NookMentionsPanel";
+import { NookNoteLinksPanel } from "./NookNoteLinksPanel";
 import type { NookStore } from "./store";
 
-export type NookStatusPanelProps = {
+export type NookLinksAndMentionsPanelProps = {
 	store: NookStore;
 	notePreview?: NotePreviewController;
 };
 
-export function NookStatusPanel(props: NookStatusPanelProps) {
+export function NookLinksAndMentionsPanel(
+	props: NookLinksAndMentionsPanelProps,
+) {
 	const store = () => props.store;
 
 	return (
 		<>
+			<Show when={store().selectedId() !== ""}>
+				<NookNoteLinksPanel store={store()} notePreview={props.notePreview} />
+			</Show>
+
 			<NookMentionsPanel
 				notes={store().allNotes()}
 				outgoing={store().outgoingMentions()}
