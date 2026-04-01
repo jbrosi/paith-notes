@@ -30,10 +30,18 @@ export function NookDefaultLayout(props: NookDefaultLayoutProps) {
 	const notePreview = createNotePreview(() => props.nookId);
 	let layoutEl: HTMLDivElement | undefined;
 
-	// Switch to content panel when a note is selected (mobile)
+	// Switch to content panel when a different note is selected (mobile)
+	let prevSelectedId = "";
 	createEffect(() => {
-		if (props.store.selectedId() !== "" && ui.activePanel() !== "content") {
-			ui.setActivePanel("content");
+		const id = props.store.selectedId();
+		if (id !== "" && id !== prevSelectedId) {
+			prevSelectedId = id;
+			if (ui.activePanel() !== "content") {
+				ui.setActivePanel("content");
+			}
+		}
+		if (id === "") {
+			prevSelectedId = "";
 		}
 	});
 
