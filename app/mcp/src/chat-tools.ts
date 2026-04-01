@@ -19,7 +19,7 @@ export const TOOLS: Anthropic.Tool[] = [
       type: 'object',
       properties: {
         title:      { type: 'string' },
-        content:    { type: 'string', description: 'Note content in markdown. To link to another note use [[note:<note_id>]] — the title is resolved automatically. To embed a file note as an image use ![Note Title](note:<note_id>).' },
+        content:    { type: 'string', description: 'Note content in markdown. To link to another note use [[note:<full_uuid>]] with the complete UUID (never shorten) — the title is resolved automatically. To embed a file note as an image use ![Note Title](note:<full_uuid>).' },
         type_id:    { type: 'string', description: 'Note type ID' },
         properties: { type: 'object', description: 'Arbitrary JSON properties' },
       },
@@ -34,7 +34,7 @@ export const TOOLS: Anthropic.Tool[] = [
       properties: {
         note_id:    { type: 'string' },
         title:      { type: 'string', description: 'New title. Omit to keep existing title.' },
-        content:    { type: 'string', description: 'Note content in markdown. To link to another note use [[note:<note_id>]] — the title is resolved automatically. To embed a file note as an image use ![Note Title](note:<note_id>).' },
+        content:    { type: 'string', description: 'Note content in markdown. To link to another note use [[note:<full_uuid>]] with the complete UUID (never shorten) — the title is resolved automatically. To embed a file note as an image use ![Note Title](note:<full_uuid>).' },
         properties: { type: 'object' },
       },
       required: ['note_id'],
