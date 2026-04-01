@@ -408,6 +408,10 @@ final class NoteTypesController
         $sortDir = str_ends_with($sortParam, 'oldest') ? 'asc' : 'desc';
         $cursorOp = $sortDir === 'asc' ? '>' : '<';
         $orderBy = "order by n.{$sortCol} {$sortDir}, n.id {$sortDir}";
+        // When searching, rank by relevance first (title similarity weighted higher)
+        $orderByWithRank = $q !== '' && $searchRank !== '0'
+            ? "order by search_rank desc, n.{$sortCol} {$sortDir}, n.id {$sortDir}"
+            : $orderBy;
 
         $q = strtolower(trim($request->queryParam('q')));
         $searchMode = strtolower(trim($request->queryParam('search_mode')));
@@ -418,22 +422,26 @@ final class NoteTypesController
         $whereSearch = '';
         /** @var array<string, string> $searchBindings */
         $searchBindings = [];
+        $searchRank = '0';
         if ($q !== '') {
             $words = \Paith\Notes\Shared\Search\SearchQueryParser::splitTerms($q);
             if ($words === []) {
                 // Only quotes/whitespace — treat as no search
-            } elseif (count($words) === 1) {
-                $whereSearch = 'and (lower(n.title) like :q0 or lower(n.content) like :q0)';
-                $searchBindings[':q0'] = '%' . $words[0] . '%';
             } else {
                 $clauses = [];
+                $rankParts = [];
                 foreach ($words as $i => $word) {
                     $param = ':q' . $i;
                     $clauses[] = "(lower(n.title) like {$param} or lower(n.content) like {$param})";
                     $searchBindings[$param] = '%' . $word . '%';
+                    // Trigram similarity score — title weighted 3x over content
+                    $rparam = ':r' . $i;
+                    $rankParts[] = "(similarity(lower(n.title), {$rparam}) * 3 + similarity(lower(n.content), {$rparam}))";
+                    $searchBindings[$rparam] = $word;
                 }
                 $glue = $searchMode === 'or' ? ' or ' : ' and ';
                 $whereSearch = 'and (' . implode($glue, $clauses) . ')';
+                $searchRank = '(' . implode(' + ', $rankParts) . ')';
             }
         }
 
@@ -453,11 +461,12 @@ final class NoteTypesController
 
         $limitPlusOne = $limit + 1;
 
-        $selectCols = 'select n.id, n.title, n.type, n.type_id, n.created_at, n.updated_at,
+        $selectCols = "select n.id, n.title, n.type, n.type_id, n.created_at, n.updated_at,
                     coalesce(outgoing.cnt, 0) as outgoing_mentions_count,
                     coalesce(incoming.cnt, 0) as incoming_mentions_count,
                     coalesce(outgoing_links.cnt, 0) as outgoing_links_count,
-                    coalesce(incoming_links.cnt, 0) as incoming_links_count';
+                    coalesce(incoming_links.cnt, 0) as incoming_links_count,
+                    {$searchRank} as search_rank";
         $joinCounts = '
                 left join (
                     select nm.source_note_id as note_id, count(*)::int as cnt
@@ -494,7 +503,7 @@ final class NoteTypesController
                 where n.nook_id = :nook_id ' . $whereCursor . '
                 ' . $whereSearch . '
                 ' . $whereKind . '
-                ' . $orderBy . '
+                ' . $orderByWithRank . '
                 limit :limit'
             );
 
@@ -528,7 +537,7 @@ final class NoteTypesController
                 ' . $whereCursor . '
                 ' . $whereSearch . '
                 ' . $whereKind . '
-                ' . $orderBy . '
+                ' . $orderByWithRank . '
                 limit :limit'
             );
 
@@ -554,7 +563,7 @@ final class NoteTypesController
                 where n.nook_id = :nook_id and n.type_id = :type_id ' . $whereCursor . '
                 ' . $whereSearch . '
                 ' . $whereKind . '
-                ' . $orderBy . '
+                ' . $orderByWithRank . '
                 limit :limit'
             );
 
