@@ -15,6 +15,7 @@ import { type NoteLink, NoteLinksListResponseSchema } from "./types";
 export type NookGraphPanelProps = {
 	store: NookStore;
 	fullscreen?: boolean;
+	onClose?: () => void;
 };
 
 type GraphNode = {
@@ -586,61 +587,69 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 		});
 	});
 
+	const handleClose = () => {
+		if (fullscreen()) {
+			onCloseFullscreen();
+		} else {
+			props.onClose?.();
+		}
+	};
+
 	return (
 		<div
 			class={`${styles.container} ${fullscreen() ? styles.containerFullscreen : ""}`}
 		>
 			<div class={styles.header}>
 				<div class={styles.title}>Graph</div>
-				<div class={styles.controls}>
-					<label class={styles.controlLabel}>
-						<span class={styles.controlLabelText}>Depth</span>
-						<select
-							value={String(depth())}
-							onChange={(e) => {
-								const next = Number.parseInt(e.currentTarget.value, 10);
-								setDepth(
-									Number.isFinite(next) ? Math.min(5, Math.max(1, next)) : 2,
-								);
-							}}
-							disabled={noteId().trim() === ""}
-							class={styles.controlSelect}
-						>
-							<option value="1">1</option>
-							<option value="2">2</option>
-							<option value="3">3</option>
-							<option value="4">4</option>
-							<option value="5">5</option>
-						</select>
-					</label>
+				<button
+					type="button"
+					class={styles.closeBtn}
+					onClick={handleClose}
+					title="Close graph"
+				>
+					&times;
+				</button>
+			</div>
+
+			<div class={styles.controls}>
+				<label class={styles.controlLabel}>
+					<span class={styles.controlLabelText}>Depth</span>
+					<select
+						value={String(depth())}
+						onChange={(e) => {
+							const next = Number.parseInt(e.currentTarget.value, 10);
+							setDepth(
+								Number.isFinite(next) ? Math.min(5, Math.max(1, next)) : 2,
+							);
+						}}
+						disabled={noteId().trim() === ""}
+						class={styles.controlSelect}
+					>
+						<option value="1">1</option>
+						<option value="2">2</option>
+						<option value="3">3</option>
+						<option value="4">4</option>
+						<option value="5">5</option>
+					</select>
+				</label>
+				<button
+					type="button"
+					class={styles.controlBtn}
+					onClick={onCenter}
+					disabled={noteId().trim() === ""}
+				>
+					Center
+				</button>
+				<Show when={!fullscreen()}>
 					<button
 						type="button"
 						class={styles.controlBtn}
-						onClick={onCenter}
+						onClick={onFullscreen}
 						disabled={noteId().trim() === ""}
 					>
-						Center
+						Fullscreen
 					</button>
-					<Show when={!fullscreen()}>
-						<button
-							type="button"
-							class={styles.controlBtn}
-							onClick={onFullscreen}
-							disabled={noteId().trim() === ""}
-						>
-							Fullscreen
-						</button>
-					</Show>
-					<Show when={fullscreen()}>
-						<button
-							type="button"
-							class={styles.controlBtn}
-							onClick={onCloseFullscreen}
-						>
-							Close
-						</button>
-					</Show>
-				</div>
+				</Show>
 			</div>
 
 			<Show when={noteId().trim() !== ""} fallback={<div>Select a note</div>}>

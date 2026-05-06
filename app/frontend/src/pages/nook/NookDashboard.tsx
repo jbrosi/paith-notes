@@ -1,6 +1,8 @@
-import { createEffect, createSignal, For, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import { apiFetch } from "../../auth/keycloak";
 import { Button } from "../../components/Button";
+import { NookNotesSearchDropdown } from "../../components/nav/NookNotesSearchDropdown";
+import { NookTypeFilterDropdown } from "../../components/nav/NookTypeFilterDropdown";
 import styles from "./NookDashboard.module.css";
 import type { NookStore } from "./store";
 
@@ -13,11 +15,22 @@ type NookStats = {
 	notes_per_type: Array<{ label: string; count: string }>;
 	recently_edited: Array<{ id: string; title: string; updated_at: string }>;
 	most_linked: Array<{ id: string; title: string; link_count: string }>;
-	most_mentioned: Array<{ id: string; title: string; mention_count: string }>;
 };
+
+const TIPS = [
+	'Use "type: person" in search to filter by note type.',
+	"Type @ in the editor to mention and link to another note.",
+	"Use !! in the editor to embed an image from another note.",
+	"You can drag nodes in the graph view to rearrange them.",
+	"Press Ctrl+S (or Cmd+S) to quickly save while editing.",
+	"Notes by type breakdown shows how your nook is organized.",
+];
 
 export type NookDashboardProps = {
 	store: NookStore;
+	onNewNote?: () => void;
+	onUploadFile?: () => void;
+	onSettings?: () => void;
 };
 
 export function NookDashboard(props: NookDashboardProps) {
@@ -25,6 +38,8 @@ export function NookDashboard(props: NookDashboardProps) {
 	const [loading, setLoading] = createSignal(false);
 
 	const nookId = () => props.store.nookId();
+
+	const tip = createMemo(() => TIPS[Math.floor(Math.random() * TIPS.length)]);
 
 	createEffect(() => {
 		const id = nookId();
@@ -71,10 +86,51 @@ export function NookDashboard(props: NookDashboardProps) {
 	return (
 		<div class={styles.container}>
 			<div class={styles.welcome}>
-				<h2 class={styles.title}>Welcome to your nook</h2>
+				<h2 class={styles.title}>{props.store.nookName() || "Your nook"}</h2>
 				<p class={styles.subtitle}>
-					Search for a note above or create a new one to get started.
+					Your dashboard — search, create, or pick up where you left off.
 				</p>
+			</div>
+
+			{/* Action buttons — always visible */}
+			<div class={styles.actions}>
+				<Show when={props.store.canWrite()}>
+					<Button
+						variant="primary"
+						size="small"
+						onClick={() => (props.onNewNote ?? props.store.newNote)()}
+					>
+						+ New note
+					</Button>
+					<Show when={props.onUploadFile}>
+						<Button
+							variant="secondary"
+							size="small"
+							onClick={() => props.onUploadFile?.()}
+						>
+							Upload file
+						</Button>
+					</Show>
+				</Show>
+				<Show when={props.onSettings}>
+					<Button
+						variant="secondary"
+						size="small"
+						onClick={() => props.onSettings?.()}
+					>
+						Settings
+					</Button>
+				</Show>
+			</div>
+
+			{/* Search — same components as the nav bar */}
+			<div class={styles.searchWrap}>
+				<NookNotesSearchDropdown
+					store={props.store}
+					onNewNote={() => (props.onNewNote ?? props.store.newNote)()}
+					onUploadFile={() => props.onUploadFile?.()}
+				/>
+				<NookTypeFilterDropdown store={props.store} />
 			</div>
 
 			<Show when={loading()}>
@@ -149,28 +205,6 @@ export function NookDashboard(props: NookDashboardProps) {
 									</For>
 								</div>
 							</Show>
-
-							<Show when={s().most_mentioned.length > 0}>
-								<div class={styles.column}>
-									<div class={styles.columnTitle}>Most mentioned</div>
-									<For each={s().most_mentioned}>
-										{(note) => (
-											<button
-												type="button"
-												class={styles.noteItem}
-												onClick={() => openNote(note.id)}
-											>
-												<span class={styles.noteTitle}>
-													{note.title || "(untitled)"}
-												</span>
-												<span class={styles.noteBadge}>
-													{note.mention_count}
-												</span>
-											</button>
-										)}
-									</For>
-								</div>
-							</Show>
 						</div>
 
 						<Show when={s().notes_per_type.length > 0}>
@@ -200,11 +234,10 @@ export function NookDashboard(props: NookDashboardProps) {
 				)}
 			</Show>
 
-			<Show when={!loading() && stats()?.total_notes === 0}>
-				<div class={styles.emptyAction}>
-					<Button onClick={props.store.newNote}>Create your first note</Button>
-				</div>
-			</Show>
+			{/* Tip */}
+			<div class={styles.tip}>
+				<span class={styles.tipLabel}>Tip:</span> {tip()}
+			</div>
 		</div>
 	);
 }

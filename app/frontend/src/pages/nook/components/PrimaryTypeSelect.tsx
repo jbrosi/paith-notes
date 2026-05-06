@@ -27,10 +27,10 @@ export function PrimaryTypeSelect(props: { store: NookStore }) {
 									const current = props.store.typeId();
 									const filtered = props.store
 										.noteTypes()
-										.filter((t) =>
-											props.store.type() === "file"
-												? t.appliesToFiles
-												: t.appliesToNotes,
+										.filter(
+											(t) =>
+												t.appliesTo ===
+												(props.store.type() === "file" ? "files" : "notes"),
 										);
 									if (current === "") return filtered;
 									if (filtered.some((t) => t.id === current)) return filtered;
@@ -45,8 +45,7 @@ export function PrimaryTypeSelect(props: { store: NookStore }) {
 											key: "",
 											nookId: "",
 											parentId: "",
-											appliesToFiles: true,
-											appliesToNotes: true,
+											appliesTo: "notes" as const,
 											createdAt: undefined,
 											updatedAt: undefined,
 										},

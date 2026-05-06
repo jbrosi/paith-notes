@@ -1,7 +1,15 @@
-import { createEffect, For, onCleanup, onMount, Show } from "solid-js";
+import {
+	createEffect,
+	createMemo,
+	For,
+	onCleanup,
+	onMount,
+	Show,
+} from "solid-js";
 import { ChatPanel } from "../../components/chat/ChatPanel";
 import { createNotePreview } from "../../components/NotePreview";
 import { MOBILE_PANELS, type MobilePanel, useUi } from "../../ui/UiContext";
+import { NookDashboard } from "./NookDashboard";
 import styles from "./NookDefaultLayout.module.css";
 import { NookGraphPanel } from "./NookGraphPanel";
 import { NookLinksAndMentionsPanel } from "./NookLinksAndMentionsPanel";
@@ -13,6 +21,7 @@ export type NookDefaultLayoutProps = {
 	nookId: string;
 	store: NookStore;
 	showGraph: boolean;
+	onSettings?: () => void;
 };
 
 export type NotePreviewController = ReturnType<typeof createNotePreview>;
@@ -29,6 +38,16 @@ export function NookDefaultLayout(props: NookDefaultLayoutProps) {
 	const ui = useUi();
 	const notePreview = createNotePreview(() => props.nookId);
 	let layoutEl: HTMLDivElement | undefined;
+	let dashboardFileInput: HTMLInputElement | undefined;
+
+	const hasNote = createMemo(
+		() => props.store.selectedId() !== "" || props.store.mode() === "edit",
+	);
+
+	const handleNewNote = () => {
+		props.store.newNote();
+		ui.setMode("edit");
+	};
 
 	// Switch to content panel when a different note is selected (mobile)
 	let prevSelectedId = "";
@@ -61,10 +80,8 @@ export function NookDefaultLayout(props: NookDefaultLayoutProps) {
 				const gesture = new DragGesture(
 					layoutEl,
 					({ swipe: [swipeX], event }) => {
-						// Don't swipe if user is interacting with an editable input/editor
 						const target = event?.target as HTMLElement | null;
 						if (!target) return;
-						// Allow swipe on readonly textareas (e.g. markdown view)
 						if (target instanceof HTMLTextAreaElement && target.readOnly) {
 							// allow swipe
 						} else if (
@@ -98,7 +115,31 @@ export function NookDefaultLayout(props: NookDefaultLayoutProps) {
 	});
 
 	return (
-		<>
+		<Show
+			when={hasNote()}
+			fallback={
+				<>
+					<input
+						ref={dashboardFileInput}
+						type="file"
+						style={{ display: "none" }}
+						onChange={(e) => {
+							const f = e.currentTarget.files?.[0];
+							if (f) void props.store.quickUploadFile(f);
+							e.currentTarget.value = "";
+						}}
+					/>
+					<div class={styles.mainScroll}>
+						<NookDashboard
+							store={props.store}
+							onNewNote={handleNewNote}
+							onUploadFile={() => dashboardFileInput?.click()}
+							onSettings={props.onSettings}
+						/>
+					</div>
+				</>
+			}
+		>
 			<div
 				ref={layoutEl}
 				class={styles.layout}
@@ -122,7 +163,13 @@ export function NookDefaultLayout(props: NookDefaultLayoutProps) {
 				{/* Graph panel — render if desktop toggle is on OR mobile panel is active */}
 				<Show when={props.showGraph || ui.activePanel() === "graph"}>
 					<div class={styles.panelGraph}>
-						<NookGraphPanel store={props.store} />
+						<NookGraphPanel
+							store={props.store}
+							onClose={() => {
+								ui.toggleGraphPanel();
+								ui.setActivePanel("content");
+							}}
+						/>
 					</div>
 				</Show>
 
@@ -166,6 +213,6 @@ export function NookDefaultLayout(props: NookDefaultLayoutProps) {
 			</div>
 
 			<notePreview.PreviewPopover />
-		</>
+		</Show>
 	);
 }

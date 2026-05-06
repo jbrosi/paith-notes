@@ -615,37 +615,31 @@ final class RequireUser implements Middleware
             throw new HttpError('ensurePersonalNook must run inside a transaction', 500);
         }
 
-        try {
-            $create = $pdo->prepare(
-                "insert into global.nooks (name, created_by, is_personal, owner_id) 
-                 values (:name, :created_by, true, :owner_id) 
-                 on conflict (owner_id) where is_personal = true do nothing 
-                 returning id"
+        // Check if user already owns any nook
+        $check = $pdo->prepare('select id from global.nooks where owner_id = :user_id limit 1');
+        $check->execute([':user_id' => $userId]);
+        if ($check->fetchColumn()) {
+            return;
+        }
+
+        $create = $pdo->prepare(
+            "insert into global.nooks (name, created_by, owner_id) values (:name, :created_by, :owner_id) returning id"
+        );
+        $create->execute([
+            ':name' => 'My Notes',
+            ':created_by' => $userId,
+            ':owner_id' => $userId,
+        ]);
+        $nookId = $create->fetchColumn();
+
+        if ($nookId) {
+            $member = $pdo->prepare(
+                "insert into global.nook_members (nook_id, user_id, role) values (:nook_id, :user_id, 'owner') on conflict (nook_id, user_id) do update set role = excluded.role"
             );
-            $create->execute([
-                ':name' => 'Personal',
-                ':created_by' => $userId,
-                ':owner_id' => $userId,
+            $member->execute([
+                ':nook_id' => (string)$nookId,
+                ':user_id' => $userId,
             ]);
-            $nookId = $create->fetchColumn();
-
-            if (!$nookId) {
-                $existing = $pdo->prepare('select id from global.nooks where owner_id = :user_id and is_personal = true');
-                $existing->execute([':user_id' => $userId]);
-                $nookId = $existing->fetchColumn();
-            }
-
-            if ($nookId) {
-                $member = $pdo->prepare(
-                    "insert into global.nook_members (nook_id, user_id, role) values (:nook_id, :user_id, 'owner') on conflict (nook_id, user_id) do update set role = excluded.role"
-                );
-                $member->execute([
-                    ':nook_id' => (string)$nookId,
-                    ':user_id' => $userId,
-                ]);
-            }
-        } catch (Throwable $e) {
-            throw $e;
         }
     }
 }

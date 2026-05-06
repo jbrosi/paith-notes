@@ -3,42 +3,30 @@ import { createResource, Show } from "solid-js";
 import styles from "../App.module.css";
 import { apiFetch, login } from "../auth/keycloak";
 
-type PersonalNookResponse = {
-	nook: {
-		id: string;
-		name: string;
-		is_personal: true;
-	};
-};
-
 export default function NooksRedirect() {
 	const navigate = useNavigate();
 
 	const [data] = createResource(async () => {
-		const res = await apiFetch("/api/nooks/personal", {
-			method: "GET",
-			headers: {
-				Accept: "application/json",
-			},
-		});
+		const res = await apiFetch("/api/nooks", { method: "GET" });
 		if (res.status === 401) {
-			return {
-				nook: { id: "", name: "", is_personal: true },
-			} as PersonalNookResponse;
+			return { id: "" };
 		}
 		if (!res.ok) {
-			throw new Error(
-				`Failed to load personal nook: ${res.status} ${res.statusText}`,
-			);
+			throw new Error(`Failed to load nooks: ${res.status} ${res.statusText}`);
 		}
 
-		const body = (await res.json()) as PersonalNookResponse;
-		if (!body?.nook?.id) {
-			throw new Error("Personal nook id missing");
+		const body = (await res.json()) as { nooks?: unknown[] };
+		const list = Array.isArray(body?.nooks) ? body.nooks : [];
+		const first = list[0];
+		if (first && typeof first === "object" && "id" in first) {
+			const id = String((first as Record<string, unknown>).id ?? "");
+			if (id) {
+				navigate(`/nooks/${id}`, { replace: true });
+				return { id };
+			}
 		}
 
-		navigate(`/nooks/${body.nook.id}`, { replace: true });
-		return body;
+		throw new Error("No nooks found");
 	});
 
 	return (
@@ -50,7 +38,7 @@ export default function NooksRedirect() {
 					fallback={<pre class={styles.error}>{String(data.error)}</pre>}
 				>
 					<Show
-						when={Boolean(data()?.nook?.id)}
+						when={Boolean(data()?.id)}
 						fallback={
 							<div>
 								<p class={styles.subtitle}>
@@ -62,7 +50,7 @@ export default function NooksRedirect() {
 							</div>
 						}
 					>
-						<p class={styles.subtitle}>Redirecting to your personal nook…</p>
+						<p class={styles.subtitle}>Redirecting to your nook…</p>
 					</Show>
 				</Show>
 			</Show>

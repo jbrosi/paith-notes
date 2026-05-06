@@ -5,7 +5,6 @@ import notesStyles from "../Notes.module.css";
 import { EditorSection } from "./components/EditorSection";
 import { FilePanel } from "./components/FilePanel";
 import { TitleSection } from "./components/TitleSection";
-import { NookDashboard } from "./NookDashboard";
 import type { NotePreviewController } from "./NookDefaultLayout";
 import { NookToolbar } from "./NookToolbar";
 import type { NookStore } from "./store";
@@ -27,7 +26,11 @@ export function NookMainPanel(props: NookMainPanelProps) {
 	onMount(() => {
 		const onKeyDown = (e: KeyboardEvent) => {
 			if ((e.ctrlKey || e.metaKey) && e.key === "s") {
-				if (ui.mode() === "edit" && store().selectedId() !== "") {
+				if (
+					ui.mode() === "edit" &&
+					store().selectedId() !== "" &&
+					store().canWrite()
+				) {
 					e.preventDefault();
 					store().saveNote();
 				}
@@ -36,9 +39,6 @@ export function NookMainPanel(props: NookMainPanelProps) {
 		document.addEventListener("keydown", onKeyDown);
 		onCleanup(() => document.removeEventListener("keydown", onKeyDown));
 	});
-
-	const hasNote = () =>
-		store().selectedId() !== "" || store().mode() === "edit";
 
 	return (
 		<>
@@ -52,24 +52,22 @@ export function NookMainPanel(props: NookMainPanelProps) {
 				</Portal>
 			</Show>
 			<div style={{ flex: "1", "min-width": "0" }}>
-				<Show when={hasNote()} fallback={<NookDashboard store={store()} />}>
-					<div class={notesStyles["add-note-container"]}>
-						<NookToolbar
-							mode={ui.mode()}
-							loading={store().loading()}
-							title={store().title()}
-							selectedId={store().selectedId()}
-							onSave={store().saveNote}
-							onDelete={store().deleteNote}
-							onToggleMode={ui.toggleMode}
-							onNewNote={store().newNote}
-						/>
-					</div>
+				<div class={notesStyles["add-note-container"]}>
+					<NookToolbar
+						mode={ui.mode()}
+						loading={store().loading()}
+						title={store().title()}
+						selectedId={store().selectedId()}
+						canWrite={store().canWrite()}
+						onSave={store().saveNote}
+						onDelete={store().deleteNote}
+						onToggleMode={ui.toggleMode}
+					/>
+				</div>
 
-					<FilePanel store={store()} />
-					<TitleSection store={store()} />
-					<EditorSection store={store()} notePreview={props.notePreview} />
-				</Show>
+				<TitleSection store={store()} />
+				<FilePanel store={store()} />
+				<EditorSection store={store()} notePreview={props.notePreview} />
 			</div>
 		</>
 	);

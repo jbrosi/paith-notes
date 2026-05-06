@@ -6,14 +6,14 @@ describe("Routing E2E Tests", () => {
 
 	const nav = () => cy.get("nav").filter(":visible").first();
 
-	const getPersonalNookId = () => {
+	const getFirstNookId = () => {
 		return cy
-			.request({ method: "GET", url: "/api/nooks/personal", headers })
+			.request({ method: "GET", url: "/api/nooks", headers })
 			.its("body")
 			.then((body) => {
-				expect(body).to.have.property("nook");
-				expect(body.nook).to.have.property("id");
-				return String(body.nook.id);
+				expect(body).to.have.property("nooks");
+				expect(body.nooks).to.have.length.greaterThan(0);
+				return String(body.nooks[0].id);
 			});
 	};
 
@@ -58,15 +58,14 @@ describe("Routing E2E Tests", () => {
 			cy.contains("a", "Notes").click();
 		});
 		cy.url().should("match", /\/nooks\/[0-9a-f-]{36}$/i);
-		cy.contains("h1", "My Notes").should("be.visible");
-		cy.contains("Manage your notes here").should("be.visible");
+		cy.contains("h2", "My Notes").should("be.visible");
 		nav().within(() => {
 			cy.contains("a", "Notes").should("have.class", "active");
 		});
 	});
 
 	it("displays notes from the API on Notes page", () => {
-		getPersonalNookId().then((nookId) => {
+		getFirstNookId().then((nookId) => {
 			cy.request({
 				method: "POST",
 				url: `/api/nooks/${nookId}/notes`,
@@ -105,7 +104,7 @@ describe("Routing E2E Tests", () => {
 	it("shows outgoing and incoming mentions", () => {
 		const label = `Mention ${Date.now()}`;
 
-		getPersonalNookId().then((nookId) => {
+		getFirstNookId().then((nookId) => {
 			cy.request({
 				method: "POST",
 				url: `/api/nooks/${nookId}/notes`,
@@ -185,7 +184,7 @@ describe("Routing E2E Tests", () => {
 			cy.contains("a", "Notes").click();
 		});
 		cy.url().should("match", /\/nooks\/[0-9a-f-]{36}$/i);
-		cy.contains("h1", "My Notes").should("be.visible");
+		cy.contains("h2", "My Notes").should("be.visible");
 
 		// Go back to Home
 		nav().within(() => {

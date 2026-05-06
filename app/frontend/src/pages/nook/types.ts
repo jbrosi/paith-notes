@@ -104,8 +104,7 @@ const NoteTypeApiSchema = z
 		label: z.string(),
 		description: z.string().optional(),
 		parent_id: z.string().optional(),
-		applies_to_files: z.boolean().optional(),
-		applies_to_notes: z.boolean().optional(),
+		applies_to: z.string().optional(),
 		created_at: z.string().optional(),
 		updated_at: z.string().optional(),
 	})
@@ -116,8 +115,7 @@ const NoteTypeApiSchema = z
 		label: t.label,
 		description: t.description ?? "",
 		parentId: t.parent_id ?? "",
-		appliesToFiles: t.applies_to_files ?? true,
-		appliesToNotes: t.applies_to_notes ?? true,
+		appliesTo: (t.applies_to ?? "notes") as "notes" | "files",
 		createdAt: t.created_at,
 		updatedAt: t.updated_at,
 	}));
