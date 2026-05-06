@@ -290,7 +290,7 @@ final class NoteLinksController
             throw new HttpError('noteId must be a UUID', 400);
         }
 
-        $this->requireMember($pdo, $user, $nookId);
+        NookAccess::requireWriteAccess($pdo, $user, $nookId);
         $this->ensureDefaultRelatesTo($pdo, $nookId);
 
         $data = $request->jsonBody();
@@ -444,7 +444,7 @@ final class NoteLinksController
             throw new HttpError('linkId must be a UUID', 400);
         }
 
-        $this->requireMember($pdo, $user, $nookId);
+        NookAccess::requireWriteAccess($pdo, $user, $nookId);
 
         $stmt = $pdo->prepare(
             'delete from global.note_links '

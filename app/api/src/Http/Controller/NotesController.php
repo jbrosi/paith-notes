@@ -169,7 +169,7 @@ final class NotesController
             throw new HttpError('nookId must be a UUID', 400);
         }
 
-        $this->requireMember($pdo, $user, $nookId);
+        NookAccess::requireWriteAccess($pdo, $user, $nookId);
 
         $data = $request->jsonBody();
 
@@ -191,22 +191,16 @@ final class NotesController
         }
 
         if ($typeId !== '') {
-            $typeCheck = $pdo->prepare('select applies_to_files, applies_to_notes from global.note_types where id = :id and nook_id = :nook_id');
+            $typeCheck = $pdo->prepare('select applies_to from global.note_types where id = :id and nook_id = :nook_id');
             $typeCheck->execute([':id' => $typeId, ':nook_id' => $nookId]);
             $typeRow = $typeCheck->fetch(PDO::FETCH_ASSOC);
             if (!is_array($typeRow)) {
                 throw new HttpError('type not found', 404);
             }
-            $appliesToFiles = (bool)($typeRow['applies_to_files'] ?? true);
-            $appliesToNotes = (bool)($typeRow['applies_to_notes'] ?? true);
-            if ($type === self::NOTE_TYPE_FILE) {
-                if (!$appliesToFiles) {
-                    throw new HttpError('type does not apply to files', 400);
-                }
-            } else {
-                if (!$appliesToNotes) {
-                    throw new HttpError('type does not apply to notes', 400);
-                }
+            $appliesTo = is_scalar($typeRow['applies_to'] ?? null) ? (string)$typeRow['applies_to'] : 'notes';
+            $expectedAppliesTo = $type === self::NOTE_TYPE_FILE ? 'files' : 'notes';
+            if ($appliesTo !== $expectedAppliesTo) {
+                throw new HttpError("type does not apply to {$expectedAppliesTo}", 400);
             }
         }
 
@@ -289,7 +283,7 @@ final class NotesController
             throw new HttpError('invalid user', 500);
         }
 
-        $membership = $this->requireMember($pdo, $user, $nookId);
+        $membership = NookAccess::requireWriteAccess($pdo, $user, $nookId);
 
         $data = $request->jsonBody();
 
@@ -363,22 +357,16 @@ final class NotesController
         }
 
         if ($typeId !== null) {
-            $typeCheck = $pdo->prepare('select applies_to_files, applies_to_notes from global.note_types where id = :id and nook_id = :nook_id');
+            $typeCheck = $pdo->prepare('select applies_to from global.note_types where id = :id and nook_id = :nook_id');
             $typeCheck->execute([':id' => $typeId, ':nook_id' => $nookId]);
             $typeRow = $typeCheck->fetch(PDO::FETCH_ASSOC);
             if (!is_array($typeRow)) {
                 throw new HttpError('type not found', 404);
             }
-            $appliesToFiles = (bool)($typeRow['applies_to_files'] ?? true);
-            $appliesToNotes = (bool)($typeRow['applies_to_notes'] ?? true);
-            if ($type === self::NOTE_TYPE_FILE) {
-                if (!$appliesToFiles) {
-                    throw new HttpError('type does not apply to files', 400);
-                }
-            } else {
-                if (!$appliesToNotes) {
-                    throw new HttpError('type does not apply to notes', 400);
-                }
+            $appliesTo = is_scalar($typeRow['applies_to'] ?? null) ? (string)$typeRow['applies_to'] : 'notes';
+            $expectedAppliesTo = $type === self::NOTE_TYPE_FILE ? 'files' : 'notes';
+            if ($appliesTo !== $expectedAppliesTo) {
+                throw new HttpError("type does not apply to {$expectedAppliesTo}", 400);
             }
         }
 
@@ -457,7 +445,7 @@ final class NotesController
             throw new HttpError('invalid user', 500);
         }
 
-        $membership = $this->requireMember($pdo, $user, $nookId);
+        $membership = NookAccess::requireWriteAccess($pdo, $user, $nookId);
 
         $allowed = false;
         $role = is_scalar($membership['role'] ?? null) ? (string)$membership['role'] : '';

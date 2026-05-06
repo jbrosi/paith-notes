@@ -38,6 +38,7 @@ export default function Nook() {
 	);
 	const store = createNookStore(nookId);
 	const [nookName, setNookName] = createSignal("");
+	const [nookRole, setNookRole] = createSignal("unknown");
 	createEffect(() => {
 		const id = nookId();
 		if (id) {
@@ -61,13 +62,16 @@ export default function Nook() {
 					if (!n || typeof n !== "object") continue;
 					const obj = n as Record<string, unknown>;
 					if (typeof obj.id === "string" && obj.id === id) {
-						setNookName(
-							obj.is_personal
-								? "My Notes"
-								: typeof obj.name === "string"
-									? obj.name
-									: "",
-						);
+						{
+							const name = typeof obj.name === "string" ? obj.name : "";
+							setNookName(name);
+							store.setNookName(name);
+						}
+
+						if (typeof obj.role === "string") {
+							setNookRole(obj.role);
+							store.setNookRole(obj.role);
+						}
 						break;
 					}
 				}
@@ -145,7 +149,12 @@ export default function Nook() {
 					: ""
 		).trim();
 		void store.allNotes();
-		if (id === "") return;
+		if (id === "") {
+			if (untrack(() => store.selectedId()) !== "") {
+				store.setSelectedId("");
+			}
+			return;
+		}
 		const currentSelected = untrack(() => store.selectedId());
 		if (currentSelected === id) return;
 		const requestId = ++lastUrlSelectRequestId;
@@ -252,6 +261,11 @@ export default function Nook() {
 												nookId={nookId()}
 												store={store}
 												showGraph={ui.graphPanelOpen()}
+												onSettings={() =>
+													navigate(
+														`/nooks/${encodeURIComponent(nookId())}/settings`,
+													)
+												}
 											/>
 										}
 									>
@@ -272,9 +286,15 @@ export default function Nook() {
 					>
 						<NookSettingsLanding
 							nookId={nookId()}
+							nookName={nookName()}
+							nookRole={nookRole()}
 							onClose={goBackToNoteOrNook}
 							onOpenLinks={openLinksSettings}
 							onOpenTypes={openTypesSettings}
+							onNameSaved={(name) => {
+								setNookName(name);
+								store.setNookName(name);
+							}}
 						/>
 					</Show>
 				}

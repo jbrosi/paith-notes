@@ -8,10 +8,51 @@ use Paith\Notes\Shared\Db\GlobalSchema;
 
 function test_pdo(): \PDO
 {
-    $databaseUrl = getenv('DATABASE_URL');
-    if (!is_string($databaseUrl)) {
-        $databaseUrl = '';
+    // Prefer DATABASE_TEST_URL to avoid wiping the dev database.
+    // If not set, derive one by appending _test to the DATABASE_URL dbname.
+    $databaseUrl = getenv('DATABASE_TEST_URL');
+    if (!is_string($databaseUrl) || $databaseUrl === '') {
+        $baseUrl = getenv('DATABASE_URL');
+        if (is_string($baseUrl) && $baseUrl !== '') {
+            // Append _test to the database name
+            $parts = parse_url($baseUrl);
+            $dbName = ltrim((string)($parts['path'] ?? ''), '/');
+            if ($dbName !== '' && !str_ends_with($dbName, '_test')) {
+                $databaseUrl = preg_replace('#/[^/]+$#', '/' . $dbName . '_test', $baseUrl);
+            } else {
+                $databaseUrl = $baseUrl;
+            }
+        }
     }
+    if (!is_string($databaseUrl) || $databaseUrl === '') {
+        throw new \RuntimeException('DATABASE_TEST_URL or DATABASE_URL must be set');
+    }
+
+    // Auto-create the test database if it doesn't exist
+    $testParts = parse_url($databaseUrl);
+    $testDbName = ltrim((string)($testParts['path'] ?? ''), '/');
+    if ($testDbName !== '') {
+        $adminUrl = preg_replace('#/[^/]+$#', '/postgres', $databaseUrl);
+        if (is_string($adminUrl)) {
+            try {
+                $adminCfg = DatabaseUrl::toPdoConfig($adminUrl);
+                $admin = new \PDO($adminCfg['dsn'], $adminCfg['user'], $adminCfg['pass'], [
+                    \PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION,
+                    \PDO::ATTR_TIMEOUT => 2,
+                ]);
+                $check = $admin->query("SELECT 1 FROM pg_database WHERE datname = " . $admin->quote($testDbName));
+                if (!$check || !$check->fetchColumn()) {
+                    $admin->exec('CREATE DATABASE ' . $testDbName);
+                }
+            } catch (\Throwable $e) {
+                // Best effort — if we can't create it, the next connection will fail with a clear error
+            }
+        }
+    }
+
+    // Point DATABASE_URL to the test DB so App::handle() also uses it
+    putenv('DATABASE_URL=' . $databaseUrl);
+
     $cfg = DatabaseUrl::toPdoConfig($databaseUrl);
 
     return new \PDO($cfg['dsn'], $cfg['user'], $cfg['pass'], [

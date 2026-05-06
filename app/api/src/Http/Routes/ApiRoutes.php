@@ -13,6 +13,7 @@ use Paith\Notes\Api\Http\Controller\HealthController;
 use Paith\Notes\Api\Http\Controller\LinkPredicatesController;
 use Paith\Notes\Api\Http\Controller\MeController;
 use Paith\Notes\Api\Http\Controller\Module1Controller;
+use Paith\Notes\Api\Http\Controller\InvitationsController;
 use Paith\Notes\Api\Http\Controller\NookStatsController;
 use Paith\Notes\Api\Http\Controller\NoteTypesController;
 use Paith\Notes\Api\Http\Controller\NoteLinksController;
@@ -56,8 +57,22 @@ final class ApiRoutes
 
         $r->get('/me', [MeController::class, 'me']);
         $r->get('/nooks', [NooksController::class, 'list']);
-        $r->get('/nooks/personal', [NooksController::class, 'personal']);
         $r->post('/nooks', [NooksController::class, 'create']);
+        $r->add('PUT', '/nooks/{nookId}', [NooksController::class, 'update']);
+
+        // Nook sharing: invitations & members
+        $r->post('/nooks/{nookId}/invitations', [InvitationsController::class, 'invite']);
+        $r->get('/nooks/{nookId}/invitations', [InvitationsController::class, 'listForNook']);
+        $r->add('DELETE', '/nooks/{nookId}/invitations/{invId}', [InvitationsController::class, 'revokeInvitation']);
+        $r->get('/nooks/{nookId}/members', [InvitationsController::class, 'listMembers']);
+        $r->add('DELETE', '/nooks/{nookId}/members/{userId}', [InvitationsController::class, 'revokeMember']);
+
+        // User-scoped: pending invitations & revocation notices
+        $r->get('/me/invitations', [InvitationsController::class, 'listForMe']);
+        $r->get('/me/revocations', [InvitationsController::class, 'listRevocations']);
+        $r->post('/me/invitations/{invId}/accept', [InvitationsController::class, 'acceptInvitation']);
+        $r->post('/me/invitations/{invId}/decline', [InvitationsController::class, 'declineInvitation']);
+        $r->post('/me/revocations/{revId}/dismiss', [InvitationsController::class, 'dismissRevocation']);
 
         $r->get('/nooks/{nookId}/stats', [NookStatsController::class, 'stats']);
         $r->get('/nooks/{nookId}/note-types', [NoteTypesController::class, 'list']);

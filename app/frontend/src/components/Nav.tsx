@@ -13,7 +13,24 @@ type NookListItem = {
 	id: string;
 	name: string;
 	role: string;
-	is_personal: boolean;
+	is_owned: boolean;
+	owner_name: string;
+};
+
+type InvitationItem = {
+	id: string;
+	nook_id: string;
+	nook_name: string;
+	role: string;
+	inviter_name: string;
+	created_at: string;
+};
+
+type RevocationItem = {
+	id: string;
+	nook_name: string;
+	revoked_by_name: string;
+	created_at: string;
 };
 
 export function Nav() {
@@ -32,6 +49,9 @@ export function Nav() {
 	const [showCreateNook, setShowCreateNook] = createSignal(false);
 	const [newNookName, setNewNookName] = createSignal("");
 	const [userName, setUserName] = createSignal<string>("");
+	const [invitations, setInvitations] = createSignal<InvitationItem[]>([]);
+	const [revocations, setRevocations] = createSignal<RevocationItem[]>([]);
+	const [fileInputRef, setFileInputRef] = createSignal<HTMLInputElement>();
 
 	const currentNookId = createMemo(() => {
 		const m = location.pathname.match(/^\/nooks\/([^/]+)/);
@@ -47,6 +67,8 @@ export function Nav() {
 	const store = createMemo(() => nook.store());
 	const storeReady = createMemo(() => store() !== null);
 
+	const nookDisplayName = (n: NookListItem) => n.name || "Unnamed nook";
+
 	const currentNookLabel = createMemo(() => {
 		const id = currentNookId();
 		if (id === "") {
@@ -56,14 +78,14 @@ export function Nav() {
 			if (preferred !== "") {
 				const foundPreferred = nooks().find((n) => n.id === preferred);
 				if (foundPreferred) {
-					return foundPreferred.is_personal ? "My notes" : foundPreferred.name;
+					return nookDisplayName(foundPreferred);
 				}
 			}
 			return "Select nook";
 		}
 		const found = nooks().find((n) => n.id === id);
 		if (!found) return "Nooks";
-		return found.is_personal ? "My notes" : found.name;
+		return nookDisplayName(found);
 	});
 
 	createEffect(() => {
@@ -92,6 +114,101 @@ export function Nav() {
 		})();
 	});
 
+	// Load pending invitations & revocation notices
+	createEffect(() => {
+		if (!auth.ready() || !auth.authenticated()) return;
+		void loadNotices();
+	});
+
+	const loadNotices = async () => {
+		try {
+			const [invRes, revRes] = await Promise.all([
+				apiFetch("/api/me/invitations", { method: "GET" }),
+				apiFetch("/api/me/revocations", { method: "GET" }),
+			]);
+			if (invRes.ok) {
+				const body = (await invRes.json()) as { invitations?: unknown };
+				const list = Array.isArray(body?.invitations) ? body.invitations : [];
+				setInvitations(
+					list
+						.filter(
+							(i: unknown): i is Record<string, unknown> =>
+								!!i && typeof i === "object",
+						)
+						.map((i) => ({
+							id: String(i.id ?? ""),
+							nook_id: String(i.nook_id ?? ""),
+							nook_name: String(i.nook_name ?? ""),
+							role: String(i.role ?? ""),
+							inviter_name: String(i.inviter_name ?? ""),
+							created_at: String(i.created_at ?? ""),
+						})),
+				);
+			}
+			if (revRes.ok) {
+				const body = (await revRes.json()) as { revocations?: unknown };
+				const list = Array.isArray(body?.revocations) ? body.revocations : [];
+				setRevocations(
+					list
+						.filter(
+							(r: unknown): r is Record<string, unknown> =>
+								!!r && typeof r === "object",
+						)
+						.map((r) => ({
+							id: String(r.id ?? ""),
+							nook_name: String(r.nook_name ?? ""),
+							revoked_by_name: String(r.revoked_by_name ?? ""),
+							created_at: String(r.created_at ?? ""),
+						})),
+				);
+			}
+		} catch {
+			// best-effort
+		}
+	};
+
+	const acceptInvitation = async (invId: string) => {
+		try {
+			const res = await apiFetch(
+				`/api/me/invitations/${encodeURIComponent(invId)}/accept`,
+				{ method: "POST" },
+			);
+			if (res.ok) {
+				await Promise.all([loadNooks(), loadNotices()]);
+			}
+		} catch {
+			// best-effort
+		}
+	};
+
+	const declineInvitation = async (invId: string) => {
+		try {
+			await apiFetch(
+				`/api/me/invitations/${encodeURIComponent(invId)}/decline`,
+				{ method: "POST" },
+			);
+			await loadNotices();
+		} catch {
+			// best-effort
+		}
+	};
+
+	const dismissRevocation = async (revId: string) => {
+		try {
+			await apiFetch(
+				`/api/me/revocations/${encodeURIComponent(revId)}/dismiss`,
+				{ method: "POST" },
+			);
+			await loadNotices();
+		} catch {
+			// best-effort
+		}
+	};
+
+	const noticeCount = createMemo(
+		() => invitations().length + revocations().length,
+	);
+
 	const loadNooks = async () => {
 		if (nooksLoading()) return;
 		setNooksError("");
@@ -115,7 +232,8 @@ export function Nav() {
 					id,
 					name: typeof obj.name === "string" ? obj.name : "",
 					role: typeof obj.role === "string" ? obj.role : "",
-					is_personal: Boolean(obj.is_personal),
+					is_owned: Boolean(obj.is_owned),
+					owner_name: typeof obj.owner_name === "string" ? obj.owner_name : "",
 				});
 			}
 			setNooks(normalized);
@@ -186,7 +304,7 @@ export function Nav() {
 		}
 		const next = !nooksOpen();
 		setNooksOpen(next);
-		if (next && nooks().length === 0) {
+		if (next) {
 			void loadNooks();
 		}
 	};
@@ -306,6 +424,9 @@ export function Nav() {
 								onClick={() => toggleNooks()}
 							>
 								{currentNookLabel()}
+								<Show when={noticeCount() > 0}>
+									<span class={styles.noticeBadge}>{noticeCount()}</span>
+								</Show>
 							</button>
 							<Show when={nooksOpen()}>
 								{/* biome-ignore lint/a11y/useKeyWithClickEvents: backdrop click closes */}
@@ -335,21 +456,37 @@ export function Nav() {
 									{/* Current nook */}
 									<Show when={currentNookId().trim() !== ""}>
 										<div class={styles.dropdownSection}>
-											<div class={styles.dropdownCurrentNook}>
-												{currentNookLabel()}
-											</div>
-											<button
-												type="button"
+											<A
+												href={`/nooks/${encodeURIComponent(currentNookId())}`}
 												class={styles["dropdown-item"]}
+												style={{
+													"justify-content": "flex-start",
+													gap: "6px",
+													"text-decoration": "none",
+													color: "inherit",
+												}}
 												onClick={() => {
+													store()?.setSelectedId("");
 													setNooksOpen(false);
-													navigate(
-														`/nooks/${encodeURIComponent(currentNookId())}/settings`,
-													);
 												}}
 											>
-												Settings
-											</button>
+												<svg
+													aria-hidden="true"
+													width="14"
+													height="14"
+													viewBox="0 0 24 24"
+													fill="none"
+													stroke="currentColor"
+													stroke-width="2"
+													stroke-linecap="round"
+													stroke-linejoin="round"
+													style={{ "flex-shrink": "0" }}
+												>
+													<path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+													<polyline points="9 22 9 12 15 12 15 22" />
+												</svg>
+												{currentNookLabel()}
+											</A>
 										</div>
 									</Show>
 									{/* Other nooks */}
@@ -371,19 +508,99 @@ export function Nav() {
 																{(n) => (
 																	<button
 																		type="button"
-																		class={styles["dropdown-item"]}
+																		class={`${styles["dropdown-item"]}${!n.is_owned ? ` ${styles.sharedNookItem}` : ""}`}
 																		onClick={() => onSelectNook(n.id)}
 																	>
-																		<span>
-																			{n.is_personal ? "My notes" : n.name}
+																		<span class={styles.dropdownItemContent}>
+																			<span>{nookDisplayName(n)}</span>
+																			<Show when={!n.is_owned && n.owner_name}>
+																				<span class={styles.sharedByLabel}>
+																					Shared by {n.owner_name}
+																				</span>
+																			</Show>
 																		</span>
 																		<span class={styles["dropdown-meta"]}>
-																			{n.role}
+																			{n.role === "readonly"
+																				? "read-only"
+																				: n.role === "readwrite"
+																					? "read-write"
+																					: n.role}
 																		</span>
 																	</button>
 																)}
 															</For>
 														</div>
+													</Show>
+													{/* Invitations & revocation notices */}
+													<Show when={invitations().length > 0}>
+														<div class={styles.dropdownSectionTitle}>
+															Pending invitations
+														</div>
+														<For each={invitations()}>
+															{(inv) => (
+																<div class={styles.noticeItem}>
+																	<div class={styles.noticeText}>
+																		<strong>{inv.nook_name}</strong>
+																		<span class={styles.sharedByLabel}>
+																			from {inv.inviter_name} (
+																			{inv.role === "readonly"
+																				? "read-only"
+																				: "read-write"}
+																			)
+																		</span>
+																	</div>
+																	<div class={styles.noticeActions}>
+																		<Button
+																			variant="primary"
+																			size="small"
+																			onClick={() =>
+																				void acceptInvitation(inv.id)
+																			}
+																		>
+																			Accept
+																		</Button>
+																		<Button
+																			variant="secondary"
+																			size="small"
+																			onClick={() =>
+																				void declineInvitation(inv.id)
+																			}
+																		>
+																			Decline
+																		</Button>
+																	</div>
+																</div>
+															)}
+														</For>
+													</Show>
+													<Show when={revocations().length > 0}>
+														<div class={styles.dropdownSectionTitle}>
+															Notices
+														</div>
+														<For each={revocations()}>
+															{(rev) => (
+																<div class={styles.noticeItem}>
+																	<div class={styles.noticeText}>
+																		Access to <strong>{rev.nook_name}</strong>{" "}
+																		was revoked
+																		{rev.revoked_by_name
+																			? ` by ${rev.revoked_by_name}`
+																			: ""}
+																	</div>
+																	<div class={styles.noticeActions}>
+																		<Button
+																			variant="secondary"
+																			size="small"
+																			onClick={() =>
+																				void dismissRevocation(rev.id)
+																			}
+																		>
+																			Dismiss
+																		</Button>
+																	</div>
+																</div>
+															)}
+														</For>
 													</Show>
 													<Show
 														when={showCreateNook()}
@@ -499,14 +716,88 @@ export function Nav() {
 				</Show>
 			</nav>
 
-			<Show when={currentNookId().trim() !== ""}>
+			<Show
+				when={
+					currentNookId().trim() !== "" &&
+					(inNookSettings() ||
+						(store()?.selectedId() ?? "") !== "" ||
+						store()?.mode() === "edit")
+				}
+			>
 				<div class={styles.nookBar}>
 					<Show
 						when={inNookSettings()}
 						fallback={
 							<>
 								<div class={styles.nookBarGroup}>
-									<NookNotesSearchDropdown store={store()} />
+									<Show when={store()?.canWrite()}>
+										<Button
+											variant="secondary"
+											size="small"
+											onClick={() => {
+												store()?.newNote();
+												ui.setMode("edit");
+											}}
+											title="New note"
+										>
+											<svg
+												aria-hidden="true"
+												width="14"
+												height="14"
+												viewBox="0 0 24 24"
+												fill="none"
+												stroke="currentColor"
+												stroke-width="2.5"
+												stroke-linecap="round"
+												stroke-linejoin="round"
+												style={{ "vertical-align": "middle" }}
+											>
+												<path d="M12 5v14" />
+												<path d="M5 12h14" />
+											</svg>
+										</Button>
+										<input
+											ref={setFileInputRef}
+											type="file"
+											style={{ display: "none" }}
+											onChange={(e) => {
+												const f = e.currentTarget.files?.[0];
+												if (f) void store()?.quickUploadFile(f);
+												e.currentTarget.value = "";
+											}}
+										/>
+										<Button
+											variant="secondary"
+											size="small"
+											onClick={() => fileInputRef()?.click()}
+											title="Upload file"
+										>
+											<svg
+												aria-hidden="true"
+												width="14"
+												height="14"
+												viewBox="0 0 24 24"
+												fill="none"
+												stroke="currentColor"
+												stroke-width="2"
+												stroke-linecap="round"
+												stroke-linejoin="round"
+												style={{ "vertical-align": "middle" }}
+											>
+												<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+												<polyline points="17 8 12 3 7 8" />
+												<line x1="12" y1="3" x2="12" y2="15" />
+											</svg>
+										</Button>
+									</Show>
+									<NookNotesSearchDropdown
+										store={store()}
+										onNewNote={() => {
+											store()?.newNote();
+											ui.setMode("edit");
+										}}
+										onUploadFile={() => fileInputRef()?.click()}
+									/>
 									<NookTypeFilterDropdown store={store()} />
 								</div>
 								<div class={styles.nookBarGroup}>

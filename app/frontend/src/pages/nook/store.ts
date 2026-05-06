@@ -39,6 +39,12 @@ export function createNookStore(nookId: () => string) {
 		void ext;
 		return `/files/notes/${n}/files/${id}`;
 	};
+	const [nookName, setNookName] = createSignal<string>("");
+	const [nookRole, setNookRole] = createSignal<string>("unknown");
+	const canWrite = createMemo(() => {
+		const role = nookRole();
+		return role !== "unknown" && role !== "readonly";
+	});
 	const [notes, setNotes] = createSignal<NoteSummary[]>([]);
 	const [notesNextCursor, setNotesNextCursor] = createSignal<string>("");
 	const [notesQuery, setNotesQuery] = createSignal<string>("");
@@ -182,8 +188,7 @@ export function createNookStore(nookId: () => string) {
 		const parentId = input.parentId.trim();
 		const parent =
 			parentId === "" ? null : noteTypes().find((t) => t.id === parentId);
-		const appliesToFiles = parent ? parent.appliesToFiles : true;
-		const appliesToNotes = parent ? parent.appliesToNotes : true;
+		const appliesTo = parent ? parent.appliesTo : "notes";
 
 		setLoading(true);
 		setError("");
@@ -195,8 +200,7 @@ export function createNookStore(nookId: () => string) {
 					key,
 					label,
 					parent_id: parentId,
-					applies_to_files: appliesToFiles,
-					applies_to_notes: appliesToNotes,
+					applies_to: appliesTo,
 				}),
 			});
 			if (!res.ok) {
@@ -236,8 +240,7 @@ export function createNookStore(nookId: () => string) {
 						label,
 						description: type.description,
 						parent_id: type.parentId,
-						applies_to_files: type.appliesToFiles,
-						applies_to_notes: type.appliesToNotes,
+						applies_to: type.appliesTo,
 					}),
 				},
 			);
@@ -265,8 +268,7 @@ export function createNookStore(nookId: () => string) {
 			label: string;
 			description: string;
 			parentId: string;
-			appliesToFiles: boolean;
-			appliesToNotes: boolean;
+			appliesTo: "notes" | "files";
 		},
 	): Promise<NoteType | null> => {
 		if (nookId() === "") return null;
@@ -289,8 +291,7 @@ export function createNookStore(nookId: () => string) {
 						label,
 						description: next.description,
 						parent_id: next.parentId,
-						applies_to_files: next.appliesToFiles,
-						applies_to_notes: next.appliesToNotes,
+						applies_to: next.appliesTo,
 					}),
 				},
 			);
@@ -1168,6 +1169,11 @@ export function createNookStore(nookId: () => string) {
 
 	return {
 		nookId,
+		nookName,
+		setNookName,
+		nookRole,
+		setNookRole,
+		canWrite,
 		notes: filteredNotes,
 		allNotes: notes,
 		notesNextCursor,
@@ -1178,6 +1184,7 @@ export function createNookStore(nookId: () => string) {
 		typeId,
 		needsLogin,
 		selectedId,
+		setSelectedId,
 		title,
 		content,
 		type,

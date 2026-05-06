@@ -37,7 +37,7 @@ final class NoteTypesController
         $this->ensureAiMemoryType($pdo, $nookId);
 
         $stmt = $pdo->prepare(
-            'select id, key, label, description, parent_id, applies_to_files, applies_to_notes, created_at, updated_at '
+            'select id, key, label, description, parent_id, applies_to, created_at, updated_at '
             . 'from global.note_types where nook_id = :nook_id order by label asc'
         );
         $stmt->execute([':nook_id' => $nookId]);
@@ -55,8 +55,7 @@ final class NoteTypesController
                 'label' => is_scalar($r['label'] ?? null) ? (string)$r['label'] : '',
                 'description' => is_scalar($r['description'] ?? null) ? (string)$r['description'] : '',
                 'parent_id' => is_scalar($r['parent_id'] ?? null) ? (string)$r['parent_id'] : '',
-                'applies_to_files' => (bool)($r['applies_to_files'] ?? true),
-                'applies_to_notes' => (bool)($r['applies_to_notes'] ?? true),
+                'applies_to' => is_scalar($r['applies_to'] ?? null) ? (string)$r['applies_to'] : 'notes',
                 'created_at' => is_scalar($r['created_at'] ?? null) ? (string)$r['created_at'] : '',
                 'updated_at' => is_scalar($r['updated_at'] ?? null) ? (string)$r['updated_at'] : '',
             ];
@@ -78,7 +77,7 @@ final class NoteTypesController
             throw new HttpError('nookId must be a UUID', 400);
         }
 
-        $this->requireMember($pdo, $user, $nookId);
+        NookAccess::requireWriteAccess($pdo, $user, $nookId);
 
         $data = $request->jsonBody();
 
@@ -103,8 +102,11 @@ final class NoteTypesController
             throw new HttpError('parent_id must be a UUID', 400);
         }
 
-        $appliesToFiles = (bool)($data['applies_to_files'] ?? true);
-        $appliesToNotes = (bool)($data['applies_to_notes'] ?? true);
+        $appliesToRaw = $data['applies_to'] ?? 'notes';
+        $appliesTo = is_string($appliesToRaw) ? trim($appliesToRaw) : 'notes';
+        if (!in_array($appliesTo, ['notes', 'files'], true)) {
+            throw new HttpError('applies_to must be "notes" or "files"', 400);
+        }
 
         if ($parentId !== '') {
             $p = $pdo->prepare('select 1 from global.note_types where id = :id and nook_id = :nook_id');
@@ -118,8 +120,8 @@ final class NoteTypesController
             $pdo->beginTransaction();
 
             $stmt = $pdo->prepare(
-                'insert into global.note_types (nook_id, key, label, description, parent_id, applies_to_files, applies_to_notes) '
-                . 'values (:nook_id, :key, :label, :description, :parent_id, :applies_to_files, :applies_to_notes) '
+                'insert into global.note_types (nook_id, key, label, description, parent_id, applies_to) '
+                . 'values (:nook_id, :key, :label, :description, :parent_id, :applies_to) '
                 . 'returning id, created_at, updated_at'
             );
             $stmt->bindValue(':nook_id', $nookId);
@@ -127,8 +129,7 @@ final class NoteTypesController
             $stmt->bindValue(':label', $label);
             $stmt->bindValue(':description', $description);
             $stmt->bindValue(':parent_id', $parentId !== '' ? $parentId : null);
-            $stmt->bindValue(':applies_to_files', $appliesToFiles, PDO::PARAM_BOOL);
-            $stmt->bindValue(':applies_to_notes', $appliesToNotes, PDO::PARAM_BOOL);
+            $stmt->bindValue(':applies_to', $appliesTo);
             $stmt->execute();
 
             $row = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -148,8 +149,7 @@ final class NoteTypesController
                     'label' => $label,
                     'description' => $description,
                     'parent_id' => $parentId,
-                    'applies_to_files' => $appliesToFiles,
-                    'applies_to_notes' => $appliesToNotes,
+                    'applies_to' => $appliesTo,
                     'created_at' => is_scalar($row['created_at'] ?? null) ? (string)$row['created_at'] : '',
                     'updated_at' => is_scalar($row['updated_at'] ?? null) ? (string)$row['updated_at'] : '',
                 ],
@@ -183,7 +183,7 @@ final class NoteTypesController
             throw new HttpError('typeId must be a UUID', 400);
         }
 
-        $this->requireMember($pdo, $user, $nookId);
+        NookAccess::requireWriteAccess($pdo, $user, $nookId);
 
         $keyCheck = $pdo->prepare('select key from global.note_types where id = :id and nook_id = :nook_id');
         $keyCheck->execute([':id' => $typeId, ':nook_id' => $nookId]);
@@ -225,8 +225,11 @@ final class NoteTypesController
             throw new HttpError('parent_id cannot be self', 400);
         }
 
-        $appliesToFiles = (bool)($data['applies_to_files'] ?? true);
-        $appliesToNotes = (bool)($data['applies_to_notes'] ?? true);
+        $appliesToRaw = $data['applies_to'] ?? 'notes';
+        $appliesTo = is_string($appliesToRaw) ? trim($appliesToRaw) : 'notes';
+        if (!in_array($appliesTo, ['notes', 'files'], true)) {
+            throw new HttpError('applies_to must be "notes" or "files"', 400);
+        }
 
         if ($parentId !== '') {
             $p = $pdo->prepare('select 1 from global.note_types where id = :id and nook_id = :nook_id');
@@ -245,7 +248,7 @@ final class NoteTypesController
         }
 
         $stmt = $pdo->prepare(
-            'update global.note_types set key = :key, label = :label, description = :description, parent_id = :parent_id, applies_to_files = :applies_to_files, applies_to_notes = :applies_to_notes, updated_at = now() '
+            'update global.note_types set key = :key, label = :label, description = :description, parent_id = :parent_id, applies_to = :applies_to, updated_at = now() '
             . 'where id = :id and nook_id = :nook_id '
             . 'returning description, created_at, updated_at'
         );
@@ -255,8 +258,7 @@ final class NoteTypesController
         $stmt->bindValue(':label', $label);
         $stmt->bindValue(':description', $description);
         $stmt->bindValue(':parent_id', $parentId !== '' ? $parentId : null);
-        $stmt->bindValue(':applies_to_files', $appliesToFiles, PDO::PARAM_BOOL);
-        $stmt->bindValue(':applies_to_notes', $appliesToNotes, PDO::PARAM_BOOL);
+        $stmt->bindValue(':applies_to', $appliesTo);
         $stmt->execute();
 
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -272,8 +274,7 @@ final class NoteTypesController
                 'label' => $label,
                 'description' => is_scalar($row['description'] ?? null) ? (string)$row['description'] : $description,
                 'parent_id' => $parentId,
-                'applies_to_files' => $appliesToFiles,
-                'applies_to_notes' => $appliesToNotes,
+                'applies_to' => $appliesTo,
                 'created_at' => is_scalar($row['created_at'] ?? null) ? (string)$row['created_at'] : '',
                 'updated_at' => is_scalar($row['updated_at'] ?? null) ? (string)$row['updated_at'] : '',
             ],
@@ -301,7 +302,7 @@ final class NoteTypesController
             throw new HttpError('typeId must be a UUID', 400);
         }
 
-        $this->requireMember($pdo, $user, $nookId);
+        NookAccess::requireWriteAccess($pdo, $user, $nookId);
 
         $keyCheck = $pdo->prepare('select key from global.note_types where id = :id and nook_id = :nook_id');
         $keyCheck->execute([':id' => $typeId, ':nook_id' => $nookId]);
@@ -640,8 +641,8 @@ final class NoteTypesController
         }
 
         $stmt = $pdo->prepare(
-            'insert into global.note_types (nook_id, key, label, description, parent_id, applies_to_files, applies_to_notes) '
-            . 'values (:nook_id, :key, :label, :description, null, false, true)'
+            'insert into global.note_types (nook_id, key, label, description, parent_id, applies_to) '
+            . "values (:nook_id, :key, :label, :description, null, 'notes')"
         );
         $stmt->execute([
             ':nook_id' => $nookId,
@@ -660,8 +661,8 @@ final class NoteTypesController
         }
 
         $stmt = $pdo->prepare(
-            'insert into global.note_types (nook_id, key, label, parent_id, applies_to_files, applies_to_notes) '
-            . 'values (:nook_id, :key, :label, null, true, false)'
+            'insert into global.note_types (nook_id, key, label, parent_id, applies_to) '
+            . "values (:nook_id, :key, :label, null, 'files')"
         );
         $stmt->execute([
             ':nook_id' => $nookId,

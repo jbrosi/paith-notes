@@ -42,7 +42,6 @@ final class GlobalSchema
                     name text not null,
                     created_by uuid not null references global.users(id) on delete restrict,
                     owner_id uuid not null references global.users(id) on delete restrict,
-                    is_personal boolean not null default false,
                     created_at timestamptz not null default now()
                 );
             ");
@@ -54,7 +53,8 @@ final class GlobalSchema
             end $$;");
 
             $pdo->exec('create index if not exists nooks_owner_id_idx on global.nooks (owner_id)');
-            $pdo->exec("create unique index if not exists nooks_personal_owner_uidx on global.nooks (owner_id) where is_personal = true");
+            $pdo->exec('drop index if exists global.nooks_personal_owner_uidx');
+            $pdo->exec('alter table global.nooks drop column if exists is_personal');
 
             $pdo->exec("
                 create table if not exists global.nook_members (
@@ -94,8 +94,7 @@ final class GlobalSchema
                     key text not null,
                     label text not null,
                     parent_id uuid null references global.note_types(id) on delete set null,
-                    applies_to_files boolean not null default true,
-                    applies_to_notes boolean not null default true,
+                    applies_to text not null default 'notes' check (applies_to in ('notes', 'files')),
                     created_at timestamptz not null default now(),
                     updated_at timestamptz not null default now()
                 );
@@ -105,6 +104,33 @@ final class GlobalSchema
 
             // Remove former soft-delete column (we prefer hard deletes; history can be added later).
             $pdo->exec('alter table global.note_types drop column if exists archived_at');
+
+            // Migrate: replace applies_to_files + applies_to_notes booleans with applies_to enum.
+            $pdo->exec("
+                do \$\$ begin
+                    if exists (
+                        select 1 from information_schema.columns
+                        where table_schema = 'global' and table_name = 'note_types' and column_name = 'applies_to_files'
+                    ) then
+                        alter table global.note_types add column if not exists applies_to text not null default 'notes';
+                        update global.note_types set applies_to = case when applies_to_files then 'files' else 'notes' end;
+                        alter table global.note_types drop column applies_to_files;
+                        alter table global.note_types drop column applies_to_notes;
+                    end if;
+                end \$\$;
+            ");
+            $pdo->exec("
+                do \$\$ begin
+                    if not exists (
+                        select 1 from pg_constraint
+                        where conname = 'note_types_applies_to_check'
+                        and conrelid = 'global.note_types'::regclass
+                    ) then
+                        alter table global.note_types add constraint note_types_applies_to_check
+                            check (applies_to in ('notes', 'files'));
+                    end if;
+                end \$\$;
+            ");
 
             $pdo->exec('drop index if exists global.note_types_nook_key_uidx');
             $pdo->exec('drop index if exists note_types_nook_key_uidx');
@@ -339,6 +365,52 @@ final class GlobalSchema
 
             $pdo->exec('create index if not exists note_conv_links_note_idx on global.note_conversation_links (note_id)');
             $pdo->exec('create index if not exists note_conv_links_conv_idx on global.note_conversation_links (conversation_id)');
+
+            // Extend nook_role enum with sharing roles
+            $pdo->exec("do $$ begin
+                if not exists (select 1 from pg_enum where enumtypid = 'global.nook_role'::regtype and enumlabel = 'readonly') then
+                    alter type global.nook_role add value 'readonly';
+                end if;
+            end $$;");
+            $pdo->exec("do $$ begin
+                if not exists (select 1 from pg_enum where enumtypid = 'global.nook_role'::regtype and enumlabel = 'readwrite') then
+                    alter type global.nook_role add value 'readwrite';
+                end if;
+            end $$;");
+
+            // Nook sharing invitations (by email, since invitee may not have an account yet)
+            $pdo->exec("
+                create table if not exists global.nook_invitations (
+                    id uuid primary key default gen_random_uuid(),
+                    nook_id uuid not null references global.nooks(id) on delete cascade,
+                    invited_email text not null,
+                    role global.nook_role not null default 'readonly',
+                    invited_by uuid not null references global.users(id) on delete cascade,
+                    accepted_at timestamptz null,
+                    declined_at timestamptz null,
+                    created_at timestamptz not null default now()
+                );
+            ");
+
+            $pdo->exec('create index if not exists nook_invitations_email_idx on global.nook_invitations (lower(invited_email))');
+            $pdo->exec('create index if not exists nook_invitations_nook_id_idx on global.nook_invitations (nook_id)');
+            $pdo->exec("create unique index if not exists nook_invitations_nook_email_uidx on global.nook_invitations (nook_id, lower(invited_email)) where accepted_at is null and declined_at is null");
+
+            // Access revocation notices (shown to user after owner removes their access)
+            $pdo->exec("
+                create table if not exists global.nook_access_revocations (
+                    id uuid primary key default gen_random_uuid(),
+                    nook_id uuid not null references global.nooks(id) on delete cascade,
+                    user_id uuid not null references global.users(id) on delete cascade,
+                    nook_name text not null,
+                    revoked_by uuid not null references global.users(id) on delete cascade,
+                    dismissed_at timestamptz null,
+                    created_at timestamptz not null default now()
+                );
+            ");
+
+            $pdo->exec('create index if not exists nook_access_revocations_user_id_idx on global.nook_access_revocations (user_id)');
+            $pdo->exec('create index if not exists nook_access_revocations_nook_id_idx on global.nook_access_revocations (nook_id)');
         } finally {
             $pdo->exec("select pg_advisory_unlock(hashtext('paith_notes_global_schema_ensure'))");
         }

@@ -54,12 +54,8 @@ it('auto-creates a user and can create/list nooks', function (): void {
     expect($initialListData['nooks'])->toBeArray();
     expect(count($initialListData['nooks']))->toBe(1);
 
-    $personal = array_values(array_filter(
-        $initialListData['nooks'],
-        static fn (mixed $n): bool => is_array($n) && (($n['is_personal'] ?? false) === true)
-    ));
-    expect(count($personal))->toBe(1);
-    expect($personal[0]['name'])->toBe('Personal');
+    // Default nook is auto-created
+    expect((string)($initialListData['nooks'][0]['name'] ?? ''))->toBe('My Notes');
 
     $create = App::handle('POST', '/api/nooks', $headers, json_encode(['name' => 'My First Nook'], JSON_UNESCAPED_SLASHES));
     expect($create['status'])->toBe(200);
@@ -75,20 +71,52 @@ it('auto-creates a user and can create/list nooks', function (): void {
     expect($listData)->toBeArray();
     expect($listData['nooks'])->toBeArray();
     expect(count($listData['nooks']))->toBe(2);
+});
 
-    $personal2 = array_values(array_filter(
-        $listData['nooks'],
-        static fn (mixed $n): bool => is_array($n) && (($n['is_personal'] ?? false) === true)
-    ));
-    expect(count($personal2))->toBe(1);
-    expect($personal2[0]['name'])->toBe('Personal');
+it('can rename a nook', function (): void {
+    $userId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+    $headers = [
+        'X-Nook-User' => $userId,
+        'X-Nook-Groups' => 'paith/notes',
+    ];
 
-    $created2 = array_values(array_filter(
+    App::handle('GET', '/api/me', $headers, '');
+
+    $create = App::handle('POST', '/api/nooks', $headers, json_encode(['name' => 'Original Name'], JSON_UNESCAPED_SLASHES));
+    expect($create['status'])->toBe(200);
+    $nookId = (string)(json_decode($create['body'], true)['nook']['id'] ?? '');
+    expect($nookId)->not->toBe('');
+
+    // Rename
+    $update = App::handle(
+        'PUT',
+        '/api/nooks/' . $nookId,
+        $headers,
+        json_encode(['name' => 'New Name'], JSON_UNESCAPED_SLASHES)
+    );
+    expect($update['status'])->toBe(200);
+    $updateData = json_decode($update['body'], true);
+    expect($updateData)->toBeArray();
+    expect((string)($updateData['nook']['name'] ?? ''))->toBe('New Name');
+
+    // Verify in list
+    $list = App::handle('GET', '/api/nooks', $headers, '');
+    $listData = json_decode($list['body'], true);
+    $found = array_values(array_filter(
         $listData['nooks'],
-        static fn (mixed $n): bool => is_array($n) && (($n['name'] ?? '') === 'My First Nook')
+        static fn (mixed $n): bool => is_array($n) && (($n['id'] ?? '') === $nookId)
     ));
-    expect(count($created2))->toBe(1);
-    expect($created2[0]['is_personal'])->toBe(false);
+    expect(count($found))->toBe(1);
+    expect((string)($found[0]['name'] ?? ''))->toBe('New Name');
+
+    // Empty name rejected
+    $empty = App::handle(
+        'PUT',
+        '/api/nooks/' . $nookId,
+        $headers,
+        json_encode(['name' => ''], JSON_UNESCAPED_SLASHES)
+    );
+    expect($empty['status'])->toBe(400);
 });
 
 it('can create a note in a nook', function (): void {
@@ -310,8 +338,7 @@ it('can update a note type key and description', function (): void {
 			'label' => 'Topic',
 			'description' => 'Short',
 			'parent_id' => '',
-			'applies_to_files' => true,
-			'applies_to_notes' => true,
+			'applies_to' => 'notes',
 		], JSON_UNESCAPED_SLASHES)
 	);
 	expect($createType['status'])->toBe(200);
@@ -331,8 +358,7 @@ it('can update a note type key and description', function (): void {
 			'label' => 'Topics',
 			'description' => 'Longer text',
 			'parent_id' => '',
-			'applies_to_files' => true,
-			'applies_to_notes' => true,
+			'applies_to' => 'notes',
 		], JSON_UNESCAPED_SLASHES)
 	);
 	expect($updateType['status'])->toBe(200);
@@ -379,8 +405,7 @@ it('can create link predicates, set rules, and link notes with dates (duplicates
 			'label' => 'Person',
 			'description' => '',
 			'parent_id' => '',
-			'applies_to_files' => false,
-			'applies_to_notes' => true,
+			'applies_to' => 'notes',
 		], JSON_UNESCAPED_SLASHES)
 	);
 	expect($createPersonType['status'])->toBe(200);
@@ -398,8 +423,7 @@ it('can create link predicates, set rules, and link notes with dates (duplicates
 			'label' => 'Customer',
 			'description' => '',
 			'parent_id' => $personTypeId,
-			'applies_to_files' => false,
-			'applies_to_notes' => true,
+			'applies_to' => 'notes',
 		], JSON_UNESCAPED_SLASHES)
 	);
 	expect($createCustomerType['status'])->toBe(200);
@@ -898,27 +922,6 @@ it('embedded image note links are included in mentions (empty alt)', function ()
 	expect($found)->toBeTrue();
 
 	putenv('KEYCLOAK_ENABLED=' . (is_string($prevEnabled) ? $prevEnabled : ''));
-});
-
-it('exposes the personal nook via /api/nooks/personal', function (): void {
-    $userId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
-    $headers = [
-        'X-Nook-User' => $userId,
-        'X-Nook-Groups' => 'paith/notes',
-    ];
-
-    $me = App::handle('GET', '/api/me', $headers, '');
-    expect($me['status'])->toBe(200);
-
-    $personal = App::handle('GET', '/api/nooks/personal', $headers, '');
-    expect($personal['status'])->toBe(200);
-
-    $personalData = json_decode($personal['body'], true);
-    expect($personalData)->toBeArray();
-    expect($personalData['nook'])->toBeArray();
-    expect($personalData['nook']['id'])->toBeString();
-    expect($personalData['nook']['id'])->not->toBe('');
-    expect($personalData['nook']['is_personal'])->toBe(true);
 });
 
 it('auth login redirects to keycloak and persists validated redirect', function (): void {
