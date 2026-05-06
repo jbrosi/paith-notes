@@ -8,6 +8,7 @@ import {
 } from "solid-js";
 import { ChatPanel } from "../../components/chat/ChatPanel";
 import { createNotePreview } from "../../components/NotePreview";
+import { attachSwipe } from "../../ui/swipe";
 import { MOBILE_PANELS, type MobilePanel, useUi } from "../../ui/UiContext";
 import { NookDashboard } from "./NookDashboard";
 import styles from "./NookDefaultLayout.module.css";
@@ -64,45 +65,23 @@ export function NookDefaultLayout(props: NookDefaultLayoutProps) {
 		}
 	});
 
-	// Swipe gesture (lazy-loaded, mobile only)
+	// Swipe gesture (mobile only)
 	onMount(() => {
 		const mq = window.matchMedia("(max-width: 1024px)");
 		let cleanup: (() => void) | null = null;
 
 		const setup = () => {
-			if (!mq.matches || !layoutEl) {
-				cleanup?.();
-				cleanup = null;
-				return;
-			}
-			void import("@use-gesture/vanilla").then(({ DragGesture }) => {
-				if (!layoutEl) return;
-				const gesture = new DragGesture(
-					layoutEl,
-					({ swipe: [swipeX], event }) => {
-						const target = event?.target as HTMLElement | null;
-						if (!target) return;
-						if (target instanceof HTMLTextAreaElement && target.readOnly) {
-							// allow swipe
-						} else if (
-							target.closest(
-								"input, textarea, [contenteditable], .milkdown, .ProseMirror",
-							)
-						) {
-							return;
-						}
-
-						if (swipeX === -1) ui.nextPanel();
-						else if (swipeX === 1) ui.prevPanel();
-					},
-					{
-						axis: "x",
-						filterTaps: true,
-						swipe: { distance: 50, velocity: 0.3 },
-					},
-				);
-				cleanup = () => gesture.destroy();
-			});
+			cleanup?.();
+			cleanup = null;
+			if (!mq.matches || !layoutEl) return;
+			cleanup = attachSwipe(
+				layoutEl,
+				(dir) => {
+					if (dir === -1) ui.nextPanel();
+					else ui.prevPanel();
+				},
+				{ distance: 50, velocity: 0.3 },
+			);
 		};
 
 		setup();

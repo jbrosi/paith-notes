@@ -1,9 +1,6 @@
 {
   "name": "paith-notes/worker",
   "type": "project",
-  "require": {
-    "aws/aws-sdk-php": "^3"
-  },
   "require-dev": {
     "phpstan/phpstan": "^2.1.12",
     "squizlabs/php_codesniffer": "^3.10",
