@@ -55,6 +55,17 @@ final class GlobalSchema
             $pdo->exec('create index if not exists nooks_owner_id_idx on global.nooks (owner_id)');
             $pdo->exec('drop index if exists global.nooks_personal_owner_uidx');
             $pdo->exec('alter table global.nooks drop column if exists is_personal');
+            $pdo->exec("alter table global.nooks add column if not exists purpose text not null default 'general'");
+
+            // Ensure AI memory nooks have the correct name
+            $pdo->exec("update global.nooks set name = 'AI Memory' where purpose = 'ai-memory' and name != 'AI Memory'");
+
+            // Well-known AI system user
+            $pdo->exec("
+                insert into global.users (id, first_name, last_name)
+                values ('deadc0ff-ee00-4000-8000-000000000000', 'AI', 'Assistant')
+                on conflict (id) do nothing
+            ");
 
             $pdo->exec("
                 create table if not exists global.nook_members (
@@ -85,6 +96,7 @@ final class GlobalSchema
             $pdo->exec('create index if not exists notes_title_trgm_idx on global.notes using gin (lower(title) gin_trgm_ops)');
             $pdo->exec('create index if not exists notes_content_trgm_idx on global.notes using gin (lower(content) gin_trgm_ops)');
             $pdo->exec("alter table global.notes add column if not exists updated_at timestamptz not null default now()");
+            $pdo->exec("alter table global.notes add column if not exists actor text not null default 'user'");
             $pdo->exec('create index if not exists notes_updated_at_idx on global.notes (nook_id, updated_at desc)');
 
             $pdo->exec(" 
@@ -137,6 +149,9 @@ final class GlobalSchema
             $pdo->exec('create unique index if not exists note_types_nook_key_uidx on global.note_types (nook_id, key)');
             $pdo->exec('create index if not exists note_types_nook_id_idx on global.note_types (nook_id)');
             $pdo->exec('create index if not exists note_types_parent_id_idx on global.note_types (parent_id)');
+
+            // Remove legacy ai-memory note type (replaced by dedicated AI memory nook)
+            $pdo->exec("delete from global.note_types where key = 'ai-memory'");
 
             $pdo->exec(" 
                 create table if not exists global.note_mentions (
@@ -330,6 +345,12 @@ final class GlobalSchema
             ");
 
             $pdo->exec('create index if not exists conversations_nook_user_idx on global.conversations (nook_id, user_id)');
+
+            // Wipe conversations from general nooks (chats now live in AI memory nook)
+            $pdo->exec("
+                delete from global.conversations
+                where nook_id in (select id from global.nooks where purpose = 'general')
+            ");
 
             // Drop legacy conversation_messages table (replaced by conversation_blocks)
             $pdo->exec('drop table if exists global.conversation_messages');

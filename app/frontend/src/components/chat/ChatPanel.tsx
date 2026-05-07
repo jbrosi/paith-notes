@@ -26,7 +26,10 @@ type PendingApproval = {
 import type { NotePreviewController } from "../../pages/nook/NookDefaultLayout";
 
 type Props = {
-	nookId: string;
+	/** AI memory nook ID — conversations are stored here */
+	chatNookId: string;
+	/** Current nook ID — context for AI tool calls */
+	contextNookId: string;
 	currentNoteId?: string;
 	currentNoteTitle?: string;
 	currentNoteType?: string;
@@ -117,7 +120,7 @@ export function ChatPanel(props: Props) {
 	// ── list view state ──────────────────────────────────────
 	const [convRefetch, setConvRefetch] = createSignal(0);
 	const [conversations] = createResource(
-		() => ({ nookId: props.nookId, rev: convRefetch() }),
+		() => ({ nookId: props.chatNookId, rev: convRefetch() }),
 		({ nookId }) => fetchConversations(nookId),
 	);
 
@@ -367,7 +370,7 @@ export function ChatPanel(props: Props) {
 
 		try {
 			const res = await fetch(
-				`/nooks/${encodeURIComponent(props.nookId)}/chat`,
+				`/nooks/${encodeURIComponent(props.contextNookId)}/chat`,
 				{
 					method: "POST",
 					credentials: "include",
@@ -419,7 +422,7 @@ export function ChatPanel(props: Props) {
 
 		try {
 			const res = await fetch(
-				`/nooks/${encodeURIComponent(props.nookId)}/chat/tool-result`,
+				`/nooks/${encodeURIComponent(props.contextNookId)}/chat/tool-result`,
 				{
 					method: "POST",
 					credentials: "include",

@@ -254,6 +254,8 @@ final class RequireUser implements Middleware
             $context->setUser($user);
         }
 
+        $context->setActor($request->header('X-Nook-Actor'));
+
         return $next($request, $context);
     }
 
@@ -457,11 +459,13 @@ final class RequireUser implements Middleware
                     $existing = $created;
                 }
 
-                if ($didCreate && is_array($created)) {
-                    $createdUserId = is_scalar($created['id'] ?? null) ? (string)$created['id'] : '';
-                    if ($createdUserId !== '') {
-                        $this->ensurePersonalNook($pdo, $createdUserId);
-                    }
+                $userId = is_scalar($existing['id'] ?? null) ? (string)$existing['id'] : '';
+                if ($didCreate && $userId !== '') {
+                    $this->ensurePersonalNook($pdo, $userId);
+                }
+                // Always ensure AI memory nook exists (idempotent)
+                if ($userId !== '') {
+                    $this->ensureAiMemoryNook($pdo, $userId);
                 }
 
                 $pdo->commit();
@@ -470,6 +474,25 @@ final class RequireUser implements Middleware
                     $pdo->rollBack();
                 }
                 throw $e;
+            }
+        }
+
+        // Ensure AI memory nook exists for all users (idempotent, runs outside user-creation transaction)
+        $existingUserId = is_scalar($existing['id'] ?? null) ? (string)$existing['id'] : '';
+        if ($existingUserId !== '') {
+            if (!$pdo->inTransaction()) {
+                $pdo->beginTransaction();
+            }
+            try {
+                $this->ensureAiMemoryNook($pdo, $existingUserId);
+                if ($pdo->inTransaction()) {
+                    $pdo->commit();
+                }
+            } catch (Throwable $e) {
+                if ($pdo->inTransaction()) {
+                    $pdo->rollBack();
+                }
+                // Non-fatal: user can still proceed without AI memory nook
             }
         }
 
@@ -568,6 +591,7 @@ final class RequireUser implements Middleware
             if ($didCreate) {
                 $this->ensurePersonalNook($pdo, $id);
             }
+            $this->ensureAiMemoryNook($pdo, $id);
 
             $pdo->commit();
 
@@ -609,37 +633,82 @@ final class RequireUser implements Middleware
         return [$f, $l];
     }
 
+    private const AI_USER_ID = 'deadc0ff-ee00-4000-8000-000000000000';
+
     private function ensurePersonalNook(PDO $pdo, string $userId): void
     {
         if (!$pdo->inTransaction()) {
             throw new HttpError('ensurePersonalNook must run inside a transaction', 500);
         }
 
-        // Check if user already owns any nook
-        $check = $pdo->prepare('select id from global.nooks where owner_id = :user_id limit 1');
+        // Check if user already owns any general nook
+        $check = $pdo->prepare("select id from global.nooks where owner_id = :user_id and purpose = 'general' limit 1");
+        $check->execute([':user_id' => $userId]);
+        if (!$check->fetchColumn()) {
+            $create = $pdo->prepare(
+                "insert into global.nooks (name, created_by, owner_id, purpose) values (:name, :created_by, :owner_id, 'general') returning id"
+            );
+            $create->execute([
+                ':name' => 'My Notes',
+                ':created_by' => $userId,
+                ':owner_id' => $userId,
+            ]);
+            $nookId = $create->fetchColumn();
+
+            if ($nookId) {
+                $member = $pdo->prepare(
+                    "insert into global.nook_members (nook_id, user_id, role) values (:nook_id, :user_id, 'owner') on conflict (nook_id, user_id) do update set role = excluded.role"
+                );
+                $member->execute([
+                    ':nook_id' => (string)$nookId,
+                    ':user_id' => $userId,
+                ]);
+            }
+        }
+
+        // Ensure AI memory nook exists for this user
+        $this->ensureAiMemoryNook($pdo, $userId);
+    }
+
+    private function ensureAiMemoryNook(PDO $pdo, string $userId): void
+    {
+        // Check if user already has an AI memory nook (as member)
+        $check = $pdo->prepare(
+            "select n.id from global.nooks n join global.nook_members nm on nm.nook_id = n.id where nm.user_id = :user_id and n.purpose = 'ai-memory' limit 1"
+        );
         $check->execute([':user_id' => $userId]);
         if ($check->fetchColumn()) {
             return;
         }
 
+        // Ensure AI system user exists (may not if schema was created before this feature)
+        $pdo->exec(
+            "insert into global.users (id, first_name, last_name) values ('" . self::AI_USER_ID . "', 'AI', 'Assistant') on conflict (id) do nothing"
+        );
+
+        // Create AI memory nook owned by the AI system user
         $create = $pdo->prepare(
-            "insert into global.nooks (name, created_by, owner_id) values (:name, :created_by, :owner_id) returning id"
+            "insert into global.nooks (name, created_by, owner_id, purpose) values ('AI Memory', :created_by, :owner_id, 'ai-memory') returning id"
         );
         $create->execute([
-            ':name' => 'My Notes',
-            ':created_by' => $userId,
-            ':owner_id' => $userId,
+            ':created_by' => self::AI_USER_ID,
+            ':owner_id' => self::AI_USER_ID,
         ]);
         $nookId = $create->fetchColumn();
-
-        if ($nookId) {
-            $member = $pdo->prepare(
-                "insert into global.nook_members (nook_id, user_id, role) values (:nook_id, :user_id, 'owner') on conflict (nook_id, user_id) do update set role = excluded.role"
-            );
-            $member->execute([
-                ':nook_id' => (string)$nookId,
-                ':user_id' => $userId,
-            ]);
+        if (!$nookId) {
+            return;
         }
+
+        $nookIdStr = (string)$nookId;
+
+        // AI system user is owner
+        $pdo->prepare(
+            "insert into global.nook_members (nook_id, user_id, role) values (:nook_id, :user_id, 'owner') on conflict (nook_id, user_id) do update set role = excluded.role"
+        )->execute([':nook_id' => $nookIdStr, ':user_id' => self::AI_USER_ID]);
+
+        // Human user is readwrite member
+        $pdo->prepare(
+            "insert into global.nook_members (nook_id, user_id, role) values (:nook_id, :user_id, 'member') on conflict (nook_id, user_id) do nothing"
+        )->execute([':nook_id' => $nookIdStr, ':user_id' => $userId]);
     }
 }

@@ -15,7 +15,6 @@ use Throwable;
 final class NoteTypesController
 {
     private const ROOT_FILE_TYPE_KEY = 'file';
-    private const AI_MEMORY_TYPE_KEY = 'ai-memory';
     private const TYPE_ID_ALL = 'all';
 
     public function list(Request $request, Context $context): Response
@@ -34,7 +33,6 @@ final class NoteTypesController
         $this->requireMember($pdo, $user, $nookId);
 
         $this->ensureRootFileType($pdo, $nookId);
-        $this->ensureAiMemoryType($pdo, $nookId);
 
         $stmt = $pdo->prepare(
             'select id, key, label, description, parent_id, applies_to, created_at, updated_at '
@@ -195,9 +193,6 @@ final class NoteTypesController
         if ($existingKey === self::ROOT_FILE_TYPE_KEY) {
             throw new HttpError('root file type cannot be modified', 400);
         }
-        if ($existingKey === self::AI_MEMORY_TYPE_KEY) {
-            throw new HttpError('ai-memory type cannot be modified', 400);
-        }
 
         $data = $request->jsonBody();
 
@@ -313,9 +308,6 @@ final class NoteTypesController
         }
         if ($existingKey === self::ROOT_FILE_TYPE_KEY) {
             throw new HttpError('root file type cannot be deleted', 400);
-        }
-        if ($existingKey === self::AI_MEMORY_TYPE_KEY) {
-            throw new HttpError('ai-memory type cannot be deleted', 400);
         }
 
         $stmt = $pdo->prepare('delete from global.note_types where id = :id and nook_id = :nook_id returning id');
@@ -630,26 +622,6 @@ final class NoteTypesController
             throw new HttpError('forbidden', 403);
         }
         return $row;
-    }
-
-    private function ensureAiMemoryType(PDO $pdo, string $nookId): void
-    {
-        $check = $pdo->prepare('select 1 from global.note_types where nook_id = :nook_id and key = :key');
-        $check->execute([':nook_id' => $nookId, ':key' => self::AI_MEMORY_TYPE_KEY]);
-        if ($check->fetchColumn()) {
-            return;
-        }
-
-        $stmt = $pdo->prepare(
-            'insert into global.note_types (nook_id, key, label, description, parent_id, applies_to) '
-            . "values (:nook_id, :key, :label, :description, null, 'notes')"
-        );
-        $stmt->execute([
-            ':nook_id' => $nookId,
-            ':key' => self::AI_MEMORY_TYPE_KEY,
-            ':label' => 'AI Memory',
-            ':description' => 'Notes that the AI assistant can read and write freely without requiring user approval.',
-        ]);
     }
 
     private function ensureRootFileType(PDO $pdo, string $nookId): void

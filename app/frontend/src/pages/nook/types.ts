@@ -75,12 +75,14 @@ export const NoteResponseSchema = z
 const MentionApiSchema = z
 	.object({
 		note_id: z.string(),
+		nook_id: z.string().optional(),
 		note_title: z.string(),
 		link_title: z.string(),
 		position: z.number().int(),
 	})
 	.transform((m) => ({
 		noteId: m.note_id,
+		nookId: m.nook_id ?? "",
 		noteTitle: m.note_title,
 		linkTitle: m.link_title,
 		position: m.position,

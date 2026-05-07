@@ -6,13 +6,12 @@ import {
 	useContext,
 } from "solid-js";
 
-export type MobilePanel = "content" | "links" | "graph" | "chat" | "markdown";
+export type MobilePanel = "content" | "links" | "graph" | "markdown";
 
 export const MOBILE_PANELS: MobilePanel[] = [
 	"content",
 	"links",
 	"graph",
-	"chat",
 	"markdown",
 ];
 
@@ -87,7 +86,7 @@ export function UiProvider(props: { children: JSX.Element }) {
 		}
 		try {
 			const v = window.localStorage.getItem(ACTIVE_PANEL_STORAGE_KEY);
-			if (v === "content" || v === "links" || v === "graph" || v === "chat")
+			if (v === "content" || v === "links" || v === "graph" || v === "markdown")
 				setActivePanelSignal(v);
 		} catch {
 			// ignore

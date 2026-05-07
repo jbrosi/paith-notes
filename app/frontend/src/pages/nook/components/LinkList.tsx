@@ -42,6 +42,9 @@ export function LinkList(props: Props) {
 							<button
 								type="button"
 								onClick={(e) => {
+									const rect = (
+										e.currentTarget as HTMLElement
+									).getBoundingClientRect();
 									const actions: PreviewAction[] = [];
 									if (props.isEditing) {
 										actions.push({
@@ -50,17 +53,20 @@ export function LinkList(props: Props) {
 											onClick: () => props.onDeleteLink(l.id),
 										});
 									}
-									props.notePreview?.show(otherId, e.clientX, e.clientY, {
+									props.notePreview?.show(otherId, rect.left, rect.bottom, {
 										immediate: true,
 										onOpen: (id) => props.onOpenNote(id),
 										actions,
 									});
 								}}
-								onMouseEnter={(e) =>
-									props.notePreview?.show(otherId, e.clientX, e.clientY, {
+								onMouseEnter={(e) => {
+									const rect = (
+										e.currentTarget as HTMLElement
+									).getBoundingClientRect();
+									props.notePreview?.show(otherId, rect.left, rect.bottom, {
 										onOpen: (id) => props.onOpenNote(id),
-									})
-								}
+									});
+								}}
 								onMouseLeave={() => props.notePreview?.hide()}
 								class={css.linkBtn}
 							>

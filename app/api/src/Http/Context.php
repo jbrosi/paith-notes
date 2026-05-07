@@ -15,6 +15,8 @@ final class Context
 
     private ?array $user;
 
+    private string $actor = 'user';
+
     /** @param callable(): PDO $pdoFactory */
     public function __construct(callable $pdoFactory)
     {
@@ -46,5 +48,17 @@ final class Context
             throw new HttpError('not authenticated', 401);
         }
         return $this->user;
+    }
+
+    /** Set the actor ('user' or 'ai') from the X-Nook-Actor header */
+    public function setActor(string $actor): void
+    {
+        $this->actor = in_array($actor, ['user', 'ai'], true) ? $actor : 'user';
+    }
+
+    /** Get the actor for this request */
+    public function actor(): string
+    {
+        return $this->actor;
     }
 }

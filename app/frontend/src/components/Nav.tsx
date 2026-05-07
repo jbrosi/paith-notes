@@ -52,6 +52,7 @@ export function Nav() {
 	const [invitations, setInvitations] = createSignal<InvitationItem[]>([]);
 	const [revocations, setRevocations] = createSignal<RevocationItem[]>([]);
 	const [fileInputRef, setFileInputRef] = createSignal<HTMLInputElement>();
+	const [aiMemoryNookId, setAiMemoryNookId] = createSignal("");
 
 	const currentNookId = createMemo(() => {
 		const m = location.pathname.match(/^\/nooks\/([^/]+)/);
@@ -84,7 +85,9 @@ export function Nav() {
 			return "Select nook";
 		}
 		const found = nooks().find((n) => n.id === id);
-		if (!found) return "Nooks";
+		if (!found) {
+			return id === aiMemoryNookId() ? "AI Memory" : "Nooks";
+		}
 		return nookDisplayName(found);
 	});
 
@@ -93,6 +96,23 @@ export function Nav() {
 		if (nooksLoading()) return;
 		if (nooks().length > 0) return;
 		void loadNooks();
+		// Also resolve AI memory nook ID
+		if (aiMemoryNookId() === "") {
+			void (async () => {
+				try {
+					const res = await apiFetch("/api/nooks/ai-memory", {
+						method: "GET",
+					});
+					if (!res.ok) return;
+					const body = (await res.json()) as {
+						nook?: { id: string };
+					};
+					if (body?.nook?.id) setAiMemoryNookId(body.nook.id);
+				} catch {
+					// best-effort
+				}
+			})();
+		}
 	});
 
 	createEffect(() => {
@@ -237,6 +257,11 @@ export function Nav() {
 				});
 			}
 			setNooks(normalized);
+			// Populate nook title cache for cross-nook link resolution
+			const s = store();
+			if (s) {
+				for (const n of normalized) s.cacheNookName(n.id, n.name);
+			}
 		} catch (e) {
 			setNooksError(e instanceof Error ? e.message : String(e));
 		} finally {
@@ -663,6 +688,15 @@ export function Nav() {
 					</Show>
 				</div>
 				<Show when={auth.ready() && auth.authenticated()}>
+					<Button
+						variant={ui.chatPanelOpen() ? "primary" : "secondary"}
+						size="small"
+						onClick={() => ui.toggleChatPanel()}
+						aria-pressed={ui.chatPanelOpen()}
+						title={ui.chatPanelOpen() ? "Hide AI chat" : "Open AI chat"}
+					>
+						Chat
+					</Button>
 					<div class={styles.dropdown}>
 						<button type="button" class={styles.userToggle} title="Account">
 							<svg
@@ -685,6 +719,15 @@ export function Nav() {
 						</button>
 						<div class={styles.userMenu}>
 							<div class={styles.userMenuName}>{userName() || "Account"}</div>
+							<Show when={aiMemoryNookId() !== ""}>
+								<A
+									href={`/nooks/${encodeURIComponent(aiMemoryNookId())}`}
+									class={styles.overflowItem}
+									style={{ "text-decoration": "none", color: "inherit" }}
+								>
+									AI Memory
+								</A>
+							</Show>
 							<button
 								type="button"
 								class={styles.overflowItem}
@@ -851,17 +894,6 @@ export function Nav() {
 											</svg>
 										</Button>
 									</span>
-									<span class={styles.hideOnMobile}>
-										<Button
-											variant={ui.chatPanelOpen() ? "primary" : "secondary"}
-											size="small"
-											onClick={() => ui.toggleChatPanel()}
-											aria-pressed={ui.chatPanelOpen()}
-											title={ui.chatPanelOpen() ? "Hide chat" : "Open AI chat"}
-										>
-											Chat
-										</Button>
-									</span>
 									{/* Overflow menu — visible on mobile only */}
 									<span class={styles.showOnMobile}>
 										<div class={styles.overflowMenu}>
@@ -875,7 +907,6 @@ export function Nav() {
 														content: "Note",
 														links: "Links",
 														graph: "Graph",
-														chat: "Chat",
 														markdown: "MD",
 													}[ui.activePanel()]
 												}{" "}
@@ -889,7 +920,6 @@ export function Nav() {
 														["content", "Note"],
 														["links", "Links & Mentions"],
 														["graph", "Graph"],
-														["chat", "Chat"],
 														["markdown", "Markdown Source"],
 													] as const
 												).map(([panel, label]) => (
@@ -898,7 +928,7 @@ export function Nav() {
 														class={`${styles.overflowItem} ${ui.activePanel() === panel ? styles.overflowItemActive : ""}`}
 														onClick={() => {
 															if (panel === "graph") ui.setGraphPanelOpen(true);
-															if (panel === "chat") ui.setChatPanelOpen(true);
+
 															ui.setActivePanel(panel);
 														}}
 													>

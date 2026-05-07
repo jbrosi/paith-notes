@@ -58,7 +58,6 @@
 	.panelContent,
 	.panelLinks,
 	.panelGraph,
-	.panelChat,
 	.panelMarkdown {
 		display: none;
 	}
@@ -79,12 +78,6 @@
 	/* Force graph panel child to full width (overrides inline 300px) */
 	.panelGraph > div {
 		width: 100% !important;
-	}
-
-	.layout[data-active-panel="chat"] .panelChat {
-		display: flex;
-		flex-direction: column;
-		min-height: calc(100vh - 160px);
 	}
 
 	.layout[data-active-panel="markdown"] .panelMarkdown {

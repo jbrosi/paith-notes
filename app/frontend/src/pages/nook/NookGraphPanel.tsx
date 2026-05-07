@@ -94,6 +94,15 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 			const json = await res.json();
 			const body = NoteLinksListResponseSchema.parse(json);
 			setLinks(body.links);
+			// Populate title cache from link data
+			const titles: Array<{ id: string; title: string }> = [];
+			for (const l of body.links) {
+				if (l.sourceNoteId && l.sourceNoteTitle)
+					titles.push({ id: l.sourceNoteId, title: l.sourceNoteTitle });
+				if (l.targetNoteId && l.targetNoteTitle)
+					titles.push({ id: l.targetNoteId, title: l.targetNoteTitle });
+			}
+			store().cacheTitles(titles);
 		} catch (e) {
 			setLinks([]);
 			setError(String(e));

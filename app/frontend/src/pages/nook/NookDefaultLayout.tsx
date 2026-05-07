@@ -6,7 +6,6 @@ import {
 	onMount,
 	Show,
 } from "solid-js";
-import { ChatPanel } from "../../components/chat/ChatPanel";
 import { createNotePreview } from "../../components/NotePreview";
 import { attachSwipe } from "../../ui/swipe";
 import { MOBILE_PANELS, type MobilePanel, useUi } from "../../ui/UiContext";
@@ -31,7 +30,6 @@ const PANEL_LABELS: Record<MobilePanel, string> = {
 	content: "Note",
 	links: "Links",
 	graph: "Graph",
-	chat: "Chat",
 	markdown: "Markdown",
 };
 
@@ -148,24 +146,6 @@ export function NookDefaultLayout(props: NookDefaultLayoutProps) {
 								ui.toggleGraphPanel();
 								ui.setActivePanel("content");
 							}}
-						/>
-					</div>
-				</Show>
-
-				{/* Chat panel — render if desktop toggle is on OR mobile panel is active */}
-				<Show when={ui.chatPanelOpen() || ui.activePanel() === "chat"}>
-					<div class={styles.panelChat}>
-						<ChatPanel
-							nookId={props.nookId}
-							currentNoteId={props.store.selectedId() || undefined}
-							currentNoteTitle={props.store.title() || undefined}
-							currentNoteType={props.store.type() || undefined}
-							onClose={() => {
-								ui.toggleChatPanel();
-								ui.setActivePanel("content");
-							}}
-							onNavigateToNote={(id) => void props.store.onNoteLinkClick(id)}
-							notePreview={notePreview}
 						/>
 					</div>
 				</Show>
