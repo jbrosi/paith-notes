@@ -40,8 +40,10 @@ function InputValue(props: {
 	const hoverHandlers = () => {
 		if (!resolved() || !props.notePreview) return {};
 		return {
-			onMouseEnter: (e: MouseEvent) =>
-				props.notePreview?.show(str, e.clientX, e.clientY),
+			onMouseEnter: (e: MouseEvent) => {
+				const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+				props.notePreview?.show(str, rect.left, rect.bottom);
+			},
 			onMouseLeave: () => props.notePreview?.hide(),
 		};
 	};

@@ -9,6 +9,8 @@ beforeEach(function (): void {
     ensure_global_schema($pdo);
 
     $pdo->exec('truncate table global.sessions, global.auth_states, global.nook_members, global.nooks, global.users cascade');
+    // Re-insert the AI system user (truncated above)
+    $pdo->exec("insert into global.users (id, first_name, last_name) values ('deadc0ff-ee00-4000-8000-000000000000', 'AI', 'Assistant') on conflict (id) do nothing");
 });
 
 it('returns 401 when X-Nook-User is missing', function (): void {

@@ -39,7 +39,6 @@ export function ChatMessage(props: Props) {
 				<Show when={(m() as { text: string }).text.trim() !== ""}>
 					<MarkdownView
 						content={(m() as { text: string }).text}
-						onNoteLinkClick={props.onNavigateToNote}
 						notePreview={props.notePreview}
 						class={`${styles.bubble} ${(m() as { streaming?: boolean }).streaming ? styles.streaming : ""}`}
 					/>
@@ -62,9 +61,16 @@ export function ChatMessage(props: Props) {
 													// biome-ignore lint/a11y/noStaticElementInteractions: hover preview is mouse-only
 													<span
 														class={styles.noteIdValue}
-														onMouseEnter={(e) =>
-															props.notePreview?.show(val, e.clientX, e.clientY)
-														}
+														onMouseEnter={(e) => {
+															const rect = (
+																e.currentTarget as HTMLElement
+															).getBoundingClientRect();
+															props.notePreview?.show(
+																val,
+																rect.left,
+																rect.bottom,
+															);
+														}}
 														onMouseLeave={() => props.notePreview?.hide()}
 													>
 														{val.slice(0, 8)}...

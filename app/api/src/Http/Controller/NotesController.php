@@ -208,7 +208,7 @@ final class NotesController
             $pdo->beginTransaction();
 
             $stmt = $pdo->prepare(
-                "insert into global.notes (nook_id, created_by, title, content, type, type_id, properties, former_properties) values (:nook_id, :created_by, :title, :content, :type, :type_id, :properties, :former_properties) returning id, created_at"
+                "insert into global.notes (nook_id, created_by, title, content, type, type_id, properties, former_properties, actor) values (:nook_id, :created_by, :title, :content, :type, :type_id, :properties, :former_properties, :actor) returning id, created_at"
             );
             $stmt->execute([
                 ':nook_id' => $nookId,
@@ -219,6 +219,7 @@ final class NotesController
                 ':type_id' => $typeId !== '' ? $typeId : null,
                 ':properties' => self::encodeJsonObject($properties),
                 ':former_properties' => '{}',
+                ':actor' => $context->actor(),
             ]);
 
             $row = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -231,7 +232,8 @@ final class NotesController
 
             $noteId = is_scalar($id) ? (string)$id : '';
             if ($noteId !== '') {
-                $this->mentions->syncMentions($pdo, $nookId, $noteId, $content);
+                $userId = is_scalar($user['id'] ?? null) ? (string)$user['id'] : '';
+                $this->mentions->syncMentions($pdo, $nookId, $noteId, $content, $userId);
             }
 
             $pdo->commit();
@@ -391,7 +393,8 @@ final class NotesController
                 throw new HttpError('note not found', 404);
             }
 
-            $this->mentions->syncMentions($pdo, $nookId, $noteId, $content);
+            $userId = is_scalar($user['id'] ?? null) ? (string)$user['id'] : '';
+                $this->mentions->syncMentions($pdo, $nookId, $noteId, $content, $userId);
 
             $pdo->commit();
 
@@ -503,35 +506,39 @@ final class NotesController
 
         $this->requireMember($pdo, $user, $nookId);
 
+        // Cross-nook: return mentions from any nook the user is a member of
         $outgoingStmt = $pdo->prepare(
-            'select m.target_note_id as note_id, n.title as note_title, m.link_title, m.position '
+            'select m.target_note_id as note_id, n.title as note_title, n.nook_id, m.link_title, m.position '
             . 'from global.note_mentions m '
             . 'join global.notes n on n.id = m.target_note_id '
-            . 'where m.source_note_id = :source_note_id and n.nook_id = :nook_id '
+            . 'join global.nook_members nm on nm.nook_id = n.nook_id and nm.user_id = :user_id '
+            . 'where m.source_note_id = :source_note_id '
             . 'order by m.position asc'
         );
         $outgoingStmt->execute([
             ':source_note_id' => $noteId,
-            ':nook_id' => $nookId,
+            ':user_id' => $user['id'],
         ]);
         $outgoingRows = $outgoingStmt->fetchAll(PDO::FETCH_ASSOC);
 
         $incomingStmt = $pdo->prepare(
-            'select m.source_note_id as note_id, n.title as note_title, m.link_title, m.position '
+            'select m.source_note_id as note_id, n.title as note_title, n.nook_id, m.link_title, m.position '
             . 'from global.note_mentions m '
             . 'join global.notes n on n.id = m.source_note_id '
-            . 'where m.target_note_id = :target_note_id and n.nook_id = :nook_id '
+            . 'join global.nook_members nm on nm.nook_id = n.nook_id and nm.user_id = :user_id '
+            . 'where m.target_note_id = :target_note_id '
             . 'order by m.position asc'
         );
         $incomingStmt->execute([
             ':target_note_id' => $noteId,
-            ':nook_id' => $nookId,
+            ':user_id' => $user['id'],
         ]);
         $incomingRows = $incomingStmt->fetchAll(PDO::FETCH_ASSOC);
 
         $normalize = static function (array $r): array {
             return [
                 'note_id' => is_scalar($r['note_id'] ?? null) ? (string)$r['note_id'] : '',
+                'nook_id' => is_scalar($r['nook_id'] ?? null) ? (string)$r['nook_id'] : '',
                 'note_title' => is_scalar($r['note_title'] ?? null) ? (string)$r['note_title'] : '',
                 'link_title' => is_scalar($r['link_title'] ?? null) ? (string)$r['link_title'] : '',
                 'position' => is_scalar($r['position'] ?? null) ? (int)$r['position'] : 0,

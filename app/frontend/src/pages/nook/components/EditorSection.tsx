@@ -131,8 +131,6 @@ export function EditorSection(props: {
 			>
 				<MarkdownView
 					content={props.store.content()}
-					onNoteLinkClick={(id) => void props.store.onNoteLinkClick(id)}
-					resolveNoteTitle={resolveNoteTitle}
 					resolveEmbeddedImageSrc={(id) =>
 						props.store.resolveEmbeddedImageSrc(id)
 					}

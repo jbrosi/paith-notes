@@ -32,7 +32,11 @@ export function NookMainPanel(props: NookMainPanelProps) {
 					store().canWrite()
 				) {
 					e.preventDefault();
-					store().saveNote();
+					void store()
+						.saveNote()
+						.then(() => {
+							if (!store().error()) ui.setMode("view");
+						});
 				}
 			}
 		};
@@ -59,7 +63,10 @@ export function NookMainPanel(props: NookMainPanelProps) {
 						title={store().title()}
 						selectedId={store().selectedId()}
 						canWrite={store().canWrite()}
-						onSave={store().saveNote}
+						onSave={async () => {
+							await store().saveNote();
+							if (!store().error()) ui.setMode("view");
+						}}
 						onDelete={store().deleteNote}
 						onToggleMode={ui.toggleMode}
 					/>

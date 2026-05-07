@@ -104,6 +104,15 @@
 	white-space: nowrap;
 }
 
+.currentBadge {
+	font-size: 0.6875rem;
+	padding: 1px 6px;
+	border-radius: 999px;
+	background: var(--color-primary-bg);
+	color: var(--color-primary);
+	white-space: nowrap;
+}
+
 .dot {
 	opacity: 0.5;
 }

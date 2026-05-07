@@ -66,6 +66,7 @@ export default function Nook() {
 							const name = typeof obj.name === "string" ? obj.name : "";
 							setNookName(name);
 							store.setNookName(name);
+							store.cacheNookName(id, name);
 						}
 
 						if (typeof obj.role === "string") {
@@ -95,8 +96,15 @@ export default function Nook() {
 		onCleanup(() => window.removeEventListener("beforeunload", handler));
 	});
 
-	let isApplyingUrlSelection = false;
 	let lastUrlSelectRequestId = 0;
+
+	// Wire up navigation: store.onNoteLinkClick → router navigate
+	store.setNavigator((noteId: string, targetNookId?: string) => {
+		const nook = targetNookId || nookId();
+		navigate(
+			`/nooks/${encodeURIComponent(nook)}/notes/${encodeURIComponent(noteId)}`,
+		);
+	});
 
 	const typeEditId = createMemo(() => {
 		const p = normalizedSubPath();
@@ -135,67 +143,32 @@ export default function Nook() {
 		return m?.[1] ? String(m[1]) : "";
 	});
 
-	const isNoteRoute = createMemo(() => {
-		const p = normalizedSubPath();
-		return p === "" || p.startsWith("notes/");
-	});
-
+	// URL → store: URL is the single source of truth for which note is selected.
+	// The store never drives navigation — only follows the URL.
 	createEffect(() => {
 		const id = (
-			isGraphFullscreen()
-				? fullscreenGraphNoteId()
-				: selectedNoteIdFromPath().trim() !== ""
-					? selectedNoteIdFromPath()
-					: ""
+			isGraphFullscreen() ? fullscreenGraphNoteId() : selectedNoteIdFromPath()
 		).trim();
-		void store.allNotes();
+
 		if (id === "") {
 			if (untrack(() => store.selectedId()) !== "") {
 				store.setSelectedId("");
 			}
 			return;
 		}
-		const currentSelected = untrack(() => store.selectedId());
-		if (currentSelected === id) return;
+
+		if (untrack(() => store.selectedId()) === id) return;
+
 		const requestId = ++lastUrlSelectRequestId;
-		isApplyingUrlSelection = true;
 		void (async () => {
 			try {
-				await store.onNoteLinkClick(id);
-			} finally {
+				await store.loadNoteById(id);
+			} catch {
 				if (requestId === lastUrlSelectRequestId) {
-					isApplyingUrlSelection = false;
+					store.setSelectedId("");
 				}
 			}
 		})();
-	});
-
-	createEffect(() => {
-		const id = store.selectedId().trim();
-		if (isGraphFullscreen()) {
-			const current = fullscreenGraphNoteId().trim();
-			if (isApplyingUrlSelection) return;
-			if (id === "") return;
-			if (current === id) return;
-			navigate(
-				`/nooks/${encodeURIComponent(nookId())}/graph/${encodeURIComponent(id)}`,
-				{ replace: true },
-			);
-			return;
-		}
-		if (!isNoteRoute()) return;
-		const current = selectedNoteIdFromPath().trim();
-		if (isApplyingUrlSelection) return;
-		if (id === "") {
-			if (current === "") return;
-			navigate(`/nooks/${encodeURIComponent(nookId())}`, { replace: true });
-			return;
-		}
-		if (current === id) return;
-		navigate(
-			`/nooks/${encodeURIComponent(nookId())}/notes/${encodeURIComponent(id)}`,
-			{ replace: true },
-		);
 	});
 
 	createEffect(() => {

@@ -6,9 +6,42 @@
 	height: 100%;
 }
 
-.appContent {
+.appBody {
 	flex: 1;
 	min-height: 0;
+	display: flex;
+}
+
+.appContent {
+	flex: 1;
+	min-width: 0;
+	min-height: 0;
+}
+
+.chatSidebar {
+	width: 380px;
+	min-width: 280px;
+	max-width: 50vw;
+	display: flex;
+	flex-direction: column;
+	position: relative;
+}
+
+.chatResizeHandle {
+	position: absolute;
+	top: 0;
+	left: 0;
+	width: 4px;
+	height: 100%;
+	cursor: col-resize;
+	background: var(--color-border-medium);
+	transition: background 0.15s;
+	z-index: 10;
+}
+
+.chatResizeHandle:hover,
+.chatResizeHandle:active {
+	background: var(--color-primary-light);
 }
 
 /* On mobile/tablet: entire page scrolls naturally (nav scrolls away) */
@@ -18,8 +51,27 @@
 		min-height: 100%;
 	}
 
+	.appBody {
+		flex-direction: column;
+	}
+
 	.appContent {
 		min-height: auto;
+	}
+
+	.chatSidebar {
+		position: fixed;
+		inset: 0;
+		width: 100% !important;
+		min-width: 0;
+		max-width: none;
+		border-left: none;
+		z-index: 50;
+		background: var(--color-bg);
+	}
+
+	.chatResizeHandle {
+		display: none;
 	}
 }
 

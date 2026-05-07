@@ -7,7 +7,6 @@ import { TOOLS, executeTool } from './chat-tools.js';
 const DEFAULT_MODEL = 'claude-sonnet-4-6';
 const MAX_TOKENS    = 8096;
 const MAX_AUTO_DEPTH = 8;
-const AI_MEMORY_TYPE_KEY = 'ai-memory';
 
 // Tools that are always safe to auto-execute (read-only / non-destructive)
 const ALWAYS_AUTO_TOOLS = new Set([
@@ -16,6 +15,10 @@ const ALWAYS_AUTO_TOOLS = new Set([
   'search_notes',
   'explore_notes',
   'get_note_mentions',
+  'memory_search',
+  'memory_get',
+  'memory_create',
+  'memory_update',
 ]);
 
 function sse(res: express.Response, event: string, data: unknown): void {
@@ -53,6 +56,7 @@ async function phpApi(
     headers: {
       Cookie: cookie,
       'Content-Type': 'application/json',
+      'X-Nook-Actor': 'ai',
     },
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
@@ -184,96 +188,75 @@ async function resolveDisplayNames(
 
 // ─── Auto-execution helpers ───────────────────────────────────────────────────
 
-async function fetchNoteTypeKey(
-  noteId: string,
-  apiBase: string,
-  cookie: string,
-  nookId: string,
-  typesCache: Map<string, string>,
-): Promise<string | null> {
-  try {
-    const res = await fetch(`${apiBase}/api/nooks/${nookId}/notes/${noteId}`, {
-      headers: { Cookie: cookie },
-    });
-    if (!res.ok) return null;
-    const data = await res.json() as { note?: { type_id?: string } };
-    const typeId = data.note?.type_id;
-    if (!typeId) return null;
-    return typesCache.get(typeId) ?? null;
-  } catch { return null; }
+function isAutoExecutable(toolName: string): boolean {
+  return ALWAYS_AUTO_TOOLS.has(toolName);
 }
 
-async function buildTypesCache(
-  apiBase: string,
-  cookie: string,
-  nookId: string,
-): Promise<Map<string, string>> {
-  const cache = new Map<string, string>();
+// ─── AI memory nook ──────────────────────────────────────────────────────────
+
+async function resolveMemoryNookId(cookie: string, apiBase: string): Promise<string | null> {
   try {
-    const res = await fetch(`${apiBase}/api/nooks/${nookId}/note-types`, {
-      headers: { Cookie: cookie },
-    });
-    if (!res.ok) return cache;
-    const data = await res.json() as { types?: Array<{ id: string; key: string }> };
-    for (const t of data.types ?? []) cache.set(t.id, t.key);
-  } catch { /* best-effort */ }
-  return cache;
-}
-
-async function isAutoExecutable(
-  toolName: string,
-  toolInput: Record<string, unknown>,
-  apiBase: string,
-  cookie: string,
-  nookId: string,
-  typesCache: Map<string, string>,
-): Promise<boolean> {
-  if (ALWAYS_AUTO_TOOLS.has(toolName)) return true;
-
-  if (toolName === 'get_note' || toolName === 'update_note') {
-    const noteId = String(toolInput.note_id ?? '');
-    if (!noteId) return false;
-    const key = await fetchNoteTypeKey(noteId, apiBase, cookie, nookId, typesCache);
-    return key === AI_MEMORY_TYPE_KEY;
+    const data = await phpApi('GET', '/api/nooks/ai-memory', cookie, apiBase) as { nook?: { id?: string } };
+    return data?.nook?.id ?? null;
+  } catch {
+    return null;
   }
-
-  if (toolName === 'create_note') {
-    const typeId = String(toolInput.type_id ?? '');
-    if (!typeId) return false;
-    // AI may pass the key string directly (e.g. "ai-memory") or the UUID
-    if (typeId === AI_MEMORY_TYPE_KEY) return true;
-    return typesCache.get(typeId) === AI_MEMORY_TYPE_KEY;
-  }
-
-  if (toolName === 'create_note_link') {
-    // Auto-approve if either note is ai-memory (AI managing its own memory graph)
-    const sourceId = String(toolInput.source_note_id ?? '');
-    const targetId = String(toolInput.target_note_id ?? '');
-    const [sourceKey, targetKey] = await Promise.all([
-      sourceId ? fetchNoteTypeKey(sourceId, apiBase, cookie, nookId, typesCache) : Promise.resolve(null),
-      targetId ? fetchNoteTypeKey(targetId, apiBase, cookie, nookId, typesCache) : Promise.resolve(null),
-    ]);
-    return sourceKey === AI_MEMORY_TYPE_KEY || targetKey === AI_MEMORY_TYPE_KEY;
-  }
-
-  return false;
 }
 
 // ─── System prompt ────────────────────────────────────────────────────────────
 
 function buildSystemPrompt(
   nookId: string,
+  nookName: string,
+  nookRole: string,
   contextNote?: { id: string; title: string; type?: string },
+  memoryNookId?: string | null,
 ): string {
+  const nookDisplay = nookName ? `"${nookName}" (${nookId})` : `"${nookId}"`;
+  const roleInfo = nookRole ? ` The user's role in this nook is "${nookRole}".` : '';
   const parts = [
-    `You are an assistant integrated into paith notes. You are operating in nook "${nookId}". You have access to the user's notes in this nook via tools — never ask the user for a nook ID or note ID, use the IDs provided here directly. Only use tools when the user explicitly asks. Always tell the user what you are about to do before calling a tool. Current date: ${new Date().toISOString().slice(0, 10)}. When writing note content that links to another note, always use [[note:<full_uuid>]] with the complete UUID — never shorten it. The UI resolves it to the note title automatically. To embed a file note as an image use ![Note Title](note:<note_id>).\n\n**Referencing notes in your responses:** When you mention a specific note in your response text, use [[note:<note_id>]] syntax with the FULL UUID (e.g. [[note:a1b2c3d4-e5f6-7890-abcd-ef1234567890]]). NEVER shorten or truncate UUIDs — the UI needs the complete ID to resolve it into a clickable link showing the note title. The user will see the note title, not the UUID, so there is no reason to shorten it.\n\n**search_notes behavior:** The q parameter is optional — omit it or pass an empty string to list all notes (optionally filtered by type_id). Do NOT search for common words like "a" or "the" to find all notes. Multiple words are automatically split: by default all must match (AND). Use search_mode="or" if you want any word to match. The same applies to explore_notes q parameter.\n\nThe following tools auto-execute without user approval (read-only): search_notes, explore_notes, get_note_mentions, list_note_types, list_link_predicates. All other tools (get_note, create_note, update_note, delete_note, create_note_link, open_note, create_note_type, update_note_type) require user confirmation.\n\n**Mermaid diagrams:** Both note content and your chat responses support mermaid diagrams via fenced code blocks (\`\`\`mermaid). Use them when visualizing relationships, flows, timelines, or architectures would help the user. The UI renders them as interactive SVGs.\n\nWhen you need to make multiple independent tool calls, issue them all in a single response as parallel tool_use blocks rather than sequentially — for example, fetch a note's links and its mentions at the same time, or search for memory notes while also fetching a related note. This is faster and reduces round-trips.`,
-    `You have access to a special note type called "AI Memory" (key: ai-memory). Notes of this type are auto-approved — you can read, create, and update them freely without user confirmation. Use them to store information you want to remember across conversations (preferences, context, facts the user has shared).\n\n**Memory retrieval protocol:** Before answering any question about past context, preferences, or anything the user may have mentioned before: (1) search for memory notes with search_notes(q="<topic>", type_id="ai-memory"), (2) call get_note on any matches to read their content (free, no approval), (3) call explore_notes(note_id="<memory_note_id>", direction="both") on each memory note you find — this surfaces other notes linked TO or FROM that memory note, which often contains the most relevant context. Only after checking the graph should you fall back to a broader text search.`,
+    `You are an assistant integrated into paith notes. You are operating in nook ${nookDisplay}.${roleInfo} Current date: ${new Date().toISOString().slice(0, 10)}.
+
+CRITICAL — Note link format:
+Every time you mention a note by name in your response text, you MUST use the [[note:...]] syntax. The UI automatically replaces this with a clickable link showing the note's title — the user never sees the UUID. NEVER write bare UUIDs, shortened IDs, or note titles as plain text when you know the note's ID. NEVER truncate UUIDs. Always use the complete UUID.
+
+For notes in the CURRENT nook: [[note:<noteId>]]
+For notes in a DIFFERENT nook (cross-nook): [[note:<nookId>/<noteId>]]
+
+You MUST ALWAYS use the cross-nook format [[note:nookId/noteId]] in your chat responses and when writing AI memory notes — because conversations and memories are stored separately from the user's nooks. Without the nook ID prefix, links will not resolve.
+
+Examples:
+- Same nook: "I found context in [[note:a1b2c3d4-e5f6-7890-abcd-ef1234567890]]."
+- Cross-nook: "Related to [[note:b55dbf0d-a2bc-46a2-b296-ef71cd2306a3/a1b2c3d4-e5f6-7890-abcd-ef1234567890]]."
+- WRONG: "I found relevant context in b12d16a3..."
+- WRONG: "I found relevant context in the note 'Meeting Notes'."
+To embed a file note as an image: ![alt text](note:<full_uuid>) or ![alt text](note:<nookId>/<noteId>)
+
+General rules:
+- You have access to the user's notes via tools — never ask for a nook ID or note ID, use the IDs from tool results directly.
+- Only use tools when the user explicitly asks. Always tell the user what you are about to do before calling a tool.
+- When you need to make multiple independent tool calls, issue them all in a single response as parallel tool_use blocks rather than sequentially.
+
+**search_notes behavior:** The q parameter is optional — omit it or pass an empty string to list all notes (optionally filtered by type_id). Do NOT search for common words like "a" or "the" to find all notes. Multiple words are automatically split: by default all must match (AND). Use search_mode="or" if you want any word to match. The same applies to explore_notes q parameter.
+
+**Tool approval:** The following tools auto-execute without user approval: search_notes, explore_notes, get_note_mentions, list_note_types, list_link_predicates, and all memory_* tools (memory_search, memory_get, memory_create, memory_update). All other tools (get_note, create_note, update_note, delete_note, create_note_link, open_note, create_note_type, update_note_type) require user confirmation.
+
+**Mermaid diagrams:** Both note content and your chat responses support mermaid diagrams via fenced code blocks (\`\`\`mermaid). Use them when visualizing relationships, flows, timelines, or architectures would help the user. The UI renders them as interactive SVGs.`,
+    memoryNookId
+      ? `**AI Memory:** You have a personal memory nook for this user (ID: ${memoryNookId}). Use the memory_* tools (memory_search, memory_get, memory_create, memory_update) to store and retrieve knowledge about the user — preferences, facts, communication style, corrections, project context. These are auto-approved and persist across all nooks and conversations.
+
+At the start of each conversation, proactively search user memory with memory_search() to recall relevant context. When the user shares preferences or corrects you, store it in user memory immediately.
+
+**Memory retrieval protocol:** Before answering any question about past context or preferences: (1) call memory_search(q="<topic>") to find relevant memories, (2) call memory_get on matches to read full content. Only after checking memory should you search the current nook's notes.
+
+When you create or update a memory note, the system automatically links it to the current conversation — this builds a knowledge trail showing why each memory exists and which conversations contributed to it.`
+      : '',
     `**Note type taxonomy:** You can help the user manage their note taxonomy. Use list_note_types to see the full hierarchy before suggesting or creating types. When creating a type, always tell the user where in the hierarchy it will appear (e.g. "Creating 'Employee' as a subtype of 'Person'"). You can update a type's label or description with update_note_type. Never create a type without showing the user what you're about to create and where it fits.`,
   ];
 
   if (contextNote) {
     parts.push(
-      `\nThe user currently has a note open in their editor. When they say "this note", "the current note", "my note", "here", or anything similar, they are referring to this note — use its ID directly without asking which note they mean:\nTitle: ${contextNote.title}\nID: ${contextNote.id}\nType: ${contextNote.type ?? 'note'}\n\nTo read the full content of this note, use the get_note tool (the user will be asked to confirm).\n\n**When asked about memories, context, or anything related to this note:** (1) call explore_notes(note_id="${contextNote.id}", direction="both") — free, surfaces all linked notes including AI Memory notes, (2) for each AI Memory note found, call get_note (free) AND call explore_notes on the memory note itself (direction="both") — memory notes often link to other relevant notes that give important context, (3) call get_note_mentions to find [[note:id]] text references (free). Only use text search as a last resort if the graph yields nothing relevant. Never use text search as the first step.\n\nIssue steps 1 and 3 in parallel as they are independent.`,
+      `\nThe user currently has a note open in their editor. When they say "this note", "the current note", "my note", "here", or anything similar, they are referring to this note — use its ID directly without asking which note they mean:\nTitle: ${contextNote.title}\nID: ${contextNote.id}\nType: ${contextNote.type ?? 'note'}\n\nTo read the full content of this note, use the get_note tool (the user will be asked to confirm).\n\n**When asked about context related to this note:** (1) call explore_notes(note_id="${contextNote.id}", direction="both") — free, surfaces all linked notes, (2) call get_note_mentions to find [[note:id]] text references (free), (3) check user memory with memory_search for relevant context. Issue independent calls in parallel.`,
     );
   }
 
@@ -291,9 +274,21 @@ async function streamConversation(
   apiBase: string,
   nookId: string,
   contextNote?: { id: string; title: string; type?: string },
+  memoryNookId?: string | null,
 ): Promise<void> {
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-  const systemPrompt = buildSystemPrompt(nookId, contextNote);
+
+  // Resolve nook name and role for context
+  let nookName = '';
+  let nookRole = '';
+  try {
+    const nooks = await phpApi('GET', '/api/nooks', cookie, apiBase) as { nooks?: Array<{ id: string; name: string; role: string }> };
+    const found = nooks?.nooks?.find(n => n.id === nookId);
+    nookName = found?.name ?? '';
+    nookRole = found?.role ?? '';
+  } catch { /* best-effort */ }
+
+  const systemPrompt = buildSystemPrompt(nookId, nookName, nookRole, contextNote, memoryNookId);
 
   // mutable copy we extend on each auto-execute loop
   const msgs: Anthropic.MessageParam[] = [...messages];
@@ -370,20 +365,13 @@ async function streamConversation(
 
           if (stopReason === 'tool_use') {
             // Check if all tools can be auto-executed
-            const typesCache = await buildTypesCache(apiBase, cookie, nookId);
             const toolsPayload = pendingToolUses.map(t => ({
               id: t.id,
               name: t.name,
               input: t.input as Record<string, unknown>,
             }));
 
-            const autoChecks = await Promise.all(
-              toolsPayload.map(t =>
-                isAutoExecutable(t.name, t.input, apiBase, cookie, nookId, typesCache),
-              ),
-            );
-
-            if (autoChecks.every(Boolean)) {
+            if (toolsPayload.every(t => isAutoExecutable(t.name))) {
               // Auto-execute all tools, loop for next AI turn
               const assistantBlocks = savedAssistantTurns[0]?.blocks ?? [];
 
@@ -392,14 +380,14 @@ async function streamConversation(
                   let resultContent: string;
                   let isError = false;
                   try {
-                    resultContent = await executeTool(t.name, t.input, apiBase, cookie, nookId);
+                    resultContent = await executeTool(t.name, t.input, apiBase, cookie, nookId, memoryNookId ?? undefined);
                   } catch (err) {
                     resultContent = `Error: ${err instanceof Error ? err.message : 'unknown'}`;
                     isError = true;
                   }
 
-                  // Record note-conversation link for ai-memory writes
-                  if (!isError && autoChecks[i] && (t.name === 'create_note' || t.name === 'update_note')) {
+                  // Record note-conversation link for auto-executed writes (including memory tools)
+                  if (!isError && (t.name === 'create_note' || t.name === 'update_note' || t.name === 'memory_create' || t.name === 'memory_update')) {
                     try {
                       const resultData = JSON.parse(resultContent) as { note?: { id?: string } };
                       const noteId = resultData.note?.id;
@@ -484,6 +472,10 @@ export function createChatRouter(apiBase: string): Router {
     const resolvedModel = typeof model === 'string' && model ? model : DEFAULT_MODEL;
 
     try {
+      // Resolve AI memory nook for storing conversations
+      const memoryNookId = await resolveMemoryNookId(cookieHeader, apiBase);
+      const convNookId = memoryNookId ?? nook_id;
+
       // Create or validate conversation
       let convId: string;
       if (typeof conversation_id === 'string' && conversation_id) {
@@ -491,7 +483,7 @@ export function createChatRouter(apiBase: string): Router {
       } else {
         const title = message.slice(0, 100);
         const data = await phpApi('POST', '/api/conversations', cookieHeader, apiBase, {
-          nook_id,
+          nook_id: convNookId,
           model: resolvedModel,
           title,
         }) as { conversation: { id: string } };
@@ -519,7 +511,7 @@ export function createChatRouter(apiBase: string): Router {
       sseHeaders(res);
       sse(res, 'conversation', { conversation_id: convId });
 
-      await streamConversation(res, history, resolvedModel, convId, cookieHeader, apiBase, nook_id, contextNote);
+      await streamConversation(res, history, resolvedModel, convId, cookieHeader, apiBase, nook_id, contextNote, memoryNookId);
     } catch (err) {
       if (!res.headersSent) {
         res.status(500).json({ error: err instanceof Error ? err.message : 'unknown error' });
@@ -560,7 +552,10 @@ export function createChatRouter(apiBase: string): Router {
 
     try {
       // Load full history (includes the assistant message with tool_use blocks)
-      const history = await loadHistory(conversation_id, cookieHeader, apiBase);
+      const [history, memNookId] = await Promise.all([
+        loadHistory(conversation_id, cookieHeader, apiBase),
+        resolveMemoryNookId(cookieHeader, apiBase),
+      ]);
 
       // Execute approved tools, build tool_result content blocks
       const resultBlocks: Anthropic.ToolResultBlockParam[] = await Promise.all(
@@ -569,7 +564,7 @@ export function createChatRouter(apiBase: string): Router {
             return { type: 'tool_result', tool_use_id: tr.tool_use_id, content: 'User denied this action.' };
           }
           try {
-            const result = await executeTool(tr.tool_name, tr.tool_input, apiBase, cookieHeader, nook_id);
+            const result = await executeTool(tr.tool_name, tr.tool_input, apiBase, cookieHeader, nook_id, memNookId ?? undefined);
             return { type: 'tool_result', tool_use_id: tr.tool_use_id, content: result };
           } catch (err) {
             return {
@@ -601,7 +596,7 @@ export function createChatRouter(apiBase: string): Router {
         : undefined;
 
       sseHeaders(res);
-      await streamConversation(res, history, resolvedModel, conversation_id, cookieHeader, apiBase, nook_id, contextNote);
+      await streamConversation(res, history, resolvedModel, conversation_id, cookieHeader, apiBase, nook_id, contextNote, memNookId);
     } catch (err) {
       if (!res.headersSent) {
         res.status(500).json({ error: err instanceof Error ? err.message : 'unknown error' });

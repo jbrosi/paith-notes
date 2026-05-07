@@ -27,3 +27,20 @@ export function useNook(): NookContextValue {
 	if (!ctx) throw new Error("NookProvider is missing");
 	return ctx;
 }
+
+/** Hook for resolving note titles and nook names from the store. */
+export function useNoteResolver(): {
+	resolveTitle: (id: string, nookId?: string) => string | undefined;
+	resolveNookName: (nookId: string) => string | undefined;
+	currentNookId: () => string;
+	fetchMissing: (refs: Array<{ nookId: string; noteId: string }>) => void;
+} {
+	const nook = useContext(NookContext);
+	return {
+		resolveTitle: (id: string, forNookId?: string) =>
+			nook?.store()?.resolveNoteTitle(id, forNookId),
+		resolveNookName: (nookId: string) => nook?.store()?.resolveNookName(nookId),
+		currentNookId: () => nook?.store()?.nookId() ?? "",
+		fetchMissing: (refs) => nook?.store()?.fetchMissingTitles(refs),
+	};
+}

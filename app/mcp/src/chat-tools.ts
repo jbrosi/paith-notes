@@ -178,6 +178,53 @@ export const TOOLS: Anthropic.Tool[] = [
       required: ['source_note_id', 'target_note_id', 'predicate_id'],
     },
   },
+  // ── User memory nook tools (cross-nook, auto-approved) ──
+  {
+    name: 'memory_search',
+    description: 'Search the user\'s personal AI memory nook. Use this to recall cross-nook information about the user (preferences, facts, patterns). Auto-approved.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        q: { type: 'string', description: 'Search query (optional — omit to list all memories)' },
+      },
+    },
+  },
+  {
+    name: 'memory_get',
+    description: 'Read a specific note from the user\'s AI memory nook. Auto-approved.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        note_id: { type: 'string' },
+      },
+      required: ['note_id'],
+    },
+  },
+  {
+    name: 'memory_create',
+    description: 'Create a note in the user\'s AI memory nook. Use for cross-nook user knowledge. Auto-approved.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        title:   { type: 'string' },
+        content: { type: 'string', description: 'Markdown content' },
+      },
+      required: ['title'],
+    },
+  },
+  {
+    name: 'memory_update',
+    description: 'Update a note in the user\'s AI memory nook. Auto-approved.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        note_id: { type: 'string' },
+        title:   { type: 'string' },
+        content: { type: 'string' },
+      },
+      required: ['note_id'],
+    },
+  },
 ];
 
 export async function executeTool(
@@ -186,10 +233,12 @@ export async function executeTool(
   apiBaseUrl: string,
   cookie: string,
   nookId: string,
+  memoryNookId?: string,
 ): Promise<string> {
   const headers = {
     Cookie: cookie,
     'Content-Type': 'application/json',
+    'X-Nook-Actor': 'ai',
   };
 
   const api = async (method: string, path: string, body?: unknown): Promise<unknown> => {
@@ -309,6 +358,38 @@ export async function executeTool(
           end_date:       input.end_date,
         }),
       );
+    }
+
+    // ── User memory nook tools ──
+    case 'memory_search': {
+      if (!memoryNookId) throw new Error('AI memory nook not available');
+      const params = new URLSearchParams();
+      if (input.q) params.set('q', String(input.q));
+      const qs = params.toString() ? `?${params}` : '';
+      return JSON.stringify(await api('GET', `/api/nooks/${memoryNookId}/note-types/all/notes${qs}`));
+    }
+
+    case 'memory_get': {
+      if (!memoryNookId) throw new Error('AI memory nook not available');
+      const mid = String(input.note_id ?? '');
+      return JSON.stringify(await api('GET', `/api/nooks/${memoryNookId}/notes/${mid}`));
+    }
+
+    case 'memory_create': {
+      if (!memoryNookId) throw new Error('AI memory nook not available');
+      return JSON.stringify(await api('POST', `/api/nooks/${memoryNookId}/notes`, {
+        title: input.title,
+        content: input.content ?? '',
+      }));
+    }
+
+    case 'memory_update': {
+      if (!memoryNookId) throw new Error('AI memory nook not available');
+      const uid = String(input.note_id ?? '');
+      const body: Record<string, unknown> = {};
+      if (input.title !== undefined) body.title = input.title;
+      if (input.content !== undefined) body.content = input.content;
+      return JSON.stringify(await api('PUT', `/api/nooks/${memoryNookId}/notes/${uid}`, body));
     }
 
     default:

@@ -23,6 +23,7 @@ export function NookLinksAndMentionsPanel(
 			</Show>
 
 			<NookMentionsPanel
+				nookId={store().nookId()}
 				notes={store().allNotes()}
 				outgoing={store().outgoingMentions()}
 				incoming={store().incomingMentions()}

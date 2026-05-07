@@ -23,6 +23,7 @@ final class NooksController
             select
                 n.id,
                 n.name,
+                n.purpose,
                 nm.role,
                 n.owner_id,
                 u.first_name as owner_first_name,
@@ -32,6 +33,7 @@ final class NooksController
             join global.users u on u.id = n.owner_id
             where
                 nm.user_id = :user_id
+                and n.purpose = 'general'
             order by n.created_at desc;
         ");
         $stmt->execute([':user_id' => $user['id']]);
@@ -66,6 +68,30 @@ final class NooksController
 
         return JsonResponse::ok([
             'nooks' => $nooks,
+        ]);
+    }
+
+    public function aiMemory(Request $request, Context $context): Response
+    {
+        $pdo = $context->pdo();
+        $user = $context->user();
+        $userId = is_scalar($user['id'] ?? null) ? (string)$user['id'] : '';
+
+        $stmt = $pdo->prepare(
+            "select n.id, n.name from global.nooks n join global.nook_members nm on nm.nook_id = n.id where nm.user_id = :user_id and n.purpose = 'ai-memory' limit 1"
+        );
+        $stmt->execute([':user_id' => $userId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!is_array($row)) {
+            throw new HttpError('AI memory nook not found', 404);
+        }
+
+        return JsonResponse::ok([
+            'nook' => [
+                'id' => is_scalar($row['id'] ?? null) ? (string)$row['id'] : '',
+                'name' => is_scalar($row['name'] ?? null) ? (string)$row['name'] : '',
+                'purpose' => 'ai-memory',
+            ],
         ]);
     }
 

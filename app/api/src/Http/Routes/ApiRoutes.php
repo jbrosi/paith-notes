@@ -57,6 +57,7 @@ final class ApiRoutes
 
         $r->get('/me', [MeController::class, 'me']);
         $r->get('/nooks', [NooksController::class, 'list']);
+        $r->get('/nooks/ai-memory', [NooksController::class, 'aiMemory']);
         $r->post('/nooks', [NooksController::class, 'create']);
         $r->add('PUT', '/nooks/{nookId}', [NooksController::class, 'update']);
 

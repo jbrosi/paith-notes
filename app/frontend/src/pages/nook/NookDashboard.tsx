@@ -11,7 +11,6 @@ type NookStats = {
 	total_types: number;
 	total_links: number;
 	total_mentions: number;
-	total_conversations: number;
 	notes_per_type: Array<{ label: string; count: string }>;
 	recently_edited: Array<{ id: string; title: string; updated_at: string }>;
 	most_linked: Array<{ id: string; title: string; link_count: string }>;
@@ -156,10 +155,6 @@ export function NookDashboard(props: NookDashboardProps) {
 							<div class={styles.statCard}>
 								<div class={styles.statValue}>{s().total_mentions}</div>
 								<div class={styles.statLabel}>Mentions</div>
-							</div>
-							<div class={styles.statCard}>
-								<div class={styles.statValue}>{s().total_conversations}</div>
-								<div class={styles.statLabel}>Chats</div>
 							</div>
 						</div>
 
