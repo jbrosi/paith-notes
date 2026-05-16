@@ -3,14 +3,12 @@ import { apiFetch } from "../../auth/keycloak";
 import { Button } from "../../components/Button";
 import { AddLinkForm } from "./components/AddLinkForm";
 import { LinkList } from "./components/LinkList";
-import type { NotePreviewController } from "./NookDefaultLayout";
 import css from "./NookNoteLinksPanel.module.css";
 import type { NookStore } from "./store";
 import { type NoteLink, NoteLinksListResponseSchema } from "./types";
 
 export type NookNoteLinksPanelProps = {
 	store: NookStore;
-	notePreview?: NotePreviewController;
 };
 
 export function NookNoteLinksPanel(props: NookNoteLinksPanelProps) {
@@ -116,7 +114,6 @@ export function NookNoteLinksPanel(props: NookNoteLinksPanelProps) {
 						links={links()}
 						noteId={noteId()}
 						isEditing={store().mode() === "edit"}
-						notePreview={props.notePreview}
 						onOpenNote={(id) => void store().onNoteLinkClick(id)}
 						onDeleteLink={(id) => void deleteLink(id)}
 					/>

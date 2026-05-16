@@ -1,7 +1,6 @@
 import { useNavigate } from "@solidjs/router";
 import { For, Show } from "solid-js";
-import { useNoteResolver } from "./NookContext";
-import type { NotePreviewController } from "./NookDefaultLayout";
+import { useNotePreview, useNoteResolver } from "./NookContext";
 import styles from "./NookMentionsPanel.module.css";
 import type { Mention, NoteSummary } from "./types";
 
@@ -11,10 +10,10 @@ export type NookMentionsPanelProps = {
 	outgoing: Mention[];
 	incoming: Mention[];
 	onOpenNote: (noteId: string) => void;
-	notePreview?: NotePreviewController;
 };
 
 export function NookMentionsPanel(props: NookMentionsPanelProps) {
+	const notePreview = useNotePreview();
 	const navigate = useNavigate();
 	const resolver = useNoteResolver();
 
@@ -58,7 +57,7 @@ export function NookMentionsPanel(props: NookMentionsPanelProps) {
 								},
 							]
 						: [];
-					props.notePreview?.show(m.noteId, rect.left, rect.bottom, {
+					notePreview?.show(m.noteId, rect.left, rect.bottom, {
 						immediate: true,
 						onOpen: crossNook ? undefined : () => handleClick(m),
 						nookId: crossNook ? m.nookId : undefined,
@@ -67,12 +66,12 @@ export function NookMentionsPanel(props: NookMentionsPanelProps) {
 				}}
 				onMouseEnter={(e) => {
 					const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-					props.notePreview?.show(m.noteId, rect.left, rect.bottom, {
+					notePreview?.show(m.noteId, rect.left, rect.bottom, {
 						onOpen: crossNook ? undefined : () => handleClick(m),
 						nookId: crossNook ? m.nookId : undefined,
 					});
 				}}
-				onMouseLeave={() => props.notePreview?.hide()}
+				onMouseLeave={() => notePreview?.hide()}
 			>
 				<div class={styles.mentionTitle}>
 					{showLinkTitle ? m.linkTitle || m.noteTitle : m.noteTitle}

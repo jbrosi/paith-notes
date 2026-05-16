@@ -52,6 +52,15 @@ final class NookStatsController
         $stmt->execute([':nook_id' => $nookId]);
         $stats['total_conversations'] = (int) $stmt->fetchColumn();
 
+        $stmt = $pdo->prepare(
+            'SELECT COALESCE(SUM(nf.filesize), 0)
+             FROM global.note_files nf
+             JOIN global.notes n ON n.id = nf.note_id
+             WHERE n.nook_id = :nook_id'
+        );
+        $stmt->execute([':nook_id' => $nookId]);
+        $stats['total_file_size'] = (int) $stmt->fetchColumn();
+
         // Notes per type
         $stmt = $pdo->prepare(
             "SELECT COALESCE(t.label, '(untyped)') AS label, count(n.id) AS count

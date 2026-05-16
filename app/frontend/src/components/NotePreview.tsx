@@ -36,13 +36,15 @@ type PreviewState = {
 	data: NotePreviewData | null;
 	loading: boolean;
 	fading: boolean;
+	switching: boolean;
 	actions: PreviewAction[];
 	onOpen?: (noteId: string) => void;
 };
 
 const SHOW_DELAY = 350;
 const HIDE_DELAY = 250;
-const FADE_DURATION = 150;
+const FADE_DURATION = 200;
+const SWITCH_DURATION = 120;
 const cache = new Map<string, NotePreviewData>();
 
 /** Strip markdown formatting for a plain-text snippet */
@@ -152,7 +154,17 @@ export function createNotePreview(nookId: () => string) {
 		}
 
 		const doShow = () => {
-			void loadAndShow(id, x, y, opts);
+			if (cur?.data && !cur.fading) {
+				// Already showing a different note — cross-fade
+				setState({ ...cur, switching: true });
+				clearShowTimer();
+				showTimer = setTimeout(() => {
+					showTimer = null;
+					void loadAndShow(id, x, y, opts);
+				}, SWITCH_DURATION);
+			} else {
+				void loadAndShow(id, x, y, opts);
+			}
 		};
 
 		clearShowTimer();
@@ -176,6 +188,7 @@ export function createNotePreview(nookId: () => string) {
 			x,
 			y,
 			fading: false,
+			switching: false,
 			actions: opts?.actions ?? [],
 			onOpen: opts?.onOpen,
 		};
@@ -300,7 +313,7 @@ export function createNotePreview(nookId: () => string) {
 							{/* biome-ignore lint/a11y/noStaticElementInteractions: popover hover keeps preview open */}
 							<div
 								ref={overlayEl}
-								class={`${styles.overlay} ${s().fading ? styles.fadeOut : ""}`}
+								class={`${styles.overlay} ${s().fading ? styles.fadeOut : ""} ${s().switching ? styles.switching : ""}`}
 								style={{ left: `${left()}px`, top: `${top()}px` }}
 								onMouseEnter={cancelHide}
 								onMouseLeave={hide}

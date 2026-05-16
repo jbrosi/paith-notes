@@ -1,7 +1,10 @@
 import { marked } from "marked";
 import { createEffect, createSignal } from "solid-js";
-import { useNoteResolver } from "../pages/nook/NookContext";
-import type { NotePreviewController } from "../pages/nook/NookDefaultLayout";
+import {
+	type NotePreviewController,
+	useNotePreview,
+	useNoteResolver,
+} from "../pages/nook/NookContext";
 import styles from "./MarkdownView.module.css";
 
 /** Wiki-link: [[note:uuid]] or [[note:nookId/noteId]] */
@@ -113,6 +116,8 @@ export function MarkdownView(props: Props) {
 	const [html, setHtml] = createSignal("");
 	let containerEl: HTMLDivElement | undefined;
 	const resolver = useNoteResolver();
+	const ctxPreview = useNotePreview();
+	const preview = () => props.notePreview ?? ctxPreview;
 
 	createEffect(() => {
 		const raw = props.content;
@@ -173,26 +178,28 @@ export function MarkdownView(props: Props) {
 	let lastHoveredLink: Element | null = null;
 	const handleMouseOver = (e: MouseEvent) => {
 		const target = (e.target as HTMLElement).closest("a");
-		if (!target || !props.notePreview) return;
+		const p = preview();
+		if (!target || !p) return;
 		const parsed = parseNoteRef(target.getAttribute("href") ?? "");
 		if (!parsed) return;
 		if (target === lastHoveredLink) return; // same link, don't reposition
 		lastHoveredLink = target;
 		const rect = target.getBoundingClientRect();
-		props.notePreview.show(parsed.noteId, rect.left, rect.bottom, {
+		p.show(parsed.noteId, rect.left, rect.bottom, {
 			nookId: parsed.nookId || undefined,
 		});
 	};
 
 	const handleMouseOut = (e: MouseEvent) => {
 		const target = (e.target as HTMLElement).closest("a");
-		if (!target || !props.notePreview) return;
+		const p = preview();
+		if (!target || !p) return;
 		// Only hide if actually leaving the link (not entering a child)
 		const related = e.relatedTarget as HTMLElement | null;
 		if (related && target.contains(related)) return;
 		lastHoveredLink = null;
 		if (parseNoteRef(target.getAttribute("href") ?? "")) {
-			props.notePreview.hide();
+			p.hide();
 		}
 	};
 

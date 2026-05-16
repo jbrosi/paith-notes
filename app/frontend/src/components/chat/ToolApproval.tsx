@@ -1,5 +1,5 @@
 import { For } from "solid-js";
-import type { NotePreviewController } from "../../pages/nook/NookDefaultLayout";
+import type { NotePreviewController } from "../../pages/nook/NookContext";
 import { Button } from "../Button";
 import type { ToolUse } from "./ChatMessage";
 import styles from "./ToolApproval.module.css";

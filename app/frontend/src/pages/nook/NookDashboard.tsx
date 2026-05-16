@@ -3,6 +3,7 @@ import { apiFetch } from "../../auth/keycloak";
 import { Button } from "../../components/Button";
 import { NookNotesSearchDropdown } from "../../components/nav/NookNotesSearchDropdown";
 import { NookTypeFilterDropdown } from "../../components/nav/NookTypeFilterDropdown";
+import { useNotePreview } from "./NookContext";
 import styles from "./NookDashboard.module.css";
 import type { NookStore } from "./store";
 
@@ -11,6 +12,7 @@ type NookStats = {
 	total_types: number;
 	total_links: number;
 	total_mentions: number;
+	total_file_size: number;
 	notes_per_type: Array<{ label: string; count: string }>;
 	recently_edited: Array<{ id: string; title: string; updated_at: string }>;
 	most_linked: Array<{ id: string; title: string; link_count: string }>;
@@ -33,6 +35,7 @@ export type NookDashboardProps = {
 };
 
 export function NookDashboard(props: NookDashboardProps) {
+	const notePreview = useNotePreview();
 	const [stats, setStats] = createSignal<NookStats | null>(null);
 	const [loading, setLoading] = createSignal(false);
 
@@ -62,6 +65,17 @@ export function NookDashboard(props: NookDashboardProps) {
 
 	const openNote = (noteId: string) => {
 		void props.store.onNoteLinkClick(noteId);
+	};
+
+	const formatBytes = (bytes: number) => {
+		if (bytes === 0) return "0 B";
+		const units = ["B", "KB", "MB", "GB"];
+		const i = Math.min(
+			Math.floor(Math.log(bytes) / Math.log(1024)),
+			units.length - 1,
+		);
+		const value = bytes / 1024 ** i;
+		return `${value < 10 ? value.toFixed(1) : Math.round(value)} ${units[i]}`;
 	};
 
 	const formatDate = (iso: string) => {
@@ -156,6 +170,12 @@ export function NookDashboard(props: NookDashboardProps) {
 								<div class={styles.statValue}>{s().total_mentions}</div>
 								<div class={styles.statLabel}>Mentions</div>
 							</div>
+							<div class={styles.statCard}>
+								<div class={styles.statValue}>
+									{formatBytes(s().total_file_size)}
+								</div>
+								<div class={styles.statLabel}>Files</div>
+							</div>
 						</div>
 
 						<div class={styles.columns}>
@@ -168,6 +188,14 @@ export function NookDashboard(props: NookDashboardProps) {
 												type="button"
 												class={styles.noteItem}
 												onClick={() => openNote(note.id)}
+												onMouseEnter={(e) => {
+													if (!notePreview) return;
+													const rect = e.currentTarget.getBoundingClientRect();
+													notePreview.show(note.id, rect.left, rect.bottom, {
+														onOpen: (id) => openNote(id),
+													});
+												}}
+												onMouseLeave={() => notePreview?.hide()}
 											>
 												<span class={styles.noteTitle}>
 													{note.title || "(untitled)"}
@@ -190,6 +218,14 @@ export function NookDashboard(props: NookDashboardProps) {
 												type="button"
 												class={styles.noteItem}
 												onClick={() => openNote(note.id)}
+												onMouseEnter={(e) => {
+													if (!notePreview) return;
+													const rect = e.currentTarget.getBoundingClientRect();
+													notePreview.show(note.id, rect.left, rect.bottom, {
+														onOpen: (id) => openNote(id),
+													});
+												}}
+												onMouseLeave={() => notePreview?.hide()}
 											>
 												<span class={styles.noteTitle}>
 													{note.title || "(untitled)"}
