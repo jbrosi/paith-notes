@@ -1,9 +1,11 @@
+import { useNavigate } from "@solidjs/router";
 import { createEffect, createMemo, createSignal, Show } from "solid-js";
 import { NoteTypeSearchSelect } from "../../../components/NoteTypeSearchSelect";
 import type { NookStore } from "../store";
 import styles from "./TitleSection.module.css";
 
 export function TitleSection(props: { store: NookStore }) {
+	const navigate = useNavigate();
 	const [editingTitle, setEditingTitle] = createSignal(false);
 	let titleInputRef: HTMLInputElement | undefined;
 
@@ -104,6 +106,20 @@ export function TitleSection(props: { store: NookStore }) {
 							types={types()}
 							placeholder="(no type)"
 						/>
+					</Show>
+					<Show when={props.store.mode() === "view" && props.store.noteHistory().length > 0}>
+						<span
+							class={styles.versionBadge}
+							onClick={() => {
+								const nook = props.store.nookId();
+								if (nook) {
+									navigate(`/nooks/${encodeURIComponent(nook)}/settings/activity`);
+								}
+							}}
+							title="View full change history"
+						>
+							v{props.store.noteHistory()[0]?.version ?? 0}
+						</span>
 					</Show>
 				</div>
 			</div>

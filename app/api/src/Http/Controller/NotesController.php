@@ -129,7 +129,7 @@ final class NotesController
         $this->requireMember($pdo, $user, $nookId);
 
         $stmt = $pdo->prepare(
-            'select id, title, content, type, type_id, properties, former_properties, created_at '
+            'select id, title, content, type, type_id, properties, former_properties, version, created_at '
             . 'from global.notes where nook_id = :nook_id and id = :id'
         );
         $stmt->execute([':nook_id' => $nookId, ':id' => $noteId]);
@@ -151,6 +151,7 @@ final class NotesController
                 'type_id' => is_scalar($r['type_id'] ?? null) ? (string)$r['type_id'] : '',
                 'properties' => $properties === [] ? (object)[] : $properties,
                 'former_properties' => $formerProperties === [] ? (object)[] : $formerProperties,
+                'version' => (int)($r['version'] ?? 0),
                 'created_at' => is_scalar($r['created_at'] ?? null) ? (string)$r['created_at'] : '',
             ],
         ]);
@@ -372,11 +373,25 @@ final class NotesController
             }
         }
 
+        // Optimistic locking: if expected_version is provided, check it matches current
+        $expectedVersion = $data['expected_version'] ?? null;
+        if ($expectedVersion !== null && is_numeric($expectedVersion)) {
+            $vStmt = $pdo->prepare('select version from global.notes where id = :id and nook_id = :nook_id');
+            $vStmt->execute([':id' => $noteId, ':nook_id' => $nookId]);
+            $currentVersion = (int)$vStmt->fetchColumn();
+            if ($currentVersion !== (int)$expectedVersion) {
+                return JsonResponse::error('note was edited in the meantime', 409, [
+                    'current_version' => $currentVersion,
+                    'expected_version' => (int)$expectedVersion,
+                ]);
+            }
+        }
+
         try {
             $pdo->beginTransaction();
 
             $stmt = $pdo->prepare(
-                'update global.notes set title = :title, content = :content, type = :type, type_id = :type_id, properties = :properties, former_properties = :former_properties, updated_at = now() where id = :id and nook_id = :nook_id returning id, created_at, updated_at'
+                'update global.notes set title = :title, content = :content, type = :type, type_id = :type_id, properties = :properties, former_properties = :former_properties, updated_at = now() where id = :id and nook_id = :nook_id returning id, version, created_at, updated_at'
             );
             $stmt->execute([
                 ':id' => $noteId,
@@ -411,6 +426,7 @@ final class NotesController
                     'type_id' => is_string($typeId) ? $typeId : '',
                     'properties' => $properties === [] ? (object)[] : $properties,
                     'former_properties' => $formerProperties === [] ? (object)[] : $formerProperties,
+                    'version' => (int)($row['version'] ?? 0),
                     'created_at' => is_scalar($createdAt) ? (string)$createdAt : '',
                 ],
             ]);
@@ -565,6 +581,180 @@ final class NotesController
             'outgoing' => $outgoing,
             'incoming' => $incoming,
         ]);
+    }
+
+    public function historySnapshot(Request $request, Context $context): Response
+    {
+        $pdo = $context->pdo();
+        $user = $context->user();
+
+        $nookId = trim($request->routeParam('nookId'));
+        if ($nookId === '' || !self::isUuid($nookId)) {
+            throw new HttpError('nookId must be a UUID', 400);
+        }
+
+        $noteId = trim($request->routeParam('noteId'));
+        if ($noteId === '' || !self::isUuid($noteId)) {
+            throw new HttpError('noteId must be a UUID', 400);
+        }
+
+        $historyId = trim($request->routeParam('historyId'));
+        if ($historyId === '') {
+            throw new HttpError('historyId is required', 400);
+        }
+
+        $this->requireMember($pdo, $user, $nookId);
+
+        // historyId can be a numeric ID or "v{number}" for version lookup
+        if (str_starts_with($historyId, 'v') && ctype_digit(substr($historyId, 1))) {
+            $version = (int)substr($historyId, 1);
+            $stmt = $pdo->prepare(
+                'select am.id, am.version, am.action, am.actor, am.user_id, am.created_at,
+                        u.first_name, u.last_name, u.nickname,
+                        ad.data
+                 from global.audit_meta am
+                 join global.audit_data ad on ad.meta_id = am.id
+                 left join global.users u on u.id = am.user_id
+                 where am.version = :version
+                   and am.table_name = :table_name
+                   and am.table_id = :table_id
+                   and am.nook_id = :nook_id'
+            );
+            $stmt->execute([
+                ':version' => $version,
+                ':table_name' => 'notes',
+                ':table_id' => $noteId,
+                ':nook_id' => $nookId,
+            ]);
+        } elseif (ctype_digit($historyId)) {
+            $stmt = $pdo->prepare(
+                'select am.id, am.version, am.action, am.actor, am.user_id, am.created_at,
+                        u.first_name, u.last_name, u.nickname,
+                        ad.data
+                 from global.audit_meta am
+                 join global.audit_data ad on ad.meta_id = am.id
+                 left join global.users u on u.id = am.user_id
+                 where am.id = :history_id
+                   and am.table_name = :table_name
+                   and am.table_id = :table_id
+                   and am.nook_id = :nook_id'
+            );
+            $stmt->execute([
+                ':history_id' => (int)$historyId,
+                ':table_name' => 'notes',
+                ':table_id' => $noteId,
+                ':nook_id' => $nookId,
+            ]);
+        } else {
+            throw new HttpError('historyId must be numeric or v{number}', 400);
+        }
+        $r = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!is_array($r)) {
+            throw new HttpError('snapshot not found', 404);
+        }
+
+        $data = json_decode((string)($r['data'] ?? '{}'), true);
+        if (!is_array($data)) {
+            $data = [];
+        }
+
+        return JsonResponse::ok([
+            'snapshot' => [
+                'history_id' => (int)$r['id'],
+                'version' => (int)$r['version'],
+                'action' => (string)$r['action'],
+                'actor' => (string)($r['actor'] ?? 'user'),
+                'user_id' => (string)$r['user_id'],
+                'user_name' => trim(($r['nickname'] ?? '') !== '' ? (string)$r['nickname'] : ((string)($r['first_name'] ?? '') . ' ' . (string)($r['last_name'] ?? ''))),
+                'created_at' => (string)$r['created_at'],
+                'note' => [
+                    'id' => (string)($data['id'] ?? ''),
+                    'title' => (string)($data['title'] ?? ''),
+                    'content' => (string)($data['content'] ?? ''),
+                    'type' => (string)($data['type'] ?? 'anything'),
+                    'type_id' => (string)($data['type_id'] ?? ''),
+                    'properties' => is_array($data['properties'] ?? null) ? $data['properties'] : (object)[],
+                ],
+            ],
+        ]);
+    }
+
+    public function history(Request $request, Context $context): Response
+    {
+        $pdo = $context->pdo();
+        $user = $context->user();
+
+        $nookId = trim($request->routeParam('nookId'));
+        if ($nookId === '' || !self::isUuid($nookId)) {
+            throw new HttpError('nookId must be a UUID', 400);
+        }
+
+        $noteId = trim($request->routeParam('noteId'));
+        if ($noteId === '' || !self::isUuid($noteId)) {
+            throw new HttpError('noteId must be a UUID', 400);
+        }
+
+        $this->requireMember($pdo, $user, $nookId);
+
+        $stmt = $pdo->prepare(
+            "select am.id, am.version, am.action, am.actor, am.table_name, am.user_id, am.created_at,
+                    u.first_name, u.last_name, u.nickname,
+                    case when am.table_name in ('note_links', 'note_cross_links') then
+                        case when ad.data->>'source_note_id' = :note_id2 then ad.data->>'target_note_id'
+                             else ad.data->>'source_note_id' end
+                    end as linked_note_id,
+                    case when am.table_name in ('note_links', 'note_cross_links') then
+                        (select n.title from global.notes n where n.id = case
+                            when ad.data->>'source_note_id' = :note_id3 then (ad.data->>'target_note_id')::uuid
+                            else (ad.data->>'source_note_id')::uuid
+                        end)
+                    end as linked_note_title
+             from global.audit_meta_refs r
+             join global.audit_meta am on am.id = r.meta_id
+             left join global.audit_data ad on ad.meta_id = am.id
+             left join global.users u on u.id = am.user_id
+             where r.note_id = :note_id
+               and am.nook_id in (select nook_id from global.nook_members where user_id = :user_id)
+             order by r.meta_id desc
+             limit 10"
+        );
+        $stmt->execute([
+            ':note_id' => $noteId,
+            ':note_id2' => $noteId,
+            ':note_id3' => $noteId,
+            ':user_id' => $user['id'],
+        ]);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $history = [];
+        foreach ($rows as $r) {
+            if (!is_array($r)) {
+                continue;
+            }
+            $tableName = (string)($r['table_name'] ?? 'notes');
+            $isLink = $tableName === 'note_links' || $tableName === 'note_cross_links';
+            $entry = [
+                'id' => (int)$r['id'],
+                'version' => (int)$r['version'],
+                'action' => (string)$r['action'],
+                'actor' => (string)($r['actor'] ?? 'user'),
+                'type' => $isLink ? 'link' : 'note',
+                'user_id' => (string)$r['user_id'],
+                'user_name' => trim(($r['nickname'] ?? '') !== '' ? (string)$r['nickname'] : ((string)($r['first_name'] ?? '') . ' ' . (string)($r['last_name'] ?? ''))),
+                'created_at' => (string)$r['created_at'],
+            ];
+            if ($isLink) {
+                if (isset($r['linked_note_id']) && $r['linked_note_id'] !== null) {
+                    $entry['linked_note_id'] = (string)$r['linked_note_id'];
+                }
+                if (isset($r['linked_note_title']) && $r['linked_note_title'] !== null) {
+                    $entry['linked_note_title'] = (string)$r['linked_note_title'];
+                }
+            }
+            $history[] = $entry;
+        }
+
+        return JsonResponse::ok(['history' => $history]);
     }
 
     private function requireMember(PDO $pdo, array $user, string $nookId): array

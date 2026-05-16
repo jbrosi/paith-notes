@@ -61,6 +61,16 @@ final class NookStatsController
         $stmt->execute([':nook_id' => $nookId]);
         $stats['total_file_size'] = (int) $stmt->fetchColumn();
 
+        // Unlinked notes (no links and no mentions, either direction)
+        $stmt = $pdo->prepare(
+            'SELECT count(*) FROM global.notes n
+             WHERE n.nook_id = :nook_id
+               AND NOT EXISTS (SELECT 1 FROM global.note_links l WHERE l.source_note_id = n.id OR l.target_note_id = n.id)
+               AND NOT EXISTS (SELECT 1 FROM global.note_mentions m WHERE m.source_note_id = n.id OR m.target_note_id = n.id)'
+        );
+        $stmt->execute([':nook_id' => $nookId]);
+        $stats['unlinked_notes'] = (int) $stmt->fetchColumn();
+
         // Notes per type
         $stmt = $pdo->prepare(
             "SELECT COALESCE(t.label, '(untyped)') AS label, count(n.id) AS count
@@ -112,6 +122,54 @@ final class NookStatsController
         $stats['most_mentioned'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
         return JsonResponse::ok(['stats' => $stats]);
+    }
+
+    public function unlinkedNotes(Request $request, Context $context): Response
+    {
+        $pdo = $context->pdo();
+        $user = $context->user();
+
+        $nookId = trim($request->routeParam('nookId'));
+        if ($nookId === '' || !self::isUuid($nookId)) {
+            throw new HttpError('nookId must be a UUID', 400);
+        }
+
+        $this->requireMember($pdo, $user, $nookId);
+
+        $limitRaw = $request->queryParam('limit');
+        $limit = min(50, max(1, $limitRaw !== '' ? (int)$limitRaw : 30));
+        $offsetRaw = $request->queryParam('offset');
+        $offset = $offsetRaw !== '' ? max(0, (int)$offsetRaw) : 0;
+
+        $stmt = $pdo->prepare(
+            'SELECT n.id, n.title, n.type, n.type_id, n.created_at, n.updated_at
+             FROM global.notes n
+             WHERE n.nook_id = :nook_id
+               AND NOT EXISTS (SELECT 1 FROM global.note_links l WHERE l.source_note_id = n.id OR l.target_note_id = n.id)
+               AND NOT EXISTS (SELECT 1 FROM global.note_mentions m WHERE m.source_note_id = n.id OR m.target_note_id = n.id)
+             ORDER BY n.updated_at DESC
+             LIMIT :limit OFFSET :offset'
+        );
+        $stmt->bindValue(':nook_id', $nookId);
+        $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
+        $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
+        $stmt->execute();
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $notes = [];
+        foreach ($rows as $r) {
+            if (!is_array($r)) continue;
+            $notes[] = [
+                'id' => (string)$r['id'],
+                'title' => (string)$r['title'],
+                'type' => (string)($r['type'] ?? 'anything'),
+                'type_id' => (string)($r['type_id'] ?? ''),
+                'created_at' => (string)$r['created_at'],
+                'updated_at' => (string)$r['updated_at'],
+            ];
+        }
+
+        return JsonResponse::ok(['notes' => $notes]);
     }
 
     private static function isUuid(string $value): bool

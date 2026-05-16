@@ -1,4 +1,5 @@
 import { For, Show } from "solid-js";
+import { ActorLabel } from "../../../components/ActorLabel";
 import type { PreviewAction } from "../../../components/NotePreview";
 import { useNotePreview } from "../NookContext";
 import css from "../NookNoteLinksPanel.module.css";
@@ -78,6 +79,11 @@ export function LinkList(props: Props) {
 									<Show when={l.startDate !== "" || l.endDate !== ""}>
 										<div class={css.linkDates}>
 											{l.startDate || "(no start)"} → {l.endDate || "(no end)"}
+										</div>
+									</Show>
+									<Show when={l.lastUserName || l.lastActor === "ai"}>
+										<div style={{ "font-size": "0.7rem", color: "var(--color-text-muted, #999)", "margin-top": "2px" }}>
+											<ActorLabel actor={l.lastActor} userName={l.lastUserName} />
 										</div>
 									</Show>
 								</div>

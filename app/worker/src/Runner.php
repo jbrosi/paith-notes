@@ -23,10 +23,14 @@ final class Runner
         }
 
         $connect = static function () use ($cfg): PDO {
-            return new PDO($cfg['dsn'], $cfg['user'], $cfg['pass'], [
+            $pdo = new PDO($cfg['dsn'], $cfg['user'], $cfg['pass'], [
                 PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
                 PDO::ATTR_TIMEOUT => 2,
             ]);
+            // Set audit user to the well-known system user for worker operations.
+            $pdo->exec("select set_config('app.user_id', 'deadc0ff-ee00-4000-8000-000000000000', false)");
+            $pdo->exec("select set_config('app.actor', 'system', false)");
+            return $pdo;
         };
 
         // Ensure DB schema once at worker startup (not on every job poll).

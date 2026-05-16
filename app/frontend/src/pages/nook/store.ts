@@ -5,9 +5,10 @@ import {
 	rankNotesByQuery,
 	resolveTypeIdForTerm,
 } from "../../noteSearch";
-import type { Mention, Note, NoteSummary, NoteType } from "./types";
+import type { Mention, Note, NoteHistoryEntry, NoteSummary, NoteType } from "./types";
 import {
 	MentionsResponseSchema,
+	NoteHistoryResponseSchema,
 	NoteResponseSchema,
 	NoteTypeNotesResponseSchema,
 	NoteTypeResponseSchema,
@@ -153,6 +154,23 @@ export function createNookStore(nookId: () => string) {
 		createSignal<boolean>(false);
 	const [outgoingMentions, setOutgoingMentions] = createSignal<Mention[]>([]);
 	const [incomingMentions, setIncomingMentions] = createSignal<Mention[]>([]);
+	const [noteVersion, setNoteVersion] = createSignal<number>(0);
+	const [conflictError, setConflictError] = createSignal<{
+		currentVersion: number;
+		expectedVersion: number;
+	} | null>(null);
+	const [noteHistory, setNoteHistory] = createSignal<NoteHistoryEntry[]>([]);
+	const [selectedVersion, setSelectedVersion] = createSignal<number | null>(null);
+	const [snapshotData, setSnapshotData] = createSignal<{
+		historyId: number;
+		version: number;
+		action: string;
+		actor: string;
+		userName: string;
+		createdAt: string;
+		title: string;
+		content: string;
+	} | null>(null);
 	const [fileUploadInProgress, setFileUploadInProgress] =
 		createSignal<boolean>(false);
 
@@ -535,6 +553,68 @@ export function createNookStore(nookId: () => string) {
 		}
 	};
 
+	const loadHistory = async () => {
+		if (nookId() === "") return;
+		const noteId = selectedId();
+		if (noteId === "") {
+			setNoteHistory([]);
+			return;
+		}
+
+		try {
+			const res = await apiFetch(
+				`/api/nooks/${nookId()}/notes/${noteId}/history`,
+				{ method: "GET" },
+			);
+			if (!res.ok) return;
+			const json = await res.json();
+			const body = NoteHistoryResponseSchema.parse(json);
+			setNoteHistory(body.history);
+		} catch {
+			setNoteHistory([]);
+		}
+	};
+
+	const viewVersion = async (versionOrHistoryId: number, byVersion = false) => {
+		const noteId = selectedId();
+		if (nookId() === "" || noteId === "") return;
+
+		const param = byVersion ? `v${versionOrHistoryId}` : String(versionOrHistoryId);
+		try {
+			const res = await apiFetch(
+				`/api/nooks/${nookId()}/notes/${noteId}/history/${param}`,
+				{ method: "GET" },
+			);
+			if (!res.ok) return;
+			const json = (await res.json()) as {
+				snapshot?: {
+					history_id: number;
+					version: number;
+					action: string;
+					actor: string;
+					user_name: string;
+					created_at: string;
+					note: { title: string; content: string };
+				};
+			};
+			const s = json?.snapshot;
+			if (!s) return;
+			setSelectedVersion(s.version);
+			setSnapshotData({
+				historyId: s.history_id,
+				version: s.version,
+				action: s.action,
+				actor: s.actor,
+				userName: s.user_name,
+				createdAt: s.created_at,
+				title: s.note.title,
+				content: s.note.content,
+			});
+		} catch {
+			// best-effort
+		}
+	};
+
 	const uploadEmbeddedImage = async (file: File) => {
 		if (nookId() === "") return null;
 		setError("");
@@ -688,6 +768,7 @@ export function createNookStore(nookId: () => string) {
 		await loadNotes({ reset: true });
 		if (id === "") return;
 		await loadMentions();
+		void loadHistory();
 		void loadNoteDetail(id);
 	};
 
@@ -758,12 +839,15 @@ export function createNookStore(nookId: () => string) {
 			setTitleIsManual(true);
 		}
 		setFormerProperties(note.formerProperties ?? {});
+		setNoteVersion(note.version ?? 0);
 		setError("");
 		setMentionTargetId("");
 		setMentionEmbedImage(false);
 	};
 
 	const selectNote = (note: NoteSummary) => {
+		setSelectedVersion(null);
+		setSnapshotData(null);
 		setSelectedId(note.id);
 		setTypeId(String(note.typeId ?? "").trim());
 		setTitle(note.title);
@@ -788,6 +872,7 @@ export function createNookStore(nookId: () => string) {
 		setMentionTargetId("");
 		setMentionEmbedImage(false);
 		void loadMentions();
+		void loadHistory();
 		void loadNoteDetail(note.id);
 	};
 
@@ -904,6 +989,7 @@ export function createNookStore(nookId: () => string) {
 	};
 
 	const saveNote = async () => {
+		setConflictError(null);
 		if (!isEditing()) return;
 		const noteType = type();
 		const t = title().trim();
@@ -952,6 +1038,7 @@ export function createNookStore(nookId: () => string) {
 				setSelectedId(body.note.id);
 				applyNoteDetail(body.note);
 				await loadMentions();
+				void loadHistory();
 			} else {
 				const res = await apiFetch(`/api/nooks/${nookId()}/notes/${id}`, {
 					method: "PUT",
@@ -963,8 +1050,17 @@ export function createNookStore(nookId: () => string) {
 						content: content(),
 						type_id: typeId(),
 						...(properties ? { properties } : {}),
+						...(noteVersion() > 0 ? { expected_version: noteVersion() } : {}),
 					}),
 				});
+				if (res.status === 409) {
+					const body = (await res.json()) as { current_version?: number; expected_version?: number };
+					setConflictError({
+						currentVersion: body?.current_version ?? 0,
+						expectedVersion: body?.expected_version ?? noteVersion(),
+					});
+					return;
+				}
 				if (!res.ok) {
 					throw new Error(
 						`Failed to update note: ${res.status} ${res.statusText}`,
@@ -981,12 +1077,22 @@ export function createNookStore(nookId: () => string) {
 				setSelectedId(body.note.id);
 				applyNoteDetail(body.note);
 				await loadMentions();
+				void loadHistory();
 			}
 		} catch (e) {
 			setError(String(e));
 		} finally {
 			setLoading(false);
 		}
+	};
+
+	/** Accept the conflict: update local version to latest so next save will succeed */
+	const resolveConflict = () => {
+		const conflict = conflictError();
+		if (conflict) {
+			setNoteVersion(conflict.currentVersion);
+		}
+		setConflictError(null);
 	};
 
 	const deleteNote = async () => {
@@ -1323,6 +1429,18 @@ export function createNookStore(nookId: () => string) {
 		loadMoreNotes,
 		refreshCurrentNote,
 		loadMentions,
+		noteHistory,
+		loadHistory,
+		selectedVersion,
+		setSelectedVersion: (v: number | null) => {
+			setSelectedVersion(v);
+			if (v === null) setSnapshotData(null);
+		},
+		snapshotData,
+		viewVersion,
+		noteVersion,
+		conflictError,
+		resolveConflict,
 		newNote,
 		selectNote,
 		onNoteLinkClick,

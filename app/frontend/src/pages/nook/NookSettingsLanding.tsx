@@ -11,6 +11,8 @@ export type NookSettingsLandingProps = {
 	onClose: () => void;
 	onOpenLinks: () => void;
 	onOpenTypes: () => void;
+	onOpenActivity?: () => void;
+	onOpenUnlinked?: () => void;
 	onNameSaved?: (name: string) => void;
 };
 
@@ -475,6 +477,12 @@ export function NookSettingsLanding(props: NookSettingsLandingProps) {
 					</Button>
 					<Button variant="secondary" size="small" onClick={props.onOpenTypes}>
 						Types settings
+					</Button>
+					<Button variant="secondary" size="small" onClick={props.onOpenActivity}>
+						Activity
+					</Button>
+					<Button variant="secondary" size="small" onClick={props.onOpenUnlinked}>
+						Unlinked notes
 					</Button>
 				</div>
 			</div>

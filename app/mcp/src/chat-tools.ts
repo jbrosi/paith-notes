@@ -28,16 +28,17 @@ export const TOOLS: Anthropic.Tool[] = [
   },
   {
     name: 'update_note',
-    description: 'Update an existing note. Only include fields you want to change — omitted fields keep their current values.',
+    description: 'Update an existing note. Only include fields you want to change — omitted fields keep their current values. You MUST pass expected_version (from reading the note) to detect concurrent edits. If the version has changed, the update will fail with a 409 conflict.',
     input_schema: {
       type: 'object',
       properties: {
-        note_id:    { type: 'string' },
-        title:      { type: 'string', description: 'New title. Omit to keep existing title.' },
-        content:    { type: 'string', description: 'Note content in markdown. To link to another note use [[note:<full_uuid>]] with the complete UUID (never shorten) — the title is resolved automatically. To embed a file note as an image use ![Note Title](note:<full_uuid>).' },
-        properties: { type: 'object' },
+        note_id:          { type: 'string' },
+        expected_version: { type: 'number', description: 'The version number from when you last read the note. Required to prevent overwriting concurrent edits.' },
+        title:            { type: 'string', description: 'New title. Omit to keep existing title.' },
+        content:          { type: 'string', description: 'Note content in markdown. To link to another note use [[note:<full_uuid>]] with the complete UUID (never shorten) — the title is resolved automatically. To embed a file note as an image use ![Note Title](note:<full_uuid>).' },
+        properties:       { type: 'object' },
       },
-      required: ['note_id'],
+      required: ['note_id', 'expected_version'],
     },
   },
   {

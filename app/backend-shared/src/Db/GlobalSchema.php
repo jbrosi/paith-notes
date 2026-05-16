@@ -432,6 +432,271 @@ final class GlobalSchema
 
             $pdo->exec('create index if not exists nook_access_revocations_user_id_idx on global.nook_access_revocations (user_id)');
             $pdo->exec('create index if not exists nook_access_revocations_nook_id_idx on global.nook_access_revocations (nook_id)');
+
+            // ─── User Events ─────────────────────────────────────────────────────────────
+
+            $pdo->exec("
+                create table if not exists global.user_events (
+                    id bigserial primary key,
+                    user_id uuid not null,
+                    event text not null,
+                    meta jsonb not null default '{}'::jsonb,
+                    created_at timestamptz not null default now()
+                );
+            ");
+
+            $pdo->exec('create index if not exists user_events_user_id_idx on global.user_events (user_id, id desc)');
+            $pdo->exec('create index if not exists user_events_created_at_idx on global.user_events (created_at desc)');
+
+            // ─── Cross-Nook Links ────────────────────────────────────────────────────────
+
+            $pdo->exec("
+                create table if not exists global.note_cross_links (
+                    id uuid primary key default gen_random_uuid(),
+                    source_nook_id uuid not null references global.nooks(id) on delete cascade,
+                    target_nook_id uuid not null references global.nooks(id) on delete cascade,
+                    source_note_id uuid not null references global.notes(id) on delete cascade,
+                    target_note_id uuid not null references global.notes(id) on delete cascade,
+                    label text not null default '',
+                    history_id bigint null,
+                    version int not null default 0
+                );
+            ");
+
+            $pdo->exec('create index if not exists note_cross_links_source_nook_idx on global.note_cross_links (source_nook_id)');
+            $pdo->exec('create index if not exists note_cross_links_target_nook_idx on global.note_cross_links (target_nook_id)');
+            $pdo->exec('create index if not exists note_cross_links_source_note_idx on global.note_cross_links (source_note_id)');
+            $pdo->exec('create index if not exists note_cross_links_target_note_idx on global.note_cross_links (target_note_id)');
+
+            // ─── Audit Log ───────────────────────────────────────────────────────────────
+
+            $pdo->exec("do \$\$ begin
+                create type global.audit_action as enum ('INSERT', 'UPDATE', 'DELETE');
+            exception
+                when duplicate_object then null;
+            end \$\$;");
+
+            // Meta table: lightweight, never pruned. Records who changed what, when.
+            $pdo->exec("
+                create table if not exists global.audit_meta (
+                    id bigserial primary key,
+                    prev_id bigint null,
+                    nook_id uuid null,
+                    table_name text not null,
+                    table_id uuid not null,
+                    action global.audit_action not null,
+                    user_id uuid not null,
+                    trx_id bigint not null default txid_current(),
+                    created_at timestamptz not null default now()
+                );
+            ");
+
+            $pdo->exec('alter table global.audit_meta add column if not exists nook_id uuid null');
+            $pdo->exec("alter table global.audit_meta add column if not exists actor text not null default 'user'");
+
+            $pdo->exec('alter table global.audit_meta add column if not exists version int not null default 1');
+
+            $pdo->exec('create index if not exists audit_meta_table_id_idx on global.audit_meta (table_name, table_id, id desc)');
+            $pdo->exec('create index if not exists audit_meta_user_id_idx on global.audit_meta (user_id, id desc)');
+            $pdo->exec('create index if not exists audit_meta_created_at_idx on global.audit_meta (created_at desc)');
+            $pdo->exec('create index if not exists audit_meta_nook_id_idx on global.audit_meta (nook_id, id desc)');
+
+            // Data table: holds the full row snapshot. Can be pruned for older entries.
+            $pdo->exec("
+                create table if not exists global.audit_data (
+                    meta_id bigint primary key references global.audit_meta(id) on delete cascade,
+                    data jsonb,
+                    diff jsonb
+                );
+            ");
+
+            // Refs table: maps audit entries to related note IDs for efficient "history for note X" queries.
+            $pdo->exec("
+                create table if not exists global.audit_meta_refs (
+                    meta_id bigint not null references global.audit_meta(id) on delete cascade,
+                    note_id uuid not null,
+                    primary key (meta_id, note_id)
+                );
+            ");
+
+            $pdo->exec('create index if not exists audit_meta_refs_note_id_idx on global.audit_meta_refs (note_id, meta_id desc)');
+
+            // Add history_id to all audited tables
+            // Tables with uuid primary key that get full audit tracking.
+            $auditedTables = ['notes', 'note_types', 'note_links', 'note_cross_links', 'link_predicates', 'nooks', 'note_files', 'nook_invitations', 'users'];
+
+            // nook_members: add uuid id column so it can be audited
+            $pdo->exec("alter table global.nook_members add column if not exists id uuid default gen_random_uuid()");
+            $pdo->exec("do \$\$ begin
+                if not exists (
+                    select 1 from pg_constraint where conname = 'nook_members_id_unique'
+                    and conrelid = 'global.nook_members'::regclass
+                ) then
+                    alter table global.nook_members add constraint nook_members_id_unique unique (id);
+                end if;
+            end \$\$;");
+
+            // link_predicate_rules: add uuid id column so it can be audited
+            $pdo->exec("alter table global.link_predicate_rules add column if not exists uuid_id uuid default gen_random_uuid()");
+            $pdo->exec("do \$\$ begin
+                if not exists (
+                    select 1 from pg_constraint where conname = 'link_predicate_rules_uuid_id_unique'
+                    and conrelid = 'global.link_predicate_rules'::regclass
+                ) then
+                    alter table global.link_predicate_rules add constraint link_predicate_rules_uuid_id_unique unique (uuid_id);
+                end if;
+            end \$\$;");
+
+            // These tables also need history_id + triggers but use a different id column
+            $pdo->exec("alter table global.nook_members add column if not exists history_id bigint null");
+            $pdo->exec("alter table global.nook_members add column if not exists version int not null default 0");
+            $pdo->exec("alter table global.link_predicate_rules add column if not exists history_id bigint null");
+            $pdo->exec("alter table global.link_predicate_rules add column if not exists version int not null default 0");
+            foreach ($auditedTables as $table) {
+                $pdo->exec("alter table global.{$table} add column if not exists history_id bigint null");
+                $pdo->exec("alter table global.{$table} add column if not exists version int not null default 0");
+            }
+
+            // Trigger function: records audit meta + data, sets history_id on the row
+            $pdo->exec("
+                create or replace function global.audit_trigger_fn()
+                    returns trigger
+                    language plpgsql as \$fn\$
+                declare
+                    v_user_id uuid;
+                    v_actor text;
+                    v_prev_id bigint;
+                    v_meta_id bigint;
+                    v_nook_id uuid;
+                    v_table_id uuid;
+                    v_version int;
+                    v_row jsonb;
+                begin
+                    -- Require app.user_id to be set (allows nil UUID for system/anonymous)
+                    begin
+                        v_user_id := current_setting('app.user_id')::uuid;
+                    exception when others then
+                        raise exception 'app.user_id must be set for audit trigger (table: %)', TG_TABLE_NAME using errcode = '20808';
+                    end;
+
+                    -- Read actor (defaults to 'user' if not set)
+                    begin
+                        v_actor := coalesce(nullif(current_setting('app.actor', true), ''), 'user');
+                    exception when others then
+                        v_actor := 'user';
+                    end;
+
+                    if (TG_OP = 'UPDATE') then
+                        if row(NEW.*) is not distinct from row(OLD.*) then
+                            return NEW;
+                        end if;
+                        v_prev_id := OLD.history_id;
+                    elsif (TG_OP = 'DELETE') then
+                        v_prev_id := OLD.history_id;
+                    else
+                        v_prev_id := null;
+                    end if;
+
+                    v_row := case TG_OP when 'DELETE' then to_jsonb(OLD.*) else to_jsonb(NEW.*) end;
+
+                    -- Extract table_id (the uuid identifying this row)
+                    if TG_TABLE_NAME = 'note_files' then
+                        v_table_id := (v_row ->> 'note_id')::uuid;
+                    elsif TG_TABLE_NAME = 'link_predicate_rules' then
+                        v_table_id := (v_row ->> 'uuid_id')::uuid;
+                    else
+                        v_table_id := (v_row ->> 'id')::uuid;
+                    end if;
+
+                    -- Extract nook_id
+                    if TG_TABLE_NAME = 'nooks' then
+                        v_nook_id := (v_row ->> 'id')::uuid;
+                    elsif TG_TABLE_NAME = 'note_files' then
+                        select nook_id into v_nook_id from global.notes where id = v_table_id;
+                    elsif TG_TABLE_NAME = 'link_predicate_rules' then
+                        select nook_id into v_nook_id from global.link_predicates where id = (v_row ->> 'predicate_id')::uuid;
+                    elsif TG_TABLE_NAME = 'note_cross_links' then
+                        v_nook_id := (v_row ->> 'source_nook_id')::uuid;
+                    elsif TG_TABLE_NAME in ('users') then
+                        v_nook_id := null;
+                    else
+                        v_nook_id := (v_row ->> 'nook_id')::uuid;
+                    end if;
+
+                    -- Version: increment from the row itself (no lookup needed)
+                    if (TG_OP = 'INSERT') then
+                        v_version := 1;
+                    else
+                        v_version := OLD.version + 1;
+                    end if;
+
+                    insert into global.audit_meta (prev_id, nook_id, table_name, table_id, action, user_id, actor, version)
+                    values (
+                        v_prev_id,
+                        v_nook_id,
+                        TG_TABLE_NAME,
+                        v_table_id,
+                        TG_OP::global.audit_action,
+                        v_user_id,
+                        v_actor,
+                        v_version
+                    )
+                    returning id into v_meta_id;
+
+                    insert into global.audit_data (meta_id, data)
+                    values (
+                        v_meta_id,
+                        v_row - 'history_id'
+                    );
+
+                    -- Populate audit_meta_refs for note-related changes
+                    if TG_TABLE_NAME = 'notes' then
+                        insert into global.audit_meta_refs (meta_id, note_id) values (v_meta_id, v_table_id);
+                    elsif TG_TABLE_NAME = 'note_links' then
+                        insert into global.audit_meta_refs (meta_id, note_id)
+                        values (v_meta_id, (v_row ->> 'source_note_id')::uuid);
+                        insert into global.audit_meta_refs (meta_id, note_id)
+                        values (v_meta_id, (v_row ->> 'target_note_id')::uuid)
+                        on conflict do nothing;
+                    elsif TG_TABLE_NAME = 'note_cross_links' then
+                        insert into global.audit_meta_refs (meta_id, note_id)
+                        values (v_meta_id, (v_row ->> 'source_note_id')::uuid);
+                        insert into global.audit_meta_refs (meta_id, note_id)
+                        values (v_meta_id, (v_row ->> 'target_note_id')::uuid)
+                        on conflict do nothing;
+                    elsif TG_TABLE_NAME = 'note_files' then
+                        insert into global.audit_meta_refs (meta_id, note_id) values (v_meta_id, (v_row ->> 'note_id')::uuid);
+                    end if;
+
+                    if (TG_OP = 'DELETE') then
+                        return OLD;
+                    end if;
+
+                    NEW.history_id := v_meta_id;
+                    NEW.version := v_version;
+                    return NEW;
+                end;
+                \$fn\$;
+            ");
+
+            // Attach triggers to all audited tables (including the ones with adapted PKs)
+            $allAuditedTables = array_merge($auditedTables, ['nook_members', 'link_predicate_rules']);
+            foreach ($allAuditedTables as $table) {
+                $triggerName = "audit_{$table}_trg";
+                $pdo->exec("
+                    do \$\$ begin
+                        if not exists (
+                            select 1 from pg_trigger where tgname = '{$triggerName}'
+                            and tgrelid = 'global.{$table}'::regclass
+                        ) then
+                            create trigger {$triggerName}
+                                before insert or update or delete on global.{$table}
+                                for each row execute function global.audit_trigger_fn();
+                        end if;
+                    end \$\$;
+                ");
+            }
+
         } finally {
             $pdo->exec("select pg_advisory_unlock(hashtext('paith_notes_global_schema_ensure'))");
         }

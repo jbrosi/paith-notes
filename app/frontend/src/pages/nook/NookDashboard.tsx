@@ -1,4 +1,6 @@
+import { A } from "@solidjs/router";
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
+import { ActorLabel } from "../../components/ActorLabel";
 import { apiFetch } from "../../auth/keycloak";
 import { Button } from "../../components/Button";
 import { NookNotesSearchDropdown } from "../../components/nav/NookNotesSearchDropdown";
@@ -13,6 +15,7 @@ type NookStats = {
 	total_links: number;
 	total_mentions: number;
 	total_file_size: number;
+	unlinked_notes: number;
 	notes_per_type: Array<{ label: string; count: string }>;
 	recently_edited: Array<{ id: string; title: string; updated_at: string }>;
 	most_linked: Array<{ id: string; title: string; link_count: string }>;
@@ -34,10 +37,25 @@ export type NookDashboardProps = {
 	onSettings?: () => void;
 };
 
+type ActivityEntry = {
+	id: number;
+	version: number;
+	action: string;
+	actor: string;
+	table_name: string;
+	table_id: string;
+	nook_id: string;
+	user_id: string;
+	user_name: string;
+	note_title?: string;
+	created_at: string;
+};
+
 export function NookDashboard(props: NookDashboardProps) {
 	const notePreview = useNotePreview();
 	const [stats, setStats] = createSignal<NookStats | null>(null);
 	const [loading, setLoading] = createSignal(false);
+	const [recentActivity, setRecentActivity] = createSignal<ActivityEntry[]>([]);
 
 	const nookId = () => props.store.nookId();
 
@@ -49,12 +67,18 @@ export function NookDashboard(props: NookDashboardProps) {
 		setLoading(true);
 		void (async () => {
 			try {
-				const res = await apiFetch(`/api/nooks/${id}/stats`, {
-					method: "GET",
-				});
-				if (!res.ok) return;
-				const body = (await res.json()) as { stats?: NookStats };
-				if (body.stats) setStats(body.stats);
+				const [statsRes, actRes] = await Promise.all([
+					apiFetch(`/api/nooks/${id}/stats`, { method: "GET" }),
+					apiFetch(`/api/nooks/${id}/activity?limit=7`, { method: "GET" }),
+				]);
+				if (statsRes.ok) {
+					const body = (await statsRes.json()) as { stats?: NookStats };
+					if (body.stats) setStats(body.stats);
+				}
+				if (actRes.ok) {
+					const body = (await actRes.json()) as { activity?: ActivityEntry[] };
+					setRecentActivity(body?.activity ?? []);
+				}
 			} catch {
 				// best-effort
 			} finally {
@@ -176,36 +200,64 @@ export function NookDashboard(props: NookDashboardProps) {
 								</div>
 								<div class={styles.statLabel}>Files</div>
 							</div>
+							<Show when={s().unlinked_notes > 0}>
+								<A
+									href={`/nooks/${encodeURIComponent(nookId())}/settings/unlinked`}
+									class={styles.statCard}
+									style={{ "text-decoration": "none", color: "inherit" }}
+								>
+									<div class={styles.statValue} style={{ color: "var(--color-warning, #f59e0b)" }}>
+										{s().unlinked_notes}
+									</div>
+									<div class={styles.statLabel}>Unlinked</div>
+								</A>
+							</Show>
 						</div>
 
 						<div class={styles.columns}>
-							<Show when={s().recently_edited.length > 0}>
+							<Show when={recentActivity().length > 0}>
 								<div class={styles.column}>
-									<div class={styles.columnTitle}>Recently edited</div>
-									<For each={s().recently_edited}>
-										{(note) => (
-											<button
-												type="button"
-												class={styles.noteItem}
-												onClick={() => openNote(note.id)}
-												onMouseEnter={(e) => {
-													if (!notePreview) return;
-													const rect = e.currentTarget.getBoundingClientRect();
-													notePreview.show(note.id, rect.left, rect.bottom, {
-														onOpen: (id) => openNote(id),
-													});
-												}}
-												onMouseLeave={() => notePreview?.hide()}
-											>
-												<span class={styles.noteTitle}>
-													{note.title || "(untitled)"}
-												</span>
-												<span class={styles.noteMeta}>
-													{formatDate(note.updated_at)}
-												</span>
-											</button>
-										)}
+									<div class={styles.columnTitle}>Recent activity</div>
+									<For each={recentActivity()}>
+										{(entry) => {
+											const actionLabel = entry.action === "INSERT" ? "created" : entry.action === "UPDATE" ? "edited" : entry.action === "DELETE" ? "deleted" : entry.action.toLowerCase();
+											const isNote = entry.table_name === "notes" && entry.table_id;
+											return (
+												<div class={styles.noteItem} style={{ cursor: isNote ? "pointer" : "default" }}>
+													<span
+														class={styles.noteTitle}
+														style={{ display: "flex", gap: "4px", "align-items": "baseline" }}
+														onClick={() => isNote && openNote(entry.table_id)}
+														onMouseEnter={(e) => {
+															if (!isNote || !notePreview) return;
+															const rect = e.currentTarget.getBoundingClientRect();
+															notePreview.show(entry.table_id, rect.left, rect.bottom, {
+																onOpen: (id) => openNote(id),
+															});
+														}}
+														onMouseLeave={() => notePreview?.hide()}
+													>
+														<span style={{ "font-size": "0.75rem" }}>
+														<ActorLabel actor={entry.actor} userName={entry.user_name} />
+													</span>{" "}
+														<span style={{ "font-size": "0.8rem" }}>
+															{actionLabel}{" "}
+															{isNote ? (entry.note_title || "note") : entry.table_name.replace("_", " ")}
+														</span>
+													</span>
+													<span class={styles.noteMeta}>
+														{formatDate(entry.created_at)}
+													</span>
+												</div>
+											);
+										}}
 									</For>
+									<A
+										href={`/nooks/${encodeURIComponent(nookId())}/settings/activity`}
+										style={{ "font-size": "0.75rem", "margin-top": "6px", display: "inline-block", color: "var(--link-color, #0066cc)", "text-decoration": "none" }}
+									>
+										View all activity
+									</A>
 								</div>
 							</Show>
 

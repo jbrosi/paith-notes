@@ -5,6 +5,7 @@ import { AuthProvider } from "./auth/AuthContext";
 import { RequireAuth } from "./auth/RequireAuth";
 import About from "./pages/About.tsx";
 import Home from "./pages/Home.tsx";
+import MyActivity from "./pages/MyActivity.tsx";
 import Nook from "./pages/Nook.tsx";
 import NooksRedirect from "./pages/NooksRedirect.tsx";
 import "./styles/theme.css";
@@ -21,6 +22,14 @@ if (root) {
 					<Router root={App}>
 						<Route path="/" component={Home} />
 						<Route path="/about" component={About} />
+						<Route
+							path="/me/activity"
+							component={() => (
+								<RequireAuth redirectTo="/me/activity">
+									<MyActivity />
+								</RequireAuth>
+							)}
+						/>
 						<Route
 							path="/notes"
 							component={() => (
