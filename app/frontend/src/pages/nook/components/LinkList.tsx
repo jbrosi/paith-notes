@@ -1,6 +1,6 @@
 import { For, Show } from "solid-js";
 import type { PreviewAction } from "../../../components/NotePreview";
-import type { NotePreviewController } from "../NookDefaultLayout";
+import { useNotePreview } from "../NookContext";
 import css from "../NookNoteLinksPanel.module.css";
 import type { NoteLink } from "../types";
 
@@ -8,12 +8,12 @@ type Props = {
 	links: NoteLink[];
 	noteId: string;
 	isEditing: boolean;
-	notePreview?: NotePreviewController;
 	onOpenNote: (id: string) => void;
 	onDeleteLink: (linkId: string) => void;
 };
 
 export function LinkList(props: Props) {
+	const notePreview = useNotePreview();
 	const otherNoteId = (l: NoteLink) =>
 		l.sourceNoteId === props.noteId ? l.targetNoteId : l.sourceNoteId;
 
@@ -53,7 +53,7 @@ export function LinkList(props: Props) {
 											onClick: () => props.onDeleteLink(l.id),
 										});
 									}
-									props.notePreview?.show(otherId, rect.left, rect.bottom, {
+									notePreview?.show(otherId, rect.left, rect.bottom, {
 										immediate: true,
 										onOpen: (id) => props.onOpenNote(id),
 										actions,
@@ -63,11 +63,11 @@ export function LinkList(props: Props) {
 									const rect = (
 										e.currentTarget as HTMLElement
 									).getBoundingClientRect();
-									props.notePreview?.show(otherId, rect.left, rect.bottom, {
+									notePreview?.show(otherId, rect.left, rect.bottom, {
 										onOpen: (id) => props.onOpenNote(id),
 									});
 								}}
-								onMouseLeave={() => props.notePreview?.hide()}
+								onMouseLeave={() => notePreview?.hide()}
 								class={css.linkBtn}
 							>
 								<div class={css.linkContent}>

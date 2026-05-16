@@ -23,7 +23,7 @@ type PendingApproval = {
 	contextNoteType?: string;
 };
 
-import type { NotePreviewController } from "../../pages/nook/NookDefaultLayout";
+import type { NotePreviewController } from "../../pages/nook/NookContext";
 
 type Props = {
 	/** AI memory nook ID — conversations are stored here */

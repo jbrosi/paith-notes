@@ -1,5 +1,5 @@
 import { For, Show } from "solid-js";
-import type { NotePreviewController } from "../../pages/nook/NookDefaultLayout";
+import type { NotePreviewController } from "../../pages/nook/NookContext";
 import { MarkdownView } from "../MarkdownView";
 import styles from "./ChatMessage.module.css";
 
