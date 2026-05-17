@@ -1,7 +1,6 @@
 import { useNavigate } from "@solidjs/router";
 import { For, Show } from "solid-js";
 import { useNotePreview, useNoteResolver } from "./NookContext";
-import styles from "./NookMentionsPanel.module.css";
 import type { Mention, NoteSummary } from "./types";
 
 export type NookMentionsPanelProps = {
@@ -16,11 +15,6 @@ export function NookMentionsPanel(props: NookMentionsPanelProps) {
 	const notePreview = useNotePreview();
 	const navigate = useNavigate();
 	const resolver = useNoteResolver();
-
-	const noteTypeLabel = (noteId: string) => {
-		const t = props.notes.find((n) => n.id === noteId)?.type;
-		return t === "person" ? "Person" : t === "file" ? "File" : "Note";
-	};
 
 	const isCrossNook = (m: Mention) =>
 		m.nookId !== "" && m.nookId !== props.nookId;
@@ -43,95 +37,67 @@ export function NookMentionsPanel(props: NookMentionsPanelProps) {
 	const renderMention = (m: Mention, showLinkTitle: boolean) => {
 		const crossNook = isCrossNook(m);
 		const nook = nookLabel(m);
+		const title = showLinkTitle ? m.linkTitle || m.noteTitle : m.noteTitle;
+
 		return (
-			<button
-				type="button"
-				class={`${styles.mentionBtn} ${crossNook ? styles.crossNook : ""}`}
-				onClick={(e) => {
-					const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-					const actions = crossNook
-						? [
-								{
-									label: `Open in ${nook}`,
-									onClick: () => handleClick(m),
-								},
-							]
-						: [];
-					notePreview?.show(m.noteId, rect.left, rect.bottom, {
-						immediate: true,
-						onOpen: crossNook ? undefined : () => handleClick(m),
-						nookId: crossNook ? m.nookId : undefined,
-						actions,
-					});
-				}}
-				onMouseEnter={(e) => {
-					const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-					notePreview?.show(m.noteId, rect.left, rect.bottom, {
-						onOpen: crossNook ? undefined : () => handleClick(m),
-						nookId: crossNook ? m.nookId : undefined,
-					});
-				}}
-				onMouseLeave={() => notePreview?.hide()}
-			>
-				<div class={styles.mentionTitle}>
-					{showLinkTitle ? m.linkTitle || m.noteTitle : m.noteTitle}
-				</div>
-				<div class={styles.mentionMeta}>
-					<Show when={showLinkTitle && m.linkTitle}>
-						<div class={styles.mentionSubtitle}>{m.noteTitle}</div>
-					</Show>
-					<Show when={!showLinkTitle && m.linkTitle}>
-						<div class={styles.mentionSubtitle}>{m.linkTitle}</div>
-					</Show>
-					<span class={styles.typeBadge}>{noteTypeLabel(m.noteId)}</span>
-				</div>
-				<Show when={crossNook}>
-					<div class={styles.crossNookLabel}>
-						<svg
-							aria-hidden="true"
-							width="12"
-							height="12"
-							viewBox="0 0 24 24"
-							fill="none"
-							stroke="currentColor"
-							stroke-width="2"
-							stroke-linecap="round"
-							stroke-linejoin="round"
-						>
-							<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-							<polyline points="15 3 21 3 21 9" />
-							<line x1="10" y1="14" x2="21" y2="3" />
-						</svg>
-						{nook}
-					</div>
+			<div style={{ padding: "3px 0", "font-size": "0.8rem", display: "flex", "align-items": "baseline", gap: "4px", "flex-wrap": "wrap" }}>
+				<span
+					style={{
+						color: "var(--link-color, #0066cc)",
+						cursor: "pointer",
+						"font-weight": "500",
+					}}
+					onClick={() => handleClick(m)}
+					onMouseEnter={(e) => {
+						const rect = e.currentTarget.getBoundingClientRect();
+						notePreview?.show(m.noteId, rect.left, rect.bottom, {
+							onOpen: crossNook ? undefined : () => handleClick(m),
+							nookId: crossNook ? m.nookId : undefined,
+						});
+					}}
+					onMouseLeave={() => notePreview?.hide()}
+				>
+					{title}
+				</span>
+				<Show when={showLinkTitle && m.linkTitle && m.noteTitle !== m.linkTitle}>
+					<span style={{ color: "var(--color-text-faint)", "font-size": "0.7rem" }}>
+						({m.noteTitle})
+					</span>
 				</Show>
-			</button>
+				<Show when={crossNook}>
+					<span style={{ color: "var(--color-text-faint)", "font-size": "0.65rem" }}>
+						in {nook}
+					</span>
+				</Show>
+			</div>
 		);
 	};
 
 	return (
-		<div class={styles.container}>
-			<div class={styles.title}>Mentions</div>
-			<div class={styles.columns}>
-				<div class={styles.column}>
-					<div class={styles.columnTitle}>Outgoing</div>
-					<Show
-						when={props.outgoing.length > 0}
-						fallback={<div class={styles.empty}>None</div>}
-					>
-						<For each={props.outgoing}>{(m) => renderMention(m, true)}</For>
-					</Show>
+		<Show when={props.outgoing.length > 0 || props.incoming.length > 0}>
+			<div style={{ "margin-top": "0.75rem" }}>
+				<div style={{ "font-weight": "600", "font-size": "0.85rem", color: "var(--color-text-secondary)", "margin-bottom": "6px" }}>
+					Mentions
 				</div>
-				<div class={styles.column}>
-					<div class={styles.columnTitle}>Incoming</div>
-					<Show
-						when={props.incoming.length > 0}
-						fallback={<div class={styles.empty}>None</div>}
-					>
-						<For each={props.incoming}>{(m) => renderMention(m, false)}</For>
+				<div style={{ display: "flex", gap: "16px" }}>
+					<Show when={props.outgoing.length > 0}>
+						<div style={{ flex: "1", "min-width": "0" }}>
+							<div style={{ color: "var(--color-text-muted)", "font-size": "0.7rem", "font-weight": "500", "text-transform": "uppercase", "letter-spacing": "0.03em", "margin-bottom": "2px" }}>
+								Outgoing
+							</div>
+							<For each={props.outgoing}>{(m) => renderMention(m, true)}</For>
+						</div>
+					</Show>
+					<Show when={props.incoming.length > 0}>
+						<div style={{ flex: "1", "min-width": "0" }}>
+							<div style={{ color: "var(--color-text-muted)", "font-size": "0.7rem", "font-weight": "500", "text-transform": "uppercase", "letter-spacing": "0.03em", "margin-bottom": "2px" }}>
+								Incoming
+							</div>
+							<For each={props.incoming}>{(m) => renderMention(m, false)}</For>
+						</div>
 					</Show>
 				</div>
 			</div>
-		</div>
+		</Show>
 	);
 }

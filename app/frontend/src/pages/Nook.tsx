@@ -16,6 +16,7 @@ import { useUi } from "../ui/UiContext";
 import { useNook } from "./nook/NookContext";
 import { NookActivityFeed } from "./nook/NookActivityFeed";
 import { NookDefaultLayout } from "./nook/NookDefaultLayout";
+import { NookNoteHistoryPage } from "./nook/NookNoteHistoryPage";
 import { NookUnlinkedNotes } from "./nook/NookUnlinkedNotes";
 import { NookGraphPanel } from "./nook/NookGraphPanel";
 import { NookLinksPanel } from "./nook/NookLinksPanel";
@@ -143,7 +144,7 @@ export default function Nook() {
 	);
 
 	const selectedNoteIdFromPath = createMemo(() => {
-		const m = normalizedSubPath().match(/^notes\/([^/]+?)(?:\/v\/\d+)?$/);
+		const m = normalizedSubPath().match(/^notes\/([^/]+?)(?:\/v\/\d+|\/history)?$/);
 		return m?.[1] ? String(m[1]) : "";
 	});
 
@@ -151,6 +152,10 @@ export default function Nook() {
 		const m = normalizedSubPath().match(/^notes\/[^/]+\/v\/(\d+)$/);
 		return m?.[1] ? Number(m[1]) : null;
 	});
+
+	const showNoteHistory = createMemo(() =>
+		/^notes\/[^/]+\/history$/.test(normalizedSubPath()),
+	);
 
 	// URL → store: URL is the single source of truth for which note is selected.
 	// The store never drives navigation — only follows the URL.
@@ -258,23 +263,30 @@ export default function Nook() {
 										when={showTypesSettings()}
 										fallback={
 											<Show
-												when={isGraphFullscreen()}
+												when={showNoteHistory()}
 												fallback={
-													<NookDefaultLayout
-														nookId={nookId()}
-														store={store}
-														showGraph={ui.graphPanelOpen()}
-														onSettings={() =>
-															navigate(
-																`/nooks/${encodeURIComponent(nookId())}/settings`,
-															)
+													<Show
+														when={isGraphFullscreen()}
+														fallback={
+															<NookDefaultLayout
+																nookId={nookId()}
+																store={store}
+																showGraph={ui.graphPanelOpen()}
+																onSettings={() =>
+																	navigate(
+																		`/nooks/${encodeURIComponent(nookId())}/settings`,
+																	)
+																}
+															/>
 														}
-													/>
+													>
+														<div style={{ width: "100%" }}>
+															<NookGraphPanel store={store} fullscreen={true} />
+														</div>
+													</Show>
 												}
 											>
-												<div style={{ width: "100%" }}>
-													<NookGraphPanel store={store} fullscreen={true} />
-												</div>
+												<NookNoteHistoryPage store={store} />
 											</Show>
 										}
 									>

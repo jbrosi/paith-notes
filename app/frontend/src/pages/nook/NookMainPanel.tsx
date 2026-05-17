@@ -7,7 +7,6 @@ import { useUi } from "../../ui/UiContext";
 import notesStyles from "../Notes.module.css";
 import { EditorSection } from "./components/EditorSection";
 import { FilePanel } from "./components/FilePanel";
-import { NoteHistory } from "./components/NoteHistory";
 import { TitleSection } from "./components/TitleSection";
 import { NookToolbar } from "./NookToolbar";
 import type { NookStore } from "./store";
@@ -181,9 +180,6 @@ export function NookMainPanel(props: NookMainPanelProps) {
 					<TitleSection store={store()} />
 					<FilePanel store={store()} />
 					<EditorSection store={store()} />
-					<Show when={store().selectedId() !== "" && ui.mode() === "view"}>
-						<NoteHistory store={store()} />
-					</Show>
 				</div>
 			</Show>
 		</>

@@ -1,8 +1,7 @@
 import { For, Show } from "solid-js";
 import { ActorLabel } from "../../../components/ActorLabel";
-import type { PreviewAction } from "../../../components/NotePreview";
+import { TimeAgo } from "../../../components/TimeAgo";
 import { useNotePreview } from "../NookContext";
-import css from "../NookNoteLinksPanel.module.css";
 import type { NoteLink } from "../types";
 
 type Props = {
@@ -30,68 +29,88 @@ export function LinkList(props: Props) {
 	};
 
 	return (
-		<div>
-			<div class={css.sectionTitle}>Existing links</div>
-			<Show
-				when={props.links.length > 0}
-				fallback={<div class={css.emptyText}>(none)</div>}
-			>
+		<Show
+			when={props.links.length > 0}
+			fallback={
+				<div style={{ color: "var(--color-text-faint)", "font-size": "0.8rem" }}>
+					No links yet
+				</div>
+			}
+		>
+			<div>
 				<For each={props.links}>
 					{(l) => {
 						const otherId = otherNoteId(l);
 						return (
-							<button
-								type="button"
-								onClick={(e) => {
-									const rect = (
-										e.currentTarget as HTMLElement
-									).getBoundingClientRect();
-									const actions: PreviewAction[] = [];
-									if (props.isEditing) {
-										actions.push({
-											label: "Remove link",
-											danger: true,
-											onClick: () => props.onDeleteLink(l.id),
+							<div style={{
+								padding: "4px 0",
+								"font-size": "0.8rem",
+								display: "flex",
+								"align-items": "baseline",
+								gap: "4px",
+								"flex-wrap": "wrap",
+							}}>
+								<span style={{ color: "var(--color-text-muted)" }}>
+									{directionLabel(l)}
+								</span>
+								<span
+									style={{
+										color: "var(--link-color, #0066cc)",
+										cursor: "pointer",
+										"font-weight": "500",
+									}}
+									onClick={() => props.onOpenNote(otherId)}
+									onMouseEnter={(e) => {
+										const rect = e.currentTarget.getBoundingClientRect();
+										notePreview?.show(otherId, rect.left, rect.bottom, {
+											onOpen: (id) => props.onOpenNote(id),
 										});
-									}
-									notePreview?.show(otherId, rect.left, rect.bottom, {
-										immediate: true,
-										onOpen: (id) => props.onOpenNote(id),
-										actions,
-									});
-								}}
-								onMouseEnter={(e) => {
-									const rect = (
-										e.currentTarget as HTMLElement
-									).getBoundingClientRect();
-									notePreview?.show(otherId, rect.left, rect.bottom, {
-										onOpen: (id) => props.onOpenNote(id),
-									});
-								}}
-								onMouseLeave={() => notePreview?.hide()}
-								class={css.linkBtn}
-							>
-								<div class={css.linkContent}>
-									<div>
-										<strong>{directionLabel(l)}</strong>{" "}
-										{titleForLink(l, otherId)}
-									</div>
-									<Show when={l.startDate !== "" || l.endDate !== ""}>
-										<div class={css.linkDates}>
-											{l.startDate || "(no start)"} → {l.endDate || "(no end)"}
-										</div>
-									</Show>
-									<Show when={l.lastUserName || l.lastActor === "ai"}>
-										<div style={{ "font-size": "0.7rem", color: "var(--color-text-muted, #999)", "margin-top": "2px" }}>
-											<ActorLabel actor={l.lastActor} userName={l.lastUserName} />
-										</div>
-									</Show>
-								</div>
-							</button>
+									}}
+									onMouseLeave={() => notePreview?.hide()}
+								>
+									{titleForLink(l, otherId)}
+								</span>
+								<Show when={l.startDate !== "" || l.endDate !== ""}>
+									<span style={{ color: "var(--color-text-faint)", "font-size": "0.7rem" }}>
+										{l.startDate || "?"} → {l.endDate || "?"}
+									</span>
+								</Show>
+								<Show when={l.lastUserName || l.lastActor === "ai"}>
+									<span style={{ "font-size": "0.65rem", color: "var(--color-text-muted)" }}>
+										<ActorLabel actor={l.lastActor} userName={l.lastUserName} />
+									</span>
+								</Show>
+								<Show when={l.createdAt}>
+									<span style={{ "font-size": "0.65rem" }}>
+										<TimeAgo date={l.createdAt ?? ""} />
+									</span>
+								</Show>
+								<Show when={props.isEditing}>
+									<button
+										type="button"
+										onClick={() => {
+											if (window.confirm("Remove this link?")) {
+												props.onDeleteLink(l.id);
+											}
+										}}
+										style={{
+											background: "none",
+											border: "none",
+											color: "var(--color-danger, #dc2626)",
+											cursor: "pointer",
+											"font-size": "0.7rem",
+											padding: "0 2px",
+										}}
+										title="Remove link"
+									>
+										&times;
+									</button>
+								</Show>
+							</div>
 						);
 					}}
 				</For>
-			</Show>
-		</div>
+			</div>
+		</Show>
 	);
 }

@@ -966,6 +966,7 @@ export function Nav() {
 													{
 														content: "Note",
 														links: "Links",
+														history: "History",
 														graph: "Graph",
 														markdown: "MD",
 													}[ui.activePanel()]
@@ -979,6 +980,7 @@ export function Nav() {
 													[
 														["content", "Note"],
 														["links", "Links & Mentions"],
+														["history", "History"],
 														["graph", "Graph"],
 														["markdown", "Markdown Source"],
 													] as const

@@ -708,7 +708,13 @@ final class NotesController
                             when ad.data->>'source_note_id' = :note_id3 then (ad.data->>'target_note_id')::uuid
                             else (ad.data->>'source_note_id')::uuid
                         end)
-                    end as linked_note_title
+                    end as linked_note_title,
+                    case when am.table_name = 'note_links' and ad.data->>'predicate_id' is not null then
+                        case when ad.data->>'source_note_id' = :note_id4
+                            then (select forward_label from global.link_predicates where id = (ad.data->>'predicate_id')::uuid)
+                            else (select reverse_label from global.link_predicates where id = (ad.data->>'predicate_id')::uuid)
+                        end
+                    end as link_label
              from global.audit_meta_refs r
              join global.audit_meta am on am.id = r.meta_id
              left join global.audit_data ad on ad.meta_id = am.id
@@ -722,6 +728,7 @@ final class NotesController
             ':note_id' => $noteId,
             ':note_id2' => $noteId,
             ':note_id3' => $noteId,
+            ':note_id4' => $noteId,
             ':user_id' => $user['id'],
         ]);
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -749,6 +756,9 @@ final class NotesController
                 }
                 if (isset($r['linked_note_title']) && $r['linked_note_title'] !== null) {
                     $entry['linked_note_title'] = (string)$r['linked_note_title'];
+                }
+                if (isset($r['link_label']) && $r['link_label'] !== null) {
+                    $entry['link_label'] = (string)$r['link_label'];
                 }
             }
             $history[] = $entry;

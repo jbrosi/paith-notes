@@ -39,10 +39,16 @@ final class ActivityController
         $stmt = $pdo->prepare(
             "select am.id, am.version, am.action, am.table_name, am.table_id, am.nook_id, am.user_id, am.actor, am.created_at,
                     u.first_name, u.last_name, u.nickname,
-                    n.title as note_title
+                    n.title as note_title,
+                    ad.data->>'source_note_id' as link_source_id,
+                    ad.data->>'target_note_id' as link_target_id,
+                    (select title from global.notes where id = (ad.data->>'source_note_id')::uuid) as link_source_title,
+                    (select title from global.notes where id = (ad.data->>'target_note_id')::uuid) as link_target_title,
+                    (select forward_label from global.link_predicates where id = (ad.data->>'predicate_id')::uuid) as link_forward_label
              from global.audit_meta am
              left join global.users u on u.id = am.user_id
              left join global.notes n on n.id = am.table_id and am.table_name = 'notes'
+             left join global.audit_data ad on ad.meta_id = am.id and am.table_name in ('note_links', 'note_cross_links')
              where {$whereClause}
              order by am.id desc
              limit :limit"
@@ -99,10 +105,16 @@ final class ActivityController
             "select am.id, am.version, am.action, am.table_name, am.table_id, am.nook_id, am.created_at,
                     am.user_id, am.actor,
                     u.first_name, u.last_name, u.nickname,
-                    n.title as note_title
+                    n.title as note_title,
+                    ad.data->>'source_note_id' as link_source_id,
+                    ad.data->>'target_note_id' as link_target_id,
+                    (select title from global.notes where id = (ad.data->>'source_note_id')::uuid) as link_source_title,
+                    (select title from global.notes where id = (ad.data->>'target_note_id')::uuid) as link_target_title,
+                    (select forward_label from global.link_predicates where id = (ad.data->>'predicate_id')::uuid) as link_forward_label
              from global.audit_meta am
              left join global.users u on u.id = am.user_id
              left join global.notes n on n.id = am.table_id and am.table_name = 'notes'
+             left join global.audit_data ad on ad.meta_id = am.id and am.table_name in ('note_links', 'note_cross_links')
              where {$whereClause}
              order by am.id desc
              limit :limit"
@@ -144,6 +156,21 @@ final class ActivityController
             ];
             if (isset($r['note_title']) && $r['note_title'] !== null) {
                 $entry['note_title'] = (string)$r['note_title'];
+            }
+            if (isset($r['link_source_title']) && $r['link_source_title'] !== null) {
+                $entry['link_source_title'] = (string)$r['link_source_title'];
+            }
+            if (isset($r['link_target_title']) && $r['link_target_title'] !== null) {
+                $entry['link_target_title'] = (string)$r['link_target_title'];
+            }
+            if (isset($r['link_source_id']) && $r['link_source_id'] !== null) {
+                $entry['link_source_id'] = (string)$r['link_source_id'];
+            }
+            if (isset($r['link_target_id']) && $r['link_target_id'] !== null) {
+                $entry['link_target_id'] = (string)$r['link_target_id'];
+            }
+            if (isset($r['link_forward_label']) && $r['link_forward_label'] !== null) {
+                $entry['link_forward_label'] = (string)$r['link_forward_label'];
             }
             $activity[] = $entry;
         }

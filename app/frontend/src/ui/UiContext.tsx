@@ -6,11 +6,12 @@ import {
 	useContext,
 } from "solid-js";
 
-export type MobilePanel = "content" | "links" | "graph" | "markdown";
+export type MobilePanel = "content" | "links" | "history" | "graph" | "markdown";
 
 export const MOBILE_PANELS: MobilePanel[] = [
 	"content",
 	"links",
+	"history",
 	"graph",
 	"markdown",
 ];

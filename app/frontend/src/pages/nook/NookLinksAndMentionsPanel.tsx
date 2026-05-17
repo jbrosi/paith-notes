@@ -1,5 +1,4 @@
 import { Show } from "solid-js";
-import styles from "../../App.module.css";
 import { login } from "../../auth/keycloak";
 import { NookMentionsPanel } from "./NookMentionsPanel";
 import { NookNoteLinksPanel } from "./NookNoteLinksPanel";
@@ -14,23 +13,30 @@ export function NookLinksAndMentionsPanel(
 ) {
 	const store = () => props.store;
 
+	const hasMentions = () =>
+		store().outgoingMentions().length > 0 || store().incomingMentions().length > 0;
+
 	return (
 		<>
 			<Show when={store().selectedId() !== ""}>
+				<hr style={{ border: "none", "border-top": "1px solid var(--color-border-light, #eee)", margin: "0.75rem 0" }} />
 				<NookNoteLinksPanel store={store()} />
 			</Show>
 
-			<NookMentionsPanel
-				nookId={store().nookId()}
-				notes={store().allNotes()}
-				outgoing={store().outgoingMentions()}
-				incoming={store().incomingMentions()}
-				onOpenNote={(id) => void store().onNoteLinkClick(id)}
-			/>
+			<Show when={hasMentions()}>
+				<hr style={{ border: "none", "border-top": "1px solid var(--color-border-light, #eee)", margin: "0.75rem 0" }} />
+				<NookMentionsPanel
+					nookId={store().nookId()}
+					notes={store().allNotes()}
+					outgoing={store().outgoingMentions()}
+					incoming={store().incomingMentions()}
+					onOpenNote={(id) => void store().onNoteLinkClick(id)}
+				/>
+			</Show>
 
 			<Show when={store().needsLogin()}>
 				<div style={{ "margin-top": "1rem" }}>
-					<p class={styles.subtitle}>
+					<p style={{ color: "var(--color-text-muted)", "font-size": "0.8rem" }}>
 						Your session timed out. Please log in again.
 					</p>
 					<button type="button" onClick={() => login()}>
@@ -40,7 +46,7 @@ export function NookLinksAndMentionsPanel(
 			</Show>
 
 			<Show when={store().error() !== ""}>
-				<pre class={styles.error}>{store().error()}</pre>
+				<pre style={{ color: "var(--color-danger)", "white-space": "pre-wrap", "font-size": "0.75rem" }}>{store().error()}</pre>
 			</Show>
 		</>
 	);

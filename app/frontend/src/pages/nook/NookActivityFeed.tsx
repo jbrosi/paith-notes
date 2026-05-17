@@ -1,6 +1,5 @@
-import { A } from "@solidjs/router";
 import { createSignal, For, Show, onMount } from "solid-js";
-import { ActorLabel } from "../../components/ActorLabel";
+import { ActivityEntryRow, type ActivityEntryData } from "../../components/ActivityEntryRow";
 import { apiFetch } from "../../auth/keycloak";
 import { createNotePreview } from "../../components/NotePreview";
 import { Button } from "../../components/Button";
@@ -16,6 +15,11 @@ type ActivityEntry = {
 	user_id: string;
 	user_name: string;
 	note_title?: string;
+	link_source_id?: string;
+	link_target_id?: string;
+	link_source_title?: string;
+	link_target_title?: string;
+	link_forward_label?: string;
 	created_at: string;
 };
 
@@ -59,32 +63,12 @@ export function NookActivityFeed(props: Props) {
 		void loadMore();
 	});
 
-	const formatDate = (iso: string) => {
-		try {
-			const d = new Date(iso);
-			return d.toLocaleDateString(undefined, {
-				day: "numeric",
-				month: "short",
-				hour: "2-digit",
-				minute: "2-digit",
-			});
-		} catch {
-			return iso;
-		}
-	};
-
-	const actionLabel = (action: string) => {
-		if (action === "INSERT") return "created";
-		if (action === "UPDATE") return "edited";
-		if (action === "DELETE") return "deleted";
-		return action.toLowerCase();
-	};
-
 	const tableLabel = (name: string) => {
 		const map: Record<string, string> = {
 			notes: "note",
 			note_types: "type",
 			note_links: "link",
+			note_cross_links: "cross-link",
 			link_predicates: "predicate",
 			nooks: "nook",
 			note_files: "file",
@@ -94,65 +78,61 @@ export function NookActivityFeed(props: Props) {
 		return map[name] || name;
 	};
 
-	const noteLink = (entry: ActivityEntry) => {
-		if (entry.table_name === "notes" && entry.nook_id && entry.table_id) {
-			return `/nooks/${encodeURIComponent(entry.nook_id)}/notes/${encodeURIComponent(entry.table_id)}`;
+	const toEntryData = (entry: ActivityEntry): ActivityEntryData => {
+		const isNote = entry.table_name === "notes";
+		const isLink = entry.table_name === "note_links" || entry.table_name === "note_cross_links";
+		if (isLink) {
+			return {
+				actor: entry.actor,
+				userName: entry.user_name,
+				action: entry.action,
+				type: "link",
+				linkLabel: entry.link_forward_label || "→",
+				linkSourceTitle: entry.link_source_title || "?",
+				linkSourceId: entry.link_source_id,
+				linkTargetTitle: entry.link_target_title || "?",
+				linkTargetId: entry.link_target_id,
+				createdAt: entry.created_at,
+			};
 		}
-		return null;
+		return {
+			actor: entry.actor,
+			userName: entry.user_name,
+			action: entry.action,
+			type: isNote ? "note" : tableLabel(entry.table_name),
+			linkedNoteTitle: isNote ? (entry.note_title || undefined) : undefined,
+			linkedNoteId: isNote ? entry.table_id : undefined,
+			version: isNote ? entry.version : undefined,
+			createdAt: entry.created_at,
+		};
+	};
+
+	const handleNoteHover = (noteId: string, x: number, y: number) => {
+		notePreview.show(noteId, x, y, { nookId: props.nookId });
 	};
 
 	return (
 		<>
 			<notePreview.PreviewPopover />
 			<div style={{ padding: "1.5rem", "max-width": "600px" }}>
-				<div style={{ display: "flex", "align-items": "center", "justify-content": "space-between", "margin-bottom": "1rem" }}>
-					<h3 style={{ margin: "0", "font-size": "1.1rem" }}>Activity</h3>
+				<div style={{ display: "flex", "align-items": "center", "justify-content": "space-between", "margin-bottom": "0.5rem" }}>
+					<h3 style={{ margin: "0", "font-size": "1.1rem" }}>Nook Activity</h3>
 					<Button variant="secondary" size="small" onClick={props.onClose}>
-						Close
+						Back to dashboard
 					</Button>
 				</div>
 
 				<div>
 					<For each={activity()}>
 						{(entry) => (
-							<div style={{
-								padding: "6px 0",
-								"border-bottom": "1px solid var(--border-color, #eee)",
-								"font-size": "0.85rem",
-								display: "flex",
-								"align-items": "baseline",
-								gap: "6px",
-								"flex-wrap": "wrap",
-							}}>
-								<span style={{ "font-weight": "500", color: "var(--text-muted, #666)" }}>
-									<ActorLabel actor={entry.actor} userName={entry.user_name} />
-								</span>
-								<span>{actionLabel(entry.action)}</span>
-								{(() => {
-									const link = noteLink(entry);
-									if (link) {
-										return (
-											<A
-												href={link}
-												style={{ color: "var(--link-color, #0066cc)", "text-decoration": "none" }}
-												onMouseEnter={(e) => {
-													const rect = e.currentTarget.getBoundingClientRect();
-													notePreview.show(entry.table_id, rect.left, rect.bottom, {
-														nookId: entry.nook_id,
-													});
-												}}
-												onMouseLeave={() => notePreview.hide()}
-											>
-												{entry.note_title || tableLabel(entry.table_name)}
-											</A>
-										);
-									}
-									return <span>{tableLabel(entry.table_name)}</span>;
-								})()}
-								<span style={{ color: "var(--text-muted, #aaa)", "font-size": "0.75rem" }}>
-									v{entry.version} &middot; {formatDate(entry.created_at)}
-								</span>
-							</div>
+							<ActivityEntryRow
+								entry={toEntryData(entry)}
+								buildNoteHref={(noteId) =>
+									`/nooks/${encodeURIComponent(props.nookId)}/notes/${encodeURIComponent(noteId)}`
+								}
+								onNoteHover={handleNoteHover}
+								onNoteLeave={() => notePreview.hide()}
+							/>
 						)}
 					</For>
 				</div>

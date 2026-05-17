@@ -112,8 +112,9 @@ export function TitleSection(props: { store: NookStore }) {
 							class={styles.versionBadge}
 							onClick={() => {
 								const nook = props.store.nookId();
-								if (nook) {
-									navigate(`/nooks/${encodeURIComponent(nook)}/settings/activity`);
+								const noteId = props.store.selectedId();
+								if (nook && noteId) {
+									navigate(`/nooks/${encodeURIComponent(nook)}/notes/${encodeURIComponent(noteId)}/history`);
 								}
 							}}
 							title="View full change history"

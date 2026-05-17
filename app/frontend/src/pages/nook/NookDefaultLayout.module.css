@@ -26,6 +26,11 @@
 	display: none;
 }
 
+/* History panel — visible on desktop (sits after links in the flow) */
+.panelHistory {
+	display: block;
+}
+
 .layout[data-active-panel="markdown"] .panelMarkdown {
 	display: block;
 	flex: 1;
@@ -58,7 +63,8 @@
 	.panelContent,
 	.panelLinks,
 	.panelGraph,
-	.panelMarkdown {
+	.panelMarkdown,
+	.panelHistory {
 		display: none;
 	}
 
@@ -68,6 +74,10 @@
 	}
 
 	.layout[data-active-panel="links"] .panelLinks {
+		display: block;
+	}
+
+	.layout[data-active-panel="history"] .panelHistory {
 		display: block;
 	}
 

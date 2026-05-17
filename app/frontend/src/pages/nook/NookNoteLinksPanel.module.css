@@ -1,29 +1,30 @@
 .container {
-	margin-top: 12px;
-	padding: 8px 10px;
-	border: 1px solid var(--color-border-light);
-	border-radius: 8px;
-	background: var(--color-bg-secondary);
+	margin-top: 0.75rem;
 }
 
 .header {
 	display: flex;
 	justify-content: space-between;
+	align-items: center;
+	margin-bottom: 6px;
 }
 
 .title {
 	font-weight: 600;
+	font-size: 0.8rem;
+	color: var(--color-text-secondary);
 }
 
 .error {
 	color: var(--color-danger);
 	white-space: pre-wrap;
+	font-size: 0.75rem;
 }
 
 .content {
 	display: flex;
 	flex-direction: column;
-	gap: 10px;
+	gap: 6px;
 }
 
 .formGrid {
@@ -34,35 +35,41 @@
 
 .formInput {
 	width: 100%;
-	padding: 6px;
+	padding: 5px 8px;
 	background: var(--color-bg);
 	color: inherit;
 	border: 1px solid var(--color-border);
 	border-radius: 4px;
+	font-size: 0.8rem;
 }
 
 .sectionTitle {
 	font-weight: 600;
-	margin-bottom: 6px;
+	font-size: 0.75rem;
+	color: var(--color-text-muted);
+	margin-bottom: 4px;
 }
 
 .emptyText {
-	color: var(--color-text-muted);
+	color: var(--color-text-faint);
+	font-size: 0.8rem;
 }
 
 .linkBtn {
 	display: flex;
 	width: 100%;
 	text-align: left;
-	gap: 8px;
+	gap: 6px;
 	align-items: center;
-	padding: 6px;
-	border: 1px solid var(--color-border);
-	border-radius: 6px;
-	margin-bottom: 6px;
-	background: var(--color-bg);
+	padding: 4px 6px;
+	border: none;
+	border-bottom: 1px solid var(--color-border-light);
+	border-radius: 0;
+	margin-bottom: 0;
+	background: none;
 	cursor: pointer;
 	font: inherit;
+	font-size: 0.8rem;
 	color: inherit;
 }
 
@@ -70,11 +77,16 @@
 	background: var(--color-bg-hover);
 }
 
+.linkBtn:last-child {
+	border-bottom: none;
+}
+
 .linkContent {
 	flex: 1;
+	min-width: 0;
 }
 
 .linkDates {
 	color: var(--color-text-muted);
-	font-size: 12px;
+	font-size: 0.7rem;
 }
