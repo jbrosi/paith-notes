@@ -1,5 +1,4 @@
 import { Show } from "solid-js";
-import { login } from "../../auth/keycloak";
 import { NookMentionsPanel } from "./NookMentionsPanel";
 import { NookNoteLinksPanel } from "./NookNoteLinksPanel";
 import type { NookStore } from "./store";
@@ -34,16 +33,6 @@ export function NookLinksAndMentionsPanel(
 				/>
 			</Show>
 
-			<Show when={store().needsLogin()}>
-				<div style={{ "margin-top": "1rem" }}>
-					<p style={{ color: "var(--color-text-muted)", "font-size": "0.8rem" }}>
-						Your session timed out. Please log in again.
-					</p>
-					<button type="button" onClick={() => login()}>
-						Log in
-					</button>
-				</div>
-			</Show>
 
 			<Show when={store().error() !== ""}>
 				<pre style={{ color: "var(--color-danger)", "white-space": "pre-wrap", "font-size": "0.75rem" }}>{store().error()}</pre>

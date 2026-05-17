@@ -17,7 +17,7 @@
 
 /* Center the content within the scroll area */
 .mainScrollInner {
-	max-width: 860px;
+	max-width: var(--content-max-width, 860px);
 	margin: 0 auto;
 }
 

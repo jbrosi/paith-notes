@@ -121,7 +121,59 @@ final class NookStatsController
         $stmt->execute([':nook_id' => $nookId]);
         $stats['most_mentioned'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+        // Most viewed by this user (personal frequency)
+        $userId = is_scalar($user['id'] ?? null) ? (string)$user['id'] : '';
+        $stmt = $pdo->prepare(
+            'SELECT n.id, n.title, SUM(nv.count) AS view_count
+             FROM global.note_views nv
+             JOIN global.notes n ON n.id = nv.note_id
+             WHERE nv.nook_id = :nook_id AND nv.user_id = :user_id
+             GROUP BY n.id, n.title
+             ORDER BY view_count DESC
+             LIMIT 8'
+        );
+        $stmt->execute([':nook_id' => $nookId, ':user_id' => $userId]);
+        $stats['most_viewed'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
         return JsonResponse::ok(['stats' => $stats]);
+    }
+
+    public function recentlyViewed(Request $request, Context $context): Response
+    {
+        $pdo = $context->pdo();
+        $user = $context->user();
+
+        $nookId = trim($request->routeParam('nookId'));
+        if ($nookId === '' || !self::isUuid($nookId)) {
+            throw new HttpError('nookId must be a UUID', 400);
+        }
+
+        $this->requireMember($pdo, $user, $nookId);
+
+        $userId = is_scalar($user['id'] ?? null) ? (string)$user['id'] : '';
+
+        $stmt = $pdo->prepare(
+            'SELECT n.id, n.title, nv.last_seen_at
+             FROM global.note_viewers nv
+             JOIN global.notes n ON n.id = nv.note_id
+             WHERE nv.user_id = :user_id AND nv.nook_id = :nook_id
+             ORDER BY nv.last_seen_at DESC
+             LIMIT 10'
+        );
+        $stmt->execute([':user_id' => $userId, ':nook_id' => $nookId]);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $notes = [];
+        foreach ($rows as $r) {
+            if (!is_array($r)) continue;
+            $notes[] = [
+                'id' => (string)$r['id'],
+                'title' => (string)$r['title'],
+                'last_seen_at' => (string)$r['last_seen_at'],
+            ];
+        }
+
+        return JsonResponse::ok(['notes' => $notes]);
     }
 
     public function unlinkedNotes(Request $request, Context $context): Response

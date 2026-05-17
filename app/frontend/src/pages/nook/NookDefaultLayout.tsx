@@ -97,7 +97,7 @@ export function NookDefaultLayout(props: NookDefaultLayoutProps) {
 			<Show
 				when={hasNote()}
 				fallback={
-					<>
+					<div style={{ height: "100%", overflow: "hidden", display: "flex", "flex-direction": "column" }}>
 						<input
 							ref={dashboardFileInput}
 							type="file"
@@ -116,8 +116,8 @@ export function NookDefaultLayout(props: NookDefaultLayoutProps) {
 								onSettings={props.onSettings}
 							/>
 						</div>
-					</>
-				}
+					</div>
+}
 			>
 				<div
 					ref={layoutEl}

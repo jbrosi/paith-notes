@@ -34,6 +34,7 @@ const NoteDetailApiSchema = z
 		properties: z.record(z.string(), z.unknown()).optional(),
 		former_properties: z.record(z.string(), z.unknown()).optional(),
 		version: z.number().int().optional(),
+		view_count: z.number().int().optional(),
 		created_at: z.string().optional(),
 	})
 	.transform((n) => ({
@@ -45,6 +46,7 @@ const NoteDetailApiSchema = z
 		properties: n.properties ?? {},
 		formerProperties: n.former_properties ?? {},
 		version: n.version ?? 0,
+		viewCount: n.view_count ?? 0,
 		createdAt: n.created_at,
 	}));
 

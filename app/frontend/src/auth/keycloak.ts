@@ -40,6 +40,13 @@ export async function logoutSso(): Promise<void> {
 	window.location.href = "/api/auth/logout/sso";
 }
 
+/** Global listeners for 401 responses */
+const sessionExpiredListeners = new Set<() => void>();
+export function onSessionExpired(fn: () => void): () => void {
+	sessionExpiredListeners.add(fn);
+	return () => sessionExpiredListeners.delete(fn);
+}
+
 export async function apiFetch(
 	input: RequestInfo | URL,
 	init: RequestInit = {},
@@ -59,9 +66,15 @@ export async function apiFetch(
 		headers.set("Accept", "application/json");
 	}
 
-	return fetch(input, {
+	const res = await fetch(input, {
 		...init,
 		credentials: "include",
 		headers,
 	});
+
+	if (res.status === 401) {
+		for (const fn of sessionExpiredListeners) fn();
+	}
+
+	return res;
 }

@@ -448,6 +448,164 @@ final class GlobalSchema
             $pdo->exec('create index if not exists user_events_user_id_idx on global.user_events (user_id, id desc)');
             $pdo->exec('create index if not exists user_events_created_at_idx on global.user_events (created_at desc)');
 
+            // ─── Note Stats (denormalized counts for search) ────────────────────────────
+
+            $pdo->exec("
+                create table if not exists global.note_stats (
+                    note_id uuid primary key references global.notes(id) on delete cascade,
+                    nook_id uuid not null,
+                    outgoing_mentions int not null default 0,
+                    incoming_mentions int not null default 0,
+                    outgoing_links int not null default 0,
+                    incoming_links int not null default 0,
+                    view_count int not null default 0
+                );
+            ");
+
+            $pdo->exec('create index if not exists note_stats_nook_id_idx on global.note_stats (nook_id)');
+
+            // Trigger to maintain note_stats for mentions
+            $pdo->exec("
+                create or replace function global.note_stats_mentions_fn()
+                    returns trigger language plpgsql as \$fn\$
+                begin
+                    if (TG_OP = 'INSERT' or TG_OP = 'UPDATE') then
+                        insert into global.note_stats (note_id, nook_id, outgoing_mentions)
+                            select NEW.source_note_id, n.nook_id, 0 from global.notes n where n.id = NEW.source_note_id
+                            on conflict (note_id) do nothing;
+                        update global.note_stats set outgoing_mentions = (
+                            select count(*) from global.note_mentions where source_note_id = NEW.source_note_id
+                        ) where note_id = NEW.source_note_id;
+
+                        insert into global.note_stats (note_id, nook_id, incoming_mentions)
+                            select NEW.target_note_id, n.nook_id, 0 from global.notes n where n.id = NEW.target_note_id
+                            on conflict (note_id) do nothing;
+                        update global.note_stats set incoming_mentions = (
+                            select count(*) from global.note_mentions where target_note_id = NEW.target_note_id
+                        ) where note_id = NEW.target_note_id;
+                    end if;
+                    if (TG_OP = 'DELETE') then
+                        update global.note_stats set outgoing_mentions = (
+                            select count(*) from global.note_mentions where source_note_id = OLD.source_note_id
+                        ) where note_id = OLD.source_note_id;
+                        update global.note_stats set incoming_mentions = (
+                            select count(*) from global.note_mentions where target_note_id = OLD.target_note_id
+                        ) where note_id = OLD.target_note_id;
+                    end if;
+                    return null;
+                end;
+                \$fn\$;
+            ");
+
+            $pdo->exec("
+                do \$\$ begin
+                    if not exists (select 1 from pg_trigger where tgname = 'note_stats_mentions_trg' and tgrelid = 'global.note_mentions'::regclass) then
+                        create trigger note_stats_mentions_trg
+                            after insert or update or delete on global.note_mentions
+                            for each row execute function global.note_stats_mentions_fn();
+                    end if;
+                end \$\$;
+            ");
+
+            // Trigger to maintain note_stats for links
+            $pdo->exec("
+                create or replace function global.note_stats_links_fn()
+                    returns trigger language plpgsql as \$fn\$
+                begin
+                    if (TG_OP = 'INSERT' or TG_OP = 'UPDATE') then
+                        insert into global.note_stats (note_id, nook_id, outgoing_links)
+                            select NEW.source_note_id, n.nook_id, 0 from global.notes n where n.id = NEW.source_note_id
+                            on conflict (note_id) do nothing;
+                        update global.note_stats set outgoing_links = (
+                            select count(*) from global.note_links where source_note_id = NEW.source_note_id
+                        ) where note_id = NEW.source_note_id;
+
+                        insert into global.note_stats (note_id, nook_id, incoming_links)
+                            select NEW.target_note_id, n.nook_id, 0 from global.notes n where n.id = NEW.target_note_id
+                            on conflict (note_id) do nothing;
+                        update global.note_stats set incoming_links = (
+                            select count(*) from global.note_links where target_note_id = NEW.target_note_id
+                        ) where note_id = NEW.target_note_id;
+                    end if;
+                    if (TG_OP = 'DELETE') then
+                        update global.note_stats set outgoing_links = (
+                            select count(*) from global.note_links where source_note_id = OLD.source_note_id
+                        ) where note_id = OLD.source_note_id;
+                        update global.note_stats set incoming_links = (
+                            select count(*) from global.note_links where target_note_id = OLD.target_note_id
+                        ) where note_id = OLD.target_note_id;
+                    end if;
+                    return null;
+                end;
+                \$fn\$;
+            ");
+
+            $pdo->exec("
+                do \$\$ begin
+                    if not exists (select 1 from pg_trigger where tgname = 'note_stats_links_trg' and tgrelid = 'global.note_links'::regclass) then
+                        create trigger note_stats_links_trg
+                            after insert or update or delete on global.note_links
+                            for each row execute function global.note_stats_links_fn();
+                    end if;
+                end \$\$;
+            ");
+
+            // Trigger to maintain note_stats.view_count from note_views
+            $pdo->exec("
+                create or replace function global.note_stats_views_fn()
+                    returns trigger language plpgsql as \$fn\$
+                begin
+                    insert into global.note_stats (note_id, nook_id, view_count)
+                        values (NEW.note_id, NEW.nook_id, 1)
+                        on conflict (note_id) do update set view_count = global.note_stats.view_count + 1;
+                    return null;
+                end;
+                \$fn\$;
+            ");
+
+            $pdo->exec("
+                do \$\$ begin
+                    if not exists (select 1 from pg_trigger where tgname = 'note_stats_views_trg' and tgrelid = 'global.note_views'::regclass) then
+                        create trigger note_stats_views_trg
+                            after insert on global.note_views
+                            for each row execute function global.note_stats_views_fn();
+                    end if;
+                end \$\$;
+            ");
+
+            // ─── Note Presence ───────────────────────────────────────────────────────────
+
+            $pdo->exec("
+                create table if not exists global.note_viewers (
+                    note_id uuid not null,
+                    nook_id uuid not null,
+                    user_id uuid not null,
+                    last_seen_at timestamptz not null default now(),
+                    primary key (note_id, user_id)
+                );
+            ");
+
+            $pdo->exec('create index if not exists note_viewers_note_id_idx on global.note_viewers (note_id, last_seen_at desc)');
+            $pdo->exec('create index if not exists note_viewers_user_nook_idx on global.note_viewers (user_id, nook_id, last_seen_at desc)');
+            $pdo->exec('create index if not exists note_viewers_last_seen_at_idx on global.note_viewers (last_seen_at)');
+
+            // ─── Note Views (analytics/ranking) ─────────────────────────────────────────
+
+            $pdo->exec("
+                create table if not exists global.note_views (
+                    note_id uuid not null,
+                    nook_id uuid not null,
+                    user_id uuid not null,
+                    viewed_date date not null default current_date,
+                    count int not null default 1,
+                    primary key (note_id, user_id, viewed_date)
+                );
+            ");
+
+            $pdo->exec('create index if not exists note_views_note_id_idx on global.note_views (note_id)');
+            $pdo->exec('create index if not exists note_views_nook_user_idx on global.note_views (nook_id, user_id, note_id)');
+            $pdo->exec('create index if not exists note_views_user_id_idx on global.note_views (user_id, viewed_date desc)');
+
             // ─── Cross-Nook Links ────────────────────────────────────────────────────────
 
             $pdo->exec("

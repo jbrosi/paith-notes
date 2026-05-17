@@ -1,7 +1,10 @@
 import type { RouteSectionProps } from "@solidjs/router";
 import { createResource, createSignal, onCleanup, Show } from "solid-js";
 import styles from "./App.module.css";
+import { useAuth } from "./auth/AuthContext";
 import { apiFetch } from "./auth/keycloak";
+import { useApi } from "./auth/useApi";
+import { Button } from "./components/Button";
 import { ChatPanel } from "./components/chat/ChatPanel";
 import { Nav } from "./components/Nav";
 import { createNotePreview } from "./components/NotePreview";
@@ -11,6 +14,8 @@ import { useUi } from "./ui/UiContext";
 
 function AppContent(props: RouteSectionProps) {
 	const ui = useUi();
+	const auth = useAuth();
+	const api = useApi();
 	const nook = useNook();
 	const store = () => nook.store();
 
@@ -68,6 +73,23 @@ function AppContent(props: RouteSectionProps) {
 	return (
 		<div class={styles.appShell}>
 			<Nav />
+			<Show when={api.sessionExpired()}>
+				<div style={{
+					padding: "10px 16px",
+					background: "#fef3c7",
+					border: "1px solid #f59e0b",
+					display: "flex",
+					"align-items": "center",
+					"justify-content": "space-between",
+					gap: "12px",
+					"font-size": "0.85rem",
+				}}>
+					<span>Your session has expired. Please log in again to continue.</span>
+					<Button variant="primary" size="small" onClick={() => auth.login()}>
+						Log in
+					</Button>
+				</div>
+			</Show>
 			<div class={styles.appBody}>
 				<div class={styles.appContent}>{props.children}</div>
 				<Show when={ui.chatPanelOpen() && chatNookId() !== ""}>

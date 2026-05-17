@@ -1,5 +1,5 @@
 import { useNavigate } from "@solidjs/router";
-import { createEffect, createMemo, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, createMemo, For, onCleanup, onMount, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 import { MarkdownView } from "../../components/MarkdownView";
 import { Button } from "../../components/Button";
@@ -159,6 +159,52 @@ export function NookMainPanel(props: NookMainPanelProps) {
 									Dismiss
 								</Button>
 							</div>
+						</div>
+					</Show>
+					<Show when={store().noteHasUpdate() && !conflict()}>
+						<div style={{
+							padding: "8px 12px",
+							background: "var(--color-bg-tertiary, #f0f9ff)",
+							border: "1px solid var(--color-primary-border, #bae6fd)",
+							"border-radius": "6px",
+							"margin-bottom": "0.5rem",
+							"font-size": "0.8rem",
+							display: "flex",
+							"align-items": "center",
+							"justify-content": "space-between",
+						}}>
+							<span>This note has been updated.</span>
+							<Button variant="secondary" size="small" onClick={() => store().refreshCurrentNote()}>
+								Reload
+							</Button>
+						</div>
+					</Show>
+					<Show when={store().noteViewers().length > 0}>
+						<div style={{
+							display: "flex",
+							"align-items": "center",
+							gap: "6px",
+							"margin-bottom": "0.5rem",
+							"font-size": "0.7rem",
+							color: "var(--color-text-muted, #888)",
+						}}>
+							<For each={store().noteViewers()}>
+								{(viewer) => (
+									<span style={{
+										display: "inline-block",
+										padding: "2px 8px",
+										"border-radius": "999px",
+										background: "var(--color-primary-bg, #eff6ff)",
+										border: "1px solid var(--color-primary-border, #bae6fd)",
+										"font-size": "0.65rem",
+										"font-weight": "500",
+										color: "var(--color-primary, #3b82f6)",
+									}}>
+										{viewer.user_name || "Someone"}
+									</span>
+								)}
+							</For>
+							<span>also viewing</span>
 						</div>
 					</Show>
 					<div class={notesStyles["add-note-container"]}>

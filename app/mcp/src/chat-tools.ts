@@ -103,6 +103,17 @@ export const TOOLS: Anthropic.Tool[] = [
     },
   },
   {
+    name: 'search_all_nooks',
+    description: 'Search notes across ALL nooks the user has access to. Only use this when the user explicitly asks to search globally, or when a local search_notes returned no results and you want to ask the user if they\'d like to search more broadly. Prefer search_notes (local to current nook) first.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        q: { type: 'string', description: 'Text search query (searches title and content across all accessible nooks)' },
+      },
+      required: ['q'],
+    },
+  },
+  {
     name: 'open_note',
     description: 'Open a note in the user\'s editor. The user must confirm before this happens.',
     input_schema: {
@@ -328,6 +339,11 @@ export async function executeTool(
       if (input.cursor) params.set('cursor', String(input.cursor));
       const qs = params.toString() ? `?${params}` : '';
       return JSON.stringify(await api('GET', `/api/nooks/${nookId}/note-types/${typeId}/notes${qs}`));
+    }
+
+    case 'search_all_nooks': {
+      const q = String(input.q ?? '');
+      return JSON.stringify(await api('GET', `/api/search?q=${encodeURIComponent(q)}&limit=20`));
     }
 
     case 'open_note':

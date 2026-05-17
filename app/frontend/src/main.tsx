@@ -2,6 +2,7 @@ import { Route, Router } from "@solidjs/router";
 import { render } from "solid-js/web";
 import App from "./App.tsx";
 import { AuthProvider } from "./auth/AuthContext";
+import { ApiProvider } from "./auth/useApi";
 import { RequireAuth } from "./auth/RequireAuth";
 import About from "./pages/About.tsx";
 import Home from "./pages/Home.tsx";
@@ -18,6 +19,7 @@ if (root) {
 	render(
 		() => (
 			<AuthProvider>
+				<ApiProvider>
 				<UiProvider>
 					<Router root={App}>
 						<Route path="/" component={Home} />
@@ -56,6 +58,7 @@ if (root) {
 						/>
 					</Router>
 				</UiProvider>
+				</ApiProvider>
 			</AuthProvider>
 		),
 		root,

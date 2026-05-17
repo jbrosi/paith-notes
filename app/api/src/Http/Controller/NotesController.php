@@ -105,6 +105,71 @@ final class NotesController
         ]);
     }
 
+    public function presence(Request $request, Context $context): Response
+    {
+        $pdo = $context->pdo();
+        $user = $context->user();
+
+        $nookId = trim($request->routeParam('nookId'));
+        if ($nookId === '' || !self::isUuid($nookId)) {
+            throw new HttpError('nookId must be a UUID', 400);
+        }
+
+        $noteId = trim($request->routeParam('noteId'));
+        if ($noteId === '' || !self::isUuid($noteId)) {
+            throw new HttpError('noteId must be a UUID', 400);
+        }
+
+        $userId = is_scalar($user['id'] ?? null) ? (string)$user['id'] : '';
+        $this->requireMember($pdo, $user, $nookId);
+
+        // Get current version
+        $vStmt = $pdo->prepare('select version from global.notes where id = :id and nook_id = :nook_id');
+        $vStmt->execute([':id' => $noteId, ':nook_id' => $nookId]);
+        $version = $vStmt->fetchColumn();
+        if ($version === false) {
+            throw new HttpError('note not found', 404);
+        }
+
+        // Upsert viewer presence
+        $pdo->prepare(
+            "insert into global.note_viewers (note_id, nook_id, user_id, last_seen_at)
+             values (:note_id, :nook_id, :user_id, now())
+             on conflict (note_id, user_id) do update set last_seen_at = now(), nook_id = excluded.nook_id"
+        )->execute([':note_id' => $noteId, ':nook_id' => $nookId, ':user_id' => $userId]);
+
+        // Record view (once per user per note per day — deduped by PK, stats updated via trigger)
+        $pdo->prepare(
+            "insert into global.note_views (note_id, nook_id, user_id, viewed_date, count)
+             values (:note_id, :nook_id, :user_id, current_date, 1)
+             on conflict (note_id, user_id, viewed_date) do nothing"
+        )->execute([':note_id' => $noteId, ':nook_id' => $nookId, ':user_id' => $userId]);
+
+        // Get other viewers (active within last 60s, excluding self)
+        $vwStmt = $pdo->prepare(
+            "select nv.user_id, u.first_name, u.last_name, u.nickname
+             from global.note_viewers nv
+             left join global.users u on u.id = nv.user_id
+             where nv.note_id = :note_id
+               and nv.user_id != :user_id
+               and nv.last_seen_at > now() - interval '60 seconds'"
+        );
+        $vwStmt->execute([':note_id' => $noteId, ':user_id' => $userId]);
+        $viewers = [];
+        foreach ($vwStmt->fetchAll(PDO::FETCH_ASSOC) as $v) {
+            if (!is_array($v)) continue;
+            $viewers[] = [
+                'user_id' => (string)$v['user_id'],
+                'user_name' => trim(($v['nickname'] ?? '') !== '' ? (string)$v['nickname'] : ((string)($v['first_name'] ?? '') . ' ' . (string)($v['last_name'] ?? ''))),
+            ];
+        }
+
+        return JsonResponse::ok([
+            'version' => (int)$version,
+            'viewers' => $viewers,
+        ]);
+    }
+
     public function get(Request $request, Context $context): Response
     {
         $pdo = $context->pdo();
@@ -141,6 +206,11 @@ final class NotesController
         $properties = self::decodeJsonObject($r['properties'] ?? null);
         $formerProperties = self::decodeJsonObject($r['former_properties'] ?? null);
 
+        // Total view count for this note
+        $vcStmt = $pdo->prepare('select coalesce(sum(count), 0) from global.note_views where note_id = :note_id');
+        $vcStmt->execute([':note_id' => $noteId]);
+        $viewCount = (int)$vcStmt->fetchColumn();
+
         return JsonResponse::ok([
             'note' => [
                 'id' => is_scalar($r['id'] ?? null) ? (string)$r['id'] : '',
@@ -152,6 +222,7 @@ final class NotesController
                 'properties' => $properties === [] ? (object)[] : $properties,
                 'former_properties' => $formerProperties === [] ? (object)[] : $formerProperties,
                 'version' => (int)($r['version'] ?? 0),
+                'view_count' => $viewCount,
                 'created_at' => is_scalar($r['created_at'] ?? null) ? (string)$r['created_at'] : '',
             ],
         ]);

@@ -119,7 +119,6 @@ export function createNookStore(nookId: () => string) {
 	const [selectedTypeIds, setSelectedTypeIds] = createSignal<Set<string>>(
 		new Set(),
 	);
-	const [needsLogin, setNeedsLogin] = createSignal<boolean>(false);
 	const [selectedId, setSelectedId] = createSignal<string>("");
 	const [typeId, setTypeId] = createSignal<string>("");
 	const [title, setTitle] = createSignal<string>("");
@@ -155,6 +154,45 @@ export function createNookStore(nookId: () => string) {
 	const [outgoingMentions, setOutgoingMentions] = createSignal<Mention[]>([]);
 	const [incomingMentions, setIncomingMentions] = createSignal<Mention[]>([]);
 	const [noteVersion, setNoteVersion] = createSignal<number>(0);
+	const [viewCount, setViewCount] = createSignal<number>(0);
+	const [remoteVersion, setRemoteVersion] = createSignal<number>(0);
+	const [noteViewers, setNoteViewers] = createSignal<Array<{ user_id: string; user_name: string }>>([]);
+	let presenceInterval: ReturnType<typeof setInterval> | null = null;
+
+	const pollPresence = async () => {
+		const nook = nookId();
+		const note = selectedId();
+		if (!nook || !note) return;
+		try {
+			const res = await apiFetch(
+				`/api/nooks/${nook}/notes/${note}/presence`,
+				{ method: "GET" },
+			);
+			if (!res.ok) return;
+			const body = (await res.json()) as { version?: number; viewers?: Array<{ user_id: string; user_name: string }> };
+			if (body.version !== undefined) {
+				setRemoteVersion(body.version);
+			}
+			setNoteViewers(body.viewers ?? []);
+		} catch {
+			// best-effort
+		}
+	};
+
+	const startPresencePolling = () => {
+		stopPresencePolling();
+		void pollPresence();
+		presenceInterval = setInterval(() => void pollPresence(), 30000);
+	};
+
+	const stopPresencePolling = () => {
+		if (presenceInterval) {
+			clearInterval(presenceInterval);
+			presenceInterval = null;
+		}
+		setNoteViewers([]);
+		setRemoteVersion(0);
+	};
 	const [conflictError, setConflictError] = createSignal<{
 		currentVersion: number;
 		expectedVersion: number;
@@ -691,7 +729,6 @@ export function createNookStore(nookId: () => string) {
 
 	const loadNotes = async (opts?: { reset?: boolean }) => {
 		if (nookId() === "") return;
-		if (needsLogin()) return;
 		const reset = opts?.reset ?? true;
 		const parsed = parseTypedSearch(notesQuery());
 		const typedTypeId = resolveTypeIdForTermInStore(parsed.typeTerm);
@@ -723,17 +760,7 @@ export function createNookStore(nookId: () => string) {
 				`/api/nooks/${nookId()}/note-types/${typeForList}/notes?${qs.toString()}`,
 				{ method: "GET" },
 			);
-			if (res.status === 401) {
-				batch(() => {
-					setNotes([]);
-					setNotesNextCursor("");
-					setSelectedId("");
-					setNeedsLogin(true);
-					setError("Your session timed out. Please log in again.");
-				});
-				return;
-			}
-			if (!res.ok) {
+				if (!res.ok) {
 				throw new Error(
 					`Failed to load notes: ${res.status} ${res.statusText}`,
 				);
@@ -840,6 +867,7 @@ export function createNookStore(nookId: () => string) {
 		}
 		setFormerProperties(note.formerProperties ?? {});
 		setNoteVersion(note.version ?? 0);
+		setViewCount(note.viewCount ?? 0);
 		setError("");
 		setMentionTargetId("");
 		setMentionEmbedImage(false);
@@ -1189,7 +1217,6 @@ export function createNookStore(nookId: () => string) {
 				setIncomingMentions([]);
 				setMentionTargetId("");
 				setMentionEmbedImage(false);
-				setNeedsLogin(false);
 			});
 			noteTitleCache.clear();
 			fileInlineUrlCache.clear();
@@ -1358,6 +1385,16 @@ export function createNookStore(nookId: () => string) {
 		}
 	};
 
+	// Start/stop presence polling based on selected note
+	createEffect(() => {
+		const note = selectedId();
+		if (note !== "") {
+			startPresencePolling();
+		} else {
+			stopPresencePolling();
+		}
+	});
+
 	return {
 		nookId,
 		nookName,
@@ -1373,7 +1410,6 @@ export function createNookStore(nookId: () => string) {
 		loadNoteTypes,
 		selectedTypeIds,
 		typeId,
-		needsLogin,
 		selectedId,
 		setSelectedId,
 		title,
@@ -1439,6 +1475,9 @@ export function createNookStore(nookId: () => string) {
 		snapshotData,
 		viewVersion,
 		noteVersion,
+		viewCount,
+		noteHasUpdate: () => remoteVersion() > 0 && remoteVersion() > noteVersion(),
+		noteViewers,
 		conflictError,
 		resolveConflict,
 		newNote,

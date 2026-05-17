@@ -122,6 +122,11 @@ export function TitleSection(props: { store: NookStore }) {
 							v{props.store.noteHistory()[0]?.version ?? 0}
 						</span>
 					</Show>
+					<Show when={props.store.mode() === "view" && props.store.viewCount() > 0}>
+						<span class={styles.versionBadge} title="Total views">
+							{props.store.viewCount()} {props.store.viewCount() === 1 ? "view" : "views"}
+						</span>
+					</Show>
 				</div>
 			</div>
 		</Show>

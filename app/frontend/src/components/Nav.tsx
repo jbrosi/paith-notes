@@ -6,6 +6,7 @@ import { useNook } from "../pages/nook/NookContext";
 import { useUi } from "../ui/UiContext";
 import { Button } from "./Button";
 import styles from "./Nav.module.css";
+import { GlobalSearchDropdown } from "./nav/GlobalSearchDropdown";
 import { NookNotesSearchDropdown } from "./nav/NookNotesSearchDropdown";
 import { NookTypeFilterDropdown } from "./nav/NookTypeFilterDropdown";
 
@@ -470,6 +471,7 @@ export function Nav() {
 							)
 						}
 					>
+						<GlobalSearchDropdown />
 						<div class={styles.dropdown}>
 							<button
 								type="button"
