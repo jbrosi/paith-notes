@@ -153,6 +153,17 @@ final class GlobalSchema
             // Remove legacy ai-memory note type (replaced by dedicated AI memory nook)
             $pdo->exec("delete from global.note_types where key = 'ai-memory'");
 
+            // Auto-create 'ai-instruction' note type in all nooks that don't have it
+            $pdo->exec("
+                insert into global.note_types (nook_id, key, label, description)
+                select n.id, 'ai-instruction', 'AI Instruction', 'Notes of this type are read by the AI assistant as context/guidelines for this nook.'
+                from global.nooks n
+                where not exists (
+                    select 1 from global.note_types t where t.nook_id = n.id and t.key = 'ai-instruction'
+                )
+                on conflict (nook_id, key) do nothing
+            ");
+
             $pdo->exec(" 
                 create table if not exists global.note_mentions (
                     id bigserial primary key,

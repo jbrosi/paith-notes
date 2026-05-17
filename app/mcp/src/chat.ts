@@ -8,6 +8,17 @@ const DEFAULT_MODEL = 'claude-sonnet-4-6';
 const MAX_TOKENS    = 8096;
 const MAX_AUTO_DEPTH = 8;
 
+// Context window limits per model (input tokens)
+const MODEL_CONTEXT_LIMITS: Record<string, number> = {
+  'claude-sonnet-4-6': 200000,
+  'claude-opus-4-6': 200000,
+  'claude-haiku-4-5-20251001': 200000,
+};
+const DEFAULT_CONTEXT_LIMIT = 200000;
+const CONTEXT_SOFT_THRESHOLD = 0.5;     // 50% — gentle nudge on topic shifts
+const CONTEXT_WARNING_THRESHOLD = 0.7;  // 70% — show indicator, suggest new chat
+const CONTEXT_CRITICAL_THRESHOLD = 0.9; // 90% — strongly encourage new chat
+
 // Tools that are always safe to auto-execute (read-only / non-destructive)
 const ALWAYS_AUTO_TOOLS = new Set([
   'list_note_types',
@@ -141,28 +152,41 @@ async function resolveDisplayNames(
   nookId: string,
   apiBase: string,
   cookie: string,
+  memoryNookId?: string | null,
 ): Promise<Record<string, ResolvedName>> {
   const safeNookId = encodeURIComponent(validateNookId(nookId));
   const names: Record<string, ResolvedName> = {};
-  const noteIds = new Set<string>();
   const predicateIds = new Set<string>();
 
+  // Collect (noteId, resolvedNookId) pairs — each note knows its nook
+  const noteEntries: Array<{ noteId: string; noteNookId: string }> = [];
   for (const tool of tools) {
+    // Determine which nook this tool operates on
+    let toolNookId = safeNookId;
+    if (tool.name.startsWith('memory_') && memoryNookId) {
+      toolNookId = encodeURIComponent(memoryNookId);
+    } else if (typeof tool.input.nook_id === 'string' && tool.input.nook_id.trim() !== '') {
+      toolNookId = encodeURIComponent(tool.input.nook_id.trim());
+    }
+
     for (const key of ['note_id', 'source_note_id', 'target_note_id']) {
-      if (typeof tool.input[key] === 'string') noteIds.add(tool.input[key] as string);
+      if (typeof tool.input[key] === 'string') {
+        noteEntries.push({ noteId: tool.input[key] as string, noteNookId: toolNookId });
+      }
     }
     if (typeof tool.input.predicate_id === 'string') predicateIds.add(tool.input.predicate_id as string);
   }
 
   await Promise.all([
-    ...Array.from(noteIds).map(async (noteId) => {
+    ...noteEntries.map(async ({ noteId, noteNookId }) => {
+      if (names[noteId]) return; // already resolved
       try {
-        const res = await fetch(`${apiBase}/api/nooks/${safeNookId}/notes/${encodeURIComponent(noteId)}`, {
+        const res = await fetch(`${apiBase}/api/nooks/${noteNookId}/notes/${encodeURIComponent(noteId)}`, {
           headers: { Cookie: cookie },
         });
         if (res.ok) {
           const data = await res.json() as { note?: { title?: string } };
-          names[noteId] = { label: data.note?.title ?? noteId, url: `/nooks/${safeNookId}/notes/${encodeURIComponent(noteId)}` };
+          names[noteId] = { label: data.note?.title ?? noteId, url: `/nooks/${noteNookId}/notes/${encodeURIComponent(noteId)}` };
         }
       } catch { /* best-effort */ }
     }),
@@ -188,8 +212,14 @@ async function resolveDisplayNames(
 
 // ─── Auto-execution helpers ───────────────────────────────────────────────────
 
-function isAutoExecutable(toolName: string): boolean {
-  return ALWAYS_AUTO_TOOLS.has(toolName);
+function isAutoExecutable(toolName: string, input?: Record<string, unknown>, instructionNoteIds?: Set<string>): boolean {
+  if (ALWAYS_AUTO_TOOLS.has(toolName)) return true;
+  // get_note is auto-approved for AI instruction notes and search_all_nooks
+  if (toolName === 'get_note' && instructionNoteIds && typeof input?.note_id === 'string') {
+    if (instructionNoteIds.has(input.note_id)) return true;
+  }
+  if (toolName === 'search_all_nooks') return true;
+  return false;
 }
 
 // ─── AI memory nook ──────────────────────────────────────────────────────────
@@ -203,6 +233,58 @@ async function resolveMemoryNookId(cookie: string, apiBase: string): Promise<str
   }
 }
 
+// ─── AI Instructions ─────────────────────────────────────────────────────────
+
+type InstructionNote = { id: string; title: string };
+
+async function fetchInstructionNotes(
+  nookId: string,
+  cookie: string,
+  apiBase: string,
+): Promise<InstructionNote[]> {
+  try {
+    // First resolve the 'ai-instruction' type key to its UUID
+    const typesData = await phpApi(
+      'GET',
+      `/api/nooks/${encodeURIComponent(nookId)}/note-types`,
+      cookie,
+      apiBase,
+    ) as { types?: Array<{ id: string; key: string }> };
+    const instructionType = typesData?.types?.find(t => t.key === 'ai-instruction');
+    if (!instructionType) return [];
+
+    // Fetch notes of that type
+    const data = await phpApi(
+      'GET',
+      `/api/nooks/${encodeURIComponent(nookId)}/note-types/${instructionType.id}/notes?limit=50`,
+      cookie,
+      apiBase,
+    ) as { notes?: Array<{ id: string; title: string }> };
+    return (data?.notes ?? []).map(n => ({ id: n.id, title: n.title }));
+  } catch {
+    return [];
+  }
+}
+
+async function fetchMemoryInstructionNotes(
+  memoryNookId: string,
+  cookie: string,
+  apiBase: string,
+): Promise<InstructionNote[]> {
+  try {
+    // In the memory nook, all notes serve as context — just get recent ones as summaries
+    const data = await phpApi(
+      'GET',
+      `/api/nooks/${encodeURIComponent(memoryNookId)}/note-types/all/notes?limit=20&sort=updated_newest`,
+      cookie,
+      apiBase,
+    ) as { notes?: Array<{ id: string; title: string }> };
+    return (data?.notes ?? []).map(n => ({ id: n.id, title: n.title }));
+  } catch {
+    return [];
+  }
+}
+
 // ─── System prompt ────────────────────────────────────────────────────────────
 
 function buildSystemPrompt(
@@ -211,6 +293,8 @@ function buildSystemPrompt(
   nookRole: string,
   contextNote?: { id: string; title: string; type?: string },
   memoryNookId?: string | null,
+  nookInstructions?: InstructionNote[],
+  memoryNotes?: InstructionNote[],
 ): string {
   const nookDisplay = nookName ? `"${nookName}" (${nookId})` : `"${nookId}"`;
   const roleInfo = nookRole ? ` The user's role in this nook is "${nookRole}".` : '';
@@ -252,7 +336,25 @@ At the start of each conversation, proactively search user memory with memory_se
 When you create or update a memory note, the system automatically links it to the current conversation — this builds a knowledge trail showing why each memory exists and which conversations contributed to it.`
       : '',
     `**Note type taxonomy:** You can help the user manage their note taxonomy. Use list_note_types to see the full hierarchy before suggesting or creating types. When creating a type, always tell the user where in the hierarchy it will appear (e.g. "Creating 'Employee' as a subtype of 'Person'"). You can update a type's label or description with update_note_type. Never create a type without showing the user what you're about to create and where it fits.`,
+    `**Conversation hygiene:** When you notice the user switching to a completely different topic, gently suggest starting a new chat — this keeps conversations focused and searchable. Before they do, offer to:
+- Save nook-specific outcomes/decisions as a note in the current nook (using create_note)
+- Save personal preferences or cross-nook context to memory (using memory_create/memory_update)
+The more context has been used, the more you should encourage this. After saving, tell the user to click "New chat" to continue fresh.`,
   ];
+
+  if (nookInstructions && nookInstructions.length > 0) {
+    const list = nookInstructions.map(n => `- "${n.title}" (ID: ${n.id})`).join('\n');
+    parts.push(
+      `**Nook-specific AI instructions:** The following instruction notes exist in this nook. Reading these via get_note is FREE (auto-approved, no user confirmation needed). Read any that are relevant to the user's current request:\n${list}\n\nThese contain nook-specific guidelines — formatting rules, domain knowledge, conventions, etc.`,
+    );
+  }
+
+  if (memoryNotes && memoryNotes.length > 0) {
+    const list = memoryNotes.map(n => `- "${n.title}" (ID: ${n.id})`).join('\n');
+    parts.push(
+      `**Personal memory notes:** The following memory notes exist about your relationship with this user. Reading these via get_note is FREE (auto-approved):\n${list}\n\nThese contain personal preferences, past context, corrections. You do NOT need to read all of them — pick based on relevance to the current conversation.`,
+    );
+  }
 
   if (contextNote) {
     parts.push(
@@ -278,23 +380,51 @@ async function streamConversation(
 ): Promise<void> {
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-  // Resolve nook name and role for context
+  // Resolve nook name, role, and instruction notes in parallel
   let nookName = '';
   let nookRole = '';
-  try {
-    const nooks = await phpApi('GET', '/api/nooks', cookie, apiBase) as { nooks?: Array<{ id: string; name: string; role: string }> };
-    const found = nooks?.nooks?.find(n => n.id === nookId);
+  let nookInstructions: InstructionNote[] = [];
+  let memoryNotes: InstructionNote[] = [];
+
+  const [nooksData] = await Promise.all([
+    phpApi('GET', '/api/nooks', cookie, apiBase).catch(() => null) as Promise<{ nooks?: Array<{ id: string; name: string; role: string }> } | null>,
+    fetchInstructionNotes(nookId, cookie, apiBase).then(r => { nookInstructions = r; }),
+    memoryNookId ? fetchMemoryInstructionNotes(memoryNookId, cookie, apiBase).then(r => { memoryNotes = r; }) : Promise.resolve(),
+  ]);
+
+  if (nooksData?.nooks) {
+    const found = nooksData.nooks.find(n => n.id === nookId);
     nookName = found?.name ?? '';
     nookRole = found?.role ?? '';
-  } catch { /* best-effort */ }
+  }
 
-  const systemPrompt = buildSystemPrompt(nookId, nookName, nookRole, contextNote, memoryNookId);
+  const baseSystemPrompt = buildSystemPrompt(nookId, nookName, nookRole, contextNote, memoryNookId, nookInstructions, memoryNotes);
+  let systemPrompt = baseSystemPrompt;
+  const contextLimit = MODEL_CONTEXT_LIMITS[model] ?? DEFAULT_CONTEXT_LIMIT;
+
+  // IDs of instruction notes that can be auto-read without user approval
+  const instructionNoteIds = new Set([
+    ...nookInstructions.map(n => n.id),
+    ...memoryNotes.map(n => n.id),
+  ]);
 
   // mutable copy we extend on each auto-execute loop
   const msgs: Anthropic.MessageParam[] = [...messages];
+  let lastInputTokens = 0;
 
   try {
     for (let depth = 0; depth <= MAX_AUTO_DEPTH; depth++) {
+      // Add context pressure hint based on actual token count from previous iteration
+      if (lastInputTokens > 0) {
+        const ratio = lastInputTokens / contextLimit;
+        if (ratio > CONTEXT_CRITICAL_THRESHOLD) {
+          systemPrompt = baseSystemPrompt + '\n\n**CRITICAL — Context window is ' + Math.round(ratio * 100) + '% full.** You MUST:\n1. Keep responses very concise\n2. Strongly encourage the user to start a new chat\n3. Offer to summarize key outcomes/decisions into a memory note before they do\n4. After saving to memory, tell the user to click "New chat" to continue fresh';
+        } else if (ratio > CONTEXT_WARNING_THRESHOLD) {
+          systemPrompt = baseSystemPrompt + '\n\n**Context window is ' + Math.round(ratio * 100) + '% full.** Suggest starting a new chat soon. Offer to summarize outcomes to memory first. Keep responses concise.';
+        } else if (ratio > CONTEXT_SOFT_THRESHOLD) {
+          systemPrompt = baseSystemPrompt + '\n\n**Context note:** Window is ' + Math.round(ratio * 100) + '% full. If the user switches topics or you sense a natural break, gently suggest starting a new chat. No need to force it.';
+        }
+      }
       type StoredBlock = Anthropic.TextBlockParam | Anthropic.ToolUseBlockParam;
       const contentBlocks: StoredBlock[] = [];
       let currentText = '';
@@ -310,7 +440,14 @@ async function streamConversation(
         stream: true,
       });
 
+      let inputTokens = 0;
+      let outputTokens = 0;
+
       for await (const event of stream) {
+        if (event.type === 'message_start') {
+          inputTokens = (event as unknown as { message?: { usage?: { input_tokens?: number } } }).message?.usage?.input_tokens ?? 0;
+          lastInputTokens = inputTokens;
+        }
         if (event.type === 'content_block_start') {
           if (event.content_block.type === 'text') {
             currentText = '';
@@ -349,6 +486,7 @@ async function streamConversation(
         }
 
         if (event.type === 'message_delta') {
+          outputTokens += (event as unknown as { usage?: { output_tokens?: number } }).usage?.output_tokens ?? 0;
           const stopReason = event.delta.stop_reason;
 
           const savedAssistantTurns = await saveMessages(
@@ -359,7 +497,19 @@ async function streamConversation(
           );
 
           if (stopReason === 'end_turn') {
-            sse(res, 'done', { conversation_id: conversationId });
+            const contextLimit = MODEL_CONTEXT_LIMITS[model] ?? DEFAULT_CONTEXT_LIMIT;
+            const totalTokens = inputTokens + outputTokens;
+            sse(res, 'done', {
+              conversation_id: conversationId,
+              usage: { input_tokens: inputTokens, output_tokens: outputTokens, context_limit: contextLimit },
+            });
+
+            // If context is critically full, append a system hint for next turn
+            if (totalTokens > contextLimit * CONTEXT_CRITICAL_THRESHOLD) {
+              sse(res, 'context_warning', { level: 'critical', usage_ratio: totalTokens / contextLimit });
+            } else if (totalTokens > contextLimit * CONTEXT_WARNING_THRESHOLD) {
+              sse(res, 'context_warning', { level: 'warning', usage_ratio: totalTokens / contextLimit });
+            }
             return;
           }
 
@@ -371,7 +521,7 @@ async function streamConversation(
               input: t.input as Record<string, unknown>,
             }));
 
-            if (toolsPayload.every(t => isAutoExecutable(t.name))) {
+            if (toolsPayload.every(t => isAutoExecutable(t.name, t.input, instructionNoteIds))) {
               // Auto-execute all tools, loop for next AI turn
               const assistantBlocks = savedAssistantTurns[0]?.blocks ?? [];
 
@@ -417,7 +567,7 @@ async function streamConversation(
               break;
             } else {
               // Needs user approval
-              const displayNames = await resolveDisplayNames(toolsPayload, nookId, apiBase, cookie);
+              const displayNames = await resolveDisplayNames(toolsPayload, nookId, apiBase, cookie, memoryNookId);
               sse(res, 'awaiting_approval', {
                 conversation_id: conversationId,
                 tools: toolsPayload,

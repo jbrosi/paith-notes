@@ -46,6 +46,7 @@ export function NookDefaultLayout(props: NookDefaultLayoutProps) {
 
 	const handleNewNote = () => {
 		props.store.newNote();
+		props.store.setMode("edit");
 		ui.setMode("edit");
 	};
 

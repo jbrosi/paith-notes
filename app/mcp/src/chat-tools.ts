@@ -3,11 +3,12 @@ import type Anthropic from '@anthropic-ai/sdk';
 export const TOOLS: Anthropic.Tool[] = [
   {
     name: 'get_note',
-    description: 'Get a single note by ID',
+    description: 'Get a single note by ID. Always pass nook_id — use the nook ID from where you found this note (search results, instruction list, memory nook, etc.).',
     input_schema: {
       type: 'object',
       properties: {
         note_id: { type: 'string' },
+        nook_id: { type: 'string', description: 'The nook ID where this note lives. Required for cross-nook access. Defaults to current nook if omitted.' },
       },
       required: ['note_id'],
     },
@@ -100,6 +101,18 @@ export const TOOLS: Anthropic.Tool[] = [
         cursor:      { type: 'string', description: 'Pagination cursor from previous response' },
       },
       required: [],
+    },
+  },
+  {
+    name: 'start_new_chat',
+    description: 'Propose starting a new chat with a pre-filled first message. The user will be asked to confirm. Use this when the conversation should move to a fresh context — e.g. topic switch, context window pressure, or wrapping up. The message should contain relevant context/summary for the new chat to pick up where this one leaves off.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        message: { type: 'string', description: 'The first user message for the new chat. Include relevant context, summary of decisions, or the new topic.' },
+        reason: { type: 'string', description: 'Brief reason shown to the user for why a new chat is suggested.' },
+      },
+      required: ['message'],
     },
   },
   {
@@ -266,8 +279,10 @@ export async function executeTool(
   const noteId = String(input.note_id ?? '');
 
   switch (name) {
-    case 'get_note':
-      return JSON.stringify(await api('GET', `/api/nooks/${nookId}/notes/${noteId}`));
+    case 'get_note': {
+      const getNookId = typeof input.nook_id === 'string' && input.nook_id.trim() !== '' ? input.nook_id.trim() : nookId;
+      return JSON.stringify(await api('GET', `/api/nooks/${getNookId}/notes/${noteId}`));
+    }
 
     case 'create_note': {
       const { note_id: _, ...rawBody } = input;
@@ -339,6 +354,11 @@ export async function executeTool(
       if (input.cursor) params.set('cursor', String(input.cursor));
       const qs = params.toString() ? `?${params}` : '';
       return JSON.stringify(await api('GET', `/api/nooks/${nookId}/note-types/${typeId}/notes${qs}`));
+    }
+
+    case 'start_new_chat': {
+      // This is handled by the frontend — just return confirmation
+      return JSON.stringify({ success: true, message: String(input.message ?? '') });
     }
 
     case 'search_all_nooks': {
