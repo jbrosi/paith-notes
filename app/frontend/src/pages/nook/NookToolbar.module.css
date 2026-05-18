@@ -17,6 +17,16 @@
 	align-items: center;
 }
 
+.readonlyBadge {
+	font-size: 0.75rem;
+	font-weight: 600;
+	color: var(--color-text-secondary, #64748b);
+	background: var(--color-bg-tertiary, #f1f5f9);
+	padding: 0.2rem 0.5rem;
+	border-radius: 4px;
+	white-space: nowrap;
+}
+
 @media (width <= 640px) {
 	.toolbar {
 		padding: 8px 12px;

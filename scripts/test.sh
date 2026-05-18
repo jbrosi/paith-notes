@@ -19,6 +19,11 @@ if [ "$DOCKER" = "1" ]; then
   sh "$ROOT_DIR/scripts/run-api-tests.sh"
 else
   echo "==> PHP tests (pest)"
+  # Use DATABASE_TEST_URL if set, otherwise warn about shared database
+  if [ -z "${DATABASE_TEST_URL:-}" ]; then
+    echo "  WARNING: DATABASE_TEST_URL not set — tests will use DATABASE_URL and truncate all data!"
+    echo "  Set DATABASE_TEST_URL to a separate database to protect dev data."
+  fi
   app/api/vendor/bin/pest app/api
   echo ""
   echo "All tests passed."

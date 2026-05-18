@@ -5,6 +5,8 @@ import styles from "../Nav.module.css";
 
 export type NookNotesSearchDropdownProps = {
 	store: NookStore | null;
+	onNewNote?: () => void;
+	onUploadFile?: () => void;
 };
 
 export function NookNotesSearchDropdown(props: NookNotesSearchDropdownProps) {
@@ -268,7 +270,7 @@ export function NookNotesSearchDropdown(props: NookNotesSearchDropdownProps) {
 								class={styles.createNoteItem}
 								onMouseDown={(e) => e.preventDefault()}
 								onClick={() => {
-									store()?.newNote();
+									props.onNewNote?.();
 									store()?.setTitle(query().trim());
 									close();
 								}}
@@ -281,11 +283,22 @@ export function NookNotesSearchDropdown(props: NookNotesSearchDropdownProps) {
 							class={styles.createNoteItem}
 							onMouseDown={(e) => e.preventDefault()}
 							onClick={() => {
-								store()?.newNote();
+								props.onNewNote?.();
 								close();
 							}}
 						>
 							+ New note
+						</button>
+						<button
+							type="button"
+							class={styles.createNoteItem}
+							onMouseDown={(e) => e.preventDefault()}
+							onClick={() => {
+								props.onUploadFile?.();
+								close();
+							}}
+						>
+							+ Upload file
 						</button>
 					</div>
 				</div>

@@ -15,7 +15,6 @@ use Throwable;
 final class NoteTypesController
 {
     private const ROOT_FILE_TYPE_KEY = 'file';
-    private const AI_MEMORY_TYPE_KEY = 'ai-memory';
     private const TYPE_ID_ALL = 'all';
 
     public function list(Request $request, Context $context): Response
@@ -34,10 +33,9 @@ final class NoteTypesController
         $this->requireMember($pdo, $user, $nookId);
 
         $this->ensureRootFileType($pdo, $nookId);
-        $this->ensureAiMemoryType($pdo, $nookId);
 
         $stmt = $pdo->prepare(
-            'select id, key, label, description, parent_id, applies_to_files, applies_to_notes, created_at, updated_at '
+            'select id, key, label, description, parent_id, applies_to, created_at, updated_at '
             . 'from global.note_types where nook_id = :nook_id order by label asc'
         );
         $stmt->execute([':nook_id' => $nookId]);
@@ -55,8 +53,7 @@ final class NoteTypesController
                 'label' => is_scalar($r['label'] ?? null) ? (string)$r['label'] : '',
                 'description' => is_scalar($r['description'] ?? null) ? (string)$r['description'] : '',
                 'parent_id' => is_scalar($r['parent_id'] ?? null) ? (string)$r['parent_id'] : '',
-                'applies_to_files' => (bool)($r['applies_to_files'] ?? true),
-                'applies_to_notes' => (bool)($r['applies_to_notes'] ?? true),
+                'applies_to' => is_scalar($r['applies_to'] ?? null) ? (string)$r['applies_to'] : 'notes',
                 'created_at' => is_scalar($r['created_at'] ?? null) ? (string)$r['created_at'] : '',
                 'updated_at' => is_scalar($r['updated_at'] ?? null) ? (string)$r['updated_at'] : '',
             ];
@@ -78,7 +75,7 @@ final class NoteTypesController
             throw new HttpError('nookId must be a UUID', 400);
         }
 
-        $this->requireMember($pdo, $user, $nookId);
+        NookAccess::requireWriteAccess($pdo, $user, $nookId);
 
         $data = $request->jsonBody();
 
@@ -103,8 +100,11 @@ final class NoteTypesController
             throw new HttpError('parent_id must be a UUID', 400);
         }
 
-        $appliesToFiles = (bool)($data['applies_to_files'] ?? true);
-        $appliesToNotes = (bool)($data['applies_to_notes'] ?? true);
+        $appliesToRaw = $data['applies_to'] ?? 'notes';
+        $appliesTo = is_string($appliesToRaw) ? trim($appliesToRaw) : 'notes';
+        if (!in_array($appliesTo, ['notes', 'files'], true)) {
+            throw new HttpError('applies_to must be "notes" or "files"', 400);
+        }
 
         if ($parentId !== '') {
             $p = $pdo->prepare('select 1 from global.note_types where id = :id and nook_id = :nook_id');
@@ -118,8 +118,8 @@ final class NoteTypesController
             $pdo->beginTransaction();
 
             $stmt = $pdo->prepare(
-                'insert into global.note_types (nook_id, key, label, description, parent_id, applies_to_files, applies_to_notes) '
-                . 'values (:nook_id, :key, :label, :description, :parent_id, :applies_to_files, :applies_to_notes) '
+                'insert into global.note_types (nook_id, key, label, description, parent_id, applies_to) '
+                . 'values (:nook_id, :key, :label, :description, :parent_id, :applies_to) '
                 . 'returning id, created_at, updated_at'
             );
             $stmt->bindValue(':nook_id', $nookId);
@@ -127,8 +127,7 @@ final class NoteTypesController
             $stmt->bindValue(':label', $label);
             $stmt->bindValue(':description', $description);
             $stmt->bindValue(':parent_id', $parentId !== '' ? $parentId : null);
-            $stmt->bindValue(':applies_to_files', $appliesToFiles, PDO::PARAM_BOOL);
-            $stmt->bindValue(':applies_to_notes', $appliesToNotes, PDO::PARAM_BOOL);
+            $stmt->bindValue(':applies_to', $appliesTo);
             $stmt->execute();
 
             $row = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -148,8 +147,7 @@ final class NoteTypesController
                     'label' => $label,
                     'description' => $description,
                     'parent_id' => $parentId,
-                    'applies_to_files' => $appliesToFiles,
-                    'applies_to_notes' => $appliesToNotes,
+                    'applies_to' => $appliesTo,
                     'created_at' => is_scalar($row['created_at'] ?? null) ? (string)$row['created_at'] : '',
                     'updated_at' => is_scalar($row['updated_at'] ?? null) ? (string)$row['updated_at'] : '',
                 ],
@@ -183,7 +181,7 @@ final class NoteTypesController
             throw new HttpError('typeId must be a UUID', 400);
         }
 
-        $this->requireMember($pdo, $user, $nookId);
+        NookAccess::requireWriteAccess($pdo, $user, $nookId);
 
         $keyCheck = $pdo->prepare('select key from global.note_types where id = :id and nook_id = :nook_id');
         $keyCheck->execute([':id' => $typeId, ':nook_id' => $nookId]);
@@ -194,9 +192,6 @@ final class NoteTypesController
         }
         if ($existingKey === self::ROOT_FILE_TYPE_KEY) {
             throw new HttpError('root file type cannot be modified', 400);
-        }
-        if ($existingKey === self::AI_MEMORY_TYPE_KEY) {
-            throw new HttpError('ai-memory type cannot be modified', 400);
         }
 
         $data = $request->jsonBody();
@@ -225,8 +220,11 @@ final class NoteTypesController
             throw new HttpError('parent_id cannot be self', 400);
         }
 
-        $appliesToFiles = (bool)($data['applies_to_files'] ?? true);
-        $appliesToNotes = (bool)($data['applies_to_notes'] ?? true);
+        $appliesToRaw = $data['applies_to'] ?? 'notes';
+        $appliesTo = is_string($appliesToRaw) ? trim($appliesToRaw) : 'notes';
+        if (!in_array($appliesTo, ['notes', 'files'], true)) {
+            throw new HttpError('applies_to must be "notes" or "files"', 400);
+        }
 
         if ($parentId !== '') {
             $p = $pdo->prepare('select 1 from global.note_types where id = :id and nook_id = :nook_id');
@@ -245,7 +243,7 @@ final class NoteTypesController
         }
 
         $stmt = $pdo->prepare(
-            'update global.note_types set key = :key, label = :label, description = :description, parent_id = :parent_id, applies_to_files = :applies_to_files, applies_to_notes = :applies_to_notes, updated_at = now() '
+            'update global.note_types set key = :key, label = :label, description = :description, parent_id = :parent_id, applies_to = :applies_to, updated_at = now() '
             . 'where id = :id and nook_id = :nook_id '
             . 'returning description, created_at, updated_at'
         );
@@ -255,8 +253,7 @@ final class NoteTypesController
         $stmt->bindValue(':label', $label);
         $stmt->bindValue(':description', $description);
         $stmt->bindValue(':parent_id', $parentId !== '' ? $parentId : null);
-        $stmt->bindValue(':applies_to_files', $appliesToFiles, PDO::PARAM_BOOL);
-        $stmt->bindValue(':applies_to_notes', $appliesToNotes, PDO::PARAM_BOOL);
+        $stmt->bindValue(':applies_to', $appliesTo);
         $stmt->execute();
 
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -272,8 +269,7 @@ final class NoteTypesController
                 'label' => $label,
                 'description' => is_scalar($row['description'] ?? null) ? (string)$row['description'] : $description,
                 'parent_id' => $parentId,
-                'applies_to_files' => $appliesToFiles,
-                'applies_to_notes' => $appliesToNotes,
+                'applies_to' => $appliesTo,
                 'created_at' => is_scalar($row['created_at'] ?? null) ? (string)$row['created_at'] : '',
                 'updated_at' => is_scalar($row['updated_at'] ?? null) ? (string)$row['updated_at'] : '',
             ],
@@ -301,7 +297,7 @@ final class NoteTypesController
             throw new HttpError('typeId must be a UUID', 400);
         }
 
-        $this->requireMember($pdo, $user, $nookId);
+        NookAccess::requireWriteAccess($pdo, $user, $nookId);
 
         $keyCheck = $pdo->prepare('select key from global.note_types where id = :id and nook_id = :nook_id');
         $keyCheck->execute([':id' => $typeId, ':nook_id' => $nookId]);
@@ -312,9 +308,6 @@ final class NoteTypesController
         }
         if ($existingKey === self::ROOT_FILE_TYPE_KEY) {
             throw new HttpError('root file type cannot be deleted', 400);
-        }
-        if ($existingKey === self::AI_MEMORY_TYPE_KEY) {
-            throw new HttpError('ai-memory type cannot be deleted', 400);
         }
 
         $stmt = $pdo->prepare('delete from global.note_types where id = :id and nook_id = :nook_id returning id');
@@ -417,7 +410,10 @@ final class NoteTypesController
 
         $search = \Paith\Notes\Shared\Search\SearchQueryParser::buildSearchClause($q, $searchMode);
         $whereSearch = $search['where'];
-        $searchRank = $search['rank'];
+        // Boost search rank with total views (logarithmic to avoid popular notes dominating)
+        $searchRank = $search['rank'] !== '0'
+            ? '(' . $search['rank'] . ' + ln(1 + least(coalesce(ns.view_count, 0), 1000)) * 0.5)'
+            : '0';
         $searchBindings = $search['bindings'];
 
         $orderByWithRank = $searchRank !== '0'
@@ -441,38 +437,13 @@ final class NoteTypesController
         $limitPlusOne = $limit + 1;
 
         $selectCols = "select n.id, n.title, n.type, n.type_id, n.created_at, n.updated_at,
-                    coalesce(outgoing.cnt, 0) as outgoing_mentions_count,
-                    coalesce(incoming.cnt, 0) as incoming_mentions_count,
-                    coalesce(outgoing_links.cnt, 0) as outgoing_links_count,
-                    coalesce(incoming_links.cnt, 0) as incoming_links_count,
+                    coalesce(ns.outgoing_mentions, 0) as outgoing_mentions_count,
+                    coalesce(ns.incoming_mentions, 0) as incoming_mentions_count,
+                    coalesce(ns.outgoing_links, 0) as outgoing_links_count,
+                    coalesce(ns.incoming_links, 0) as incoming_links_count,
                     {$searchRank} as search_rank";
         $joinCounts = '
-                left join (
-                    select nm.source_note_id as note_id, count(*)::int as cnt
-                    from global.note_mentions nm
-                    join global.notes nn on nn.id = nm.source_note_id
-                    where nn.nook_id = :nook_id
-                    group by nm.source_note_id
-                ) outgoing on outgoing.note_id = n.id
-                left join (
-                    select nm.target_note_id as note_id, count(*)::int as cnt
-                    from global.note_mentions nm
-                    join global.notes nn on nn.id = nm.target_note_id
-                    where nn.nook_id = :nook_id
-                    group by nm.target_note_id
-                ) incoming on incoming.note_id = n.id
-                left join (
-                    select l.source_note_id as note_id, count(*)::int as cnt
-                    from global.note_links l
-                    where l.nook_id = :nook_id
-                    group by l.source_note_id
-                ) outgoing_links on outgoing_links.note_id = n.id
-                left join (
-                    select l.target_note_id as note_id, count(*)::int as cnt
-                    from global.note_links l
-                    where l.nook_id = :nook_id
-                    group by l.target_note_id
-                ) incoming_links on incoming_links.note_id = n.id';
+                left join global.note_stats ns on ns.note_id = n.id';
 
         if ($isAll) {
             $stmt = $pdo->prepare(
@@ -631,26 +602,6 @@ final class NoteTypesController
         return $row;
     }
 
-    private function ensureAiMemoryType(PDO $pdo, string $nookId): void
-    {
-        $check = $pdo->prepare('select 1 from global.note_types where nook_id = :nook_id and key = :key');
-        $check->execute([':nook_id' => $nookId, ':key' => self::AI_MEMORY_TYPE_KEY]);
-        if ($check->fetchColumn()) {
-            return;
-        }
-
-        $stmt = $pdo->prepare(
-            'insert into global.note_types (nook_id, key, label, description, parent_id, applies_to_files, applies_to_notes) '
-            . 'values (:nook_id, :key, :label, :description, null, false, true)'
-        );
-        $stmt->execute([
-            ':nook_id' => $nookId,
-            ':key' => self::AI_MEMORY_TYPE_KEY,
-            ':label' => 'AI Memory',
-            ':description' => 'Notes that the AI assistant can read and write freely without requiring user approval.',
-        ]);
-    }
-
     private function ensureRootFileType(PDO $pdo, string $nookId): void
     {
         $check = $pdo->prepare('select 1 from global.note_types where nook_id = :nook_id and key = :key');
@@ -660,8 +611,8 @@ final class NoteTypesController
         }
 
         $stmt = $pdo->prepare(
-            'insert into global.note_types (nook_id, key, label, parent_id, applies_to_files, applies_to_notes) '
-            . 'values (:nook_id, :key, :label, null, true, false)'
+            'insert into global.note_types (nook_id, key, label, parent_id, applies_to) '
+            . "values (:nook_id, :key, :label, null, 'files')"
         );
         $stmt->execute([
             ':nook_id' => $nookId,

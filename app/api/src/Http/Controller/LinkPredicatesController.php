@@ -73,7 +73,7 @@ final class LinkPredicatesController
             throw new HttpError('nookId must be a UUID', 400);
         }
 
-        $this->requireMember($pdo, $user, $nookId);
+        NookAccess::requireWriteAccess($pdo, $user, $nookId);
         $this->ensureDefaultRelatesTo($pdo, $nookId);
 
         $data = $request->jsonBody();
@@ -175,7 +175,7 @@ final class LinkPredicatesController
             throw new HttpError('predicateId must be a UUID', 400);
         }
 
-        $this->requireMember($pdo, $user, $nookId);
+        NookAccess::requireWriteAccess($pdo, $user, $nookId);
         $this->ensureDefaultRelatesTo($pdo, $nookId);
 
         $keyCheck = $pdo->prepare('select key from global.link_predicates where id = :id and nook_id = :nook_id');
@@ -278,7 +278,7 @@ final class LinkPredicatesController
             throw new HttpError('predicateId must be a UUID', 400);
         }
 
-        $this->requireMember($pdo, $user, $nookId);
+        NookAccess::requireWriteAccess($pdo, $user, $nookId);
         $this->ensureDefaultRelatesTo($pdo, $nookId);
 
         $keyCheck = $pdo->prepare('select key from global.link_predicates where id = :id and nook_id = :nook_id');
@@ -380,7 +380,7 @@ final class LinkPredicatesController
             throw new HttpError('predicateId must be a UUID', 400);
         }
 
-        $this->requireMember($pdo, $user, $nookId);
+        NookAccess::requireWriteAccess($pdo, $user, $nookId);
 
         $check = $pdo->prepare('select 1 from global.link_predicates where id = :id and nook_id = :nook_id');
         $check->execute([':id' => $predicateId, ':nook_id' => $nookId]);

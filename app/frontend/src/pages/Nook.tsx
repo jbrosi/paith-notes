@@ -13,15 +13,18 @@ import styles from "../App.module.css";
 import { apiFetch } from "../auth/keycloak";
 import { Button } from "../components/Button";
 import { useUi } from "../ui/UiContext";
+import { NookActivityFeed } from "./nook/NookActivityFeed";
 import { useNook } from "./nook/NookContext";
 import { NookDefaultLayout } from "./nook/NookDefaultLayout";
 import { NookGraphPanel } from "./nook/NookGraphPanel";
 import { NookLinksPanel } from "./nook/NookLinksPanel";
+import { NookNoteHistoryPage } from "./nook/NookNoteHistoryPage";
 import {
 	applyNookSeeds,
 	NookSettingsLanding,
 } from "./nook/NookSettingsLanding";
 import { NookTypesSettingsView } from "./nook/NookTypesSettingsView";
+import { NookUnlinkedNotes } from "./nook/NookUnlinkedNotes";
 import { createNookStore } from "./nook/store";
 
 export default function Nook() {
@@ -38,6 +41,7 @@ export default function Nook() {
 	);
 	const store = createNookStore(nookId);
 	const [nookName, setNookName] = createSignal("");
+	const [nookRole, setNookRole] = createSignal("unknown");
 	createEffect(() => {
 		const id = nookId();
 		if (id) {
@@ -61,13 +65,17 @@ export default function Nook() {
 					if (!n || typeof n !== "object") continue;
 					const obj = n as Record<string, unknown>;
 					if (typeof obj.id === "string" && obj.id === id) {
-						setNookName(
-							obj.is_personal
-								? "My Notes"
-								: typeof obj.name === "string"
-									? obj.name
-									: "",
-						);
+						{
+							const name = typeof obj.name === "string" ? obj.name : "";
+							setNookName(name);
+							store.setNookName(name);
+							store.cacheNookName(id, name);
+						}
+
+						if (typeof obj.role === "string") {
+							setNookRole(obj.role);
+							store.setNookRole(obj.role);
+						}
 						break;
 					}
 				}
@@ -91,8 +99,15 @@ export default function Nook() {
 		onCleanup(() => window.removeEventListener("beforeunload", handler));
 	});
 
-	let isApplyingUrlSelection = false;
 	let lastUrlSelectRequestId = 0;
+
+	// Wire up navigation: store.onNoteLinkClick → router navigate
+	store.setNavigator((noteId: string, targetNookId?: string) => {
+		const nook = targetNookId || nookId();
+		navigate(
+			`/nooks/${encodeURIComponent(nook)}/notes/${encodeURIComponent(noteId)}`,
+		);
+	});
 
 	const typeEditId = createMemo(() => {
 		const p = normalizedSubPath();
@@ -115,6 +130,12 @@ export default function Nook() {
 	});
 
 	const showLinks = createMemo(() => normalizedSubPath() === "settings/links");
+	const showActivity = createMemo(
+		() => normalizedSubPath() === "settings/activity",
+	);
+	const showUnlinked = createMemo(
+		() => normalizedSubPath() === "settings/unlinked",
+	);
 	const showSettings = createMemo(() => normalizedSubPath() === "settings");
 
 	const fullscreenGraphNoteId = createMemo(() => {
@@ -127,66 +148,62 @@ export default function Nook() {
 	);
 
 	const selectedNoteIdFromPath = createMemo(() => {
-		const m = normalizedSubPath().match(/^notes\/([^/]+)$/);
+		const m = normalizedSubPath().match(
+			/^notes\/([^/]+?)(?:\/v\/\d+|\/history)?$/,
+		);
 		return m?.[1] ? String(m[1]) : "";
 	});
 
-	const isNoteRoute = createMemo(() => {
-		const p = normalizedSubPath();
-		return p === "" || p.startsWith("notes/");
+	const selectedVersionFromPath = createMemo(() => {
+		const m = normalizedSubPath().match(/^notes\/[^/]+\/v\/(\d+)$/);
+		return m?.[1] ? Number(m[1]) : null;
 	});
 
+	const showNoteHistory = createMemo(() =>
+		/^notes\/[^/]+\/history$/.test(normalizedSubPath()),
+	);
+
+	// URL → store: URL is the single source of truth for which note is selected.
+	// The store never drives navigation — only follows the URL.
 	createEffect(() => {
 		const id = (
-			isGraphFullscreen()
-				? fullscreenGraphNoteId()
-				: selectedNoteIdFromPath().trim() !== ""
-					? selectedNoteIdFromPath()
-					: ""
+			isGraphFullscreen() ? fullscreenGraphNoteId() : selectedNoteIdFromPath()
 		).trim();
-		void store.allNotes();
-		if (id === "") return;
-		const currentSelected = untrack(() => store.selectedId());
-		if (currentSelected === id) return;
+
+		if (id === "") {
+			if (untrack(() => store.selectedId()) !== "") {
+				store.setSelectedId("");
+			}
+			return;
+		}
+
+		if (untrack(() => store.selectedId()) === id) return;
+
 		const requestId = ++lastUrlSelectRequestId;
-		isApplyingUrlSelection = true;
 		void (async () => {
 			try {
-				await store.onNoteLinkClick(id);
-			} finally {
+				await store.loadNoteById(id);
+			} catch {
 				if (requestId === lastUrlSelectRequestId) {
-					isApplyingUrlSelection = false;
+					store.setSelectedId("");
 				}
 			}
 		})();
 	});
 
+	// Sync version from URL to store
 	createEffect(() => {
-		const id = store.selectedId().trim();
-		if (isGraphFullscreen()) {
-			const current = fullscreenGraphNoteId().trim();
-			if (isApplyingUrlSelection) return;
-			if (id === "") return;
-			if (current === id) return;
-			navigate(
-				`/nooks/${encodeURIComponent(nookId())}/graph/${encodeURIComponent(id)}`,
-				{ replace: true },
-			);
-			return;
+		const version = selectedVersionFromPath();
+		const currentStoreVersion = untrack(() => store.selectedVersion());
+		if (version === currentStoreVersion) return;
+
+		if (version === null) {
+			if (currentStoreVersion !== null) {
+				store.setSelectedVersion(null);
+			}
+		} else {
+			void store.viewVersion(version, true);
 		}
-		if (!isNoteRoute()) return;
-		const current = selectedNoteIdFromPath().trim();
-		if (isApplyingUrlSelection) return;
-		if (id === "") {
-			if (current === "") return;
-			navigate(`/nooks/${encodeURIComponent(nookId())}`, { replace: true });
-			return;
-		}
-		if (current === id) return;
-		navigate(
-			`/nooks/${encodeURIComponent(nookId())}/notes/${encodeURIComponent(id)}`,
-			{ replace: true },
-		);
 	});
 
 	createEffect(() => {
@@ -240,42 +257,95 @@ export default function Nook() {
 				when={showLinks()}
 				fallback={
 					<Show
-						when={showSettings()}
+						when={showActivity()}
 						fallback={
 							<Show
-								when={showTypesSettings()}
+								when={showUnlinked()}
 								fallback={
 									<Show
-										when={isGraphFullscreen()}
+										when={showSettings()}
 										fallback={
-											<NookDefaultLayout
-												nookId={nookId()}
-												store={store}
-												showGraph={ui.graphPanelOpen()}
-											/>
+											<Show
+												when={showTypesSettings()}
+												fallback={
+													<Show
+														when={showNoteHistory()}
+														fallback={
+															<Show
+																when={isGraphFullscreen()}
+																fallback={
+																	<NookDefaultLayout
+																		nookId={nookId()}
+																		store={store}
+																		showGraph={ui.graphPanelOpen()}
+																		onSettings={() =>
+																			navigate(
+																				`/nooks/${encodeURIComponent(nookId())}/settings`,
+																			)
+																		}
+																	/>
+																}
+															>
+																<div style={{ width: "100%" }}>
+																	<NookGraphPanel
+																		store={store}
+																		fullscreen={true}
+																	/>
+																</div>
+															</Show>
+														}
+													>
+														<NookNoteHistoryPage store={store} />
+													</Show>
+												}
+											>
+												<NookTypesSettingsView
+													nookId={nookId()}
+													store={store}
+													typeEditId={typeEditId()}
+													onClose={goBackToNoteOrNook}
+												/>
+											</Show>
 										}
 									>
-										<div style={{ width: "100%" }}>
-											<NookGraphPanel store={store} fullscreen={true} />
-										</div>
+										<NookSettingsLanding
+											nookId={nookId()}
+											nookName={nookName()}
+											nookRole={nookRole()}
+											onClose={goBackToNoteOrNook}
+											onOpenLinks={openLinksSettings}
+											onOpenTypes={openTypesSettings}
+											onOpenActivity={() => {
+												const n = nookId().trim();
+												if (n !== "")
+													navigate(
+														`/nooks/${encodeURIComponent(n)}/settings/activity`,
+													);
+											}}
+											onOpenUnlinked={() => {
+												const n = nookId().trim();
+												if (n !== "")
+													navigate(
+														`/nooks/${encodeURIComponent(n)}/settings/unlinked`,
+													);
+											}}
+											onNameSaved={(name) => {
+												setNookName(name);
+												store.setNookName(name);
+											}}
+										/>
 									</Show>
 								}
 							>
-								<NookTypesSettingsView
+								<NookUnlinkedNotes
 									nookId={nookId()}
 									store={store}
-									typeEditId={typeEditId()}
 									onClose={goBackToNoteOrNook}
 								/>
 							</Show>
 						}
 					>
-						<NookSettingsLanding
-							nookId={nookId()}
-							onClose={goBackToNoteOrNook}
-							onOpenLinks={openLinksSettings}
-							onOpenTypes={openTypesSettings}
-						/>
+						<NookActivityFeed nookId={nookId()} onClose={goBackToNoteOrNook} />
 					</Show>
 				}
 			>

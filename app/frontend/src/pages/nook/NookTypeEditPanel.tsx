@@ -46,8 +46,7 @@ export function NookTypeEditPanel(props: NookTypeEditPanelProps) {
 			label: label(),
 			description: description(),
 			parentId: t.parentId,
-			appliesToFiles: t.appliesToFiles,
-			appliesToNotes: t.appliesToNotes,
+			appliesTo: t.appliesTo,
 		});
 		if (updated) goBack();
 	};

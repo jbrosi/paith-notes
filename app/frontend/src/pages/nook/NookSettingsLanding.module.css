@@ -20,6 +20,48 @@
 	margin-bottom: 24px;
 }
 
+.nookHeader {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	margin-bottom: 20px;
+}
+
+.nookTitle {
+	margin: 0;
+	font-size: 1.5rem;
+	font-weight: 700;
+	color: var(--color-text);
+}
+
+.editNameBtn {
+	background: none;
+	border: none;
+	cursor: pointer;
+	padding: 4px;
+	color: var(--color-text-muted);
+	border-radius: 4px;
+	line-height: 1;
+	flex-shrink: 0;
+}
+
+.editNameBtn:hover {
+	background: var(--color-bg-hover);
+	color: var(--color-text);
+}
+
+.nookTitleInput {
+	flex: 1;
+	padding: 6px 10px;
+	border: 1px solid var(--color-border);
+	border-radius: 6px;
+	background: var(--color-bg);
+	color: var(--color-text);
+	font-family: inherit;
+	font-size: 1.5rem;
+	font-weight: 700;
+}
+
 .sectionTitle {
 	font-weight: 600;
 	margin-bottom: 8px;
@@ -154,4 +196,74 @@
 .seedLabel {
 	min-width: 80px;
 	color: var(--color-text-secondary);
+}
+
+/* Sharing */
+.inviteForm {
+	display: flex;
+	gap: 0.5rem;
+	align-items: center;
+	flex-wrap: wrap;
+}
+
+.inviteInput {
+	flex: 1;
+	min-width: 200px;
+	padding: 0.375rem 0.5rem;
+	border: 1px solid var(--color-border);
+	border-radius: 4px;
+	background: var(--color-bg);
+	color: var(--color-text);
+	font-size: 0.85rem;
+}
+
+.inviteSelect {
+	padding: 0.375rem 0.5rem;
+	border: 1px solid var(--color-border);
+	border-radius: 4px;
+	background: var(--color-bg);
+	color: var(--color-text);
+	font-size: 0.85rem;
+}
+
+.sharingError {
+	color: var(--color-danger, #dc2626);
+	font-size: 0.8rem;
+	margin-top: 0.25rem;
+}
+
+.sharingSubtitle {
+	font-size: 0.8rem;
+	font-weight: 600;
+	color: var(--color-text-secondary);
+	margin-top: 0.75rem;
+	margin-bottom: 0.25rem;
+}
+
+.sharingRow {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	padding: 0.375rem 0;
+	font-size: 0.85rem;
+	border-bottom: 1px solid var(--color-border);
+}
+
+.sharingEmail {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.sharingEmailSub {
+	opacity: 0.6;
+	font-size: 0.8rem;
+}
+
+.sharingRole {
+	font-size: 0.75rem;
+	opacity: 0.7;
+	white-space: nowrap;
 }

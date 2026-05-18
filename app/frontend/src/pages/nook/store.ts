@@ -5,9 +5,16 @@ import {
 	rankNotesByQuery,
 	resolveTypeIdForTerm,
 } from "../../noteSearch";
-import type { Mention, Note, NoteSummary, NoteType } from "./types";
+import type {
+	Mention,
+	Note,
+	NoteHistoryEntry,
+	NoteSummary,
+	NoteType,
+} from "./types";
 import {
 	MentionsResponseSchema,
+	NoteHistoryResponseSchema,
 	NoteResponseSchema,
 	NoteTypeNotesResponseSchema,
 	NoteTypeResponseSchema,
@@ -16,7 +23,73 @@ import {
 
 export function createNookStore(nookId: () => string) {
 	const fileInlineUrlCache = new Map<string, string>();
-	const noteDetailCache = new Map<string, Note>();
+	// Key: "nookId:noteId" → title
+	const noteTitleCache = new Map<string, string>();
+	const nookTitleCache = new Map<string, string>();
+	const titleFetchInFlight = new Set<string>();
+	const [titleCacheVersion, setTitleCacheVersion] = createSignal(0);
+	const bumpTitleCache = () => setTitleCacheVersion((v) => v + 1);
+	const titleKey = (nook: string, noteId: string) => `${nook}:${noteId}`;
+	const cacheTitles = (
+		entries: Array<{ id: string; title: string }>,
+		forNookId?: string,
+	) => {
+		const nook = forNookId ?? nookId();
+		let changed = false;
+		for (const e of entries) {
+			const key = titleKey(nook, e.id);
+			if (e.id && e.title && noteTitleCache.get(key) !== e.title) {
+				noteTitleCache.set(key, e.title);
+				changed = true;
+			}
+		}
+		if (changed) bumpTitleCache();
+	};
+	const cacheNookName = (id: string, name: string) => {
+		if (id && name && nookTitleCache.get(id) !== name) {
+			nookTitleCache.set(id, name);
+			bumpTitleCache();
+		}
+	};
+	const fetchMissingTitles = (
+		refs: Array<{ nookId: string; noteId: string }>,
+	) => {
+		const missing = refs.filter((r) => {
+			const targetNook = r.nookId || nookId();
+			const key = titleKey(targetNook, r.noteId);
+			return (
+				r.noteId !== "" &&
+				!noteTitleCache.has(key) &&
+				!titleFetchInFlight.has(key)
+			);
+		});
+		if (missing.length === 0) return;
+		for (const r of missing)
+			titleFetchInFlight.add(titleKey(r.nookId || nookId(), r.noteId));
+		void Promise.all(
+			missing.map(async (r) => {
+				const targetNook = r.nookId || nookId();
+				const key = titleKey(targetNook, r.noteId);
+				try {
+					const res = await apiFetch(
+						`/api/nooks/${targetNook}/notes/${r.noteId}`,
+						{ method: "GET" },
+					);
+					if (!res.ok) return;
+					const json = await res.json();
+					const body = NoteResponseSchema.parse(json);
+					cacheTitles(
+						[{ id: body.note.id, title: body.note.title }],
+						targetNook,
+					);
+				} catch {
+					// best-effort — user may not have access to that nook
+				} finally {
+					titleFetchInFlight.delete(key);
+				}
+			}),
+		);
+	};
 	let lastDetailRequestId = 0;
 	const normalizeMimeType = (mime: string) => {
 		return String(mime ?? "")
@@ -39,6 +112,12 @@ export function createNookStore(nookId: () => string) {
 		void ext;
 		return `/files/notes/${n}/files/${id}`;
 	};
+	const [nookName, setNookName] = createSignal<string>("");
+	const [nookRole, setNookRole] = createSignal<string>("unknown");
+	const canWrite = createMemo(() => {
+		const role = nookRole();
+		return role !== "unknown" && role !== "readonly";
+	});
 	const [notes, setNotes] = createSignal<NoteSummary[]>([]);
 	const [notesNextCursor, setNotesNextCursor] = createSignal<string>("");
 	const [notesQuery, setNotesQuery] = createSignal<string>("");
@@ -46,7 +125,6 @@ export function createNookStore(nookId: () => string) {
 	const [selectedTypeIds, setSelectedTypeIds] = createSignal<Set<string>>(
 		new Set(),
 	);
-	const [needsLogin, setNeedsLogin] = createSignal<boolean>(false);
 	const [selectedId, setSelectedId] = createSignal<string>("");
 	const [typeId, setTypeId] = createSignal<string>("");
 	const [title, setTitle] = createSignal<string>("");
@@ -70,7 +148,7 @@ export function createNookStore(nookId: () => string) {
 	>({});
 	const [mode, setMode] = createSignal<"view" | "edit">("view");
 	const [isDirty, setIsDirty] = createSignal<boolean>(false);
-	type PendingNav = { proceed: () => Promise<void> };
+	type PendingNav = { proceed: () => void | Promise<void> };
 	const [pendingNav, setPendingNav] = createSignal<PendingNav | null>(null);
 	const [loading, setLoading] = createSignal<boolean>(false);
 	const [error, setError] = createSignal<string>("");
@@ -81,6 +159,68 @@ export function createNookStore(nookId: () => string) {
 		createSignal<boolean>(false);
 	const [outgoingMentions, setOutgoingMentions] = createSignal<Mention[]>([]);
 	const [incomingMentions, setIncomingMentions] = createSignal<Mention[]>([]);
+	const [noteVersion, setNoteVersion] = createSignal<number>(0);
+	const [viewCount, setViewCount] = createSignal<number>(0);
+	const [remoteVersion, setRemoteVersion] = createSignal<number>(0);
+	const [noteViewers, setNoteViewers] = createSignal<
+		Array<{ user_id: string; user_name: string }>
+	>([]);
+	let presenceInterval: ReturnType<typeof setInterval> | null = null;
+
+	const pollPresence = async () => {
+		const nook = nookId();
+		const note = selectedId();
+		if (!nook || !note) return;
+		try {
+			const res = await apiFetch(`/api/nooks/${nook}/notes/${note}/presence`, {
+				method: "GET",
+			});
+			if (!res.ok) return;
+			const body = (await res.json()) as {
+				version?: number;
+				viewers?: Array<{ user_id: string; user_name: string }>;
+			};
+			if (body.version !== undefined) {
+				setRemoteVersion(body.version);
+			}
+			setNoteViewers(body.viewers ?? []);
+		} catch {
+			// best-effort
+		}
+	};
+
+	const startPresencePolling = () => {
+		stopPresencePolling();
+		void pollPresence();
+		presenceInterval = setInterval(() => void pollPresence(), 30000);
+	};
+
+	const stopPresencePolling = () => {
+		if (presenceInterval) {
+			clearInterval(presenceInterval);
+			presenceInterval = null;
+		}
+		setNoteViewers([]);
+		setRemoteVersion(0);
+	};
+	const [conflictError, setConflictError] = createSignal<{
+		currentVersion: number;
+		expectedVersion: number;
+	} | null>(null);
+	const [noteHistory, setNoteHistory] = createSignal<NoteHistoryEntry[]>([]);
+	const [selectedVersion, setSelectedVersion] = createSignal<number | null>(
+		null,
+	);
+	const [snapshotData, setSnapshotData] = createSignal<{
+		historyId: number;
+		version: number;
+		action: string;
+		actor: string;
+		userName: string;
+		createdAt: string;
+		title: string;
+		content: string;
+	} | null>(null);
 	const [fileUploadInProgress, setFileUploadInProgress] =
 		createSignal<boolean>(false);
 
@@ -182,8 +322,7 @@ export function createNookStore(nookId: () => string) {
 		const parentId = input.parentId.trim();
 		const parent =
 			parentId === "" ? null : noteTypes().find((t) => t.id === parentId);
-		const appliesToFiles = parent ? parent.appliesToFiles : true;
-		const appliesToNotes = parent ? parent.appliesToNotes : true;
+		const appliesTo = parent ? parent.appliesTo : "notes";
 
 		setLoading(true);
 		setError("");
@@ -195,8 +334,7 @@ export function createNookStore(nookId: () => string) {
 					key,
 					label,
 					parent_id: parentId,
-					applies_to_files: appliesToFiles,
-					applies_to_notes: appliesToNotes,
+					applies_to: appliesTo,
 				}),
 			});
 			if (!res.ok) {
@@ -236,8 +374,7 @@ export function createNookStore(nookId: () => string) {
 						label,
 						description: type.description,
 						parent_id: type.parentId,
-						applies_to_files: type.appliesToFiles,
-						applies_to_notes: type.appliesToNotes,
+						applies_to: type.appliesTo,
 					}),
 				},
 			);
@@ -265,8 +402,7 @@ export function createNookStore(nookId: () => string) {
 			label: string;
 			description: string;
 			parentId: string;
-			appliesToFiles: boolean;
-			appliesToNotes: boolean;
+			appliesTo: "notes" | "files";
 		},
 	): Promise<NoteType | null> => {
 		if (nookId() === "") return null;
@@ -289,8 +425,7 @@ export function createNookStore(nookId: () => string) {
 						label,
 						description: next.description,
 						parent_id: next.parentId,
-						applies_to_files: next.appliesToFiles,
-						applies_to_notes: next.appliesToNotes,
+						applies_to: next.appliesTo,
 					}),
 				},
 			);
@@ -386,11 +521,6 @@ export function createNookStore(nookId: () => string) {
 		const id = noteId.trim();
 		if (id === "") return null;
 		if (nookId() === "") return null;
-		const cached = noteDetailCache.get(id);
-		if (cached) {
-			if (selectedId() === id) applyNoteDetail(cached);
-			return cached;
-		}
 
 		const requestId = ++lastDetailRequestId;
 		try {
@@ -403,7 +533,7 @@ export function createNookStore(nookId: () => string) {
 			const json = await res.json();
 			const body = NoteResponseSchema.parse(json);
 			const note = body.note;
-			noteDetailCache.set(id, note);
+			cacheTitles([{ id: note.id, title: note.title }]);
 
 			if (requestId === lastDetailRequestId && selectedId() === id) {
 				applyNoteDetail(note);
@@ -456,12 +586,84 @@ export function createNookStore(nookId: () => string) {
 			}
 			const json = await res.json();
 			const body = MentionsResponseSchema.parse(json);
+			// Cache titles, grouping by nook for correct cache keys
+			const currentNook = nookId();
+			for (const m of [...body.outgoing, ...body.incoming]) {
+				cacheTitles(
+					[{ id: m.noteId, title: m.noteTitle }],
+					m.nookId || currentNook,
+				);
+			}
 			setOutgoingMentions(body.outgoing);
 			setIncomingMentions(body.incoming);
 		} catch (e) {
 			setOutgoingMentions([]);
 			setIncomingMentions([]);
 			setError(String(e));
+		}
+	};
+
+	const loadHistory = async () => {
+		if (nookId() === "") return;
+		const noteId = selectedId();
+		if (noteId === "") {
+			setNoteHistory([]);
+			return;
+		}
+
+		try {
+			const res = await apiFetch(
+				`/api/nooks/${nookId()}/notes/${noteId}/history`,
+				{ method: "GET" },
+			);
+			if (!res.ok) return;
+			const json = await res.json();
+			const body = NoteHistoryResponseSchema.parse(json);
+			setNoteHistory(body.history);
+		} catch {
+			setNoteHistory([]);
+		}
+	};
+
+	const viewVersion = async (versionOrHistoryId: number, byVersion = false) => {
+		const noteId = selectedId();
+		if (nookId() === "" || noteId === "") return;
+
+		const param = byVersion
+			? `v${versionOrHistoryId}`
+			: String(versionOrHistoryId);
+		try {
+			const res = await apiFetch(
+				`/api/nooks/${nookId()}/notes/${noteId}/history/${param}`,
+				{ method: "GET" },
+			);
+			if (!res.ok) return;
+			const json = (await res.json()) as {
+				snapshot?: {
+					history_id: number;
+					version: number;
+					action: string;
+					actor: string;
+					user_name: string;
+					created_at: string;
+					note: { title: string; content: string };
+				};
+			};
+			const s = json?.snapshot;
+			if (!s) return;
+			setSelectedVersion(s.version);
+			setSnapshotData({
+				historyId: s.history_id,
+				version: s.version,
+				action: s.action,
+				actor: s.actor,
+				userName: s.user_name,
+				createdAt: s.created_at,
+				title: s.note.title,
+				content: s.note.content,
+			});
+		} catch {
+			// best-effort
 		}
 	};
 
@@ -529,7 +731,7 @@ export function createNookStore(nookId: () => string) {
 			const finBody = NoteResponseSchema.parse(finJson);
 			const note = finBody.note;
 			const noteId = note.id;
-			noteDetailCache.set(noteId, note);
+			cacheTitles([{ id: noteId, title: note.title }]);
 			setNotes([toSummary(note), ...notes()]);
 
 			return noteId;
@@ -541,7 +743,6 @@ export function createNookStore(nookId: () => string) {
 
 	const loadNotes = async (opts?: { reset?: boolean }) => {
 		if (nookId() === "") return;
-		if (needsLogin()) return;
 		const reset = opts?.reset ?? true;
 		const parsed = parseTypedSearch(notesQuery());
 		const typedTypeId = resolveTypeIdForTermInStore(parsed.typeTerm);
@@ -573,16 +774,6 @@ export function createNookStore(nookId: () => string) {
 				`/api/nooks/${nookId()}/note-types/${typeForList}/notes?${qs.toString()}`,
 				{ method: "GET" },
 			);
-			if (res.status === 401) {
-				batch(() => {
-					setNotes([]);
-					setNotesNextCursor("");
-					setSelectedId("");
-					setNeedsLogin(true);
-					setError("Your session timed out. Please log in again.");
-				});
-				return;
-			}
 			if (!res.ok) {
 				throw new Error(
 					`Failed to load notes: ${res.status} ${res.statusText}`,
@@ -598,6 +789,7 @@ export function createNookStore(nookId: () => string) {
 				);
 			}
 			const nextNotes = reset ? fetched : [...notes(), ...fetched];
+			cacheTitles(fetched.map((n) => ({ id: n.id, title: n.title })));
 			setNotes(rankNotesByQuery(nextNotes, q));
 			setNotesNextCursor(body.nextCursor);
 		} catch (e) {
@@ -617,6 +809,7 @@ export function createNookStore(nookId: () => string) {
 		await loadNotes({ reset: true });
 		if (id === "") return;
 		await loadMentions();
+		void loadHistory();
 		void loadNoteDetail(id);
 	};
 
@@ -687,12 +880,16 @@ export function createNookStore(nookId: () => string) {
 			setTitleIsManual(true);
 		}
 		setFormerProperties(note.formerProperties ?? {});
+		setNoteVersion(note.version ?? 0);
+		setViewCount(note.viewCount ?? 0);
 		setError("");
 		setMentionTargetId("");
 		setMentionEmbedImage(false);
 	};
 
 	const selectNote = (note: NoteSummary) => {
+		setSelectedVersion(null);
+		setSnapshotData(null);
 		setSelectedId(note.id);
 		setTypeId(String(note.typeId ?? "").trim());
 		setTitle(note.title);
@@ -717,6 +914,7 @@ export function createNookStore(nookId: () => string) {
 		setMentionTargetId("");
 		setMentionEmbedImage(false);
 		void loadMentions();
+		void loadHistory();
 		void loadNoteDetail(note.id);
 	};
 
@@ -778,7 +976,30 @@ export function createNookStore(nookId: () => string) {
 		setTitle(derived);
 	});
 
-	const onNoteLinkClickInternal = async (noteId: string) => {
+	// Navigation callback — set by Nook.tsx to use the router's navigate()
+	let navigatorFn: ((noteId: string, nookId?: string) => void) | null = null;
+	const setNavigator = (fn: (noteId: string, nookId?: string) => void) => {
+		navigatorFn = fn;
+	};
+
+	const onNoteLinkClickInternal = (noteId: string, targetNookId?: string) => {
+		if (navigatorFn) {
+			navigatorFn(noteId, targetNookId);
+		}
+	};
+
+	const onNoteLinkClick = (noteId: string, targetNookId?: string) => {
+		if (isDirty()) {
+			setPendingNav({
+				proceed: () => onNoteLinkClickInternal(noteId, targetNookId),
+			});
+			return;
+		}
+		onNoteLinkClickInternal(noteId, targetNookId);
+	};
+
+	/** Load a note by ID into the store (called by URL→store sync) */
+	const loadNoteById = async (noteId: string) => {
 		let found = notes().find((n) => n.id === noteId);
 		if (!found) {
 			clearSelectedTypes();
@@ -790,14 +1011,6 @@ export function createNookStore(nookId: () => string) {
 			return;
 		}
 		selectNote(found);
-	};
-
-	const onNoteLinkClick = async (noteId: string) => {
-		if (isDirty()) {
-			setPendingNav({ proceed: () => onNoteLinkClickInternal(noteId) });
-			return;
-		}
-		await onNoteLinkClickInternal(noteId);
 	};
 
 	const insertMention = async () => {
@@ -818,6 +1031,7 @@ export function createNookStore(nookId: () => string) {
 	};
 
 	const saveNote = async () => {
+		setConflictError(null);
 		if (!isEditing()) return;
 		const noteType = type();
 		const t = title().trim();
@@ -861,11 +1075,12 @@ export function createNookStore(nookId: () => string) {
 				}
 				const json = await res.json();
 				const body = NoteResponseSchema.parse(json);
-				noteDetailCache.set(body.note.id, body.note);
+				cacheTitles([{ id: body.note.id, title: body.note.title }]);
 				setNotes([toSummary(body.note), ...notes()]);
 				setSelectedId(body.note.id);
 				applyNoteDetail(body.note);
 				await loadMentions();
+				void loadHistory();
 			} else {
 				const res = await apiFetch(`/api/nooks/${nookId()}/notes/${id}`, {
 					method: "PUT",
@@ -877,8 +1092,20 @@ export function createNookStore(nookId: () => string) {
 						content: content(),
 						type_id: typeId(),
 						...(properties ? { properties } : {}),
+						...(noteVersion() > 0 ? { expected_version: noteVersion() } : {}),
 					}),
 				});
+				if (res.status === 409) {
+					const body = (await res.json()) as {
+						current_version?: number;
+						expected_version?: number;
+					};
+					setConflictError({
+						currentVersion: body?.current_version ?? 0,
+						expectedVersion: body?.expected_version ?? noteVersion(),
+					});
+					return;
+				}
 				if (!res.ok) {
 					throw new Error(
 						`Failed to update note: ${res.status} ${res.statusText}`,
@@ -886,7 +1113,7 @@ export function createNookStore(nookId: () => string) {
 				}
 				const json = await res.json();
 				const body = NoteResponseSchema.parse(json);
-				noteDetailCache.set(body.note.id, body.note);
+				cacheTitles([{ id: body.note.id, title: body.note.title }]);
 				setNotes(
 					notes().map((n) =>
 						n.id === body.note.id ? toSummary(body.note) : n,
@@ -895,12 +1122,22 @@ export function createNookStore(nookId: () => string) {
 				setSelectedId(body.note.id);
 				applyNoteDetail(body.note);
 				await loadMentions();
+				void loadHistory();
 			}
 		} catch (e) {
 			setError(String(e));
 		} finally {
 			setLoading(false);
 		}
+	};
+
+	/** Accept the conflict: update local version to latest so next save will succeed */
+	const resolveConflict = () => {
+		const conflict = conflictError();
+		if (conflict) {
+			setNoteVersion(conflict.currentVersion);
+		}
+		setConflictError(null);
 	};
 
 	const deleteNote = async () => {
@@ -920,7 +1157,7 @@ export function createNookStore(nookId: () => string) {
 				);
 			}
 
-			noteDetailCache.delete(id);
+			noteTitleCache.delete(id);
 			fileInlineUrlCache.delete(id);
 			const nextNotes = notes().filter((n) => n.id !== id);
 			setNotes(nextNotes);
@@ -997,9 +1234,8 @@ export function createNookStore(nookId: () => string) {
 				setIncomingMentions([]);
 				setMentionTargetId("");
 				setMentionEmbedImage(false);
-				setNeedsLogin(false);
 			});
-			noteDetailCache.clear();
+			noteTitleCache.clear();
 			fileInlineUrlCache.clear();
 		}
 	});
@@ -1089,7 +1325,7 @@ export function createNookStore(nookId: () => string) {
 		if (id === "") {
 			const finJson = await finRes.json();
 			const finBody = NoteResponseSchema.parse(finJson);
-			noteDetailCache.set(finBody.note.id, finBody.note);
+			cacheTitles([{ id: finBody.note.id, title: finBody.note.title }]);
 			setNotes([toSummary(finBody.note), ...notes()]);
 			setSelectedId(finBody.note.id);
 			applyNoteDetail(finBody.note);
@@ -1166,8 +1402,23 @@ export function createNookStore(nookId: () => string) {
 		}
 	};
 
+	// Start/stop presence polling based on selected note
+	createEffect(() => {
+		const note = selectedId();
+		if (note !== "") {
+			startPresencePolling();
+		} else {
+			stopPresencePolling();
+		}
+	});
+
 	return {
 		nookId,
+		nookName,
+		setNookName,
+		nookRole,
+		setNookRole,
+		canWrite,
 		notes: filteredNotes,
 		allNotes: notes,
 		notesNextCursor,
@@ -1176,8 +1427,8 @@ export function createNookStore(nookId: () => string) {
 		loadNoteTypes,
 		selectedTypeIds,
 		typeId,
-		needsLogin,
 		selectedId,
+		setSelectedId,
 		title,
 		content,
 		type,
@@ -1231,10 +1482,39 @@ export function createNookStore(nookId: () => string) {
 		loadMoreNotes,
 		refreshCurrentNote,
 		loadMentions,
+		noteHistory,
+		loadHistory,
+		selectedVersion,
+		setSelectedVersion: (v: number | null) => {
+			setSelectedVersion(v);
+			if (v === null) setSnapshotData(null);
+		},
+		snapshotData,
+		viewVersion,
+		noteVersion,
+		viewCount,
+		noteHasUpdate: () => remoteVersion() > 0 && remoteVersion() > noteVersion(),
+		noteViewers,
+		conflictError,
+		resolveConflict,
 		newNote,
 		selectNote,
 		onNoteLinkClick,
+		setNavigator,
+		loadNoteById,
 		insertMention,
+		titleCacheVersion,
+		cacheTitles,
+		cacheNookName,
+		fetchMissingTitles,
+		resolveNoteTitle: (id: string, forNookId?: string): string | undefined => {
+			void titleCacheVersion();
+			return noteTitleCache.get(titleKey(forNookId ?? nookId(), id));
+		},
+		resolveNookName: (id: string): string | undefined => {
+			void titleCacheVersion();
+			return nookTitleCache.get(id);
+		},
 		resolveEmbeddedImageSrc,
 		uploadEmbeddedImage,
 		saveNote,

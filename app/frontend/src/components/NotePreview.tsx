@@ -1,6 +1,7 @@
 import { createSignal, For, onCleanup, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 import { apiFetch } from "../auth/keycloak";
+import { useNook } from "../pages/nook/NookContext";
 import styles from "./NotePreview.module.css";
 
 type NotePreviewData = {
@@ -23,22 +24,27 @@ type ShowOptions = {
 	onOpen?: (noteId: string) => void;
 	/** Show immediately (no hover delay) — use for click-triggered popups */
 	immediate?: boolean;
+	/** Override nook ID for cross-nook note previews */
+	nookId?: string;
 };
 
 type PreviewState = {
 	noteId: string;
+	nookId?: string;
 	x: number;
 	y: number;
 	data: NotePreviewData | null;
 	loading: boolean;
 	fading: boolean;
+	switching: boolean;
 	actions: PreviewAction[];
 	onOpen?: (noteId: string) => void;
 };
 
 const SHOW_DELAY = 350;
 const HIDE_DELAY = 250;
-const FADE_DURATION = 150;
+const FADE_DURATION = 200;
+const SWITCH_DURATION = 120;
 const cache = new Map<string, NotePreviewData>();
 
 /** Strip markdown formatting for a plain-text snippet */
@@ -135,19 +141,30 @@ export function createNotePreview(nookId: () => string) {
 
 		const cur = state();
 		if (cur && cur.noteId === id) {
-			// Update actions/onOpen if re-shown (e.g. click after hover)
-			if (opts?.actions || opts?.onOpen) {
-				setState({
-					...cur,
-					actions: opts.actions ?? cur.actions,
-					onOpen: opts.onOpen ?? cur.onOpen,
-				});
-			}
+			// Update position and options if re-shown (e.g. from different location)
+			setState({
+				...cur,
+				x,
+				y,
+				actions: opts?.actions ?? cur.actions,
+				onOpen: opts?.onOpen ?? cur.onOpen,
+				nookId: opts?.nookId ?? cur.nookId,
+			});
 			return;
 		}
 
 		const doShow = () => {
-			void loadAndShow(id, x, y, opts);
+			if (cur?.data && !cur.fading) {
+				// Already showing a different note — cross-fade
+				setState({ ...cur, switching: true });
+				clearShowTimer();
+				showTimer = setTimeout(() => {
+					showTimer = null;
+					void loadAndShow(id, x, y, opts);
+				}, SWITCH_DURATION);
+			} else {
+				void loadAndShow(id, x, y, opts);
+			}
 		};
 
 		clearShowTimer();
@@ -164,16 +181,20 @@ export function createNotePreview(nookId: () => string) {
 		y: number,
 		opts?: ShowOptions,
 	) => {
+		const targetNookId = opts?.nookId || nookId();
 		const base: Omit<PreviewState, "data" | "loading"> = {
 			noteId,
+			nookId: opts?.nookId,
 			x,
 			y,
 			fading: false,
+			switching: false,
 			actions: opts?.actions ?? [],
 			onOpen: opts?.onOpen,
 		};
 
-		const cached = cache.get(noteId);
+		const cacheKey = opts?.nookId ? `${opts.nookId}:${noteId}` : noteId;
+		const cached = cache.get(cacheKey);
 		if (cached) {
 			setState({ ...base, data: cached, loading: false });
 			return;
@@ -185,9 +206,8 @@ export function createNotePreview(nookId: () => string) {
 		abortCtrl = new AbortController();
 
 		try {
-			const nid = nookId();
-			if (!nid) return;
-			const res = await apiFetch(`/api/nooks/${nid}/notes/${noteId}`, {
+			if (!targetNookId) return;
+			const res = await apiFetch(`/api/nooks/${targetNookId}/notes/${noteId}`, {
 				method: "GET",
 				signal: abortCtrl.signal,
 			});
@@ -210,7 +230,7 @@ export function createNotePreview(nookId: () => string) {
 				content: n.content,
 				type: n.type ?? "anything",
 			};
-			cache.set(noteId, data);
+			cache.set(cacheKey, data);
 			const cur = state();
 			if (cur && cur.noteId === noteId) {
 				setState({ ...cur, data, loading: false });
@@ -227,6 +247,12 @@ export function createNotePreview(nookId: () => string) {
 	const invalidate = (noteId: string) => cache.delete(noteId);
 
 	function PreviewPopover() {
+		const nookCtx = useNook();
+		const isCurrentNote = () => {
+			const cur = nookCtx.store()?.selectedId() ?? "";
+			const st = state();
+			return cur !== "" && st !== null && cur === st.noteId;
+		};
 		let overlayEl: HTMLDivElement | undefined;
 
 		// Click-outside and Escape dismiss for action-mode popovers
@@ -251,8 +277,14 @@ export function createNotePreview(nookId: () => string) {
 				{(s) => {
 					const left = () => Math.min(s().x, window.innerWidth - 340);
 					const top = () => {
-						const y = s().y + 12;
-						return y + 180 > window.innerHeight ? s().y - 180 : y;
+						const below = s().y + 8;
+						// Measure actual popover height if available, else estimate
+						const h = overlayEl?.offsetHeight || 180;
+						if (below + h > window.innerHeight) {
+							// Position above the link instead
+							return Math.max(4, s().y - h - 8);
+						}
+						return below;
 					};
 
 					const handleHeaderClick = (e: MouseEvent) => {
@@ -261,8 +293,9 @@ export function createNotePreview(nookId: () => string) {
 						// Ctrl/Cmd+click: let browser handle (new tab via href)
 						if (e.ctrlKey || e.metaKey) return;
 						e.preventDefault();
+						const id = s().noteId;
 						dismiss();
-						fn(s().noteId);
+						fn(id);
 					};
 
 					const handleAction = (action: PreviewAction) => {
@@ -270,15 +303,17 @@ export function createNotePreview(nookId: () => string) {
 						action.onClick();
 					};
 
-					const headerHref = () =>
-						`/nooks/${encodeURIComponent(nookId())}/notes/${encodeURIComponent(s().noteId)}`;
+					const headerHref = () => {
+						const nid = s().nookId || nookId();
+						return `/nooks/${encodeURIComponent(nid)}/notes/${encodeURIComponent(s().noteId)}`;
+					};
 
 					return (
 						<Portal mount={document.body}>
 							{/* biome-ignore lint/a11y/noStaticElementInteractions: popover hover keeps preview open */}
 							<div
 								ref={overlayEl}
-								class={`${styles.overlay} ${s().fading ? styles.fadeOut : ""}`}
+								class={`${styles.overlay} ${s().fading ? styles.fadeOut : ""} ${s().switching ? styles.switching : ""}`}
 								style={{ left: `${left()}px`, top: `${top()}px` }}
 								onMouseEnter={cancelHide}
 								onMouseLeave={hide}
@@ -317,6 +352,11 @@ export function createNotePreview(nookId: () => string) {
 																<span class={styles.typeBadge}>
 																	{typeLabel()}
 																</span>
+																<Show when={isCurrentNote()}>
+																	<span class={styles.currentBadge}>
+																		Current
+																	</span>
+																</Show>
 																<span class={styles.dot}>&middot;</span>
 																<span>{data().id.slice(0, 8)}...</span>
 															</div>
@@ -386,8 +426,10 @@ export function notePreviewHandlers(
 	opts?: ShowOptions,
 ) {
 	return {
-		onMouseEnter: (e: MouseEvent) =>
-			preview.show(noteId(), e.clientX, e.clientY, opts),
+		onMouseEnter: (e: MouseEvent) => {
+			const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+			preview.show(noteId(), rect.left, rect.bottom, opts);
+		},
 		onMouseLeave: () => preview.hide(),
 	};
 }

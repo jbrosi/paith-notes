@@ -47,7 +47,7 @@ final class FileNotesController
             throw new HttpError('noteId must be a UUID', 400);
         }
 
-        $membership = $this->requireMember($pdo, $user, $nookId);
+        $membership = NookAccess::requireWriteAccess($pdo, $user, $nookId);
 
         $userId = is_scalar($user['id'] ?? null) ? (string)$user['id'] : '';
         if ($userId === '') {
@@ -207,7 +207,7 @@ final class FileNotesController
             throw new HttpError('nookId must be a UUID', 400);
         }
 
-        $this->requireMember($pdo, $user, $nookId);
+        NookAccess::requireWriteAccess($pdo, $user, $nookId);
 
         $userId = is_scalar($user['id'] ?? null) ? (string)$user['id'] : '';
         if ($userId === '') {
@@ -290,7 +290,7 @@ final class FileNotesController
             throw new HttpError('nookId must be a UUID', 400);
         }
 
-        $this->requireMember($pdo, $user, $nookId);
+        NookAccess::requireWriteAccess($pdo, $user, $nookId);
 
         $userId = is_scalar($user['id'] ?? null) ? (string)$user['id'] : '';
         if ($userId === '') {
@@ -375,9 +375,17 @@ final class FileNotesController
                 throw new HttpError('upload corrupted (checksum mismatch)', 400);
             }
 
+            // Look up the root file type for this nook
+            $fileTypeStmt = $pdo->prepare(
+                "select id from global.note_types where nook_id = :nook_id and key = 'file' limit 1"
+            );
+            $fileTypeStmt->execute([':nook_id' => $nookId]);
+            $fileTypeIdRaw = $fileTypeStmt->fetchColumn();
+            $fileTypeId = (is_string($fileTypeIdRaw) && $fileTypeIdRaw !== '') ? $fileTypeIdRaw : null;
+
             $noteStmt = $pdo->prepare(
-                "insert into global.notes (nook_id, created_by, title, content, type, properties, former_properties)\n"
-                . "values (:nook_id, :created_by, :title, :content, :type, :properties, :former_properties)\n"
+                "insert into global.notes (nook_id, created_by, title, content, type, type_id, properties, former_properties)\n"
+                . "values (:nook_id, :created_by, :title, :content, :type, :type_id, :properties, :former_properties)\n"
                 . "returning id, created_at"
             );
 
@@ -395,6 +403,7 @@ final class FileNotesController
                 ':title' => $filename,
                 ':content' => '',
                 ':type' => self::NOTE_TYPE_FILE,
+                ':type_id' => $fileTypeId,
                 ':properties' => $this->encodeJsonObject($properties),
                 ':former_properties' => '{}',
             ]);
@@ -467,6 +476,7 @@ final class FileNotesController
                     'title' => $filename,
                     'content' => '',
                     'type' => self::NOTE_TYPE_FILE,
+                    'type_id' => $fileTypeId ?? '',
                     'properties' => $properties,
                     'former_properties' => (object)[],
                     'created_at' => is_scalar($createdAtRaw) ? (string)$createdAtRaw : '',
@@ -507,7 +517,7 @@ final class FileNotesController
             throw new HttpError('noteId must be a UUID', 400);
         }
 
-        $membership = $this->requireMember($pdo, $user, $nookId);
+        $membership = NookAccess::requireWriteAccess($pdo, $user, $nookId);
 
         $userId = is_scalar($user['id'] ?? null) ? (string)$user['id'] : '';
         if ($userId === '') {

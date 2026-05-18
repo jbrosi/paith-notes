@@ -1,7 +1,17 @@
-import { createEffect, For, onCleanup, onMount, Show } from "solid-js";
-import { ChatPanel } from "../../components/chat/ChatPanel";
+import {
+	createEffect,
+	createMemo,
+	For,
+	onCleanup,
+	onMount,
+	Show,
+} from "solid-js";
 import { createNotePreview } from "../../components/NotePreview";
+import { attachSwipe } from "../../ui/swipe";
 import { MOBILE_PANELS, type MobilePanel, useUi } from "../../ui/UiContext";
+import { NoteHistory } from "./components/NoteHistory";
+import { NotePreviewProvider } from "./NookContext";
+import { NookDashboard } from "./NookDashboard";
 import styles from "./NookDefaultLayout.module.css";
 import { NookGraphPanel } from "./NookGraphPanel";
 import { NookLinksAndMentionsPanel } from "./NookLinksAndMentionsPanel";
@@ -13,15 +23,14 @@ export type NookDefaultLayoutProps = {
 	nookId: string;
 	store: NookStore;
 	showGraph: boolean;
+	onSettings?: () => void;
 };
-
-export type NotePreviewController = ReturnType<typeof createNotePreview>;
 
 const PANEL_LABELS: Record<MobilePanel, string> = {
 	content: "Note",
 	links: "Links",
+	history: "History",
 	graph: "Graph",
-	chat: "Chat",
 	markdown: "Markdown",
 };
 
@@ -29,6 +38,17 @@ export function NookDefaultLayout(props: NookDefaultLayoutProps) {
 	const ui = useUi();
 	const notePreview = createNotePreview(() => props.nookId);
 	let layoutEl: HTMLDivElement | undefined;
+	let dashboardFileInput: HTMLInputElement | undefined;
+
+	const hasNote = createMemo(
+		() => props.store.selectedId() !== "" || props.store.mode() === "edit",
+	);
+
+	const handleNewNote = () => {
+		props.store.newNote();
+		props.store.setMode("edit");
+		ui.setMode("edit");
+	};
 
 	// Switch to content panel when a different note is selected (mobile)
 	let prevSelectedId = "";
@@ -45,47 +65,23 @@ export function NookDefaultLayout(props: NookDefaultLayoutProps) {
 		}
 	});
 
-	// Swipe gesture (lazy-loaded, mobile only)
+	// Swipe gesture (mobile only)
 	onMount(() => {
 		const mq = window.matchMedia("(max-width: 1024px)");
 		let cleanup: (() => void) | null = null;
 
 		const setup = () => {
-			if (!mq.matches || !layoutEl) {
-				cleanup?.();
-				cleanup = null;
-				return;
-			}
-			void import("@use-gesture/vanilla").then(({ DragGesture }) => {
-				if (!layoutEl) return;
-				const gesture = new DragGesture(
-					layoutEl,
-					({ swipe: [swipeX], event }) => {
-						// Don't swipe if user is interacting with an editable input/editor
-						const target = event?.target as HTMLElement | null;
-						if (!target) return;
-						// Allow swipe on readonly textareas (e.g. markdown view)
-						if (target instanceof HTMLTextAreaElement && target.readOnly) {
-							// allow swipe
-						} else if (
-							target.closest(
-								"input, textarea, [contenteditable], .milkdown, .ProseMirror",
-							)
-						) {
-							return;
-						}
-
-						if (swipeX === -1) ui.nextPanel();
-						else if (swipeX === 1) ui.prevPanel();
-					},
-					{
-						axis: "x",
-						filterTaps: true,
-						swipe: { distance: 50, velocity: 0.3 },
-					},
-				);
-				cleanup = () => gesture.destroy();
-			});
+			cleanup?.();
+			cleanup = null;
+			if (!mq.matches || !layoutEl) return;
+			cleanup = attachSwipe(
+				layoutEl,
+				(dir) => {
+					if (dir === -1) ui.nextPanel();
+					else ui.prevPanel();
+				},
+				{ distance: 50, velocity: 0.3 },
+			);
 		};
 
 		setup();
@@ -98,74 +94,97 @@ export function NookDefaultLayout(props: NookDefaultLayoutProps) {
 	});
 
 	return (
-		<>
-			<div
-				ref={layoutEl}
-				class={styles.layout}
-				data-active-panel={ui.activePanel()}
-			>
-				{/* Main scrollable area: content + links together on desktop */}
-				<div class={styles.mainScroll}>
-					<div class={styles.mainScrollInner}>
-						<div class={styles.panelContent}>
-							<NookMainPanel store={props.store} notePreview={notePreview} />
-						</div>
-						<div class={styles.panelLinks}>
-							<NookLinksAndMentionsPanel
+		<NotePreviewProvider controller={notePreview}>
+			<Show
+				when={hasNote()}
+				fallback={
+					<div
+						style={{
+							height: "100%",
+							overflow: "hidden",
+							display: "flex",
+							"flex-direction": "column",
+						}}
+					>
+						<input
+							ref={dashboardFileInput}
+							type="file"
+							style={{ display: "none" }}
+							onChange={(e) => {
+								const f = e.currentTarget.files?.[0];
+								if (f) void props.store.quickUploadFile(f);
+								e.currentTarget.value = "";
+							}}
+						/>
+						<div class={styles.mainScroll}>
+							<NookDashboard
 								store={props.store}
-								notePreview={notePreview}
+								onNewNote={handleNewNote}
+								onUploadFile={() => dashboardFileInput?.click()}
+								onSettings={props.onSettings}
 							/>
 						</div>
 					</div>
+				}
+			>
+				<div
+					ref={layoutEl}
+					class={styles.layout}
+					data-active-panel={ui.activePanel()}
+				>
+					{/* Main scrollable area: content + links + history together on desktop */}
+					<div class={styles.mainScroll}>
+						<div class={styles.mainScrollInner}>
+							<div class={styles.panelContent}>
+								<NookMainPanel store={props.store} />
+							</div>
+							<div class={styles.panelLinks}>
+								<NookLinksAndMentionsPanel store={props.store} />
+							</div>
+							<Show when={props.store.selectedId() !== ""}>
+								<div class={styles.panelHistory}>
+									<NoteHistory store={props.store} />
+								</div>
+							</Show>
+						</div>
+					</div>
+
+					{/* Graph panel — render if desktop toggle is on OR mobile panel is active */}
+					<Show when={props.showGraph || ui.activePanel() === "graph"}>
+						<div class={styles.panelGraph}>
+							<NookGraphPanel
+								store={props.store}
+								onClose={() => {
+									ui.toggleGraphPanel();
+									ui.setActivePanel("content");
+								}}
+							/>
+						</div>
+					</Show>
+
+					{/* Markdown source panel — mobile only */}
+					<div class={styles.panelMarkdown}>
+						<NookMarkdownView store={props.store} />
+					</div>
 				</div>
 
-				{/* Graph panel — render if desktop toggle is on OR mobile panel is active */}
-				<Show when={props.showGraph || ui.activePanel() === "graph"}>
-					<div class={styles.panelGraph}>
-						<NookGraphPanel store={props.store} />
-					</div>
-				</Show>
-
-				{/* Chat panel — render if desktop toggle is on OR mobile panel is active */}
-				<Show when={ui.chatPanelOpen() || ui.activePanel() === "chat"}>
-					<div class={styles.panelChat}>
-						<ChatPanel
-							nookId={props.nookId}
-							currentNoteId={props.store.selectedId() || undefined}
-							currentNoteTitle={props.store.title() || undefined}
-							currentNoteType={props.store.type() || undefined}
-							onClose={() => {
-								ui.toggleChatPanel();
-								ui.setActivePanel("content");
-							}}
-							onNavigateToNote={(id) => void props.store.onNoteLinkClick(id)}
-							notePreview={notePreview}
-						/>
-					</div>
-				</Show>
-
-				{/* Markdown source panel — mobile only */}
-				<div class={styles.panelMarkdown}>
-					<NookMarkdownView store={props.store} />
+				{/* Panel indicator dots — mobile only (CSS hides on desktop) */}
+				<div class={styles.panelIndicator}>
+					<For each={MOBILE_PANELS}>
+						{(panel) => (
+							<button
+								type="button"
+								class={`${styles.dot} ${ui.activePanel() === panel ? styles.dotActive : ""}`}
+								onClick={() => ui.setActivePanel(panel)}
+								title={PANEL_LABELS[panel]}
+							/>
+						)}
+					</For>
+					<span class={styles.dotLabel}>{PANEL_LABELS[ui.activePanel()]}</span>
 				</div>
-			</div>
-
-			{/* Panel indicator dots — mobile only (CSS hides on desktop) */}
-			<div class={styles.panelIndicator}>
-				<For each={MOBILE_PANELS}>
-					{(panel) => (
-						<button
-							type="button"
-							class={`${styles.dot} ${ui.activePanel() === panel ? styles.dotActive : ""}`}
-							onClick={() => ui.setActivePanel(panel)}
-							title={PANEL_LABELS[panel]}
-						/>
-					)}
-				</For>
-				<span class={styles.dotLabel}>{PANEL_LABELS[ui.activePanel()]}</span>
-			</div>
+			</Show>
 
 			<notePreview.PreviewPopover />
-		</>
+		</NotePreviewProvider>
 	);
 }

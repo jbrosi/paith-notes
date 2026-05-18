@@ -9,6 +9,7 @@ use Paith\Notes\Api\Http\HttpError;
 use Paith\Notes\Api\Http\JsonResponse;
 use Paith\Notes\Api\Http\Request;
 use Paith\Notes\Api\Http\Response;
+use Paith\Notes\Shared\Db\Row;
 use PDO;
 
 final class NookStatsController
@@ -30,15 +31,18 @@ final class NookStatsController
         // Total counts
         $stmt = $pdo->prepare('SELECT count(*) FROM global.notes WHERE nook_id = :nook_id');
         $stmt->execute([':nook_id' => $nookId]);
-        $stats['total_notes'] = (int) $stmt->fetchColumn();
+        $col = $stmt->fetchColumn();
+        $stats['total_notes'] = is_scalar($col) ? (int) $col : 0;
 
         $stmt = $pdo->prepare('SELECT count(*) FROM global.note_types WHERE nook_id = :nook_id');
         $stmt->execute([':nook_id' => $nookId]);
-        $stats['total_types'] = (int) $stmt->fetchColumn();
+        $col = $stmt->fetchColumn();
+        $stats['total_types'] = is_scalar($col) ? (int) $col : 0;
 
         $stmt = $pdo->prepare('SELECT count(*) FROM global.note_links WHERE nook_id = :nook_id');
         $stmt->execute([':nook_id' => $nookId]);
-        $stats['total_links'] = (int) $stmt->fetchColumn();
+        $col = $stmt->fetchColumn();
+        $stats['total_links'] = is_scalar($col) ? (int) $col : 0;
 
         $stmt = $pdo->prepare(
             'SELECT count(*) FROM global.note_mentions m
@@ -46,11 +50,34 @@ final class NookStatsController
              WHERE n.nook_id = :nook_id'
         );
         $stmt->execute([':nook_id' => $nookId]);
-        $stats['total_mentions'] = (int) $stmt->fetchColumn();
+        $col = $stmt->fetchColumn();
+        $stats['total_mentions'] = is_scalar($col) ? (int) $col : 0;
 
         $stmt = $pdo->prepare('SELECT count(*) FROM global.conversations WHERE nook_id = :nook_id');
         $stmt->execute([':nook_id' => $nookId]);
-        $stats['total_conversations'] = (int) $stmt->fetchColumn();
+        $col = $stmt->fetchColumn();
+        $stats['total_conversations'] = is_scalar($col) ? (int) $col : 0;
+
+        $stmt = $pdo->prepare(
+            'SELECT COALESCE(SUM(nf.filesize), 0)
+             FROM global.note_files nf
+             JOIN global.notes n ON n.id = nf.note_id
+             WHERE n.nook_id = :nook_id'
+        );
+        $stmt->execute([':nook_id' => $nookId]);
+        $col = $stmt->fetchColumn();
+        $stats['total_file_size'] = is_scalar($col) ? (int) $col : 0;
+
+        // Unlinked notes (no links and no mentions, either direction)
+        $stmt = $pdo->prepare(
+            'SELECT count(*) FROM global.notes n
+             WHERE n.nook_id = :nook_id
+               AND NOT EXISTS (SELECT 1 FROM global.note_links l WHERE l.source_note_id = n.id OR l.target_note_id = n.id)
+               AND NOT EXISTS (SELECT 1 FROM global.note_mentions m WHERE m.source_note_id = n.id OR m.target_note_id = n.id)'
+        );
+        $stmt->execute([':nook_id' => $nookId]);
+        $col = $stmt->fetchColumn();
+        $stats['unlinked_notes'] = is_scalar($col) ? (int) $col : 0;
 
         // Notes per type
         $stmt = $pdo->prepare(
@@ -102,7 +129,111 @@ final class NookStatsController
         $stmt->execute([':nook_id' => $nookId]);
         $stats['most_mentioned'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+        // Most viewed by this user (personal frequency)
+        $userId = is_scalar($user['id'] ?? null) ? (string)$user['id'] : '';
+        $stmt = $pdo->prepare(
+            'SELECT n.id, n.title, SUM(nv.count) AS view_count
+             FROM global.note_views nv
+             JOIN global.notes n ON n.id = nv.note_id
+             WHERE nv.nook_id = :nook_id AND nv.user_id = :user_id
+             GROUP BY n.id, n.title
+             ORDER BY view_count DESC
+             LIMIT 8'
+        );
+        $stmt->execute([':nook_id' => $nookId, ':user_id' => $userId]);
+        $stats['most_viewed'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
         return JsonResponse::ok(['stats' => $stats]);
+    }
+
+    public function recentlyViewed(Request $request, Context $context): Response
+    {
+        $pdo = $context->pdo();
+        $user = $context->user();
+
+        $nookId = trim($request->routeParam('nookId'));
+        if ($nookId === '' || !self::isUuid($nookId)) {
+            throw new HttpError('nookId must be a UUID', 400);
+        }
+
+        $this->requireMember($pdo, $user, $nookId);
+
+        $userId = is_scalar($user['id'] ?? null) ? (string)$user['id'] : '';
+
+        $stmt = $pdo->prepare(
+            'SELECT n.id, n.title, nv.last_seen_at
+             FROM global.note_viewers nv
+             JOIN global.notes n ON n.id = nv.note_id
+             WHERE nv.user_id = :user_id AND nv.nook_id = :nook_id
+             ORDER BY nv.last_seen_at DESC
+             LIMIT 10'
+        );
+        $stmt->execute([':user_id' => $userId, ':nook_id' => $nookId]);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $notes = [];
+        foreach ($rows as $r) {
+            if (!is_array($r)) {
+                continue;
+            }
+            $notes[] = [
+                'id' => Row::str($r, 'id'),
+                'title' => Row::str($r, 'title'),
+                'last_seen_at' => Row::str($r, 'last_seen_at'),
+            ];
+        }
+
+        return JsonResponse::ok(['notes' => $notes]);
+    }
+
+    public function unlinkedNotes(Request $request, Context $context): Response
+    {
+        $pdo = $context->pdo();
+        $user = $context->user();
+
+        $nookId = trim($request->routeParam('nookId'));
+        if ($nookId === '' || !self::isUuid($nookId)) {
+            throw new HttpError('nookId must be a UUID', 400);
+        }
+
+        $this->requireMember($pdo, $user, $nookId);
+
+        $limitRaw = $request->queryParam('limit');
+        $limit = min(50, max(1, $limitRaw !== '' ? (int)$limitRaw : 30));
+        $offsetRaw = $request->queryParam('offset');
+        $offset = $offsetRaw !== '' ? max(0, (int)$offsetRaw) : 0;
+
+        $stmt = $pdo->prepare(
+            'SELECT n.id, n.title, n.type, n.type_id, n.created_at, n.updated_at
+             FROM global.notes n
+             WHERE n.nook_id = :nook_id
+               AND NOT EXISTS (SELECT 1 FROM global.note_links l WHERE l.source_note_id = n.id OR l.target_note_id = n.id)
+               AND NOT EXISTS (SELECT 1 FROM global.note_mentions m WHERE m.source_note_id = n.id OR m.target_note_id = n.id)
+             ORDER BY n.updated_at DESC
+             LIMIT :limit OFFSET :offset'
+        );
+        $stmt->bindValue(':nook_id', $nookId);
+        $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
+        $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
+        $stmt->execute();
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $notes = [];
+        foreach ($rows as $r) {
+            if (!is_array($r)) {
+                continue;
+            }
+            $notes[] = [
+                'id' => Row::str($r, 'id'),
+                'title' => Row::str($r, 'title'),
+                'type' => Row::str($r, 'type', 'anything'),
+                'type_id' => Row::str($r, 'type_id'),
+                'created_at' => Row::str($r, 'created_at'),
+                'updated_at' => Row::str($r, 'updated_at'),
+            ];
+        }
+
+        return JsonResponse::ok(['notes' => $notes]);
     }
 
     private static function isUuid(string $value): bool

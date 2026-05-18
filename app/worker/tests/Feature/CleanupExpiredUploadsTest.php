@@ -13,6 +13,14 @@ beforeEach(function (): void {
     $this->userId = 'aaaaaaaa-bbbb-4ccc-8ddd-000000000001';
     $this->nookId = 'aaaaaaaa-bbbb-4ccc-8ddd-000000000002';
 
+    // Clean up test data from previous runs
+    $this->pdo->exec("delete from global.file_uploads where id in (
+        'bbbbbbbb-cccc-4ddd-8eee-000000000001',
+        'bbbbbbbb-cccc-4ddd-8eee-000000000002',
+        'bbbbbbbb-cccc-4ddd-8eee-000000000003',
+        'bbbbbbbb-cccc-4ddd-8eee-000000000004'
+    )");
+
     $this->pdo->prepare(
         "insert into global.users (id, first_name, last_name) values (:id, 'Test', 'User') on conflict (id) do nothing"
     )->execute([':id' => $this->userId]);

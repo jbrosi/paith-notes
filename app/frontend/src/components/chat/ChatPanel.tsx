@@ -23,10 +23,13 @@ type PendingApproval = {
 	contextNoteType?: string;
 };
 
-import type { NotePreviewController } from "../../pages/nook/NookDefaultLayout";
+import type { NotePreviewController } from "../../pages/nook/NookContext";
 
 type Props = {
-	nookId: string;
+	/** AI memory nook ID — conversations are stored here */
+	chatNookId: string;
+	/** Current nook ID — context for AI tool calls */
+	contextNookId: string;
 	currentNoteId?: string;
 	currentNoteTitle?: string;
 	currentNoteType?: string;
@@ -117,7 +120,7 @@ export function ChatPanel(props: Props) {
 	// ── list view state ──────────────────────────────────────
 	const [convRefetch, setConvRefetch] = createSignal(0);
 	const [conversations] = createResource(
-		() => ({ nookId: props.nookId, rev: convRefetch() }),
+		() => ({ nookId: props.chatNookId, rev: convRefetch() }),
 		({ nookId }) => fetchConversations(nookId),
 	);
 
@@ -128,6 +131,10 @@ export function ChatPanel(props: Props) {
 	const [conversationId, setConversationId] = createSignal<string | null>(null);
 	const [model, setModel] = createSignal("claude-sonnet-4-6");
 	const [streaming, setStreaming] = createSignal(false);
+	const [contextUsage, setContextUsage] = createSignal<{
+		ratio: number;
+		level: "" | "warning" | "critical";
+	}>({ ratio: 0, level: "" });
 	const [reconnecting, setReconnecting] = createSignal(false);
 	const [pendingApproval, setPendingApproval] =
 		createSignal<PendingApproval | null>(null);
@@ -138,8 +145,21 @@ export function ChatPanel(props: Props) {
 
 	onCleanup(() => abortCtrl?.abort());
 
-	const scrollToBottom = () => {
-		if (messagesEl) messagesEl.scrollTop = messagesEl.scrollHeight;
+	let userScrolledAway = false;
+
+	const checkUserScroll = () => {
+		if (!messagesEl) return;
+		const distFromBottom =
+			messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight;
+		userScrolledAway = distFromBottom > 80;
+	};
+
+	const scrollToBottom = (force = false) => {
+		if (!messagesEl) return;
+		if (force || !userScrolledAway) {
+			messagesEl.scrollTop = messagesEl.scrollHeight;
+			userScrolledAway = false;
+		}
 	};
 
 	// ── resume a past conversation ───────────────────────────
@@ -153,7 +173,7 @@ export function ChatPanel(props: Props) {
 		const loaded = await fetchMessages(conv.id);
 		setMessages(loaded);
 		setView("chat");
-		setTimeout(scrollToBottom, 0);
+		setTimeout(() => scrollToBottom(true), 0);
 	};
 
 	const startNewChat = () => {
@@ -335,6 +355,23 @@ export function ChatPanel(props: Props) {
 					terminalEventSeen = true;
 					finalizeAssistant();
 					setStreaming(false);
+					// Update context usage indicator
+					const usage = data.usage as
+						| {
+								input_tokens?: number;
+								output_tokens?: number;
+								context_limit?: number;
+						  }
+						| undefined;
+					if (usage?.context_limit && usage.input_tokens) {
+						const ratio =
+							(usage.input_tokens + (usage.output_tokens ?? 0)) /
+							usage.context_limit;
+						setContextUsage({
+							ratio,
+							level: ratio > 0.9 ? "critical" : ratio > 0.5 ? "warning" : "",
+						});
+					}
 					return;
 				} else if (event === "error") {
 					terminalEventSeen = true;
@@ -359,7 +396,7 @@ export function ChatPanel(props: Props) {
 		setError(null);
 		setModel(selectedModel);
 		setMessages((prev) => [...prev, { role: "user", text } as ChatMessageData]);
-		scrollToBottom();
+		scrollToBottom(true);
 		setStreaming(true);
 
 		abortCtrl?.abort();
@@ -367,7 +404,7 @@ export function ChatPanel(props: Props) {
 
 		try {
 			const res = await fetch(
-				`/nooks/${encodeURIComponent(props.nookId)}/chat`,
+				`/nooks/${encodeURIComponent(props.contextNookId)}/chat`,
 				{
 					method: "POST",
 					credentials: "include",
@@ -409,6 +446,18 @@ export function ChatPanel(props: Props) {
 				) {
 					props.onNavigateToNote?.(tool.input.note_id);
 				}
+				if (
+					tool.name === "start_new_chat" &&
+					typeof tool.input.message === "string"
+				) {
+					// Start a new chat with the AI's suggested message
+					startNewChat();
+					setTimeout(
+						() => void send(tool.input.message as string, model()),
+						100,
+					);
+					return;
+				}
 			}
 		}
 		setStreaming(true);
@@ -419,7 +468,7 @@ export function ChatPanel(props: Props) {
 
 		try {
 			const res = await fetch(
-				`/nooks/${encodeURIComponent(props.nookId)}/chat/tool-result`,
+				`/nooks/${encodeURIComponent(props.contextNookId)}/chat/tool-result`,
 				{
 					method: "POST",
 					credentials: "include",
@@ -534,7 +583,13 @@ export function ChatPanel(props: Props) {
 
 			{/* Chat view */}
 			<Show when={view() === "chat"}>
-				<div class={styles.messages} ref={messagesEl}>
+				<div
+					class={styles.messages}
+					ref={(el) => {
+						messagesEl = el;
+						el.addEventListener("scroll", checkUserScroll);
+					}}
+				>
 					<Show
 						when={messages().length > 0}
 						fallback={
@@ -579,6 +634,74 @@ export function ChatPanel(props: Props) {
 				</div>
 
 				<div class={styles.inputArea}>
+					<Show
+						when={
+							streaming() &&
+							(() => {
+								const msgs = messages();
+								const last = msgs[msgs.length - 1];
+								return (
+									!last ||
+									last.role !== "assistant" ||
+									(last as { text?: string }).text === ""
+								);
+							})()
+						}
+					>
+						<div
+							style={{
+								display: "flex",
+								"align-items": "center",
+								gap: "6px",
+								padding: "6px 0",
+								color: "var(--color-text-muted, #888)",
+								"font-size": "0.8rem",
+							}}
+						>
+							<span class={styles.thinkingDots}>
+								<span />
+								<span />
+								<span />
+							</span>
+							Thinking...
+						</div>
+					</Show>
+					<Show when={streaming()}>
+						<button
+							type="button"
+							onClick={() => {
+								abortCtrl?.abort();
+								setStreaming(false);
+								setMessages((prev) => {
+									const last = prev[prev.length - 1];
+									if (
+										last?.role === "assistant" &&
+										(last as { streaming?: boolean }).streaming
+									) {
+										return [
+											...prev.slice(0, -1),
+											{ ...last, streaming: false } as ChatMessageData,
+										];
+									}
+									return prev;
+								});
+							}}
+							style={{
+								display: "block",
+								width: "100%",
+								padding: "6px",
+								background: "none",
+								border: "1px solid var(--color-border, #ddd)",
+								"border-radius": "4px",
+								cursor: "pointer",
+								color: "var(--color-text-muted)",
+								"font-size": "0.8rem",
+								"margin-bottom": "6px",
+							}}
+						>
+							Stop generating
+						</button>
+					</Show>
 					<ChatInput
 						onSend={(text, m) => void send(text, m)}
 						disabled={
@@ -587,6 +710,72 @@ export function ChatPanel(props: Props) {
 						model={model()}
 						onModelChange={setModel}
 					/>
+					<Show when={contextUsage().ratio > 0}>
+						{(() => {
+							const pct = () => Math.round(contextUsage().ratio * 100);
+							const color = () =>
+								contextUsage().ratio > 0.9
+									? "var(--color-danger, #ef4444)"
+									: contextUsage().ratio > 0.5
+										? "var(--color-warning, #f59e0b)"
+										: "var(--color-text-faint, #ccc)";
+							// SVG circle: radius=8, circumference=50.27
+							const circumference = 50.27;
+							const offset = () => circumference * (1 - contextUsage().ratio);
+							return (
+								<div
+									style={{
+										"margin-top": "4px",
+										display: "flex",
+										"align-items": "center",
+										"justify-content": "flex-end",
+										gap: "4px",
+									}}
+								>
+									<svg
+										width="18"
+										height="18"
+										viewBox="0 0 20 20"
+										aria-hidden="true"
+									>
+										<title>Context usage</title>
+										<circle
+											cx="10"
+											cy="10"
+											r="8"
+											fill="none"
+											stroke="var(--color-border-light, #eee)"
+											stroke-width="2.5"
+										/>
+										<circle
+											cx="10"
+											cy="10"
+											r="8"
+											fill="none"
+											stroke={color()}
+											stroke-width="2.5"
+											stroke-dasharray={String(circumference)}
+											stroke-dashoffset={String(offset())}
+											stroke-linecap="round"
+											transform="rotate(-90 10 10)"
+											style={{
+												transition: "stroke-dashoffset 0.3s, stroke 0.3s",
+											}}
+										/>
+									</svg>
+									<span
+										style={{
+											"font-size": "0.65rem",
+											color: color(),
+											"white-space": "nowrap",
+										}}
+									>
+										{pct()}%
+									</span>
+								</div>
+							);
+						})()}
+					</Show>
 				</div>
 			</Show>
 		</div>

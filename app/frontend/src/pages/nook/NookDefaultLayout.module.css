@@ -17,13 +17,18 @@
 
 /* Center the content within the scroll area */
 .mainScrollInner {
-	max-width: 860px;
+	max-width: var(--content-max-width, 860px);
 	margin: 0 auto;
 }
 
 /* Markdown panel — hidden by default, shown when active */
 .panelMarkdown {
 	display: none;
+}
+
+/* History panel — visible on desktop (sits after links in the flow) */
+.panelHistory {
+	display: block;
 }
 
 .layout[data-active-panel="markdown"] .panelMarkdown {
@@ -58,8 +63,8 @@
 	.panelContent,
 	.panelLinks,
 	.panelGraph,
-	.panelChat,
-	.panelMarkdown {
+	.panelMarkdown,
+	.panelHistory {
 		display: none;
 	}
 
@@ -72,6 +77,10 @@
 		display: block;
 	}
 
+	.layout[data-active-panel="history"] .panelHistory {
+		display: block;
+	}
+
 	.layout[data-active-panel="graph"] .panelGraph {
 		display: block;
 	}
@@ -79,12 +88,6 @@
 	/* Force graph panel child to full width (overrides inline 300px) */
 	.panelGraph > div {
 		width: 100% !important;
-	}
-
-	.layout[data-active-panel="chat"] .panelChat {
-		display: flex;
-		flex-direction: column;
-		min-height: calc(100vh - 160px);
 	}
 
 	.layout[data-active-panel="markdown"] .panelMarkdown {

@@ -20,16 +20,20 @@ final class NooksController
         $user = $context->user();
 
         $stmt = $pdo->prepare("
-            select 
-                n.id, 
-                n.name, 
+            select
+                n.id,
+                n.name,
+                n.purpose,
                 nm.role,
-                n.is_personal,
-                n.owner_id
+                n.owner_id,
+                u.first_name as owner_first_name,
+                u.last_name as owner_last_name
             from global.nooks n
             join global.nook_members nm on nm.nook_id = n.id
-            where 
+            join global.users u on u.id = n.owner_id
+            where
                 nm.user_id = :user_id
+                and n.purpose = 'general'
             order by n.created_at desc;
         ");
         $stmt->execute([':user_id' => $user['id']]);
@@ -48,13 +52,17 @@ final class NooksController
             $role = $r['role'] ?? '';
             $ownerId = $r['owner_id'] ?? null;
 
-            $isPersonal = (bool)($r['is_personal'] ?? false) && (is_scalar($ownerId) && (string)$ownerId === $userId);
+            $isOwned = is_scalar($ownerId) && (string)$ownerId === $userId;
+            $ownerFirst = is_scalar($r['owner_first_name'] ?? null) ? (string)$r['owner_first_name'] : '';
+            $ownerLast = is_scalar($r['owner_last_name'] ?? null) ? (string)$r['owner_last_name'] : '';
+            $ownerName = trim($ownerFirst . ' ' . $ownerLast);
 
             $nooks[] = [
                 'id' => is_scalar($id) ? (string)$id : '',
                 'name' => is_scalar($name) ? (string)$name : '',
                 'role' => is_scalar($role) ? (string)$role : '',
-                'is_personal' => $isPersonal,
+                'is_owned' => $isOwned,
+                'owner_name' => $isOwned ? '' : $ownerName,
             ];
         }
 
@@ -63,31 +71,26 @@ final class NooksController
         ]);
     }
 
-    public function personal(Request $request, Context $context): Response
+    public function aiMemory(Request $request, Context $context): Response
     {
         $pdo = $context->pdo();
         $user = $context->user();
-
         $userId = is_scalar($user['id'] ?? null) ? (string)$user['id'] : '';
-        if ($userId === '') {
-            throw new HttpError('missing user id', 500);
-        }
 
-        $stmt = $pdo->prepare('select id, name from global.nooks where owner_id = :user_id and is_personal = true limit 1');
+        $stmt = $pdo->prepare(
+            "select n.id, n.name from global.nooks n join global.nook_members nm on nm.nook_id = n.id where nm.user_id = :user_id and n.purpose = 'ai-memory' limit 1"
+        );
         $stmt->execute([':user_id' => $userId]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
         if (!is_array($row)) {
-            throw new HttpError('personal nook not found', 404);
+            throw new HttpError('AI memory nook not found', 404);
         }
-
-        $id = $row['id'] ?? '';
-        $name = $row['name'] ?? '';
 
         return JsonResponse::ok([
             'nook' => [
-                'id' => is_scalar($id) ? (string)$id : '',
-                'name' => is_scalar($name) ? (string)$name : '',
-                'is_personal' => true,
+                'id' => is_scalar($row['id'] ?? null) ? (string)$row['id'] : '',
+                'name' => is_scalar($row['name'] ?? null) ? (string)$row['name'] : '',
+                'purpose' => 'ai-memory',
             ],
         ]);
     }
@@ -142,5 +145,40 @@ final class NooksController
 
             throw $e;
         }
+    }
+
+    public function update(Request $request, Context $context): Response
+    {
+        $pdo = $context->pdo();
+        $user = $context->user();
+
+        $nookId = trim($request->routeParam('nookId'));
+        if ($nookId === '') {
+            throw new HttpError('nookId is required', 400);
+        }
+
+        NookAccess::requireOwner($pdo, $user, $nookId);
+
+        $data = $request->jsonBody();
+
+        $nameRaw = $data['name'] ?? '';
+        $name = is_string($nameRaw) ? trim($nameRaw) : '';
+        if ($name === '') {
+            throw new HttpError('name is required', 400);
+        }
+
+        $stmt = $pdo->prepare('update global.nooks set name = :name where id = :id returning id, name');
+        $stmt->execute([':name' => $name, ':id' => $nookId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!is_array($row)) {
+            throw new HttpError('nook not found', 404);
+        }
+
+        return JsonResponse::ok([
+            'nook' => [
+                'id' => is_scalar($row['id'] ?? null) ? (string)$row['id'] : '',
+                'name' => is_scalar($row['name'] ?? null) ? (string)$row['name'] : '',
+            ],
+        ]);
     }
 }

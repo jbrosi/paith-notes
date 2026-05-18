@@ -1,16 +1,13 @@
 import { createEffect, createSignal, Show } from "solid-js";
 import { apiFetch } from "../../auth/keycloak";
-import { Button } from "../../components/Button";
 import { AddLinkForm } from "./components/AddLinkForm";
 import { LinkList } from "./components/LinkList";
-import type { NotePreviewController } from "./NookDefaultLayout";
 import css from "./NookNoteLinksPanel.module.css";
 import type { NookStore } from "./store";
 import { type NoteLink, NoteLinksListResponseSchema } from "./types";
 
 export type NookNoteLinksPanelProps = {
 	store: NookStore;
-	notePreview?: NotePreviewController;
 };
 
 export function NookNoteLinksPanel(props: NookNoteLinksPanelProps) {
@@ -78,50 +75,53 @@ export function NookNoteLinksPanel(props: NookNoteLinksPanelProps) {
 	});
 
 	return (
-		<div class={css.container}>
-			<div class={css.header}>
-				<div class={css.title}>Links</div>
-			</div>
-
-			<Show when={error() !== ""}>
-				<pre class={css.error}>{error()}</pre>
-			</Show>
-
-			<Show when={noteId().trim() !== ""} fallback={<div>Select a note</div>}>
-				<div class={css.content}>
-					<Show when={store().mode() === "edit"}>
-						<div>
-							<Button
-								variant="secondary"
-								onClick={() => setShowAddForm((v) => !v)}
-							>
-								{showAddForm() ? "Cancel" : "+ Add link"}
-							</Button>
-						</div>
-						<Show when={showAddForm()}>
-							<AddLinkForm
-								store={store()}
-								nookId={nookId()}
-								noteId={noteId()}
-								onLinkCreated={(link) => {
-									setLinks([link, ...links()]);
-									setShowAddForm(false);
-								}}
-								onError={setError}
-							/>
-						</Show>
+		<Show when={noteId().trim() !== ""}>
+			<div class={css.container}>
+				<div class={css.header}>
+					<div class={css.title}>Links</div>
+					<Show when={store().canWrite()}>
+						<button
+							type="button"
+							onClick={() => setShowAddForm((v) => !v)}
+							style={{
+								background: "none",
+								border: "none",
+								color: "var(--link-color, #0066cc)",
+								cursor: "pointer",
+								"font-size": "0.75rem",
+								padding: "0",
+							}}
+						>
+							{showAddForm() ? "Cancel" : "+ Add"}
+						</button>
 					</Show>
-
-					<LinkList
-						links={links()}
-						noteId={noteId()}
-						isEditing={store().mode() === "edit"}
-						notePreview={props.notePreview}
-						onOpenNote={(id) => void store().onNoteLinkClick(id)}
-						onDeleteLink={(id) => void deleteLink(id)}
-					/>
 				</div>
-			</Show>
-		</div>
+
+				<Show when={error() !== ""}>
+					<pre class={css.error}>{error()}</pre>
+				</Show>
+
+				<Show when={showAddForm()}>
+					<AddLinkForm
+						store={store()}
+						nookId={nookId()}
+						noteId={noteId()}
+						onLinkCreated={(link) => {
+							setLinks([link, ...links()]);
+							setShowAddForm(false);
+						}}
+						onError={setError}
+					/>
+				</Show>
+
+				<LinkList
+					links={links()}
+					noteId={noteId()}
+					isEditing={store().canWrite()}
+					onOpenNote={(id) => void store().onNoteLinkClick(id)}
+					onDeleteLink={(id) => void deleteLink(id)}
+				/>
+			</div>
+		</Show>
 	);
 }

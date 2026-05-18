@@ -7,13 +7,11 @@ import type {
 	MentionStartInfo,
 } from "../../../components/MilkdownEditor";
 import { MilkdownEditor } from "../../../components/MilkdownEditor";
-import type { NotePreviewController } from "../NookDefaultLayout";
+import { useNotePreview } from "../NookContext";
 import type { NookStore } from "../store";
 
-export function EditorSection(props: {
-	store: NookStore;
-	notePreview?: NotePreviewController;
-}) {
+export function EditorSection(props: { store: NookStore }) {
+	const notePreview = useNotePreview();
 	const [mentionActive, setMentionActive] = createSignal(false);
 	const [mentionPos, setMentionPos] = createSignal({ x: 0, y: 0 });
 	const [mentionQuery, setMentionQuery] = createSignal("");
@@ -80,12 +78,12 @@ export function EditorSection(props: {
 							onChange={props.store.setContent}
 							readonly={false}
 							onNoteLinkClick={(id) => {
-								props.notePreview?.dismiss();
+								notePreview?.dismiss();
 								void props.store.onNoteLinkClick(id);
 							}}
 							onNoteLinkPopup={(noteId, x, y) => {
-								if (!props.notePreview) return;
-								props.notePreview.show(noteId, x, y, {
+								if (!notePreview) return;
+								notePreview.show(noteId, x, y, {
 									immediate: true,
 									onOpen: (id) => void props.store.onNoteLinkClick(id),
 									actions: [
@@ -131,12 +129,9 @@ export function EditorSection(props: {
 			>
 				<MarkdownView
 					content={props.store.content()}
-					onNoteLinkClick={(id) => void props.store.onNoteLinkClick(id)}
-					resolveNoteTitle={resolveNoteTitle}
 					resolveEmbeddedImageSrc={(id) =>
 						props.store.resolveEmbeddedImageSrc(id)
 					}
-					notePreview={props.notePreview}
 				/>
 			</Show>
 		</Show>

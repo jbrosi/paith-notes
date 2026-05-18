@@ -7,10 +7,10 @@ export type NookToolbarProps = {
 	loading: boolean;
 	title: string;
 	selectedId: string;
+	canWrite: boolean;
 	onSave: () => void;
 	onDelete: () => void;
 	onToggleMode: () => void;
-	onNewNote: () => void;
 };
 
 export function NookToolbar(props: NookToolbarProps) {
@@ -18,9 +18,12 @@ export function NookToolbar(props: NookToolbarProps) {
 
 	return (
 		<div class={styles.toolbar}>
-			{/* Left side: Save (edit mode only) */}
+			{/* Left side: Save (edit mode only) or read-only indicator */}
 			<div class={styles.toolbarLeft}>
-				<Show when={isEditing()}>
+				<Show when={!props.canWrite}>
+					<span class={styles.readonlyBadge}>Read-only</span>
+				</Show>
+				<Show when={isEditing() && props.canWrite}>
 					<Button
 						onClick={props.onSave}
 						disabled={props.loading || props.title.trim() === ""}
@@ -30,34 +33,12 @@ export function NookToolbar(props: NookToolbarProps) {
 				</Show>
 			</div>
 
-			{/* Right side: edit toggle + delete/cancel */}
+			{/* Right side: edit toggle + delete/cancel (only when canWrite) */}
 			<div class={styles.toolbarRight}>
-				<Show
-					when={isEditing()}
-					fallback={
-						<>
-							<Button
-								variant="secondary"
-								size="small"
-								onClick={props.onNewNote}
-								title="New note"
-							>
-								<svg
-									aria-hidden="true"
-									width="14"
-									height="14"
-									viewBox="0 0 24 24"
-									fill="none"
-									stroke="currentColor"
-									stroke-width="2.5"
-									stroke-linecap="round"
-									stroke-linejoin="round"
-									style={{ "vertical-align": "middle" }}
-								>
-									<path d="M12 5v14" />
-									<path d="M5 12h14" />
-								</svg>
-							</Button>
+				<Show when={props.canWrite}>
+					<Show
+						when={isEditing()}
+						fallback={
 							<Button
 								variant="secondary"
 								size="small"
@@ -84,40 +65,40 @@ export function NookToolbar(props: NookToolbarProps) {
 								</svg>
 								Edit
 							</Button>
-						</>
-					}
-				>
-					<Button
-						onClick={props.onDelete}
-						variant="danger"
-						size="small"
-						disabled={props.loading || props.selectedId === ""}
-						title="Delete note"
+						}
 					>
-						<svg
-							aria-hidden="true"
-							width="16"
-							height="16"
-							viewBox="0 0 24 24"
-							fill="none"
-							stroke="currentColor"
-							stroke-width="2"
-							stroke-linecap="round"
-							stroke-linejoin="round"
+						<Button
+							onClick={props.onDelete}
+							variant="danger"
+							size="small"
+							disabled={props.loading || props.selectedId === ""}
+							title="Delete note"
 						>
-							<path d="M3 6h18" />
-							<path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
-							<path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
-						</svg>
-					</Button>
-					<Button
-						variant="secondary"
-						size="small"
-						onClick={props.onToggleMode}
-						title="Cancel editing"
-					>
-						Cancel
-					</Button>
+							<svg
+								aria-hidden="true"
+								width="16"
+								height="16"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2"
+								stroke-linecap="round"
+								stroke-linejoin="round"
+							>
+								<path d="M3 6h18" />
+								<path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+								<path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+							</svg>
+						</Button>
+						<Button
+							variant="secondary"
+							size="small"
+							onClick={props.onToggleMode}
+							title="Cancel editing"
+						>
+							Cancel
+						</Button>
+					</Show>
 				</Show>
 			</div>
 		</div>

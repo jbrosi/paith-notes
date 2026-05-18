@@ -60,6 +60,12 @@
 	--color-text-on-primary: #fff;
 	--color-text-code: color-mix(in srgb, var(--seed-text) 90%, var(--seed-bg));
 
+	/* AI actor color */
+	--color-ai: #8b5cf6;
+
+	/* Layout */
+	--content-max-width: 860px;
+
 	/* Primary — derived from seed-accent */
 	--color-primary: color-mix(in srgb, var(--seed-accent) 85%, var(--seed-text));
 	--color-primary-hover: color-mix(

@@ -10,6 +10,7 @@ use Paith\Notes\Api\Http\HttpError;
 use Paith\Notes\Api\Http\JsonResponse;
 use Paith\Notes\Api\Http\Request;
 use Paith\Notes\Api\Http\Response;
+use Paith\Notes\Shared\Db\Row;
 use PDO;
 use Throwable;
 
@@ -105,6 +106,73 @@ final class NotesController
         ]);
     }
 
+    public function presence(Request $request, Context $context): Response
+    {
+        $pdo = $context->pdo();
+        $user = $context->user();
+
+        $nookId = trim($request->routeParam('nookId'));
+        if ($nookId === '' || !self::isUuid($nookId)) {
+            throw new HttpError('nookId must be a UUID', 400);
+        }
+
+        $noteId = trim($request->routeParam('noteId'));
+        if ($noteId === '' || !self::isUuid($noteId)) {
+            throw new HttpError('noteId must be a UUID', 400);
+        }
+
+        $userId = is_scalar($user['id'] ?? null) ? (string)$user['id'] : '';
+        $this->requireMember($pdo, $user, $nookId);
+
+        // Get current version
+        $vStmt = $pdo->prepare('select version from global.notes where id = :id and nook_id = :nook_id');
+        $vStmt->execute([':id' => $noteId, ':nook_id' => $nookId]);
+        $version = $vStmt->fetchColumn();
+        if ($version === false) {
+            throw new HttpError('note not found', 404);
+        }
+
+        // Upsert viewer presence
+        $pdo->prepare(
+            "insert into global.note_viewers (note_id, nook_id, user_id, last_seen_at)
+             values (:note_id, :nook_id, :user_id, now())
+             on conflict (note_id, user_id) do update set last_seen_at = now(), nook_id = excluded.nook_id"
+        )->execute([':note_id' => $noteId, ':nook_id' => $nookId, ':user_id' => $userId]);
+
+        // Record view (once per user per note per day — deduped by PK, stats updated via trigger)
+        $pdo->prepare(
+            "insert into global.note_views (note_id, nook_id, user_id, viewed_date, count)
+             values (:note_id, :nook_id, :user_id, current_date, 1)
+             on conflict (note_id, user_id, viewed_date) do nothing"
+        )->execute([':note_id' => $noteId, ':nook_id' => $nookId, ':user_id' => $userId]);
+
+        // Get other viewers (active within last 60s, excluding self)
+        $vwStmt = $pdo->prepare(
+            "select nv.user_id, u.first_name, u.last_name, u.nickname
+             from global.note_viewers nv
+             left join global.users u on u.id = nv.user_id
+             where nv.note_id = :note_id
+               and nv.user_id != :user_id
+               and nv.last_seen_at > now() - interval '60 seconds'"
+        );
+        $vwStmt->execute([':note_id' => $noteId, ':user_id' => $userId]);
+        $viewers = [];
+        foreach ($vwStmt->fetchAll(PDO::FETCH_ASSOC) as $v) {
+            if (!is_array($v)) {
+                continue;
+            }
+            $viewers[] = [
+                'user_id' => Row::str($v, 'user_id'),
+                'user_name' => trim(Row::str($v, 'nickname') !== '' ? Row::str($v, 'nickname') : (Row::str($v, 'first_name') . ' ' . Row::str($v, 'last_name'))),
+            ];
+        }
+
+        return JsonResponse::ok([
+            'version' => is_scalar($version) ? (int)$version : 0,
+            'viewers' => $viewers,
+        ]);
+    }
+
     public function get(Request $request, Context $context): Response
     {
         $pdo = $context->pdo();
@@ -129,7 +197,7 @@ final class NotesController
         $this->requireMember($pdo, $user, $nookId);
 
         $stmt = $pdo->prepare(
-            'select id, title, content, type, type_id, properties, former_properties, created_at '
+            'select id, title, content, type, type_id, properties, former_properties, version, created_at '
             . 'from global.notes where nook_id = :nook_id and id = :id'
         );
         $stmt->execute([':nook_id' => $nookId, ':id' => $noteId]);
@@ -141,6 +209,12 @@ final class NotesController
         $properties = self::decodeJsonObject($r['properties'] ?? null);
         $formerProperties = self::decodeJsonObject($r['former_properties'] ?? null);
 
+        // Total view count for this note
+        $vcStmt = $pdo->prepare('select coalesce(sum(count), 0) from global.note_views where note_id = :note_id');
+        $vcStmt->execute([':note_id' => $noteId]);
+        $vcCol = $vcStmt->fetchColumn();
+        $viewCount = is_scalar($vcCol) ? (int)$vcCol : 0;
+
         return JsonResponse::ok([
             'note' => [
                 'id' => is_scalar($r['id'] ?? null) ? (string)$r['id'] : '',
@@ -151,7 +225,9 @@ final class NotesController
                 'type_id' => is_scalar($r['type_id'] ?? null) ? (string)$r['type_id'] : '',
                 'properties' => $properties === [] ? (object)[] : $properties,
                 'former_properties' => $formerProperties === [] ? (object)[] : $formerProperties,
-                'created_at' => is_scalar($r['created_at'] ?? null) ? (string)$r['created_at'] : '',
+                'version' => Row::int($r, 'version'),
+                'view_count' => $viewCount,
+                'created_at' => Row::str($r, 'created_at'),
             ],
         ]);
     }
@@ -169,7 +245,7 @@ final class NotesController
             throw new HttpError('nookId must be a UUID', 400);
         }
 
-        $this->requireMember($pdo, $user, $nookId);
+        NookAccess::requireWriteAccess($pdo, $user, $nookId);
 
         $data = $request->jsonBody();
 
@@ -191,22 +267,16 @@ final class NotesController
         }
 
         if ($typeId !== '') {
-            $typeCheck = $pdo->prepare('select applies_to_files, applies_to_notes from global.note_types where id = :id and nook_id = :nook_id');
+            $typeCheck = $pdo->prepare('select applies_to from global.note_types where id = :id and nook_id = :nook_id');
             $typeCheck->execute([':id' => $typeId, ':nook_id' => $nookId]);
             $typeRow = $typeCheck->fetch(PDO::FETCH_ASSOC);
             if (!is_array($typeRow)) {
                 throw new HttpError('type not found', 404);
             }
-            $appliesToFiles = (bool)($typeRow['applies_to_files'] ?? true);
-            $appliesToNotes = (bool)($typeRow['applies_to_notes'] ?? true);
-            if ($type === self::NOTE_TYPE_FILE) {
-                if (!$appliesToFiles) {
-                    throw new HttpError('type does not apply to files', 400);
-                }
-            } else {
-                if (!$appliesToNotes) {
-                    throw new HttpError('type does not apply to notes', 400);
-                }
+            $appliesTo = is_scalar($typeRow['applies_to'] ?? null) ? (string)$typeRow['applies_to'] : 'notes';
+            $expectedAppliesTo = $type === self::NOTE_TYPE_FILE ? 'files' : 'notes';
+            if ($appliesTo !== $expectedAppliesTo) {
+                throw new HttpError("type does not apply to {$expectedAppliesTo}", 400);
             }
         }
 
@@ -214,7 +284,7 @@ final class NotesController
             $pdo->beginTransaction();
 
             $stmt = $pdo->prepare(
-                "insert into global.notes (nook_id, created_by, title, content, type, type_id, properties, former_properties) values (:nook_id, :created_by, :title, :content, :type, :type_id, :properties, :former_properties) returning id, created_at"
+                "insert into global.notes (nook_id, created_by, title, content, type, type_id, properties, former_properties, actor) values (:nook_id, :created_by, :title, :content, :type, :type_id, :properties, :former_properties, :actor) returning id, created_at"
             );
             $stmt->execute([
                 ':nook_id' => $nookId,
@@ -225,6 +295,7 @@ final class NotesController
                 ':type_id' => $typeId !== '' ? $typeId : null,
                 ':properties' => self::encodeJsonObject($properties),
                 ':former_properties' => '{}',
+                ':actor' => $context->actor(),
             ]);
 
             $row = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -237,7 +308,8 @@ final class NotesController
 
             $noteId = is_scalar($id) ? (string)$id : '';
             if ($noteId !== '') {
-                $this->mentions->syncMentions($pdo, $nookId, $noteId, $content);
+                $userId = is_scalar($user['id'] ?? null) ? (string)$user['id'] : '';
+                $this->mentions->syncMentions($pdo, $nookId, $noteId, $content, $userId);
             }
 
             $pdo->commit();
@@ -289,7 +361,7 @@ final class NotesController
             throw new HttpError('invalid user', 500);
         }
 
-        $membership = $this->requireMember($pdo, $user, $nookId);
+        $membership = NookAccess::requireWriteAccess($pdo, $user, $nookId);
 
         $data = $request->jsonBody();
 
@@ -363,22 +435,31 @@ final class NotesController
         }
 
         if ($typeId !== null) {
-            $typeCheck = $pdo->prepare('select applies_to_files, applies_to_notes from global.note_types where id = :id and nook_id = :nook_id');
+            $typeCheck = $pdo->prepare('select applies_to from global.note_types where id = :id and nook_id = :nook_id');
             $typeCheck->execute([':id' => $typeId, ':nook_id' => $nookId]);
             $typeRow = $typeCheck->fetch(PDO::FETCH_ASSOC);
             if (!is_array($typeRow)) {
                 throw new HttpError('type not found', 404);
             }
-            $appliesToFiles = (bool)($typeRow['applies_to_files'] ?? true);
-            $appliesToNotes = (bool)($typeRow['applies_to_notes'] ?? true);
-            if ($type === self::NOTE_TYPE_FILE) {
-                if (!$appliesToFiles) {
-                    throw new HttpError('type does not apply to files', 400);
-                }
-            } else {
-                if (!$appliesToNotes) {
-                    throw new HttpError('type does not apply to notes', 400);
-                }
+            $appliesTo = is_scalar($typeRow['applies_to'] ?? null) ? (string)$typeRow['applies_to'] : 'notes';
+            $expectedAppliesTo = $type === self::NOTE_TYPE_FILE ? 'files' : 'notes';
+            if ($appliesTo !== $expectedAppliesTo) {
+                throw new HttpError("type does not apply to {$expectedAppliesTo}", 400);
+            }
+        }
+
+        // Optimistic locking: if expected_version is provided, check it matches current
+        $expectedVersion = $data['expected_version'] ?? null;
+        if ($expectedVersion !== null && is_numeric($expectedVersion)) {
+            $vStmt = $pdo->prepare('select version from global.notes where id = :id and nook_id = :nook_id');
+            $vStmt->execute([':id' => $noteId, ':nook_id' => $nookId]);
+            $vCol = $vStmt->fetchColumn();
+            $currentVersion = is_scalar($vCol) ? (int)$vCol : 0;
+            if ($currentVersion !== (int)$expectedVersion) {
+                return JsonResponse::error('note was edited in the meantime', 409, [
+                    'current_version' => $currentVersion,
+                    'expected_version' => (int)$expectedVersion,
+                ]);
             }
         }
 
@@ -386,7 +467,7 @@ final class NotesController
             $pdo->beginTransaction();
 
             $stmt = $pdo->prepare(
-                'update global.notes set title = :title, content = :content, type = :type, type_id = :type_id, properties = :properties, former_properties = :former_properties, updated_at = now() where id = :id and nook_id = :nook_id returning id, created_at, updated_at'
+                'update global.notes set title = :title, content = :content, type = :type, type_id = :type_id, properties = :properties, former_properties = :former_properties, updated_at = now() where id = :id and nook_id = :nook_id returning id, version, created_at, updated_at'
             );
             $stmt->execute([
                 ':id' => $noteId,
@@ -403,7 +484,8 @@ final class NotesController
                 throw new HttpError('note not found', 404);
             }
 
-            $this->mentions->syncMentions($pdo, $nookId, $noteId, $content);
+            $userId = is_scalar($user['id'] ?? null) ? (string)$user['id'] : '';
+                $this->mentions->syncMentions($pdo, $nookId, $noteId, $content, $userId);
 
             $pdo->commit();
 
@@ -420,6 +502,7 @@ final class NotesController
                     'type_id' => is_string($typeId) ? $typeId : '',
                     'properties' => $properties === [] ? (object)[] : $properties,
                     'former_properties' => $formerProperties === [] ? (object)[] : $formerProperties,
+                    'version' => Row::int($row, 'version'),
                     'created_at' => is_scalar($createdAt) ? (string)$createdAt : '',
                 ],
             ]);
@@ -457,7 +540,7 @@ final class NotesController
             throw new HttpError('invalid user', 500);
         }
 
-        $membership = $this->requireMember($pdo, $user, $nookId);
+        $membership = NookAccess::requireWriteAccess($pdo, $user, $nookId);
 
         $allowed = false;
         $role = is_scalar($membership['role'] ?? null) ? (string)$membership['role'] : '';
@@ -515,35 +598,39 @@ final class NotesController
 
         $this->requireMember($pdo, $user, $nookId);
 
+        // Cross-nook: return mentions from any nook the user is a member of
         $outgoingStmt = $pdo->prepare(
-            'select m.target_note_id as note_id, n.title as note_title, m.link_title, m.position '
+            'select m.target_note_id as note_id, n.title as note_title, n.nook_id, m.link_title, m.position '
             . 'from global.note_mentions m '
             . 'join global.notes n on n.id = m.target_note_id '
-            . 'where m.source_note_id = :source_note_id and n.nook_id = :nook_id '
+            . 'join global.nook_members nm on nm.nook_id = n.nook_id and nm.user_id = :user_id '
+            . 'where m.source_note_id = :source_note_id '
             . 'order by m.position asc'
         );
         $outgoingStmt->execute([
             ':source_note_id' => $noteId,
-            ':nook_id' => $nookId,
+            ':user_id' => $user['id'],
         ]);
         $outgoingRows = $outgoingStmt->fetchAll(PDO::FETCH_ASSOC);
 
         $incomingStmt = $pdo->prepare(
-            'select m.source_note_id as note_id, n.title as note_title, m.link_title, m.position '
+            'select m.source_note_id as note_id, n.title as note_title, n.nook_id, m.link_title, m.position '
             . 'from global.note_mentions m '
             . 'join global.notes n on n.id = m.source_note_id '
-            . 'where m.target_note_id = :target_note_id and n.nook_id = :nook_id '
+            . 'join global.nook_members nm on nm.nook_id = n.nook_id and nm.user_id = :user_id '
+            . 'where m.target_note_id = :target_note_id '
             . 'order by m.position asc'
         );
         $incomingStmt->execute([
             ':target_note_id' => $noteId,
-            ':nook_id' => $nookId,
+            ':user_id' => $user['id'],
         ]);
         $incomingRows = $incomingStmt->fetchAll(PDO::FETCH_ASSOC);
 
         $normalize = static function (array $r): array {
             return [
                 'note_id' => is_scalar($r['note_id'] ?? null) ? (string)$r['note_id'] : '',
+                'nook_id' => is_scalar($r['nook_id'] ?? null) ? (string)$r['nook_id'] : '',
                 'note_title' => is_scalar($r['note_title'] ?? null) ? (string)$r['note_title'] : '',
                 'link_title' => is_scalar($r['link_title'] ?? null) ? (string)$r['link_title'] : '',
                 'position' => is_scalar($r['position'] ?? null) ? (int)$r['position'] : 0,
@@ -570,6 +657,192 @@ final class NotesController
             'outgoing' => $outgoing,
             'incoming' => $incoming,
         ]);
+    }
+
+    public function historySnapshot(Request $request, Context $context): Response
+    {
+        $pdo = $context->pdo();
+        $user = $context->user();
+
+        $nookId = trim($request->routeParam('nookId'));
+        if ($nookId === '' || !self::isUuid($nookId)) {
+            throw new HttpError('nookId must be a UUID', 400);
+        }
+
+        $noteId = trim($request->routeParam('noteId'));
+        if ($noteId === '' || !self::isUuid($noteId)) {
+            throw new HttpError('noteId must be a UUID', 400);
+        }
+
+        $historyId = trim($request->routeParam('historyId'));
+        if ($historyId === '') {
+            throw new HttpError('historyId is required', 400);
+        }
+
+        $this->requireMember($pdo, $user, $nookId);
+
+        // historyId can be a numeric ID or "v{number}" for version lookup
+        if (str_starts_with($historyId, 'v') && ctype_digit(substr($historyId, 1))) {
+            $version = (int)substr($historyId, 1);
+            $stmt = $pdo->prepare(
+                'select am.id, am.version, am.action, am.actor, am.user_id, am.created_at,
+                        u.first_name, u.last_name, u.nickname,
+                        ad.data
+                 from global.audit_meta am
+                 join global.audit_data ad on ad.meta_id = am.id
+                 left join global.users u on u.id = am.user_id
+                 where am.version = :version
+                   and am.table_name = :table_name
+                   and am.table_id = :table_id
+                   and am.nook_id = :nook_id'
+            );
+            $stmt->execute([
+                ':version' => $version,
+                ':table_name' => 'notes',
+                ':table_id' => $noteId,
+                ':nook_id' => $nookId,
+            ]);
+        } elseif (ctype_digit($historyId)) {
+            $stmt = $pdo->prepare(
+                'select am.id, am.version, am.action, am.actor, am.user_id, am.created_at,
+                        u.first_name, u.last_name, u.nickname,
+                        ad.data
+                 from global.audit_meta am
+                 join global.audit_data ad on ad.meta_id = am.id
+                 left join global.users u on u.id = am.user_id
+                 where am.id = :history_id
+                   and am.table_name = :table_name
+                   and am.table_id = :table_id
+                   and am.nook_id = :nook_id'
+            );
+            $stmt->execute([
+                ':history_id' => (int)$historyId,
+                ':table_name' => 'notes',
+                ':table_id' => $noteId,
+                ':nook_id' => $nookId,
+            ]);
+        } else {
+            throw new HttpError('historyId must be numeric or v{number}', 400);
+        }
+        $r = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!is_array($r)) {
+            throw new HttpError('snapshot not found', 404);
+        }
+
+        $dataDecoded = json_decode(Row::str($r, 'data', '{}'), true);
+        /** @var array<string, mixed> $data */
+        $data = is_array($dataDecoded) ? $dataDecoded : [];
+
+        return JsonResponse::ok([
+            'snapshot' => [
+                'history_id' => Row::int($r, 'id'),
+                'version' => Row::int($r, 'version'),
+                'action' => Row::str($r, 'action'),
+                'actor' => Row::str($r, 'actor', 'user'),
+                'user_id' => Row::str($r, 'user_id'),
+                'user_name' => trim(Row::str($r, 'nickname') !== '' ? Row::str($r, 'nickname') : (Row::str($r, 'first_name') . ' ' . Row::str($r, 'last_name'))),
+                'created_at' => Row::str($r, 'created_at'),
+                'note' => [
+                    'id' => Row::str($data, 'id'),
+                    'title' => Row::str($data, 'title'),
+                    'content' => Row::str($data, 'content'),
+                    'type' => Row::str($data, 'type', 'anything'),
+                    'type_id' => Row::str($data, 'type_id'),
+                    'properties' => is_array($data['properties'] ?? null) ? $data['properties'] : (object)[],
+                ],
+            ],
+        ]);
+    }
+
+    public function history(Request $request, Context $context): Response
+    {
+        $pdo = $context->pdo();
+        $user = $context->user();
+
+        $nookId = trim($request->routeParam('nookId'));
+        if ($nookId === '' || !self::isUuid($nookId)) {
+            throw new HttpError('nookId must be a UUID', 400);
+        }
+
+        $noteId = trim($request->routeParam('noteId'));
+        if ($noteId === '' || !self::isUuid($noteId)) {
+            throw new HttpError('noteId must be a UUID', 400);
+        }
+
+        $this->requireMember($pdo, $user, $nookId);
+
+        $stmt = $pdo->prepare(
+            "select am.id, am.version, am.action, am.actor, am.table_name, am.user_id, am.created_at,
+                    u.first_name, u.last_name, u.nickname,
+                    case when am.table_name in ('note_links', 'note_cross_links') then
+                        case when ad.data->>'source_note_id' = :note_id2 then ad.data->>'target_note_id'
+                             else ad.data->>'source_note_id' end
+                    end as linked_note_id,
+                    case when am.table_name in ('note_links', 'note_cross_links') then
+                        (select n.title from global.notes n where n.id = case
+                            when ad.data->>'source_note_id' = :note_id3 then (ad.data->>'target_note_id')::uuid
+                            else (ad.data->>'source_note_id')::uuid
+                        end)
+                    end as linked_note_title,
+                    case when am.table_name = 'note_links' and ad.data->>'predicate_id' is not null then
+                        case when ad.data->>'source_note_id' = :note_id4
+                            then (select forward_label from global.link_predicates where id = (ad.data->>'predicate_id')::uuid)
+                            else (select reverse_label from global.link_predicates where id = (ad.data->>'predicate_id')::uuid)
+                        end
+                    end as link_label
+             from global.audit_meta_refs r
+             join global.audit_meta am on am.id = r.meta_id
+             left join global.audit_data ad on ad.meta_id = am.id
+             left join global.users u on u.id = am.user_id
+             where r.note_id = :note_id
+               and am.nook_id in (select nook_id from global.nook_members where user_id = :user_id)
+             order by r.meta_id desc
+             limit 10"
+        );
+        $stmt->execute([
+            ':note_id' => $noteId,
+            ':note_id2' => $noteId,
+            ':note_id3' => $noteId,
+            ':note_id4' => $noteId,
+            ':user_id' => $user['id'],
+        ]);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $history = [];
+        foreach ($rows as $r) {
+            if (!is_array($r)) {
+                continue;
+            }
+            $tableName = Row::str($r, 'table_name', 'notes');
+            $isLink = $tableName === 'note_links' || $tableName === 'note_cross_links';
+            $entry = [
+                'id' => Row::int($r, 'id'),
+                'version' => Row::int($r, 'version'),
+                'action' => Row::str($r, 'action'),
+                'actor' => Row::str($r, 'actor', 'user'),
+                'type' => $isLink ? 'link' : 'note',
+                'user_id' => Row::str($r, 'user_id'),
+                'user_name' => trim(Row::str($r, 'nickname') !== '' ? Row::str($r, 'nickname') : (Row::str($r, 'first_name') . ' ' . Row::str($r, 'last_name'))),
+                'created_at' => Row::str($r, 'created_at'),
+            ];
+            if ($isLink) {
+                $linkedNoteId = Row::nullStr($r, 'linked_note_id');
+                if ($linkedNoteId !== null) {
+                    $entry['linked_note_id'] = $linkedNoteId;
+                }
+                $linkedNoteTitle = Row::nullStr($r, 'linked_note_title');
+                if ($linkedNoteTitle !== null) {
+                    $entry['linked_note_title'] = $linkedNoteTitle;
+                }
+                $linkLabel = Row::nullStr($r, 'link_label');
+                if ($linkLabel !== null) {
+                    $entry['link_label'] = $linkLabel;
+                }
+            }
+            $history[] = $entry;
+        }
+
+        return JsonResponse::ok(['history' => $history]);
     }
 
     private function requireMember(PDO $pdo, array $user, string $nookId): array
