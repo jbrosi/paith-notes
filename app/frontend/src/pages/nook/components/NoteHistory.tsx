@@ -19,7 +19,9 @@ export function NoteHistory(props: { store: NookStore }) {
 					const nook = props.store.nookId();
 					const noteId = props.store.selectedId();
 					if (nook && noteId) {
-						navigate(`/nooks/${encodeURIComponent(nook)}/notes/${encodeURIComponent(noteId)}/v/${version}`);
+						navigate(
+							`/nooks/${encodeURIComponent(nook)}/notes/${encodeURIComponent(noteId)}/v/${version}`,
+						);
 					}
 				}}
 				onNoteHover={(noteId, x, y) => {

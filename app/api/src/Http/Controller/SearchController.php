@@ -9,6 +9,7 @@ use Paith\Notes\Api\Http\HttpError;
 use Paith\Notes\Api\Http\JsonResponse;
 use Paith\Notes\Api\Http\Request;
 use Paith\Notes\Api\Http\Response;
+use Paith\Notes\Shared\Db\Row;
 use Paith\Notes\Shared\Search\SearchQueryParser;
 use PDO;
 
@@ -65,19 +66,21 @@ final class SearchController
 
         $notes = [];
         foreach ($rows as $r) {
-            if (!is_array($r)) continue;
+            if (!is_array($r)) {
+                continue;
+            }
             $notes[] = [
-                'id' => (string)$r['id'],
-                'title' => (string)$r['title'],
-                'nook_id' => (string)$r['nook_id'],
-                'nook_name' => (string)$r['nook_name'],
-                'type' => (string)($r['type'] ?? 'anything'),
-                'type_id' => (string)($r['type_id'] ?? ''),
-                'outgoing_mentions_count' => (int)$r['outgoing_mentions_count'],
-                'incoming_mentions_count' => (int)$r['incoming_mentions_count'],
-                'outgoing_links_count' => (int)$r['outgoing_links_count'],
-                'incoming_links_count' => (int)$r['incoming_links_count'],
-                'created_at' => (string)$r['created_at'],
+                'id' => Row::str($r, 'id'),
+                'title' => Row::str($r, 'title'),
+                'nook_id' => Row::str($r, 'nook_id'),
+                'nook_name' => Row::str($r, 'nook_name'),
+                'type' => Row::str($r, 'type', 'anything'),
+                'type_id' => Row::str($r, 'type_id'),
+                'outgoing_mentions_count' => Row::int($r, 'outgoing_mentions_count'),
+                'incoming_mentions_count' => Row::int($r, 'incoming_mentions_count'),
+                'outgoing_links_count' => Row::int($r, 'outgoing_links_count'),
+                'incoming_links_count' => Row::int($r, 'incoming_links_count'),
+                'created_at' => Row::str($r, 'created_at'),
             ];
         }
 

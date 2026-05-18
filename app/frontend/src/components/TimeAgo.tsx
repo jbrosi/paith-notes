@@ -17,7 +17,11 @@ function formatRelative(iso: string): string {
 		const diffD = Math.floor(diffH / 24);
 		if (diffD < 7) return `${diffD}d ago`;
 		if (diffD < 30) return `${Math.floor(diffD / 7)}w ago`;
-		return d.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+		return d.toLocaleDateString(undefined, {
+			day: "numeric",
+			month: "short",
+			year: "numeric",
+		});
 	} catch {
 		return iso;
 	}
@@ -53,7 +57,10 @@ export function TimeAgo(props: Props) {
 	});
 
 	return (
-		<span title={formatFull(props.date)} style={{ color: "var(--color-text-muted, #aaa)" }}>
+		<span
+			title={formatFull(props.date)}
+			style={{ color: "var(--color-text-muted, #aaa)" }}
+		>
 			{text()}
 		</span>
 	);

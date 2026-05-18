@@ -1,4 +1,11 @@
-import { createContext, createSignal, onCleanup, onMount, useContext, type JSX } from "solid-js";
+import {
+	createContext,
+	createSignal,
+	type JSX,
+	onCleanup,
+	onMount,
+	useContext,
+} from "solid-js";
 import { onSessionExpired } from "./keycloak";
 
 type ApiContext = {
@@ -36,7 +43,11 @@ export function ApiProvider(props: { children: JSX.Element }) {
 		onCleanup(() => clearInterval(interval));
 	});
 
-	return <ApiCtx.Provider value={{ sessionExpired }}>{props.children}</ApiCtx.Provider>;
+	return (
+		<ApiCtx.Provider value={{ sessionExpired }}>
+			{props.children}
+		</ApiCtx.Provider>
+	);
 }
 
 export function useApi(): ApiContext {

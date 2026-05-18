@@ -1,8 +1,15 @@
 import { useNavigate } from "@solidjs/router";
-import { createEffect, createMemo, For, onCleanup, onMount, Show } from "solid-js";
+import {
+	createEffect,
+	createMemo,
+	For,
+	onCleanup,
+	onMount,
+	Show,
+} from "solid-js";
 import { Portal } from "solid-js/web";
-import { MarkdownView } from "../../components/MarkdownView";
 import { Button } from "../../components/Button";
+import { MarkdownView } from "../../components/MarkdownView";
 import { useUi } from "../../ui/UiContext";
 import notesStyles from "../Notes.module.css";
 import { EditorSection } from "./components/EditorSection";
@@ -79,127 +86,162 @@ export function NookMainPanel(props: NookMainPanelProps) {
 				when={!snapshot()}
 				fallback={
 					<div style={{ flex: "1", "min-width": "0" }}>
-						<div style={{
-							padding: "10px 14px",
-							background: "var(--color-bg-tertiary, #f9fafb)",
-							border: "1px solid var(--color-border-medium, #e5e7eb)",
-							"border-radius": "6px",
-							"margin-bottom": "1rem",
-							display: "flex",
-							"align-items": "center",
-							"justify-content": "space-between",
-							gap: "12px",
-							"flex-wrap": "wrap",
-						}}>
-							<div style={{ "font-size": "0.8rem", color: "var(--color-text-secondary, #666)" }}>
-								<strong>Archived version v{snapshot()!.version}</strong>
+						<div
+							style={{
+								padding: "10px 14px",
+								background: "var(--color-bg-tertiary, #f9fafb)",
+								border: "1px solid var(--color-border-medium, #e5e7eb)",
+								"border-radius": "6px",
+								"margin-bottom": "1rem",
+								display: "flex",
+								"align-items": "center",
+								"justify-content": "space-between",
+								gap: "12px",
+								"flex-wrap": "wrap",
+							}}
+						>
+							<div
+								style={{
+									"font-size": "0.8rem",
+									color: "var(--color-text-secondary, #666)",
+								}}
+							>
+								<strong>Archived version v{snapshot()?.version}</strong>
 								{" — "}
-								{snapshot()!.actor === "ai" ? (
+								{snapshot()?.actor === "ai" ? (
 									<span style={{ color: "var(--color-ai, #8b5cf6)" }}>AI</span>
 								) : (
-									<span>{snapshot()!.userName || "Unknown"}</span>
-								)}
-								{" "}
-								{snapshot()!.action === "INSERT" ? "created" : "edited"}
+									<span>{snapshot()?.userName || "Unknown"}</span>
+								)}{" "}
+								{snapshot()?.action === "INSERT" ? "created" : "edited"}
 								{" on "}
-								{formatSnapshotDate(snapshot()!.createdAt)}
+								{formatSnapshotDate(snapshot()?.createdAt ?? "")}
 								<span style={{ "margin-left": "8px", opacity: "0.6" }}>
 									(read-only)
 								</span>
 							</div>
-							<Button variant="secondary" size="small" onClick={() => {
-								const nook = store().nookId();
-								const noteId = store().selectedId();
-								if (nook && noteId) {
-									navigate(`/nooks/${encodeURIComponent(nook)}/notes/${encodeURIComponent(noteId)}`);
-								}
-							}}>
+							<Button
+								variant="secondary"
+								size="small"
+								onClick={() => {
+									const nook = store().nookId();
+									const noteId = store().selectedId();
+									if (nook && noteId) {
+										navigate(
+											`/nooks/${encodeURIComponent(nook)}/notes/${encodeURIComponent(noteId)}`,
+										);
+									}
+								}}
+							>
 								Back to current
 							</Button>
 						</div>
-						<h1 style={{
-							"font-size": "1.6rem",
-							"font-weight": "700",
-							margin: "0 0 1rem",
-							color: "var(--color-text-secondary, #444)",
-						}}>
-							{snapshot()!.title || "(untitled)"}
+						<h1
+							style={{
+								"font-size": "1.6rem",
+								"font-weight": "700",
+								margin: "0 0 1rem",
+								color: "var(--color-text-secondary, #444)",
+							}}
+						>
+							{snapshot()?.title || "(untitled)"}
 						</h1>
-						<MarkdownView content={snapshot()!.content} />
+						<MarkdownView content={snapshot()?.content ?? ""} />
 					</div>
 				}
 			>
 				<div style={{ flex: "1", "min-width": "0" }}>
 					<Show when={conflict()}>
-						<div style={{
-							padding: "10px 14px",
-							background: "#fef2f2",
-							border: "1px solid #fecaca",
-							"border-radius": "6px",
-							"margin-bottom": "0.75rem",
-							"font-size": "0.85rem",
-							color: "#991b1b",
-						}}>
+						<div
+							style={{
+								padding: "10px 14px",
+								background: "#fef2f2",
+								border: "1px solid #fecaca",
+								"border-radius": "6px",
+								"margin-bottom": "0.75rem",
+								"font-size": "0.85rem",
+								color: "#991b1b",
+							}}
+						>
 							<div style={{ "font-weight": "600", "margin-bottom": "4px" }}>
 								This note was edited in the meantime
 							</div>
 							<div style={{ "margin-bottom": "8px", color: "#7f1d1d" }}>
-								You were editing version {conflict()!.expectedVersion}, but it's now at version {conflict()!.currentVersion}.
+								You were editing version {conflict()?.expectedVersion}, but it's
+								now at version {conflict()?.currentVersion}.
 							</div>
 							<div style={{ display: "flex", gap: "8px" }}>
-								<Button variant="primary" size="small" onClick={() => {
-									store().resolveConflict();
-									void store().saveNote();
-								}}>
+								<Button
+									variant="primary"
+									size="small"
+									onClick={() => {
+										store().resolveConflict();
+										void store().saveNote();
+									}}
+								>
 									Overwrite with my changes
 								</Button>
-								<Button variant="secondary" size="small" onClick={() => {
-									store().resolveConflict();
-								}}>
+								<Button
+									variant="secondary"
+									size="small"
+									onClick={() => {
+										store().resolveConflict();
+									}}
+								>
 									Dismiss
 								</Button>
 							</div>
 						</div>
 					</Show>
 					<Show when={store().noteHasUpdate() && !conflict()}>
-						<div style={{
-							padding: "8px 12px",
-							background: "var(--color-bg-tertiary, #f0f9ff)",
-							border: "1px solid var(--color-primary-border, #bae6fd)",
-							"border-radius": "6px",
-							"margin-bottom": "0.5rem",
-							"font-size": "0.8rem",
-							display: "flex",
-							"align-items": "center",
-							"justify-content": "space-between",
-						}}>
+						<div
+							style={{
+								padding: "8px 12px",
+								background: "var(--color-bg-tertiary, #f0f9ff)",
+								border: "1px solid var(--color-primary-border, #bae6fd)",
+								"border-radius": "6px",
+								"margin-bottom": "0.5rem",
+								"font-size": "0.8rem",
+								display: "flex",
+								"align-items": "center",
+								"justify-content": "space-between",
+							}}
+						>
 							<span>This note has been updated.</span>
-							<Button variant="secondary" size="small" onClick={() => store().refreshCurrentNote()}>
+							<Button
+								variant="secondary"
+								size="small"
+								onClick={() => store().refreshCurrentNote()}
+							>
 								Reload
 							</Button>
 						</div>
 					</Show>
 					<Show when={store().noteViewers().length > 0}>
-						<div style={{
-							display: "flex",
-							"align-items": "center",
-							gap: "6px",
-							"margin-bottom": "0.5rem",
-							"font-size": "0.7rem",
-							color: "var(--color-text-muted, #888)",
-						}}>
+						<div
+							style={{
+								display: "flex",
+								"align-items": "center",
+								gap: "6px",
+								"margin-bottom": "0.5rem",
+								"font-size": "0.7rem",
+								color: "var(--color-text-muted, #888)",
+							}}
+						>
 							<For each={store().noteViewers()}>
 								{(viewer) => (
-									<span style={{
-										display: "inline-block",
-										padding: "2px 8px",
-										"border-radius": "999px",
-										background: "var(--color-primary-bg, #eff6ff)",
-										border: "1px solid var(--color-primary-border, #bae6fd)",
-										"font-size": "0.65rem",
-										"font-weight": "500",
-										color: "var(--color-primary, #3b82f6)",
-									}}>
+									<span
+										style={{
+											display: "inline-block",
+											padding: "2px 8px",
+											"border-radius": "999px",
+											background: "var(--color-primary-bg, #eff6ff)",
+											border: "1px solid var(--color-primary-border, #bae6fd)",
+											"font-size": "0.65rem",
+											"font-weight": "500",
+											color: "var(--color-primary, #3b82f6)",
+										}}
+									>
 										{viewer.user_name || "Someone"}
 									</span>
 								)}

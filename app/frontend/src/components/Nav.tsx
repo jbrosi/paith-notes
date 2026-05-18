@@ -55,7 +55,12 @@ export function Nav() {
 	const [fileInputRef, setFileInputRef] = createSignal<HTMLInputElement>();
 	const [aiMemoryNookId, setAiMemoryNookId] = createSignal("");
 	const [loginEvents, setLoginEvents] = createSignal<
-		Array<{ id: number; event: string; meta: Record<string, string>; created_at: string }>
+		Array<{
+			id: number;
+			event: string;
+			meta: Record<string, string>;
+			created_at: string;
+		}>
 	>([]);
 
 	const currentNookId = createMemo(() => {
@@ -155,11 +160,16 @@ export function Nav() {
 				const list = Array.isArray(body?.events) ? body.events : [];
 				setLoginEvents(
 					list
-						.filter((e: unknown): e is Record<string, unknown> => !!e && typeof e === "object")
+						.filter(
+							(e: unknown): e is Record<string, unknown> =>
+								!!e && typeof e === "object",
+						)
 						.map((e) => ({
 							id: Number(e.id ?? 0),
 							event: String(e.event ?? ""),
-							meta: (e.meta && typeof e.meta === "object" ? e.meta : {}) as Record<string, string>,
+							meta: (e.meta && typeof e.meta === "object"
+								? e.meta
+								: {}) as Record<string, string>,
 							created_at: String(e.created_at ?? ""),
 						})),
 				);
@@ -759,24 +769,38 @@ export function Nav() {
 								</A>
 							</Show>
 							<Show when={loginEvents().length > 0}>
-								<div style={{
-									"border-top": "1px solid var(--border-color, #eee)",
-									"padding": "6px 10px 2px",
-									"font-size": "0.7rem",
-									"color": "var(--text-muted, #888)",
-								}}>
-									<div style={{ "font-weight": "600", "margin-bottom": "4px" }}>Recent sessions</div>
+								<div
+									style={{
+										"border-top": "1px solid var(--border-color, #eee)",
+										padding: "6px 10px 2px",
+										"font-size": "0.7rem",
+										color: "var(--text-muted, #888)",
+									}}
+								>
+									<div style={{ "font-weight": "600", "margin-bottom": "4px" }}>
+										Recent sessions
+									</div>
 									<For each={loginEvents()}>
 										{(evt) => (
 											<div style={{ "margin-bottom": "3px" }}>
-												{evt.event === "login" ? "Logged in" : evt.event === "logout" ? "Logged out" : evt.event}
-												{" "}
+												{evt.event === "login"
+													? "Logged in"
+													: evt.event === "logout"
+														? "Logged out"
+														: evt.event}{" "}
 												<span style={{ opacity: "0.7" }}>
 													{(() => {
 														try {
 															const d = new Date(evt.created_at);
-															return d.toLocaleDateString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
-														} catch { return evt.created_at; }
+															return d.toLocaleDateString(undefined, {
+																day: "numeric",
+																month: "short",
+																hour: "2-digit",
+																minute: "2-digit",
+															});
+														} catch {
+															return evt.created_at;
+														}
 													})()}
 												</span>
 											</div>
@@ -784,7 +808,13 @@ export function Nav() {
 									</For>
 									<A
 										href="/me/activity"
-										style={{ "font-size": "0.7rem", "margin-top": "4px", display: "inline-block", color: "var(--link-color, #0066cc)", "text-decoration": "none" }}
+										style={{
+											"font-size": "0.7rem",
+											"margin-top": "4px",
+											display: "inline-block",
+											color: "var(--link-color, #0066cc)",
+											"text-decoration": "none",
+										}}
 									>
 										View all activity
 									</A>

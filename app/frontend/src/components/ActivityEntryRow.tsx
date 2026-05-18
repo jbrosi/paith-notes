@@ -87,15 +87,22 @@ export function ActivityEntryRow(props: Props) {
 	const e = () => props.entry;
 
 	return (
-		<div style={{
-			"margin-bottom": "0.35rem",
-			display: "flex",
-			"align-items": "baseline",
-			gap: "4px",
-			"flex-wrap": "wrap",
-			"font-size": "0.75rem",
-		}}>
-			<span style={{ "font-weight": "500", color: "var(--color-text-secondary, #666)" }}>
+		<div
+			style={{
+				"margin-bottom": "0.35rem",
+				display: "flex",
+				"align-items": "baseline",
+				gap: "4px",
+				"flex-wrap": "wrap",
+				"font-size": "0.75rem",
+			}}
+		>
+			<span
+				style={{
+					"font-weight": "500",
+					color: "var(--color-text-secondary, #666)",
+				}}
+			>
 				<ActorLabel actor={e().actor} userName={e().userName} />
 			</span>
 			<span>{actionLabel(e().action, e().type)}</span>
@@ -103,9 +110,13 @@ export function ActivityEntryRow(props: Props) {
 			{/* Nook-wide link: "Source → predicate → Target" */}
 			<Show when={e().type === "link" && e().linkSourceTitle}>
 				<NoteLinkEl
-					title={e().linkSourceTitle!}
+					title={e().linkSourceTitle as string}
 					noteId={e().linkSourceId}
-					href={e().linkSourceId ? props.buildNoteHref?.(e().linkSourceId!) : undefined}
+					href={
+						e().linkSourceId
+							? props.buildNoteHref?.(e().linkSourceId as string)
+							: undefined
+					}
 					onNoteHover={props.onNoteHover}
 					onNoteLeave={props.onNoteLeave}
 				/>
@@ -115,21 +126,35 @@ export function ActivityEntryRow(props: Props) {
 				<NoteLinkEl
 					title={e().linkTargetTitle || "?"}
 					noteId={e().linkTargetId}
-					href={e().linkTargetId ? props.buildNoteHref?.(e().linkTargetId!) : undefined}
+					href={
+						e().linkTargetId
+							? props.buildNoteHref?.(e().linkTargetId as string)
+							: undefined
+					}
 					onNoteHover={props.onNoteHover}
 					onNoteLeave={props.onNoteLeave}
 				/>
 			</Show>
 
 			{/* Note-specific link: "this note → predicate → OtherNote" */}
-			<Show when={e().type === "link" && !e().linkSourceTitle && e().linkedNoteTitle}>
+			<Show
+				when={
+					e().type === "link" && !e().linkSourceTitle && e().linkedNoteTitle
+				}
+			>
 				<Show when={e().linkLabel}>
-					<span style={{ color: "var(--color-text-muted)" }}>{e().linkLabel}</span>
+					<span style={{ color: "var(--color-text-muted)" }}>
+						{e().linkLabel}
+					</span>
 				</Show>
 				<NoteLinkEl
-					title={e().linkedNoteTitle!}
+					title={e().linkedNoteTitle as string}
 					noteId={e().linkedNoteId}
-					href={e().linkedNoteId ? props.buildNoteHref?.(e().linkedNoteId!) : undefined}
+					href={
+						e().linkedNoteId
+							? props.buildNoteHref?.(e().linkedNoteId as string)
+							: undefined
+					}
 					onNoteHover={props.onNoteHover}
 					onNoteLeave={props.onNoteLeave}
 				/>
@@ -137,10 +162,12 @@ export function ActivityEntryRow(props: Props) {
 
 			{/* Note entry: version badge */}
 			<Show when={e().type === "note" && e().version}>
-				<span
+				<button
+					type="button"
 					style={{
 						display: "inline-block",
 						padding: "1px 6px",
+						border: "none",
 						"border-radius": "999px",
 						background: "var(--color-bg-tertiary, #f3f4f6)",
 						"font-size": "0.65rem",
@@ -151,21 +178,27 @@ export function ActivityEntryRow(props: Props) {
 					}}
 					onClick={() => {
 						if (props.onViewVersion && e().version) {
-							props.onViewVersion(e().version!);
+							props.onViewVersion(e().version as number);
 						}
 					}}
-					title={props.onViewVersion ? `View version ${e().version}` : undefined}
+					title={
+						props.onViewVersion ? `View version ${e().version}` : undefined
+					}
 				>
 					v{e().version}
-				</span>
+				</button>
 			</Show>
 
 			{/* Note entry with title (for nook-wide note edits) */}
 			<Show when={e().type === "note" && e().linkedNoteTitle}>
 				<NoteLinkEl
-					title={e().linkedNoteTitle!}
+					title={e().linkedNoteTitle as string}
 					noteId={e().linkedNoteId}
-					href={e().linkedNoteId ? props.buildNoteHref?.(e().linkedNoteId!) : undefined}
+					href={
+						e().linkedNoteId
+							? props.buildNoteHref?.(e().linkedNoteId as string)
+							: undefined
+					}
 					onNoteHover={props.onNoteHover}
 					onNoteLeave={props.onNoteLeave}
 				/>

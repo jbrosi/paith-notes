@@ -16,6 +16,7 @@ use Paith\Notes\Api\Http\Request;
 use Paith\Notes\Api\Http\Response;
 use Paith\Notes\Api\Http\Middleware\RequireUser;
 use Paith\Notes\Api\Http\Auth\KeycloakJwt;
+use Paith\Notes\Shared\Db\Row;
 use PDO;
 use RuntimeException;
 
@@ -302,7 +303,7 @@ final class AuthController
             $stmt->execute([':id' => $sessionId]);
             $row = $stmt->fetch(PDO::FETCH_ASSOC);
             if (is_array($row) && isset($row['user_id'])) {
-                self::recordEvent($pdo, (string)$row['user_id'], 'logout', []);
+                self::recordEvent($pdo, Row::str($row, 'user_id'), 'logout', []);
             }
         } catch (\Throwable) {
             // best-effort

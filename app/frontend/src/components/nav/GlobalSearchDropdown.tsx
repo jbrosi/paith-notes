@@ -26,7 +26,10 @@ export function GlobalSearchDropdown() {
 		}
 		setLoading(true);
 		try {
-			const res = await apiFetch(`/api/search?q=${encodeURIComponent(q.trim())}&limit=12`, { method: "GET" });
+			const res = await apiFetch(
+				`/api/search?q=${encodeURIComponent(q.trim())}&limit=12`,
+				{ method: "GET" },
+			);
 			if (!res.ok) return;
 			const body = (await res.json()) as { notes?: SearchResult[] };
 			setResults(body?.notes ?? []);
@@ -149,29 +152,58 @@ export function GlobalSearchDropdown() {
 						/>
 					</div>
 					<Show when={loading()}>
-						<div style={{ padding: "12px", color: "var(--color-text-muted)", "font-size": "0.8rem" }}>
+						<div
+							style={{
+								padding: "12px",
+								color: "var(--color-text-muted)",
+								"font-size": "0.8rem",
+							}}
+						>
 							Searching...
 						</div>
 					</Show>
-					<Show when={!loading() && query().trim() !== "" && results().length === 0}>
-						<div style={{ padding: "12px", color: "var(--color-text-muted)", "font-size": "0.8rem" }}>
+					<Show
+						when={!loading() && query().trim() !== "" && results().length === 0}
+					>
+						<div
+							style={{
+								padding: "12px",
+								color: "var(--color-text-muted)",
+								"font-size": "0.8rem",
+							}}
+						>
 							No results
 						</div>
 					</Show>
 					<Show when={results().length > 0}>
-						<div class={styles["dropdown-list"]} style={{ "max-height": "320px", "overflow-y": "auto" }}>
+						<div
+							class={styles["dropdown-list"]}
+							style={{ "max-height": "320px", "overflow-y": "auto" }}
+						>
 							<For each={results()}>
 								{(note) => (
 									<A
 										href={`/nooks/${encodeURIComponent(note.nook_id)}/notes/${encodeURIComponent(note.id)}`}
 										class={styles["dropdown-item"]}
-										style={{ "text-decoration": "none", color: "inherit", display: "block", padding: "8px 12px" }}
+										style={{
+											"text-decoration": "none",
+											color: "inherit",
+											display: "block",
+											padding: "8px 12px",
+										}}
 										onClick={close}
 									>
-										<div style={{ "font-weight": "500", "font-size": "0.85rem" }}>
+										<div
+											style={{ "font-weight": "500", "font-size": "0.85rem" }}
+										>
 											{note.title || "(untitled)"}
 										</div>
-										<div style={{ "font-size": "0.7rem", color: "var(--color-text-muted)" }}>
+										<div
+											style={{
+												"font-size": "0.7rem",
+												color: "var(--color-text-muted)",
+											}}
+										>
 											{note.nook_name}
 										</div>
 									</A>

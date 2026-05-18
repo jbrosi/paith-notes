@@ -53,10 +53,7 @@ function InputValue(props: {
 		<span class={styles.inputVal} {...hoverHandlers()}>
 			{resolved() ? (
 				resolved()?.url ? (
-					<A
-						href={resolved()!.url!}
-						class={styles.noteLink}
-					>
+					<A href={resolved()?.url ?? ""} class={styles.noteLink}>
 						{resolved()?.label}
 					</A>
 				) : (

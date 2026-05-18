@@ -1,8 +1,11 @@
-import { createSignal, For, Show, onMount } from "solid-js";
-import { ActivityEntryRow, type ActivityEntryData } from "../../components/ActivityEntryRow";
+import { createSignal, For, onMount, Show } from "solid-js";
 import { apiFetch } from "../../auth/keycloak";
-import { createNotePreview } from "../../components/NotePreview";
+import {
+	type ActivityEntryData,
+	ActivityEntryRow,
+} from "../../components/ActivityEntryRow";
 import { Button } from "../../components/Button";
+import { createNotePreview } from "../../components/NotePreview";
 
 type ActivityEntry = {
 	id: number;
@@ -80,7 +83,9 @@ export function NookActivityFeed(props: Props) {
 
 	const toEntryData = (entry: ActivityEntry): ActivityEntryData => {
 		const isNote = entry.table_name === "notes";
-		const isLink = entry.table_name === "note_links" || entry.table_name === "note_cross_links";
+		const isLink =
+			entry.table_name === "note_links" ||
+			entry.table_name === "note_cross_links";
 		if (isLink) {
 			return {
 				actor: entry.actor,
@@ -100,7 +105,7 @@ export function NookActivityFeed(props: Props) {
 			userName: entry.user_name,
 			action: entry.action,
 			type: isNote ? "note" : tableLabel(entry.table_name),
-			linkedNoteTitle: isNote ? (entry.note_title || undefined) : undefined,
+			linkedNoteTitle: isNote ? entry.note_title || undefined : undefined,
 			linkedNoteId: isNote ? entry.table_id : undefined,
 			version: isNote ? entry.version : undefined,
 			createdAt: entry.created_at,
@@ -115,7 +120,14 @@ export function NookActivityFeed(props: Props) {
 		<>
 			<notePreview.PreviewPopover />
 			<div style={{ padding: "1.5rem", "max-width": "600px" }}>
-				<div style={{ display: "flex", "align-items": "center", "justify-content": "space-between", "margin-bottom": "0.5rem" }}>
+				<div
+					style={{
+						display: "flex",
+						"align-items": "center",
+						"justify-content": "space-between",
+						"margin-bottom": "0.5rem",
+					}}
+				>
 					<h3 style={{ margin: "0", "font-size": "1.1rem" }}>Nook Activity</h3>
 					<Button variant="secondary" size="small" onClick={props.onClose}>
 						Back to dashboard
@@ -155,10 +167,16 @@ export function NookActivityFeed(props: Props) {
 					</button>
 				</Show>
 				<Show when={loading()}>
-					<div style={{ "margin-top": "1rem", color: "var(--text-muted, #888)" }}>Loading...</div>
+					<div
+						style={{ "margin-top": "1rem", color: "var(--text-muted, #888)" }}
+					>
+						Loading...
+					</div>
 				</Show>
 				<Show when={!loading() && activity().length === 0}>
-					<div style={{ color: "var(--text-muted, #888)" }}>No activity yet</div>
+					<div style={{ color: "var(--text-muted, #888)" }}>
+						No activity yet
+					</div>
 				</Show>
 			</div>
 		</>

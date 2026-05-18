@@ -74,17 +74,21 @@ function AppContent(props: RouteSectionProps) {
 		<div class={styles.appShell}>
 			<Nav />
 			<Show when={api.sessionExpired()}>
-				<div style={{
-					padding: "10px 16px",
-					background: "#fef3c7",
-					border: "1px solid #f59e0b",
-					display: "flex",
-					"align-items": "center",
-					"justify-content": "space-between",
-					gap: "12px",
-					"font-size": "0.85rem",
-				}}>
-					<span>Your session has expired. Please log in again to continue.</span>
+				<div
+					style={{
+						padding: "10px 16px",
+						background: "#fef3c7",
+						border: "1px solid #f59e0b",
+						display: "flex",
+						"align-items": "center",
+						"justify-content": "space-between",
+						gap: "12px",
+						"font-size": "0.85rem",
+					}}
+				>
+					<span>
+						Your session has expired. Please log in again to continue.
+					</span>
 					<Button variant="primary" size="small" onClick={() => auth.login()}>
 						Log in
 					</Button>

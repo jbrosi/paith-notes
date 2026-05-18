@@ -1,7 +1,7 @@
 import { A, useNavigate } from "@solidjs/router";
 import { Show } from "solid-js";
-import { NoteActivityFeed } from "../../components/NoteActivityFeed";
 import { Button } from "../../components/Button";
+import { NoteActivityFeed } from "../../components/NoteActivityFeed";
 import { useNotePreview } from "./NookContext";
 import type { NookStore } from "./store";
 
@@ -19,7 +19,14 @@ export function NookNoteHistoryPage(props: Props) {
 
 	return (
 		<div style={{ padding: "1.5rem", "max-width": "600px" }}>
-			<div style={{ display: "flex", "align-items": "center", "justify-content": "space-between", "margin-bottom": "0.5rem" }}>
+			<div
+				style={{
+					display: "flex",
+					"align-items": "center",
+					"justify-content": "space-between",
+					"margin-bottom": "0.5rem",
+				}}
+			>
 				<h3 style={{ margin: "0", "font-size": "1.1rem" }}>
 					History: {noteTitle()}
 				</h3>
@@ -35,7 +42,10 @@ export function NookNoteHistoryPage(props: Props) {
 			<div style={{ "font-size": "0.75rem", "margin-bottom": "1rem" }}>
 				<A
 					href={`/nooks/${encodeURIComponent(nookId())}/settings/activity`}
-					style={{ color: "var(--link-color, #0066cc)", "text-decoration": "none" }}
+					style={{
+						color: "var(--link-color, #0066cc)",
+						"text-decoration": "none",
+					}}
 				>
 					View nook-wide activity
 				</A>
@@ -44,7 +54,9 @@ export function NookNoteHistoryPage(props: Props) {
 			<Show
 				when={props.store.noteHistory().length > 0}
 				fallback={
-					<div style={{ color: "var(--color-text-muted, #888)" }}>No history yet</div>
+					<div style={{ color: "var(--color-text-muted, #888)" }}>
+						No history yet
+					</div>
 				}
 			>
 				<NoteActivityFeed
@@ -54,7 +66,9 @@ export function NookNoteHistoryPage(props: Props) {
 					}
 					onViewVersion={(version) => {
 						if (nookId() && noteId()) {
-							navigate(`/nooks/${encodeURIComponent(nookId())}/notes/${encodeURIComponent(noteId())}/v/${version}`);
+							navigate(
+								`/nooks/${encodeURIComponent(nookId())}/notes/${encodeURIComponent(noteId())}/v/${version}`,
+							);
 						}
 					}}
 					onNoteHover={(id, x, y) => {

@@ -40,9 +40,20 @@ export function NookMentionsPanel(props: NookMentionsPanelProps) {
 		const title = showLinkTitle ? m.linkTitle || m.noteTitle : m.noteTitle;
 
 		return (
-			<div style={{ padding: "3px 0", "font-size": "0.8rem", display: "flex", "align-items": "baseline", gap: "4px", "flex-wrap": "wrap" }}>
-				<span
+			<div
+				style={{
+					padding: "3px 0",
+					"font-size": "0.8rem",
+					display: "flex",
+					"align-items": "baseline",
+					gap: "4px",
+					"flex-wrap": "wrap",
+				}}
+			>
+				<button
+					type="button"
 					style={{
+						all: "unset",
 						color: "var(--link-color, #0066cc)",
 						cursor: "pointer",
 						"font-weight": "500",
@@ -58,14 +69,20 @@ export function NookMentionsPanel(props: NookMentionsPanelProps) {
 					onMouseLeave={() => notePreview?.hide()}
 				>
 					{title}
-				</span>
-				<Show when={showLinkTitle && m.linkTitle && m.noteTitle !== m.linkTitle}>
-					<span style={{ color: "var(--color-text-faint)", "font-size": "0.7rem" }}>
+				</button>
+				<Show
+					when={showLinkTitle && m.linkTitle && m.noteTitle !== m.linkTitle}
+				>
+					<span
+						style={{ color: "var(--color-text-faint)", "font-size": "0.7rem" }}
+					>
 						({m.noteTitle})
 					</span>
 				</Show>
 				<Show when={crossNook}>
-					<span style={{ color: "var(--color-text-faint)", "font-size": "0.65rem" }}>
+					<span
+						style={{ color: "var(--color-text-faint)", "font-size": "0.65rem" }}
+					>
 						in {nook}
 					</span>
 				</Show>
@@ -76,13 +93,29 @@ export function NookMentionsPanel(props: NookMentionsPanelProps) {
 	return (
 		<Show when={props.outgoing.length > 0 || props.incoming.length > 0}>
 			<div style={{ "margin-top": "0.75rem" }}>
-				<div style={{ "font-weight": "600", "font-size": "0.85rem", color: "var(--color-text-secondary)", "margin-bottom": "6px" }}>
+				<div
+					style={{
+						"font-weight": "600",
+						"font-size": "0.85rem",
+						color: "var(--color-text-secondary)",
+						"margin-bottom": "6px",
+					}}
+				>
 					Mentions
 				</div>
 				<div style={{ display: "flex", gap: "16px" }}>
 					<Show when={props.outgoing.length > 0}>
 						<div style={{ flex: "1", "min-width": "0" }}>
-							<div style={{ color: "var(--color-text-muted)", "font-size": "0.7rem", "font-weight": "500", "text-transform": "uppercase", "letter-spacing": "0.03em", "margin-bottom": "2px" }}>
+							<div
+								style={{
+									color: "var(--color-text-muted)",
+									"font-size": "0.7rem",
+									"font-weight": "500",
+									"text-transform": "uppercase",
+									"letter-spacing": "0.03em",
+									"margin-bottom": "2px",
+								}}
+							>
 								Outgoing
 							</div>
 							<For each={props.outgoing}>{(m) => renderMention(m, true)}</For>
@@ -90,7 +123,16 @@ export function NookMentionsPanel(props: NookMentionsPanelProps) {
 					</Show>
 					<Show when={props.incoming.length > 0}>
 						<div style={{ flex: "1", "min-width": "0" }}>
-							<div style={{ color: "var(--color-text-muted)", "font-size": "0.7rem", "font-weight": "500", "text-transform": "uppercase", "letter-spacing": "0.03em", "margin-bottom": "2px" }}>
+							<div
+								style={{
+									color: "var(--color-text-muted)",
+									"font-size": "0.7rem",
+									"font-weight": "500",
+									"text-transform": "uppercase",
+									"letter-spacing": "0.03em",
+									"margin-bottom": "2px",
+								}}
+							>
 								Incoming
 							</div>
 							<For each={props.incoming}>{(m) => renderMention(m, false)}</For>

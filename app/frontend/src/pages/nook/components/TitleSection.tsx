@@ -107,24 +107,35 @@ export function TitleSection(props: { store: NookStore }) {
 							placeholder="(no type)"
 						/>
 					</Show>
-					<Show when={props.store.mode() === "view" && props.store.noteHistory().length > 0}>
-						<span
+					<Show
+						when={
+							props.store.mode() === "view" &&
+							props.store.noteHistory().length > 0
+						}
+					>
+						<button
+							type="button"
 							class={styles.versionBadge}
 							onClick={() => {
 								const nook = props.store.nookId();
 								const noteId = props.store.selectedId();
 								if (nook && noteId) {
-									navigate(`/nooks/${encodeURIComponent(nook)}/notes/${encodeURIComponent(noteId)}/history`);
+									navigate(
+										`/nooks/${encodeURIComponent(nook)}/notes/${encodeURIComponent(noteId)}/history`,
+									);
 								}
 							}}
 							title="View full change history"
 						>
 							v{props.store.noteHistory()[0]?.version ?? 0}
-						</span>
+						</button>
 					</Show>
-					<Show when={props.store.mode() === "view" && props.store.viewCount() > 0}>
+					<Show
+						when={props.store.mode() === "view" && props.store.viewCount() > 0}
+					>
 						<span class={styles.versionBadge} title="Total views">
-							{props.store.viewCount()} {props.store.viewCount() === 1 ? "view" : "views"}
+							{props.store.viewCount()}{" "}
+							{props.store.viewCount() === 1 ? "view" : "views"}
 						</span>
 					</Show>
 				</div>

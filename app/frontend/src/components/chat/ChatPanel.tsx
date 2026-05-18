@@ -131,7 +131,10 @@ export function ChatPanel(props: Props) {
 	const [conversationId, setConversationId] = createSignal<string | null>(null);
 	const [model, setModel] = createSignal("claude-sonnet-4-6");
 	const [streaming, setStreaming] = createSignal(false);
-	const [contextUsage, setContextUsage] = createSignal<{ ratio: number; level: "" | "warning" | "critical" }>({ ratio: 0, level: "" });
+	const [contextUsage, setContextUsage] = createSignal<{
+		ratio: number;
+		level: "" | "warning" | "critical";
+	}>({ ratio: 0, level: "" });
 	const [reconnecting, setReconnecting] = createSignal(false);
 	const [pendingApproval, setPendingApproval] =
 		createSignal<PendingApproval | null>(null);
@@ -146,7 +149,8 @@ export function ChatPanel(props: Props) {
 
 	const checkUserScroll = () => {
 		if (!messagesEl) return;
-		const distFromBottom = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight;
+		const distFromBottom =
+			messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight;
 		userScrolledAway = distFromBottom > 80;
 	};
 
@@ -352,9 +356,17 @@ export function ChatPanel(props: Props) {
 					finalizeAssistant();
 					setStreaming(false);
 					// Update context usage indicator
-					const usage = data.usage as { input_tokens?: number; output_tokens?: number; context_limit?: number } | undefined;
+					const usage = data.usage as
+						| {
+								input_tokens?: number;
+								output_tokens?: number;
+								context_limit?: number;
+						  }
+						| undefined;
 					if (usage?.context_limit && usage.input_tokens) {
-						const ratio = (usage.input_tokens + (usage.output_tokens ?? 0)) / usage.context_limit;
+						const ratio =
+							(usage.input_tokens + (usage.output_tokens ?? 0)) /
+							usage.context_limit;
 						setContextUsage({
 							ratio,
 							level: ratio > 0.9 ? "critical" : ratio > 0.5 ? "warning" : "",
@@ -440,7 +452,10 @@ export function ChatPanel(props: Props) {
 				) {
 					// Start a new chat with the AI's suggested message
 					startNewChat();
-					setTimeout(() => void send(tool.input.message as string, model()), 100);
+					setTimeout(
+						() => void send(tool.input.message as string, model()),
+						100,
+					);
 					return;
 				}
 			}
@@ -568,7 +583,13 @@ export function ChatPanel(props: Props) {
 
 			{/* Chat view */}
 			<Show when={view() === "chat"}>
-				<div class={styles.messages} ref={(el) => { messagesEl = el; el.addEventListener("scroll", checkUserScroll); }}>
+				<div
+					class={styles.messages}
+					ref={(el) => {
+						messagesEl = el;
+						el.addEventListener("scroll", checkUserScroll);
+					}}
+				>
 					<Show
 						when={messages().length > 0}
 						fallback={
@@ -613,19 +634,30 @@ export function ChatPanel(props: Props) {
 				</div>
 
 				<div class={styles.inputArea}>
-					<Show when={streaming() && (() => {
-						const msgs = messages();
-						const last = msgs[msgs.length - 1];
-						return !last || last.role !== "assistant" || (last as { text?: string }).text === "";
-					})()}>
-						<div style={{
-							display: "flex",
-							"align-items": "center",
-							gap: "6px",
-							padding: "6px 0",
-							color: "var(--color-text-muted, #888)",
-							"font-size": "0.8rem",
-						}}>
+					<Show
+						when={
+							streaming() &&
+							(() => {
+								const msgs = messages();
+								const last = msgs[msgs.length - 1];
+								return (
+									!last ||
+									last.role !== "assistant" ||
+									(last as { text?: string }).text === ""
+								);
+							})()
+						}
+					>
+						<div
+							style={{
+								display: "flex",
+								"align-items": "center",
+								gap: "6px",
+								padding: "6px 0",
+								color: "var(--color-text-muted, #888)",
+								"font-size": "0.8rem",
+							}}
+						>
 							<span class={styles.thinkingDots}>
 								<span />
 								<span />
@@ -642,8 +674,14 @@ export function ChatPanel(props: Props) {
 								setStreaming(false);
 								setMessages((prev) => {
 									const last = prev[prev.length - 1];
-									if (last?.role === "assistant" && (last as { streaming?: boolean }).streaming) {
-										return [...prev.slice(0, -1), { ...last, streaming: false } as ChatMessageData];
+									if (
+										last?.role === "assistant" &&
+										(last as { streaming?: boolean }).streaming
+									) {
+										return [
+											...prev.slice(0, -1),
+											{ ...last, streaming: false } as ChatMessageData,
+										];
 									}
 									return prev;
 								});
@@ -676,34 +714,62 @@ export function ChatPanel(props: Props) {
 						{(() => {
 							const pct = () => Math.round(contextUsage().ratio * 100);
 							const color = () =>
-								contextUsage().ratio > 0.9 ? "var(--color-danger, #ef4444)"
-								: contextUsage().ratio > 0.5 ? "var(--color-warning, #f59e0b)"
-								: "var(--color-text-faint, #ccc)";
+								contextUsage().ratio > 0.9
+									? "var(--color-danger, #ef4444)"
+									: contextUsage().ratio > 0.5
+										? "var(--color-warning, #f59e0b)"
+										: "var(--color-text-faint, #ccc)";
 							// SVG circle: radius=8, circumference=50.27
 							const circumference = 50.27;
 							const offset = () => circumference * (1 - contextUsage().ratio);
 							return (
-								<div style={{
-									"margin-top": "4px",
-									display: "flex",
-									"align-items": "center",
-									"justify-content": "flex-end",
-									gap: "4px",
-								}}>
-									<svg width="18" height="18" viewBox="0 0 20 20">
-										<circle cx="10" cy="10" r="8" fill="none" stroke="var(--color-border-light, #eee)" stroke-width="2.5" />
+								<div
+									style={{
+										"margin-top": "4px",
+										display: "flex",
+										"align-items": "center",
+										"justify-content": "flex-end",
+										gap: "4px",
+									}}
+								>
+									<svg
+										width="18"
+										height="18"
+										viewBox="0 0 20 20"
+										aria-hidden="true"
+									>
+										<title>Context usage</title>
 										<circle
-											cx="10" cy="10" r="8" fill="none"
+											cx="10"
+											cy="10"
+											r="8"
+											fill="none"
+											stroke="var(--color-border-light, #eee)"
+											stroke-width="2.5"
+										/>
+										<circle
+											cx="10"
+											cy="10"
+											r="8"
+											fill="none"
 											stroke={color()}
 											stroke-width="2.5"
 											stroke-dasharray={String(circumference)}
 											stroke-dashoffset={String(offset())}
 											stroke-linecap="round"
 											transform="rotate(-90 10 10)"
-											style={{ transition: "stroke-dashoffset 0.3s, stroke 0.3s" }}
+											style={{
+												transition: "stroke-dashoffset 0.3s, stroke 0.3s",
+											}}
 										/>
 									</svg>
-									<span style={{ "font-size": "0.65rem", color: color(), "white-space": "nowrap" }}>
+									<span
+										style={{
+											"font-size": "0.65rem",
+											color: color(),
+											"white-space": "nowrap",
+										}}
+									>
 										{pct()}%
 									</span>
 								</div>

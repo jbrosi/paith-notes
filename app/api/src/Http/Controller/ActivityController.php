@@ -9,6 +9,7 @@ use Paith\Notes\Api\Http\HttpError;
 use Paith\Notes\Api\Http\JsonResponse;
 use Paith\Notes\Api\Http\Request;
 use Paith\Notes\Api\Http\Response;
+use Paith\Notes\Shared\Db\Row;
 use PDO;
 
 final class ActivityController
@@ -86,7 +87,7 @@ final class ActivityController
         $limit = min(50, max(1, $limitRaw !== '' ? (int)$limitRaw : 20));
         $beforeRaw = $request->queryParam('before');
         $before = $beforeRaw !== '' ? (int)$beforeRaw : 0;
-        $filterUserId = trim((string)($request->queryParam('user_id') ?? ''));
+        $filterUserId = trim($request->queryParam('user_id'));
 
         $whereClause = 'am.nook_id = :nook_id';
         $params = [':nook_id' => $nookId];
@@ -132,7 +133,7 @@ final class ActivityController
     }
 
     /**
-     * @param array<int, mixed> $rows
+     * @param array $rows
      * @return array<int, array<string, mixed>>
      */
     private static function formatRows(array $rows): array
@@ -143,34 +144,40 @@ final class ActivityController
                 continue;
             }
             $entry = [
-                'id' => (int)$r['id'],
-                'version' => (int)$r['version'],
-                'action' => (string)$r['action'],
-                'actor' => (string)($r['actor'] ?? 'user'),
-                'table_name' => (string)$r['table_name'],
-                'table_id' => (string)$r['table_id'],
-                'nook_id' => (string)($r['nook_id'] ?? ''),
-                'user_id' => (string)($r['user_id'] ?? ''),
-                'user_name' => trim(($r['nickname'] ?? '') !== '' ? (string)$r['nickname'] : ((string)($r['first_name'] ?? '') . ' ' . (string)($r['last_name'] ?? ''))),
-                'created_at' => (string)$r['created_at'],
+                'id' => Row::int($r, 'id'),
+                'version' => Row::int($r, 'version'),
+                'action' => Row::str($r, 'action'),
+                'actor' => Row::str($r, 'actor', 'user'),
+                'table_name' => Row::str($r, 'table_name'),
+                'table_id' => Row::str($r, 'table_id'),
+                'nook_id' => Row::str($r, 'nook_id'),
+                'user_id' => Row::str($r, 'user_id'),
+                'user_name' => trim(Row::str($r, 'nickname') !== '' ? Row::str($r, 'nickname') : (Row::str($r, 'first_name') . ' ' . Row::str($r, 'last_name'))),
+                'created_at' => Row::str($r, 'created_at'),
             ];
-            if (isset($r['note_title']) && $r['note_title'] !== null) {
-                $entry['note_title'] = (string)$r['note_title'];
+            $noteTitle = Row::nullStr($r, 'note_title');
+            if ($noteTitle !== null) {
+                $entry['note_title'] = $noteTitle;
             }
-            if (isset($r['link_source_title']) && $r['link_source_title'] !== null) {
-                $entry['link_source_title'] = (string)$r['link_source_title'];
+            $linkSourceTitle = Row::nullStr($r, 'link_source_title');
+            if ($linkSourceTitle !== null) {
+                $entry['link_source_title'] = $linkSourceTitle;
             }
-            if (isset($r['link_target_title']) && $r['link_target_title'] !== null) {
-                $entry['link_target_title'] = (string)$r['link_target_title'];
+            $linkTargetTitle = Row::nullStr($r, 'link_target_title');
+            if ($linkTargetTitle !== null) {
+                $entry['link_target_title'] = $linkTargetTitle;
             }
-            if (isset($r['link_source_id']) && $r['link_source_id'] !== null) {
-                $entry['link_source_id'] = (string)$r['link_source_id'];
+            $linkSourceId = Row::nullStr($r, 'link_source_id');
+            if ($linkSourceId !== null) {
+                $entry['link_source_id'] = $linkSourceId;
             }
-            if (isset($r['link_target_id']) && $r['link_target_id'] !== null) {
-                $entry['link_target_id'] = (string)$r['link_target_id'];
+            $linkTargetId = Row::nullStr($r, 'link_target_id');
+            if ($linkTargetId !== null) {
+                $entry['link_target_id'] = $linkTargetId;
             }
-            if (isset($r['link_forward_label']) && $r['link_forward_label'] !== null) {
-                $entry['link_forward_label'] = (string)$r['link_forward_label'];
+            $linkForwardLabel = Row::nullStr($r, 'link_forward_label');
+            if ($linkForwardLabel !== null) {
+                $entry['link_forward_label'] = $linkForwardLabel;
             }
             $activity[] = $entry;
         }
@@ -219,12 +226,12 @@ final class ActivityController
             if (!is_array($r)) {
                 continue;
             }
-            $meta = json_decode((string)($r['meta'] ?? '{}'), true);
+            $meta = json_decode(Row::str($r, 'meta', '{}'), true);
             $events[] = [
-                'id' => (int)$r['id'],
-                'event' => (string)$r['event'],
+                'id' => Row::int($r, 'id'),
+                'event' => Row::str($r, 'event'),
                 'meta' => is_array($meta) ? $meta : [],
-                'created_at' => (string)$r['created_at'],
+                'created_at' => Row::str($r, 'created_at'),
             ];
         }
 

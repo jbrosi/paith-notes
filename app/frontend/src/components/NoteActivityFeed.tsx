@@ -37,14 +37,16 @@ export function NoteActivityFeed(props: Props) {
 								userName: entry.userName,
 								action: entry.action,
 								type: entry.type,
-								...(entry.type === "link" ? {
-									linkSourceTitle: "this note",
-									linkLabel: entry.linkLabel || "→",
-									linkTargetTitle: entry.linkedNoteTitle || undefined,
-									linkTargetId: entry.linkedNoteId || undefined,
-								} : {
-									version: entry.version,
-								}),
+								...(entry.type === "link"
+									? {
+											linkSourceTitle: "this note",
+											linkLabel: entry.linkLabel || "→",
+											linkTargetTitle: entry.linkedNoteTitle || undefined,
+											linkTargetId: entry.linkedNoteId || undefined,
+										}
+									: {
+											version: entry.version,
+										}),
 								createdAt: entry.createdAt,
 							}}
 							onViewVersion={props.onViewVersion}

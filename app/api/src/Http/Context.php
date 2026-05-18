@@ -36,8 +36,9 @@ final class Context
         // Set the audit user context for PostgreSQL triggers.
         // If no user is authenticated yet, use a nil UUID (triggers will still fire
         // but the audit row records that no user was identified).
-        $userId = is_array($this->user) ? ($this->user['id'] ?? '00000000-0000-0000-0000-000000000000') : '00000000-0000-0000-0000-000000000000';
-        $pdo->exec("select set_config('app.user_id', " . $pdo->quote((string)$userId) . ", false)");
+        $userId = is_array($this->user) && is_scalar($this->user['id'] ?? null) ? (string)$this->user['id'] : '00000000-0000-0000-0000-000000000000';
+        $quotedUserId = $pdo->quote($userId);
+        $pdo->exec("select set_config('app.user_id', " . $quotedUserId . ", false)");
         $pdo->exec("select set_config('app.actor', " . $pdo->quote($this->actor) . ", false)");
 
         $this->pdo = $pdo;
@@ -51,7 +52,8 @@ final class Context
     public function syncAuditUser(): void
     {
         if ($this->pdo instanceof PDO && is_array($this->user)) {
-            $this->pdo->exec("select set_config('app.user_id', " . $this->pdo->quote((string)($this->user['id'] ?? '')) . ", false)");
+            $userId = is_scalar($this->user['id'] ?? null) ? (string)$this->user['id'] : '';
+            $this->pdo->exec("select set_config('app.user_id', " . $this->pdo->quote($userId) . ", false)");
             $this->pdo->exec("select set_config('app.actor', " . $this->pdo->quote($this->actor) . ", false)");
         }
     }

@@ -13,18 +13,18 @@ import styles from "../App.module.css";
 import { apiFetch } from "../auth/keycloak";
 import { Button } from "../components/Button";
 import { useUi } from "../ui/UiContext";
-import { useNook } from "./nook/NookContext";
 import { NookActivityFeed } from "./nook/NookActivityFeed";
+import { useNook } from "./nook/NookContext";
 import { NookDefaultLayout } from "./nook/NookDefaultLayout";
-import { NookNoteHistoryPage } from "./nook/NookNoteHistoryPage";
-import { NookUnlinkedNotes } from "./nook/NookUnlinkedNotes";
 import { NookGraphPanel } from "./nook/NookGraphPanel";
 import { NookLinksPanel } from "./nook/NookLinksPanel";
+import { NookNoteHistoryPage } from "./nook/NookNoteHistoryPage";
 import {
 	applyNookSeeds,
 	NookSettingsLanding,
 } from "./nook/NookSettingsLanding";
 import { NookTypesSettingsView } from "./nook/NookTypesSettingsView";
+import { NookUnlinkedNotes } from "./nook/NookUnlinkedNotes";
 import { createNookStore } from "./nook/store";
 
 export default function Nook() {
@@ -130,8 +130,12 @@ export default function Nook() {
 	});
 
 	const showLinks = createMemo(() => normalizedSubPath() === "settings/links");
-	const showActivity = createMemo(() => normalizedSubPath() === "settings/activity");
-	const showUnlinked = createMemo(() => normalizedSubPath() === "settings/unlinked");
+	const showActivity = createMemo(
+		() => normalizedSubPath() === "settings/activity",
+	);
+	const showUnlinked = createMemo(
+		() => normalizedSubPath() === "settings/unlinked",
+	);
 	const showSettings = createMemo(() => normalizedSubPath() === "settings");
 
 	const fullscreenGraphNoteId = createMemo(() => {
@@ -144,7 +148,9 @@ export default function Nook() {
 	);
 
 	const selectedNoteIdFromPath = createMemo(() => {
-		const m = normalizedSubPath().match(/^notes\/([^/]+?)(?:\/v\/\d+|\/history)?$/);
+		const m = normalizedSubPath().match(
+			/^notes\/([^/]+?)(?:\/v\/\d+|\/history)?$/,
+		);
 		return m?.[1] ? String(m[1]) : "";
 	});
 
@@ -256,84 +262,90 @@ export default function Nook() {
 							<Show
 								when={showUnlinked()}
 								fallback={
-							<Show
-								when={showSettings()}
-								fallback={
 									<Show
-										when={showTypesSettings()}
+										when={showSettings()}
 										fallback={
 											<Show
-												when={showNoteHistory()}
+												when={showTypesSettings()}
 												fallback={
 													<Show
-														when={isGraphFullscreen()}
+														when={showNoteHistory()}
 														fallback={
-															<NookDefaultLayout
-																nookId={nookId()}
-																store={store}
-																showGraph={ui.graphPanelOpen()}
-																onSettings={() =>
-																	navigate(
-																		`/nooks/${encodeURIComponent(nookId())}/settings`,
-																	)
+															<Show
+																when={isGraphFullscreen()}
+																fallback={
+																	<NookDefaultLayout
+																		nookId={nookId()}
+																		store={store}
+																		showGraph={ui.graphPanelOpen()}
+																		onSettings={() =>
+																			navigate(
+																				`/nooks/${encodeURIComponent(nookId())}/settings`,
+																			)
+																		}
+																	/>
 																}
-															/>
+															>
+																<div style={{ width: "100%" }}>
+																	<NookGraphPanel
+																		store={store}
+																		fullscreen={true}
+																	/>
+																</div>
+															</Show>
 														}
 													>
-														<div style={{ width: "100%" }}>
-															<NookGraphPanel store={store} fullscreen={true} />
-														</div>
+														<NookNoteHistoryPage store={store} />
 													</Show>
 												}
 											>
-												<NookNoteHistoryPage store={store} />
+												<NookTypesSettingsView
+													nookId={nookId()}
+													store={store}
+													typeEditId={typeEditId()}
+													onClose={goBackToNoteOrNook}
+												/>
 											</Show>
 										}
 									>
-										<NookTypesSettingsView
+										<NookSettingsLanding
 											nookId={nookId()}
-											store={store}
-											typeEditId={typeEditId()}
+											nookName={nookName()}
+											nookRole={nookRole()}
 											onClose={goBackToNoteOrNook}
+											onOpenLinks={openLinksSettings}
+											onOpenTypes={openTypesSettings}
+											onOpenActivity={() => {
+												const n = nookId().trim();
+												if (n !== "")
+													navigate(
+														`/nooks/${encodeURIComponent(n)}/settings/activity`,
+													);
+											}}
+											onOpenUnlinked={() => {
+												const n = nookId().trim();
+												if (n !== "")
+													navigate(
+														`/nooks/${encodeURIComponent(n)}/settings/unlinked`,
+													);
+											}}
+											onNameSaved={(name) => {
+												setNookName(name);
+												store.setNookName(name);
+											}}
 										/>
 									</Show>
 								}
 							>
-								<NookSettingsLanding
+								<NookUnlinkedNotes
 									nookId={nookId()}
-									nookName={nookName()}
-									nookRole={nookRole()}
+									store={store}
 									onClose={goBackToNoteOrNook}
-									onOpenLinks={openLinksSettings}
-									onOpenTypes={openTypesSettings}
-									onOpenActivity={() => {
-										const n = nookId().trim();
-										if (n !== "") navigate(`/nooks/${encodeURIComponent(n)}/settings/activity`);
-									}}
-									onOpenUnlinked={() => {
-										const n = nookId().trim();
-										if (n !== "") navigate(`/nooks/${encodeURIComponent(n)}/settings/unlinked`);
-									}}
-									onNameSaved={(name) => {
-										setNookName(name);
-										store.setNookName(name);
-									}}
 								/>
 							</Show>
 						}
 					>
-						<NookUnlinkedNotes
-							nookId={nookId()}
-							store={store}
-							onClose={goBackToNoteOrNook}
-						/>
-					</Show>
-						}
-					>
-						<NookActivityFeed
-							nookId={nookId()}
-							onClose={goBackToNoteOrNook}
-						/>
+						<NookActivityFeed nookId={nookId()} onClose={goBackToNoteOrNook} />
 					</Show>
 				}
 			>

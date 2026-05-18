@@ -478,10 +478,18 @@ export function NookSettingsLanding(props: NookSettingsLandingProps) {
 					<Button variant="secondary" size="small" onClick={props.onOpenTypes}>
 						Types settings
 					</Button>
-					<Button variant="secondary" size="small" onClick={props.onOpenActivity}>
+					<Button
+						variant="secondary"
+						size="small"
+						onClick={props.onOpenActivity}
+					>
 						Activity
 					</Button>
-					<Button variant="secondary" size="small" onClick={props.onOpenUnlinked}>
+					<Button
+						variant="secondary"
+						size="small"
+						onClick={props.onOpenUnlinked}
+					>
 						Unlinked notes
 					</Button>
 				</div>

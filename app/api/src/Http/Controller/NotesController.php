@@ -10,6 +10,7 @@ use Paith\Notes\Api\Http\HttpError;
 use Paith\Notes\Api\Http\JsonResponse;
 use Paith\Notes\Api\Http\Request;
 use Paith\Notes\Api\Http\Response;
+use Paith\Notes\Shared\Db\Row;
 use PDO;
 use Throwable;
 
@@ -157,15 +158,17 @@ final class NotesController
         $vwStmt->execute([':note_id' => $noteId, ':user_id' => $userId]);
         $viewers = [];
         foreach ($vwStmt->fetchAll(PDO::FETCH_ASSOC) as $v) {
-            if (!is_array($v)) continue;
+            if (!is_array($v)) {
+                continue;
+            }
             $viewers[] = [
-                'user_id' => (string)$v['user_id'],
-                'user_name' => trim(($v['nickname'] ?? '') !== '' ? (string)$v['nickname'] : ((string)($v['first_name'] ?? '') . ' ' . (string)($v['last_name'] ?? ''))),
+                'user_id' => Row::str($v, 'user_id'),
+                'user_name' => trim(Row::str($v, 'nickname') !== '' ? Row::str($v, 'nickname') : (Row::str($v, 'first_name') . ' ' . Row::str($v, 'last_name'))),
             ];
         }
 
         return JsonResponse::ok([
-            'version' => (int)$version,
+            'version' => is_scalar($version) ? (int)$version : 0,
             'viewers' => $viewers,
         ]);
     }
@@ -209,7 +212,8 @@ final class NotesController
         // Total view count for this note
         $vcStmt = $pdo->prepare('select coalesce(sum(count), 0) from global.note_views where note_id = :note_id');
         $vcStmt->execute([':note_id' => $noteId]);
-        $viewCount = (int)$vcStmt->fetchColumn();
+        $vcCol = $vcStmt->fetchColumn();
+        $viewCount = is_scalar($vcCol) ? (int)$vcCol : 0;
 
         return JsonResponse::ok([
             'note' => [
@@ -221,9 +225,9 @@ final class NotesController
                 'type_id' => is_scalar($r['type_id'] ?? null) ? (string)$r['type_id'] : '',
                 'properties' => $properties === [] ? (object)[] : $properties,
                 'former_properties' => $formerProperties === [] ? (object)[] : $formerProperties,
-                'version' => (int)($r['version'] ?? 0),
+                'version' => Row::int($r, 'version'),
                 'view_count' => $viewCount,
-                'created_at' => is_scalar($r['created_at'] ?? null) ? (string)$r['created_at'] : '',
+                'created_at' => Row::str($r, 'created_at'),
             ],
         ]);
     }
@@ -449,7 +453,8 @@ final class NotesController
         if ($expectedVersion !== null && is_numeric($expectedVersion)) {
             $vStmt = $pdo->prepare('select version from global.notes where id = :id and nook_id = :nook_id');
             $vStmt->execute([':id' => $noteId, ':nook_id' => $nookId]);
-            $currentVersion = (int)$vStmt->fetchColumn();
+            $vCol = $vStmt->fetchColumn();
+            $currentVersion = is_scalar($vCol) ? (int)$vCol : 0;
             if ($currentVersion !== (int)$expectedVersion) {
                 return JsonResponse::error('note was edited in the meantime', 409, [
                     'current_version' => $currentVersion,
@@ -497,7 +502,7 @@ final class NotesController
                     'type_id' => is_string($typeId) ? $typeId : '',
                     'properties' => $properties === [] ? (object)[] : $properties,
                     'former_properties' => $formerProperties === [] ? (object)[] : $formerProperties,
-                    'version' => (int)($row['version'] ?? 0),
+                    'version' => Row::int($row, 'version'),
                     'created_at' => is_scalar($createdAt) ? (string)$createdAt : '',
                 ],
             ]);
@@ -724,26 +729,25 @@ final class NotesController
             throw new HttpError('snapshot not found', 404);
         }
 
-        $data = json_decode((string)($r['data'] ?? '{}'), true);
-        if (!is_array($data)) {
-            $data = [];
-        }
+        $dataDecoded = json_decode(Row::str($r, 'data', '{}'), true);
+        /** @var array<string, mixed> $data */
+        $data = is_array($dataDecoded) ? $dataDecoded : [];
 
         return JsonResponse::ok([
             'snapshot' => [
-                'history_id' => (int)$r['id'],
-                'version' => (int)$r['version'],
-                'action' => (string)$r['action'],
-                'actor' => (string)($r['actor'] ?? 'user'),
-                'user_id' => (string)$r['user_id'],
-                'user_name' => trim(($r['nickname'] ?? '') !== '' ? (string)$r['nickname'] : ((string)($r['first_name'] ?? '') . ' ' . (string)($r['last_name'] ?? ''))),
-                'created_at' => (string)$r['created_at'],
+                'history_id' => Row::int($r, 'id'),
+                'version' => Row::int($r, 'version'),
+                'action' => Row::str($r, 'action'),
+                'actor' => Row::str($r, 'actor', 'user'),
+                'user_id' => Row::str($r, 'user_id'),
+                'user_name' => trim(Row::str($r, 'nickname') !== '' ? Row::str($r, 'nickname') : (Row::str($r, 'first_name') . ' ' . Row::str($r, 'last_name'))),
+                'created_at' => Row::str($r, 'created_at'),
                 'note' => [
-                    'id' => (string)($data['id'] ?? ''),
-                    'title' => (string)($data['title'] ?? ''),
-                    'content' => (string)($data['content'] ?? ''),
-                    'type' => (string)($data['type'] ?? 'anything'),
-                    'type_id' => (string)($data['type_id'] ?? ''),
+                    'id' => Row::str($data, 'id'),
+                    'title' => Row::str($data, 'title'),
+                    'content' => Row::str($data, 'content'),
+                    'type' => Row::str($data, 'type', 'anything'),
+                    'type_id' => Row::str($data, 'type_id'),
                     'properties' => is_array($data['properties'] ?? null) ? $data['properties'] : (object)[],
                 ],
             ],
@@ -809,27 +813,30 @@ final class NotesController
             if (!is_array($r)) {
                 continue;
             }
-            $tableName = (string)($r['table_name'] ?? 'notes');
+            $tableName = Row::str($r, 'table_name', 'notes');
             $isLink = $tableName === 'note_links' || $tableName === 'note_cross_links';
             $entry = [
-                'id' => (int)$r['id'],
-                'version' => (int)$r['version'],
-                'action' => (string)$r['action'],
-                'actor' => (string)($r['actor'] ?? 'user'),
+                'id' => Row::int($r, 'id'),
+                'version' => Row::int($r, 'version'),
+                'action' => Row::str($r, 'action'),
+                'actor' => Row::str($r, 'actor', 'user'),
                 'type' => $isLink ? 'link' : 'note',
-                'user_id' => (string)$r['user_id'],
-                'user_name' => trim(($r['nickname'] ?? '') !== '' ? (string)$r['nickname'] : ((string)($r['first_name'] ?? '') . ' ' . (string)($r['last_name'] ?? ''))),
-                'created_at' => (string)$r['created_at'],
+                'user_id' => Row::str($r, 'user_id'),
+                'user_name' => trim(Row::str($r, 'nickname') !== '' ? Row::str($r, 'nickname') : (Row::str($r, 'first_name') . ' ' . Row::str($r, 'last_name'))),
+                'created_at' => Row::str($r, 'created_at'),
             ];
             if ($isLink) {
-                if (isset($r['linked_note_id']) && $r['linked_note_id'] !== null) {
-                    $entry['linked_note_id'] = (string)$r['linked_note_id'];
+                $linkedNoteId = Row::nullStr($r, 'linked_note_id');
+                if ($linkedNoteId !== null) {
+                    $entry['linked_note_id'] = $linkedNoteId;
                 }
-                if (isset($r['linked_note_title']) && $r['linked_note_title'] !== null) {
-                    $entry['linked_note_title'] = (string)$r['linked_note_title'];
+                $linkedNoteTitle = Row::nullStr($r, 'linked_note_title');
+                if ($linkedNoteTitle !== null) {
+                    $entry['linked_note_title'] = $linkedNoteTitle;
                 }
-                if (isset($r['link_label']) && $r['link_label'] !== null) {
-                    $entry['link_label'] = (string)$r['link_label'];
+                $linkLabel = Row::nullStr($r, 'link_label');
+                if ($linkLabel !== null) {
+                    $entry['link_label'] = $linkLabel;
                 }
             }
             $history[] = $entry;

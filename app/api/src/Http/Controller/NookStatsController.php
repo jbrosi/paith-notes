@@ -9,6 +9,7 @@ use Paith\Notes\Api\Http\HttpError;
 use Paith\Notes\Api\Http\JsonResponse;
 use Paith\Notes\Api\Http\Request;
 use Paith\Notes\Api\Http\Response;
+use Paith\Notes\Shared\Db\Row;
 use PDO;
 
 final class NookStatsController
@@ -30,15 +31,18 @@ final class NookStatsController
         // Total counts
         $stmt = $pdo->prepare('SELECT count(*) FROM global.notes WHERE nook_id = :nook_id');
         $stmt->execute([':nook_id' => $nookId]);
-        $stats['total_notes'] = (int) $stmt->fetchColumn();
+        $col = $stmt->fetchColumn();
+        $stats['total_notes'] = is_scalar($col) ? (int) $col : 0;
 
         $stmt = $pdo->prepare('SELECT count(*) FROM global.note_types WHERE nook_id = :nook_id');
         $stmt->execute([':nook_id' => $nookId]);
-        $stats['total_types'] = (int) $stmt->fetchColumn();
+        $col = $stmt->fetchColumn();
+        $stats['total_types'] = is_scalar($col) ? (int) $col : 0;
 
         $stmt = $pdo->prepare('SELECT count(*) FROM global.note_links WHERE nook_id = :nook_id');
         $stmt->execute([':nook_id' => $nookId]);
-        $stats['total_links'] = (int) $stmt->fetchColumn();
+        $col = $stmt->fetchColumn();
+        $stats['total_links'] = is_scalar($col) ? (int) $col : 0;
 
         $stmt = $pdo->prepare(
             'SELECT count(*) FROM global.note_mentions m
@@ -46,11 +50,13 @@ final class NookStatsController
              WHERE n.nook_id = :nook_id'
         );
         $stmt->execute([':nook_id' => $nookId]);
-        $stats['total_mentions'] = (int) $stmt->fetchColumn();
+        $col = $stmt->fetchColumn();
+        $stats['total_mentions'] = is_scalar($col) ? (int) $col : 0;
 
         $stmt = $pdo->prepare('SELECT count(*) FROM global.conversations WHERE nook_id = :nook_id');
         $stmt->execute([':nook_id' => $nookId]);
-        $stats['total_conversations'] = (int) $stmt->fetchColumn();
+        $col = $stmt->fetchColumn();
+        $stats['total_conversations'] = is_scalar($col) ? (int) $col : 0;
 
         $stmt = $pdo->prepare(
             'SELECT COALESCE(SUM(nf.filesize), 0)
@@ -59,7 +65,8 @@ final class NookStatsController
              WHERE n.nook_id = :nook_id'
         );
         $stmt->execute([':nook_id' => $nookId]);
-        $stats['total_file_size'] = (int) $stmt->fetchColumn();
+        $col = $stmt->fetchColumn();
+        $stats['total_file_size'] = is_scalar($col) ? (int) $col : 0;
 
         // Unlinked notes (no links and no mentions, either direction)
         $stmt = $pdo->prepare(
@@ -69,7 +76,8 @@ final class NookStatsController
                AND NOT EXISTS (SELECT 1 FROM global.note_mentions m WHERE m.source_note_id = n.id OR m.target_note_id = n.id)'
         );
         $stmt->execute([':nook_id' => $nookId]);
-        $stats['unlinked_notes'] = (int) $stmt->fetchColumn();
+        $col = $stmt->fetchColumn();
+        $stats['unlinked_notes'] = is_scalar($col) ? (int) $col : 0;
 
         // Notes per type
         $stmt = $pdo->prepare(
@@ -165,11 +173,13 @@ final class NookStatsController
 
         $notes = [];
         foreach ($rows as $r) {
-            if (!is_array($r)) continue;
+            if (!is_array($r)) {
+                continue;
+            }
             $notes[] = [
-                'id' => (string)$r['id'],
-                'title' => (string)$r['title'],
-                'last_seen_at' => (string)$r['last_seen_at'],
+                'id' => Row::str($r, 'id'),
+                'title' => Row::str($r, 'title'),
+                'last_seen_at' => Row::str($r, 'last_seen_at'),
             ];
         }
 
@@ -210,14 +220,16 @@ final class NookStatsController
 
         $notes = [];
         foreach ($rows as $r) {
-            if (!is_array($r)) continue;
+            if (!is_array($r)) {
+                continue;
+            }
             $notes[] = [
-                'id' => (string)$r['id'],
-                'title' => (string)$r['title'],
-                'type' => (string)($r['type'] ?? 'anything'),
-                'type_id' => (string)($r['type_id'] ?? ''),
-                'created_at' => (string)$r['created_at'],
-                'updated_at' => (string)$r['updated_at'],
+                'id' => Row::str($r, 'id'),
+                'title' => Row::str($r, 'title'),
+                'type' => Row::str($r, 'type', 'anything'),
+                'type_id' => Row::str($r, 'type_id'),
+                'created_at' => Row::str($r, 'created_at'),
+                'updated_at' => Row::str($r, 'updated_at'),
             ];
         }
 

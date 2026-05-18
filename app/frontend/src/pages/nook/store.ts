@@ -5,7 +5,13 @@ import {
 	rankNotesByQuery,
 	resolveTypeIdForTerm,
 } from "../../noteSearch";
-import type { Mention, Note, NoteHistoryEntry, NoteSummary, NoteType } from "./types";
+import type {
+	Mention,
+	Note,
+	NoteHistoryEntry,
+	NoteSummary,
+	NoteType,
+} from "./types";
 import {
 	MentionsResponseSchema,
 	NoteHistoryResponseSchema,
@@ -156,7 +162,9 @@ export function createNookStore(nookId: () => string) {
 	const [noteVersion, setNoteVersion] = createSignal<number>(0);
 	const [viewCount, setViewCount] = createSignal<number>(0);
 	const [remoteVersion, setRemoteVersion] = createSignal<number>(0);
-	const [noteViewers, setNoteViewers] = createSignal<Array<{ user_id: string; user_name: string }>>([]);
+	const [noteViewers, setNoteViewers] = createSignal<
+		Array<{ user_id: string; user_name: string }>
+	>([]);
 	let presenceInterval: ReturnType<typeof setInterval> | null = null;
 
 	const pollPresence = async () => {
@@ -164,12 +172,14 @@ export function createNookStore(nookId: () => string) {
 		const note = selectedId();
 		if (!nook || !note) return;
 		try {
-			const res = await apiFetch(
-				`/api/nooks/${nook}/notes/${note}/presence`,
-				{ method: "GET" },
-			);
+			const res = await apiFetch(`/api/nooks/${nook}/notes/${note}/presence`, {
+				method: "GET",
+			});
 			if (!res.ok) return;
-			const body = (await res.json()) as { version?: number; viewers?: Array<{ user_id: string; user_name: string }> };
+			const body = (await res.json()) as {
+				version?: number;
+				viewers?: Array<{ user_id: string; user_name: string }>;
+			};
 			if (body.version !== undefined) {
 				setRemoteVersion(body.version);
 			}
@@ -198,7 +208,9 @@ export function createNookStore(nookId: () => string) {
 		expectedVersion: number;
 	} | null>(null);
 	const [noteHistory, setNoteHistory] = createSignal<NoteHistoryEntry[]>([]);
-	const [selectedVersion, setSelectedVersion] = createSignal<number | null>(null);
+	const [selectedVersion, setSelectedVersion] = createSignal<number | null>(
+		null,
+	);
 	const [snapshotData, setSnapshotData] = createSignal<{
 		historyId: number;
 		version: number;
@@ -617,7 +629,9 @@ export function createNookStore(nookId: () => string) {
 		const noteId = selectedId();
 		if (nookId() === "" || noteId === "") return;
 
-		const param = byVersion ? `v${versionOrHistoryId}` : String(versionOrHistoryId);
+		const param = byVersion
+			? `v${versionOrHistoryId}`
+			: String(versionOrHistoryId);
 		try {
 			const res = await apiFetch(
 				`/api/nooks/${nookId()}/notes/${noteId}/history/${param}`,
@@ -760,7 +774,7 @@ export function createNookStore(nookId: () => string) {
 				`/api/nooks/${nookId()}/note-types/${typeForList}/notes?${qs.toString()}`,
 				{ method: "GET" },
 			);
-				if (!res.ok) {
+			if (!res.ok) {
 				throw new Error(
 					`Failed to load notes: ${res.status} ${res.statusText}`,
 				);
@@ -1082,7 +1096,10 @@ export function createNookStore(nookId: () => string) {
 					}),
 				});
 				if (res.status === 409) {
-					const body = (await res.json()) as { current_version?: number; expected_version?: number };
+					const body = (await res.json()) as {
+						current_version?: number;
+						expected_version?: number;
+					};
 					setConflictError({
 						currentVersion: body?.current_version ?? 0,
 						expectedVersion: body?.expected_version ?? noteVersion(),

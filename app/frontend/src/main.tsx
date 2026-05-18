@@ -2,8 +2,8 @@ import { Route, Router } from "@solidjs/router";
 import { render } from "solid-js/web";
 import App from "./App.tsx";
 import { AuthProvider } from "./auth/AuthContext";
-import { ApiProvider } from "./auth/useApi";
 import { RequireAuth } from "./auth/RequireAuth";
+import { ApiProvider } from "./auth/useApi";
 import About from "./pages/About.tsx";
 import Home from "./pages/Home.tsx";
 import MyActivity from "./pages/MyActivity.tsx";
@@ -20,44 +20,44 @@ if (root) {
 		() => (
 			<AuthProvider>
 				<ApiProvider>
-				<UiProvider>
-					<Router root={App}>
-						<Route path="/" component={Home} />
-						<Route path="/about" component={About} />
-						<Route
-							path="/me/activity"
-							component={() => (
-								<RequireAuth redirectTo="/me/activity">
-									<MyActivity />
-								</RequireAuth>
-							)}
-						/>
-						<Route
-							path="/notes"
-							component={() => (
-								<RequireAuth redirectTo="/notes">
-									<NooksRedirect />
-								</RequireAuth>
-							)}
-						/>
-						<Route
-							path="/nooks"
-							component={() => (
-								<RequireAuth redirectTo="/nooks">
-									<NooksRedirect />
-								</RequireAuth>
-							)}
-						/>
-						<Route
-							path="/nooks/:nookId/*path"
-							component={() => (
-								<RequireAuth redirectTo="/nooks">
-									<Nook />
-								</RequireAuth>
-							)}
-						/>
-					</Router>
-				</UiProvider>
+					<UiProvider>
+						<Router root={App}>
+							<Route path="/" component={Home} />
+							<Route path="/about" component={About} />
+							<Route
+								path="/me/activity"
+								component={() => (
+									<RequireAuth redirectTo="/me/activity">
+										<MyActivity />
+									</RequireAuth>
+								)}
+							/>
+							<Route
+								path="/notes"
+								component={() => (
+									<RequireAuth redirectTo="/notes">
+										<NooksRedirect />
+									</RequireAuth>
+								)}
+							/>
+							<Route
+								path="/nooks"
+								component={() => (
+									<RequireAuth redirectTo="/nooks">
+										<NooksRedirect />
+									</RequireAuth>
+								)}
+							/>
+							<Route
+								path="/nooks/:nookId/*path"
+								component={() => (
+									<RequireAuth redirectTo="/nooks">
+										<Nook />
+									</RequireAuth>
+								)}
+							/>
+						</Router>
+					</UiProvider>
 				</ApiProvider>
 			</AuthProvider>
 		),

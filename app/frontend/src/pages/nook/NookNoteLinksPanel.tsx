@@ -1,6 +1,5 @@
 import { createEffect, createSignal, Show } from "solid-js";
 import { apiFetch } from "../../auth/keycloak";
-import { Button } from "../../components/Button";
 import { AddLinkForm } from "./components/AddLinkForm";
 import { LinkList } from "./components/LinkList";
 import css from "./NookNoteLinksPanel.module.css";

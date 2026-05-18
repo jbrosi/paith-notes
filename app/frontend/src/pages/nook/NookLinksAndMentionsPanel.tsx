@@ -13,17 +13,30 @@ export function NookLinksAndMentionsPanel(
 	const store = () => props.store;
 
 	const hasMentions = () =>
-		store().outgoingMentions().length > 0 || store().incomingMentions().length > 0;
+		store().outgoingMentions().length > 0 ||
+		store().incomingMentions().length > 0;
 
 	return (
 		<>
 			<Show when={store().selectedId() !== ""}>
-				<hr style={{ border: "none", "border-top": "1px solid var(--color-border-light, #eee)", margin: "0.75rem 0" }} />
+				<hr
+					style={{
+						border: "none",
+						"border-top": "1px solid var(--color-border-light, #eee)",
+						margin: "0.75rem 0",
+					}}
+				/>
 				<NookNoteLinksPanel store={store()} />
 			</Show>
 
 			<Show when={hasMentions()}>
-				<hr style={{ border: "none", "border-top": "1px solid var(--color-border-light, #eee)", margin: "0.75rem 0" }} />
+				<hr
+					style={{
+						border: "none",
+						"border-top": "1px solid var(--color-border-light, #eee)",
+						margin: "0.75rem 0",
+					}}
+				/>
 				<NookMentionsPanel
 					nookId={store().nookId()}
 					notes={store().allNotes()}
@@ -33,9 +46,16 @@ export function NookLinksAndMentionsPanel(
 				/>
 			</Show>
 
-
 			<Show when={store().error() !== ""}>
-				<pre style={{ color: "var(--color-danger)", "white-space": "pre-wrap", "font-size": "0.75rem" }}>{store().error()}</pre>
+				<pre
+					style={{
+						color: "var(--color-danger)",
+						"white-space": "pre-wrap",
+						"font-size": "0.75rem",
+					}}
+				>
+					{store().error()}
+				</pre>
 			</Show>
 		</>
 	);

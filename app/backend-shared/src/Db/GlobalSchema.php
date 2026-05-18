@@ -865,7 +865,6 @@ final class GlobalSchema
                     end \$\$;
                 ");
             }
-
         } finally {
             $pdo->exec("select pg_advisory_unlock(hashtext('paith_notes_global_schema_ensure'))");
         }

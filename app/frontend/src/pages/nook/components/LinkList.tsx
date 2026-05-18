@@ -32,7 +32,9 @@ export function LinkList(props: Props) {
 		<Show
 			when={props.links.length > 0}
 			fallback={
-				<div style={{ color: "var(--color-text-faint)", "font-size": "0.8rem" }}>
+				<div
+					style={{ color: "var(--color-text-faint)", "font-size": "0.8rem" }}
+				>
 					No links yet
 				</div>
 			}
@@ -42,19 +44,23 @@ export function LinkList(props: Props) {
 					{(l) => {
 						const otherId = otherNoteId(l);
 						return (
-							<div style={{
-								padding: "4px 0",
-								"font-size": "0.8rem",
-								display: "flex",
-								"align-items": "baseline",
-								gap: "4px",
-								"flex-wrap": "wrap",
-							}}>
+							<div
+								style={{
+									padding: "4px 0",
+									"font-size": "0.8rem",
+									display: "flex",
+									"align-items": "baseline",
+									gap: "4px",
+									"flex-wrap": "wrap",
+								}}
+							>
 								<span style={{ color: "var(--color-text-muted)" }}>
 									{directionLabel(l)}
 								</span>
-								<span
+								<button
+									type="button"
 									style={{
+										all: "unset",
 										color: "var(--link-color, #0066cc)",
 										cursor: "pointer",
 										"font-weight": "500",
@@ -69,14 +75,24 @@ export function LinkList(props: Props) {
 									onMouseLeave={() => notePreview?.hide()}
 								>
 									{titleForLink(l, otherId)}
-								</span>
+								</button>
 								<Show when={l.startDate !== "" || l.endDate !== ""}>
-									<span style={{ color: "var(--color-text-faint)", "font-size": "0.7rem" }}>
+									<span
+										style={{
+											color: "var(--color-text-faint)",
+											"font-size": "0.7rem",
+										}}
+									>
 										{l.startDate || "?"} → {l.endDate || "?"}
 									</span>
 								</Show>
 								<Show when={l.lastUserName || l.lastActor === "ai"}>
-									<span style={{ "font-size": "0.65rem", color: "var(--color-text-muted)" }}>
+									<span
+										style={{
+											"font-size": "0.65rem",
+											color: "var(--color-text-muted)",
+										}}
+									>
 										<ActorLabel actor={l.lastActor} userName={l.lastUserName} />
 									</span>
 								</Show>

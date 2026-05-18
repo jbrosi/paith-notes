@@ -1,7 +1,7 @@
-import { createSignal, For, Show, onMount } from "solid-js";
+import { createSignal, For, onMount, Show } from "solid-js";
 import { apiFetch } from "../../auth/keycloak";
-import { createNotePreview } from "../../components/NotePreview";
 import { Button } from "../../components/Button";
+import { createNotePreview } from "../../components/NotePreview";
 import type { NookStore } from "./store";
 
 type UnlinkedNote = {
@@ -30,7 +30,10 @@ export function NookUnlinkedNotes(props: Props) {
 		if (loading()) return;
 		setLoading(true);
 		try {
-			const params = new URLSearchParams({ limit: "30", offset: String(offset()) });
+			const params = new URLSearchParams({
+				limit: "30",
+				offset: String(offset()),
+			});
 			const res = await apiFetch(
 				`/api/nooks/${encodeURIComponent(props.nookId)}/unlinked-notes?${params}`,
 				{ method: "GET" },
@@ -78,14 +81,28 @@ export function NookUnlinkedNotes(props: Props) {
 		<>
 			<notePreview.PreviewPopover />
 			<div style={{ padding: "1.5rem", "max-width": "600px" }}>
-				<div style={{ display: "flex", "align-items": "center", "justify-content": "space-between", "margin-bottom": "1rem" }}>
+				<div
+					style={{
+						display: "flex",
+						"align-items": "center",
+						"justify-content": "space-between",
+						"margin-bottom": "1rem",
+					}}
+				>
 					<h3 style={{ margin: "0", "font-size": "1.1rem" }}>Unlinked Notes</h3>
 					<Button variant="secondary" size="small" onClick={props.onClose}>
 						Close
 					</Button>
 				</div>
-				<p style={{ "font-size": "0.8rem", color: "var(--text-muted, #888)", "margin-bottom": "1rem" }}>
-					Notes with no links or mentions (incoming or outgoing). Consider linking them to other notes or cleaning them up.
+				<p
+					style={{
+						"font-size": "0.8rem",
+						color: "var(--text-muted, #888)",
+						"margin-bottom": "1rem",
+					}}
+				>
+					Notes with no links or mentions (incoming or outgoing). Consider
+					linking them to other notes or cleaning them up.
 				</p>
 
 				<div>
@@ -122,7 +139,14 @@ export function NookUnlinkedNotes(props: Props) {
 								<span style={{ "font-weight": "500" }}>
 									{note.title || "(untitled)"}
 								</span>
-								<span style={{ color: "var(--text-muted, #aaa)", "font-size": "0.75rem", "flex-shrink": "0", "margin-left": "8px" }}>
+								<span
+									style={{
+										color: "var(--text-muted, #aaa)",
+										"font-size": "0.75rem",
+										"flex-shrink": "0",
+										"margin-left": "8px",
+									}}
+								>
 									{formatDate(note.updated_at)}
 								</span>
 							</button>
@@ -148,10 +172,16 @@ export function NookUnlinkedNotes(props: Props) {
 					</button>
 				</Show>
 				<Show when={loading()}>
-					<div style={{ "margin-top": "1rem", color: "var(--text-muted, #888)" }}>Loading...</div>
+					<div
+						style={{ "margin-top": "1rem", color: "var(--text-muted, #888)" }}
+					>
+						Loading...
+					</div>
 				</Show>
 				<Show when={!loading() && notes().length === 0}>
-					<div style={{ color: "var(--text-muted, #888)" }}>All notes are linked — nice!</div>
+					<div style={{ color: "var(--text-muted, #888)" }}>
+						All notes are linked — nice!
+					</div>
 				</Show>
 			</div>
 		</>

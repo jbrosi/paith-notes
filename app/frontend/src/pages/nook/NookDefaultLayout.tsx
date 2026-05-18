@@ -9,12 +9,12 @@ import {
 import { createNotePreview } from "../../components/NotePreview";
 import { attachSwipe } from "../../ui/swipe";
 import { MOBILE_PANELS, type MobilePanel, useUi } from "../../ui/UiContext";
+import { NoteHistory } from "./components/NoteHistory";
 import { NotePreviewProvider } from "./NookContext";
 import { NookDashboard } from "./NookDashboard";
 import styles from "./NookDefaultLayout.module.css";
 import { NookGraphPanel } from "./NookGraphPanel";
 import { NookLinksAndMentionsPanel } from "./NookLinksAndMentionsPanel";
-import { NoteHistory } from "./components/NoteHistory";
 import { NookMainPanel } from "./NookMainPanel";
 import { NookMarkdownView } from "./NookMarkdownView";
 import type { NookStore } from "./store";
@@ -98,7 +98,14 @@ export function NookDefaultLayout(props: NookDefaultLayoutProps) {
 			<Show
 				when={hasNote()}
 				fallback={
-					<div style={{ height: "100%", overflow: "hidden", display: "flex", "flex-direction": "column" }}>
+					<div
+						style={{
+							height: "100%",
+							overflow: "hidden",
+							display: "flex",
+							"flex-direction": "column",
+						}}
+					>
 						<input
 							ref={dashboardFileInput}
 							type="file"
@@ -118,7 +125,7 @@ export function NookDefaultLayout(props: NookDefaultLayoutProps) {
 							/>
 						</div>
 					</div>
-}
+				}
 			>
 				<div
 					ref={layoutEl}
