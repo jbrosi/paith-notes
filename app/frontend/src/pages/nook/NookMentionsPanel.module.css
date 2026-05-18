@@ -1,9 +1,11 @@
 .container {
-	margin-top: 1rem;
+	margin-top: 0.75rem;
 }
 
 .title {
 	font-weight: 600;
+	font-size: 0.8rem;
+	color: var(--color-text-secondary);
 	margin-bottom: 6px;
 }
 
@@ -19,24 +21,30 @@
 
 .columnTitle {
 	color: var(--color-text-muted);
-	margin-bottom: 6px;
+	font-size: 0.7rem;
+	font-weight: 500;
+	text-transform: uppercase;
+	letter-spacing: 0.03em;
+	margin-bottom: 4px;
 }
 
 .empty {
 	color: var(--color-text-faint);
+	font-size: 0.8rem;
 }
 
 .mentionBtn {
 	width: 100%;
-	padding: 6px 8px;
+	padding: 3px 6px;
 	text-align: left;
-	border: 1px solid var(--color-border);
-	border-radius: 6px;
-	background: var(--color-bg);
+	border: none;
+	border-bottom: 1px solid var(--color-border-light);
+	border-radius: 0;
+	background: none;
 	cursor: pointer;
-	margin-bottom: 6px;
+	margin-bottom: 0;
 	font-family: inherit;
-	font-size: inherit;
+	font-size: 0.8rem;
 	color: inherit;
 }
 
@@ -44,38 +52,44 @@
 	background: var(--color-bg-hover);
 }
 
+.mentionBtn:last-child {
+	border-bottom: none;
+}
+
 .mentionTitle {
-	font-weight: 600;
+	font-weight: 500;
 }
 
 .mentionMeta {
 	display: flex;
-	gap: 8px;
+	gap: 6px;
 	align-items: center;
 }
 
 .mentionSubtitle {
 	color: var(--color-text-muted);
+	font-size: 0.7rem;
 }
 
 .typeBadge {
-	font-size: 12px;
-	padding: 2px 6px;
+	font-size: 0.65rem;
+	padding: 1px 5px;
 	border-radius: 999px;
-	border: 1px solid var(--color-primary-border);
-	background: var(--color-bg-selected);
-	color: var(--color-link);
+	border: 1px solid var(--color-border-medium);
+	background: var(--color-bg-tertiary);
+	color: var(--color-text-muted);
 }
 
 .crossNook {
-	border-style: dashed;
+	border-left: 2px dashed var(--color-border-medium);
+	padding-left: 8px;
 }
 
 .crossNookLabel {
 	display: flex;
 	align-items: center;
-	gap: 4px;
-	margin-top: 4px;
-	font-size: 11px;
+	gap: 3px;
+	margin-top: 2px;
+	font-size: 0.65rem;
 	color: var(--color-text-faint);
 }

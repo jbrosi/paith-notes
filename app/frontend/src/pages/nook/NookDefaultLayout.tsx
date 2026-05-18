@@ -9,6 +9,7 @@ import {
 import { createNotePreview } from "../../components/NotePreview";
 import { attachSwipe } from "../../ui/swipe";
 import { MOBILE_PANELS, type MobilePanel, useUi } from "../../ui/UiContext";
+import { NoteHistory } from "./components/NoteHistory";
 import { NotePreviewProvider } from "./NookContext";
 import { NookDashboard } from "./NookDashboard";
 import styles from "./NookDefaultLayout.module.css";
@@ -28,6 +29,7 @@ export type NookDefaultLayoutProps = {
 const PANEL_LABELS: Record<MobilePanel, string> = {
 	content: "Note",
 	links: "Links",
+	history: "History",
 	graph: "Graph",
 	markdown: "Markdown",
 };
@@ -44,6 +46,7 @@ export function NookDefaultLayout(props: NookDefaultLayoutProps) {
 
 	const handleNewNote = () => {
 		props.store.newNote();
+		props.store.setMode("edit");
 		ui.setMode("edit");
 	};
 
@@ -95,7 +98,14 @@ export function NookDefaultLayout(props: NookDefaultLayoutProps) {
 			<Show
 				when={hasNote()}
 				fallback={
-					<>
+					<div
+						style={{
+							height: "100%",
+							overflow: "hidden",
+							display: "flex",
+							"flex-direction": "column",
+						}}
+					>
 						<input
 							ref={dashboardFileInput}
 							type="file"
@@ -114,7 +124,7 @@ export function NookDefaultLayout(props: NookDefaultLayoutProps) {
 								onSettings={props.onSettings}
 							/>
 						</div>
-					</>
+					</div>
 				}
 			>
 				<div
@@ -122,7 +132,7 @@ export function NookDefaultLayout(props: NookDefaultLayoutProps) {
 					class={styles.layout}
 					data-active-panel={ui.activePanel()}
 				>
-					{/* Main scrollable area: content + links together on desktop */}
+					{/* Main scrollable area: content + links + history together on desktop */}
 					<div class={styles.mainScroll}>
 						<div class={styles.mainScrollInner}>
 							<div class={styles.panelContent}>
@@ -131,6 +141,11 @@ export function NookDefaultLayout(props: NookDefaultLayoutProps) {
 							<div class={styles.panelLinks}>
 								<NookLinksAndMentionsPanel store={props.store} />
 							</div>
+							<Show when={props.store.selectedId() !== ""}>
+								<div class={styles.panelHistory}>
+									<NoteHistory store={props.store} />
+								</div>
+							</Show>
 						</div>
 					</div>
 

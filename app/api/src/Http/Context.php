@@ -33,8 +33,29 @@ final class Context
 
         $pdo = ($this->pdoFactory)();
 
+        // Set the audit user context for PostgreSQL triggers.
+        // If no user is authenticated yet, use a nil UUID (triggers will still fire
+        // but the audit row records that no user was identified).
+        $userId = is_array($this->user) && is_scalar($this->user['id'] ?? null) ? (string)$this->user['id'] : '00000000-0000-0000-0000-000000000000';
+        $quotedUserId = $pdo->quote($userId);
+        $pdo->exec("select set_config('app.user_id', " . $quotedUserId . ", false)");
+        $pdo->exec("select set_config('app.actor', " . $pdo->quote($this->actor) . ", false)");
+
         $this->pdo = $pdo;
         return $pdo;
+    }
+
+    /**
+     * Re-sync the PostgreSQL session variables after user/actor is known.
+     * Call this after setUser() if pdo() was already accessed.
+     */
+    public function syncAuditUser(): void
+    {
+        if ($this->pdo instanceof PDO && is_array($this->user)) {
+            $userId = is_scalar($this->user['id'] ?? null) ? (string)$this->user['id'] : '';
+            $this->pdo->exec("select set_config('app.user_id', " . $this->pdo->quote($userId) . ", false)");
+            $this->pdo->exec("select set_config('app.actor', " . $this->pdo->quote($this->actor) . ", false)");
+        }
     }
 
     public function setUser(array $user): void
@@ -54,6 +75,9 @@ final class Context
     public function setActor(string $actor): void
     {
         $this->actor = in_array($actor, ['user', 'ai'], true) ? $actor : 'user';
+        if ($this->pdo instanceof PDO) {
+            $this->pdo->exec("select set_config('app.actor', " . $this->pdo->quote($this->actor) . ", false)");
+        }
     }
 
     /** Get the actor for this request */

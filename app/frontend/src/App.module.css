@@ -62,7 +62,7 @@
 	.chatSidebar {
 		position: fixed;
 		inset: 0;
-		width: 100% !important;
+		width: 100%;
 		min-width: 0;
 		max-width: none;
 		border-left: none;

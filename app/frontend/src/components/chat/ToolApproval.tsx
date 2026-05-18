@@ -1,3 +1,4 @@
+import { A } from "@solidjs/router";
 import { For } from "solid-js";
 import type { NotePreviewController } from "../../pages/nook/NookContext";
 import { Button } from "../Button";
@@ -10,6 +11,7 @@ const WRITE_TOOLS = new Set([
 	"update_note",
 	"create_note_link",
 	"open_note",
+	"start_new_chat",
 ]);
 
 function toolKind(name: string): "destructive" | "write" | "read" {
@@ -51,14 +53,9 @@ function InputValue(props: {
 		<span class={styles.inputVal} {...hoverHandlers()}>
 			{resolved() ? (
 				resolved()?.url ? (
-					<a
-						href={resolved()?.url}
-						class={styles.noteLink}
-						target="_blank"
-						rel="noreferrer"
-					>
+					<A href={resolved()?.url ?? ""} class={styles.noteLink}>
 						{resolved()?.label}
-					</a>
+					</A>
 				) : (
 					<span class={styles.resolvedLabel}>{resolved()?.label}</span>
 				)

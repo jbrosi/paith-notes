@@ -47,6 +47,9 @@
 
 .typeRow {
 	margin-top: 6px;
+	display: flex;
+	align-items: center;
+	gap: 6px;
 }
 
 .typeBadge {
@@ -62,4 +65,21 @@
 
 .typeBadgeEmpty {
 	color: var(--color-text-faint);
+}
+
+.versionBadge {
+	display: inline-block;
+	padding: 2px 8px;
+	border-radius: 999px;
+	background: var(--color-bg-tertiary, #f3f4f6);
+	font-size: 11px;
+	font-weight: 500;
+	color: var(--color-text-muted);
+	cursor: pointer;
+	transition: background 0.15s;
+}
+
+.versionBadge:hover {
+	background: var(--color-bg-active, #e5e7eb);
+	color: var(--color-text-secondary);
 }

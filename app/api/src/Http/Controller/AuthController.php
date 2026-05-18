@@ -16,6 +16,8 @@ use Paith\Notes\Api\Http\Request;
 use Paith\Notes\Api\Http\Response;
 use Paith\Notes\Api\Http\Middleware\RequireUser;
 use Paith\Notes\Api\Http\Auth\KeycloakJwt;
+use Paith\Notes\Shared\Db\Row;
+use PDO;
 use RuntimeException;
 
 final class AuthController
@@ -127,6 +129,11 @@ final class AuthController
         }
         $sessionId = SessionStore::createSession($pdo, $userId, $tokenEncrypted, $ttl);
 
+        self::recordEvent($pdo, $userId, 'login', [
+            'ip' => $request->header('X-Forwarded-For') ?: $request->header('X-Real-IP') ?: null,
+            'user_agent' => $request->header('User-Agent') ?: null,
+        ]);
+
         $secure = $this->isSecureRequest($request);
         $setCookie = Cookies::buildSetCookie(SessionStore::cookieName(), $sessionId, $ttl, $secure);
 
@@ -140,6 +147,7 @@ final class AuthController
         $sessionId = $this->sessionIdFromRequest($request);
         if ($sessionId !== '') {
             $pdo = $context->pdo();
+            $this->recordLogout($pdo, $sessionId);
             SessionStore::deleteSession($pdo, $sessionId);
         }
 
@@ -154,6 +162,7 @@ final class AuthController
         $sessionId = $this->sessionIdFromRequest($request);
         if ($sessionId !== '') {
             $pdo = $context->pdo();
+            $this->recordLogout($pdo, $sessionId);
             SessionStore::deleteSession($pdo, $sessionId);
         }
 
@@ -285,5 +294,32 @@ final class AuthController
             return '/';
         }
         return $raw;
+    }
+
+    private function recordLogout(PDO $pdo, string $sessionId): void
+    {
+        try {
+            $stmt = $pdo->prepare('select user_id from global.sessions where id = :id');
+            $stmt->execute([':id' => $sessionId]);
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (is_array($row) && isset($row['user_id'])) {
+                self::recordEvent($pdo, Row::str($row, 'user_id'), 'logout', []);
+            }
+        } catch (\Throwable) {
+            // best-effort
+        }
+    }
+
+    private static function recordEvent(PDO $pdo, string $userId, string $event, array $meta): void
+    {
+        $filtered = array_filter($meta, fn($v) => $v !== null && $v !== '');
+        $stmt = $pdo->prepare(
+            'insert into global.user_events (user_id, event, meta) values (:user_id, :event, :meta)'
+        );
+        $stmt->execute([
+            ':user_id' => $userId,
+            ':event' => $event,
+            ':meta' => json_encode($filtered ?: (object)[]),
+        ]);
     }
 }

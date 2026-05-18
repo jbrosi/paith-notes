@@ -13,10 +13,15 @@ function test_pdo(): PDO
     }
     $cfg = DatabaseUrl::toPdoConfig($databaseUrl);
 
-    return new PDO($cfg['dsn'], $cfg['user'], $cfg['pass'], [
+    $pdo = new PDO($cfg['dsn'], $cfg['user'], $cfg['pass'], [
         PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
         PDO::ATTR_TIMEOUT => 2,
     ]);
+
+    // Set audit user for triggers (use system user in tests)
+    $pdo->exec("select set_config('app.user_id', 'deadc0ff-ee00-4000-8000-000000000000', false)");
+
+    return $pdo;
 }
 
 function ensure_worker_schema(PDO $pdo): void

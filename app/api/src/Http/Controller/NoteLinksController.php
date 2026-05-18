@@ -143,11 +143,15 @@ final class NoteLinksController
                 . 'l.id, l.predicate_id, l.source_note_id, l.target_note_id, l.start_date, l.end_date, l.former, l.created_at, l.updated_at, '
                 . 'p.key as predicate_key, p.forward_label, p.reverse_label, p.supports_start_date, p.supports_end_date, '
                 . 'ns.title as source_note_title, ns.type_id as source_type_id, '
-                . 'nt.title as target_note_title, nt.type_id as target_type_id '
+                . 'nt.title as target_note_title, nt.type_id as target_type_id, '
+                . 'am.actor as last_actor, am.user_id as last_user_id, '
+                . 'coalesce(nullif(lu.nickname, \'\'), concat(lu.first_name, \' \', lu.last_name)) as last_user_name '
                 . 'from global.note_links l '
                 . 'join global.link_predicates p on p.id = l.predicate_id '
                 . 'join global.notes ns on ns.id = l.source_note_id '
                 . 'join global.notes nt on nt.id = l.target_note_id '
+                . 'left join global.audit_meta am on am.id = l.history_id '
+                . 'left join global.users lu on lu.id = am.user_id '
                 . 'where l.nook_id = :nook_id ' . $where . ' ' . $wherePredicates . ' '
                 . 'order by l.created_at desc'
             );
@@ -189,6 +193,7 @@ final class NoteLinksController
                 }
 
                 $former = self::decodeJsonObject($r['former'] ?? null);
+                $lastUserName = is_scalar($r['last_user_name'] ?? null) ? trim((string)$r['last_user_name']) : '';
                 $linksById[$id] = [
                     'id' => $id,
                     'nook_id' => $nookId,
@@ -207,6 +212,8 @@ final class NoteLinksController
                     'start_date' => is_scalar($r['start_date'] ?? null) ? (string)$r['start_date'] : '',
                     'end_date' => is_scalar($r['end_date'] ?? null) ? (string)$r['end_date'] : '',
                     'former' => $former === [] ? (object)[] : $former,
+                    'last_actor' => is_scalar($r['last_actor'] ?? null) ? (string)$r['last_actor'] : 'user',
+                    'last_user_name' => $lastUserName,
                     'created_at' => is_scalar($r['created_at'] ?? null) ? (string)$r['created_at'] : '',
                     'updated_at' => is_scalar($r['updated_at'] ?? null) ? (string)$r['updated_at'] : '',
                 ];

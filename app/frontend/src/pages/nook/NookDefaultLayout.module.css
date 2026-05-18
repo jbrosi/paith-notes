@@ -17,13 +17,18 @@
 
 /* Center the content within the scroll area */
 .mainScrollInner {
-	max-width: 860px;
+	max-width: var(--content-max-width, 860px);
 	margin: 0 auto;
 }
 
 /* Markdown panel — hidden by default, shown when active */
 .panelMarkdown {
 	display: none;
+}
+
+/* History panel — visible on desktop (sits after links in the flow) */
+.panelHistory {
+	display: block;
 }
 
 .layout[data-active-panel="markdown"] .panelMarkdown {
@@ -58,7 +63,8 @@
 	.panelContent,
 	.panelLinks,
 	.panelGraph,
-	.panelMarkdown {
+	.panelMarkdown,
+	.panelHistory {
 		display: none;
 	}
 
@@ -68,6 +74,10 @@
 	}
 
 	.layout[data-active-panel="links"] .panelLinks {
+		display: block;
+	}
+
+	.layout[data-active-panel="history"] .panelHistory {
 		display: block;
 	}
 

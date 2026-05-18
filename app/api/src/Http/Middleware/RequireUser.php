@@ -238,6 +238,7 @@ final class RequireUser implements Middleware
             $pdo = $context->pdo();
             $user = $this->findOrCreateUserFromKeycloak($pdo, $claims);
             $context->setUser($user);
+            $context->syncAuditUser();
         } else {
             self::debugLog('RequireUser keycloak disabled');
             $id = trim($request->header('X-Nook-User'));
@@ -250,8 +251,11 @@ final class RequireUser implements Middleware
             }
 
             $pdo = $context->pdo();
+            // Set audit user_id BEFORE any DB writes (findOrCreateUser may insert)
+            $pdo->exec("select set_config('app.user_id', " . $pdo->quote($id) . ", false)");
             $user = $this->findOrCreateUser($pdo, $id);
             $context->setUser($user);
+            $context->syncAuditUser();
         }
 
         $context->setActor($request->header('X-Nook-Actor'));

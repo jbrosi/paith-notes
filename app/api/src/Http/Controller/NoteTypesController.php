@@ -410,7 +410,10 @@ final class NoteTypesController
 
         $search = \Paith\Notes\Shared\Search\SearchQueryParser::buildSearchClause($q, $searchMode);
         $whereSearch = $search['where'];
-        $searchRank = $search['rank'];
+        // Boost search rank with total views (logarithmic to avoid popular notes dominating)
+        $searchRank = $search['rank'] !== '0'
+            ? '(' . $search['rank'] . ' + ln(1 + least(coalesce(ns.view_count, 0), 1000)) * 0.5)'
+            : '0';
         $searchBindings = $search['bindings'];
 
         $orderByWithRank = $searchRank !== '0'
@@ -434,38 +437,13 @@ final class NoteTypesController
         $limitPlusOne = $limit + 1;
 
         $selectCols = "select n.id, n.title, n.type, n.type_id, n.created_at, n.updated_at,
-                    coalesce(outgoing.cnt, 0) as outgoing_mentions_count,
-                    coalesce(incoming.cnt, 0) as incoming_mentions_count,
-                    coalesce(outgoing_links.cnt, 0) as outgoing_links_count,
-                    coalesce(incoming_links.cnt, 0) as incoming_links_count,
+                    coalesce(ns.outgoing_mentions, 0) as outgoing_mentions_count,
+                    coalesce(ns.incoming_mentions, 0) as incoming_mentions_count,
+                    coalesce(ns.outgoing_links, 0) as outgoing_links_count,
+                    coalesce(ns.incoming_links, 0) as incoming_links_count,
                     {$searchRank} as search_rank";
         $joinCounts = '
-                left join (
-                    select nm.source_note_id as note_id, count(*)::int as cnt
-                    from global.note_mentions nm
-                    join global.notes nn on nn.id = nm.source_note_id
-                    where nn.nook_id = :nook_id
-                    group by nm.source_note_id
-                ) outgoing on outgoing.note_id = n.id
-                left join (
-                    select nm.target_note_id as note_id, count(*)::int as cnt
-                    from global.note_mentions nm
-                    join global.notes nn on nn.id = nm.target_note_id
-                    where nn.nook_id = :nook_id
-                    group by nm.target_note_id
-                ) incoming on incoming.note_id = n.id
-                left join (
-                    select l.source_note_id as note_id, count(*)::int as cnt
-                    from global.note_links l
-                    where l.nook_id = :nook_id
-                    group by l.source_note_id
-                ) outgoing_links on outgoing_links.note_id = n.id
-                left join (
-                    select l.target_note_id as note_id, count(*)::int as cnt
-                    from global.note_links l
-                    where l.nook_id = :nook_id
-                    group by l.target_note_id
-                ) incoming_links on incoming_links.note_id = n.id';
+                left join global.note_stats ns on ns.note_id = n.id';
 
         if ($isAll) {
             $stmt = $pdo->prepare(

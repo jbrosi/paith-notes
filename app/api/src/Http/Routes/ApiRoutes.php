@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Paith\Notes\Api\Http\Routes;
 
+use Paith\Notes\Api\Http\Controller\ActivityController;
 use Paith\Notes\Api\Http\Controller\AuthController;
+use Paith\Notes\Api\Http\Controller\SearchController;
 use Paith\Notes\Api\Http\Controller\ChatController;
 use Paith\Notes\Api\Http\Controller\ConversationsController;
 use Paith\Notes\Api\Http\Controller\FileNotesController;
@@ -52,10 +54,16 @@ final class ApiRoutes
         $r->use('/nooks', new RequireUser());
         $r->use('/nooks', new RequireGroup('paith/notes/'));
 
+        $r->use('/search', new RequireUser());
+        $r->use('/search', new RequireGroup('paith/notes/'));
+
         $r->use('/module_1', new RequireUser());
         $r->use('/module_1', new RequireGroup('paith/notes/'));
 
         $r->get('/me', [MeController::class, 'me']);
+        $r->get('/search', [SearchController::class, 'search']);
+        $r->get('/me/activity', [ActivityController::class, 'myActivity']);
+        $r->get('/me/events', [ActivityController::class, 'myEvents']);
         $r->get('/nooks', [NooksController::class, 'list']);
         $r->get('/nooks/ai-memory', [NooksController::class, 'aiMemory']);
         $r->post('/nooks', [NooksController::class, 'create']);
@@ -75,7 +83,10 @@ final class ApiRoutes
         $r->post('/me/invitations/{invId}/decline', [InvitationsController::class, 'declineInvitation']);
         $r->post('/me/revocations/{revId}/dismiss', [InvitationsController::class, 'dismissRevocation']);
 
+        $r->get('/nooks/{nookId}/activity', [ActivityController::class, 'nookActivity']);
         $r->get('/nooks/{nookId}/stats', [NookStatsController::class, 'stats']);
+        $r->get('/nooks/{nookId}/unlinked-notes', [NookStatsController::class, 'unlinkedNotes']);
+        $r->get('/nooks/{nookId}/recently-viewed', [NookStatsController::class, 'recentlyViewed']);
         $r->get('/nooks/{nookId}/note-types', [NoteTypesController::class, 'list']);
         $r->post('/nooks/{nookId}/note-types', [NoteTypesController::class, 'create']);
         $r->add('PUT', '/nooks/{nookId}/note-types/{typeId}', [NoteTypesController::class, 'update']);
@@ -95,6 +106,9 @@ final class ApiRoutes
         $r->add('PUT', '/nooks/{nookId}/notes/{noteId}', [NotesController::class, 'update']);
         $r->add('DELETE', '/nooks/{nookId}/notes/{noteId}', [NotesController::class, 'delete']);
         $r->get('/nooks/{nookId}/notes/{noteId}/mentions', [NotesController::class, 'mentions']);
+        $r->get('/nooks/{nookId}/notes/{noteId}/presence', [NotesController::class, 'presence']);
+        $r->get('/nooks/{nookId}/notes/{noteId}/history', [NotesController::class, 'history']);
+        $r->get('/nooks/{nookId}/notes/{noteId}/history/{historyId}', [NotesController::class, 'historySnapshot']);
 
         $r->get('/nooks/{nookId}/notes/{noteId}/links', [NoteLinksController::class, 'list']);
         $r->post('/nooks/{nookId}/notes/{noteId}/links', [NoteLinksController::class, 'create']);

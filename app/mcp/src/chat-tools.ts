@@ -3,11 +3,12 @@ import type Anthropic from '@anthropic-ai/sdk';
 export const TOOLS: Anthropic.Tool[] = [
   {
     name: 'get_note',
-    description: 'Get a single note by ID',
+    description: 'Get a single note by ID. Always pass nook_id — use the nook ID from where you found this note (search results, instruction list, memory nook, etc.).',
     input_schema: {
       type: 'object',
       properties: {
         note_id: { type: 'string' },
+        nook_id: { type: 'string', description: 'The nook ID where this note lives. Required for cross-nook access. Defaults to current nook if omitted.' },
       },
       required: ['note_id'],
     },
@@ -28,16 +29,17 @@ export const TOOLS: Anthropic.Tool[] = [
   },
   {
     name: 'update_note',
-    description: 'Update an existing note. Only include fields you want to change — omitted fields keep their current values.',
+    description: 'Update an existing note. Only include fields you want to change — omitted fields keep their current values. You MUST pass expected_version (from reading the note) to detect concurrent edits. If the version has changed, the update will fail with a 409 conflict.',
     input_schema: {
       type: 'object',
       properties: {
-        note_id:    { type: 'string' },
-        title:      { type: 'string', description: 'New title. Omit to keep existing title.' },
-        content:    { type: 'string', description: 'Note content in markdown. To link to another note use [[note:<full_uuid>]] with the complete UUID (never shorten) — the title is resolved automatically. To embed a file note as an image use ![Note Title](note:<full_uuid>).' },
-        properties: { type: 'object' },
+        note_id:          { type: 'string' },
+        expected_version: { type: 'number', description: 'The version number from when you last read the note. Required to prevent overwriting concurrent edits.' },
+        title:            { type: 'string', description: 'New title. Omit to keep existing title.' },
+        content:          { type: 'string', description: 'Note content in markdown. To link to another note use [[note:<full_uuid>]] with the complete UUID (never shorten) — the title is resolved automatically. To embed a file note as an image use ![Note Title](note:<full_uuid>).' },
+        properties:       { type: 'object' },
       },
-      required: ['note_id'],
+      required: ['note_id', 'expected_version'],
     },
   },
   {
@@ -99,6 +101,29 @@ export const TOOLS: Anthropic.Tool[] = [
         cursor:      { type: 'string', description: 'Pagination cursor from previous response' },
       },
       required: [],
+    },
+  },
+  {
+    name: 'start_new_chat',
+    description: 'Propose starting a new chat with a pre-filled first message. The user will be asked to confirm. Use this when the conversation should move to a fresh context — e.g. topic switch, context window pressure, or wrapping up. The message should contain relevant context/summary for the new chat to pick up where this one leaves off.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        message: { type: 'string', description: 'The first user message for the new chat. Include relevant context, summary of decisions, or the new topic.' },
+        reason: { type: 'string', description: 'Brief reason shown to the user for why a new chat is suggested.' },
+      },
+      required: ['message'],
+    },
+  },
+  {
+    name: 'search_all_nooks',
+    description: 'Search notes across ALL nooks the user has access to. Only use this when the user explicitly asks to search globally, or when a local search_notes returned no results and you want to ask the user if they\'d like to search more broadly. Prefer search_notes (local to current nook) first.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        q: { type: 'string', description: 'Text search query (searches title and content across all accessible nooks)' },
+      },
+      required: ['q'],
     },
   },
   {
@@ -254,8 +279,10 @@ export async function executeTool(
   const noteId = String(input.note_id ?? '');
 
   switch (name) {
-    case 'get_note':
-      return JSON.stringify(await api('GET', `/api/nooks/${nookId}/notes/${noteId}`));
+    case 'get_note': {
+      const getNookId = typeof input.nook_id === 'string' && input.nook_id.trim() !== '' ? input.nook_id.trim() : nookId;
+      return JSON.stringify(await api('GET', `/api/nooks/${getNookId}/notes/${noteId}`));
+    }
 
     case 'create_note': {
       const { note_id: _, ...rawBody } = input;
@@ -327,6 +354,16 @@ export async function executeTool(
       if (input.cursor) params.set('cursor', String(input.cursor));
       const qs = params.toString() ? `?${params}` : '';
       return JSON.stringify(await api('GET', `/api/nooks/${nookId}/note-types/${typeId}/notes${qs}`));
+    }
+
+    case 'start_new_chat': {
+      // This is handled by the frontend — just return confirmation
+      return JSON.stringify({ success: true, message: String(input.message ?? '') });
+    }
+
+    case 'search_all_nooks': {
+      const q = String(input.q ?? '');
+      return JSON.stringify(await api('GET', `/api/search?q=${encodeURIComponent(q)}&limit=20`));
     }
 
     case 'open_note':

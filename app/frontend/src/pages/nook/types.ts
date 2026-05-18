@@ -33,6 +33,8 @@ const NoteDetailApiSchema = z
 		type: z.enum(["anything", "person", "file"]).optional(),
 		properties: z.record(z.string(), z.unknown()).optional(),
 		former_properties: z.record(z.string(), z.unknown()).optional(),
+		version: z.number().int().optional(),
+		view_count: z.number().int().optional(),
 		created_at: z.string().optional(),
 	})
 	.transform((n) => ({
@@ -43,6 +45,8 @@ const NoteDetailApiSchema = z
 		type: n.type ?? "anything",
 		properties: n.properties ?? {},
 		formerProperties: n.former_properties ?? {},
+		version: n.version ?? 0,
+		viewCount: n.view_count ?? 0,
 		createdAt: n.created_at,
 	}));
 
@@ -221,6 +225,8 @@ const NoteLinkApiSchema = z
 		start_date: z.string().optional(),
 		end_date: z.string().optional(),
 		former: z.record(z.string(), z.unknown()).optional(),
+		last_actor: z.string().optional(),
+		last_user_name: z.string().optional(),
 		created_at: z.string().optional(),
 		updated_at: z.string().optional(),
 	})
@@ -240,6 +246,8 @@ const NoteLinkApiSchema = z
 		startDate: l.start_date ?? "",
 		endDate: l.end_date ?? "",
 		former: l.former ?? {},
+		lastActor: l.last_actor ?? "user",
+		lastUserName: l.last_user_name ?? "",
 		createdAt: l.created_at,
 		updatedAt: l.updated_at,
 	}));
@@ -260,6 +268,43 @@ export const NoteLinkResponseSchema = z
 		link: r.link,
 	}));
 
+const NoteHistoryEntrySchema = z
+	.object({
+		id: z.number().int(),
+		version: z.number().int(),
+		action: z.string(),
+		actor: z.string().optional(),
+		type: z.string().optional(),
+		linked_note_id: z.string().optional(),
+		linked_note_title: z.string().optional(),
+		link_label: z.string().optional(),
+		user_id: z.string(),
+		user_name: z.string(),
+		created_at: z.string(),
+	})
+	.transform((h) => ({
+		id: h.id,
+		version: h.version,
+		action: h.action,
+		actor: h.actor ?? "user",
+		type: h.type ?? "note",
+		linkedNoteId: h.linked_note_id ?? "",
+		linkedNoteTitle: h.linked_note_title ?? "",
+		linkLabel: h.link_label ?? "",
+		userId: h.user_id,
+		userName: h.user_name,
+		createdAt: h.created_at,
+	}));
+
+export const NoteHistoryResponseSchema = z
+	.object({
+		history: z.array(NoteHistoryEntrySchema),
+	})
+	.transform((r) => ({
+		history: r.history,
+	}));
+
+export type NoteHistoryEntry = z.infer<typeof NoteHistoryEntrySchema>;
 export type NoteSummary = z.infer<typeof NoteSummaryApiSchema>;
 export type Note = z.infer<typeof NoteDetailApiSchema>;
 export type Mention = z.infer<typeof MentionApiSchema>;
