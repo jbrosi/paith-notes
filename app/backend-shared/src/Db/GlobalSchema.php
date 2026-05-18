@@ -459,6 +459,23 @@ final class GlobalSchema
             $pdo->exec('create index if not exists user_events_user_id_idx on global.user_events (user_id, id desc)');
             $pdo->exec('create index if not exists user_events_created_at_idx on global.user_events (created_at desc)');
 
+            // ─── Note Views (analytics/ranking) ─────────────────────────────────────────
+
+            $pdo->exec("
+                create table if not exists global.note_views (
+                    note_id uuid not null,
+                    nook_id uuid not null,
+                    user_id uuid not null,
+                    viewed_date date not null default current_date,
+                    count int not null default 1,
+                    primary key (note_id, user_id, viewed_date)
+                );
+            ");
+
+            $pdo->exec('create index if not exists note_views_note_id_idx on global.note_views (note_id)');
+            $pdo->exec('create index if not exists note_views_nook_user_idx on global.note_views (nook_id, user_id, note_id)');
+            $pdo->exec('create index if not exists note_views_user_id_idx on global.note_views (user_id, viewed_date desc)');
+
             // ─── Note Stats (denormalized counts for search) ────────────────────────────
 
             $pdo->exec("
@@ -599,23 +616,6 @@ final class GlobalSchema
             $pdo->exec('create index if not exists note_viewers_note_id_idx on global.note_viewers (note_id, last_seen_at desc)');
             $pdo->exec('create index if not exists note_viewers_user_nook_idx on global.note_viewers (user_id, nook_id, last_seen_at desc)');
             $pdo->exec('create index if not exists note_viewers_last_seen_at_idx on global.note_viewers (last_seen_at)');
-
-            // ─── Note Views (analytics/ranking) ─────────────────────────────────────────
-
-            $pdo->exec("
-                create table if not exists global.note_views (
-                    note_id uuid not null,
-                    nook_id uuid not null,
-                    user_id uuid not null,
-                    viewed_date date not null default current_date,
-                    count int not null default 1,
-                    primary key (note_id, user_id, viewed_date)
-                );
-            ");
-
-            $pdo->exec('create index if not exists note_views_note_id_idx on global.note_views (note_id)');
-            $pdo->exec('create index if not exists note_views_nook_user_idx on global.note_views (nook_id, user_id, note_id)');
-            $pdo->exec('create index if not exists note_views_user_id_idx on global.note_views (user_id, viewed_date desc)');
 
             // ─── Cross-Nook Links ────────────────────────────────────────────────────────
 
