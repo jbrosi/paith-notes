@@ -15,6 +15,7 @@ type NookListItem = {
 	name: string;
 	role: string;
 	is_owned: boolean;
+	accent_color?: string | null;
 	owner_name: string;
 };
 
@@ -116,7 +117,9 @@ export function Nav() {
 					const body = (await res.json()) as {
 						nook?: { id: string };
 					};
-					if (body?.nook?.id) setAiMemoryNookId(body.nook.id);
+					if (body?.nook?.id) {
+						setAiMemoryNookId(body.nook.id);
+					}
 				} catch {
 					// best-effort
 				}
@@ -293,6 +296,8 @@ export function Nav() {
 					role: typeof obj.role === "string" ? obj.role : "",
 					is_owned: Boolean(obj.is_owned),
 					owner_name: typeof obj.owner_name === "string" ? obj.owner_name : "",
+					accent_color:
+						typeof obj.accent_color === "string" ? obj.accent_color : null,
 				});
 			}
 			setNooks(normalized);
@@ -524,33 +529,55 @@ export function Nav() {
 											<A
 												href={`/nooks/${encodeURIComponent(currentNookId())}`}
 												class={styles["dropdown-item"]}
-												style={{
-													"justify-content": "flex-start",
-													gap: "6px",
-													"text-decoration": "none",
-													color: "inherit",
-												}}
 												onClick={() => {
 													store()?.setSelectedId("");
 													setNooksOpen(false);
 												}}
 											>
-												<svg
-													aria-hidden="true"
-													width="14"
-													height="14"
-													viewBox="0 0 24 24"
-													fill="none"
-													stroke="currentColor"
-													stroke-width="2"
-													stroke-linecap="round"
-													stroke-linejoin="round"
-													style={{ "flex-shrink": "0" }}
-												>
-													<path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-													<polyline points="9 22 9 12 15 12 15 22" />
-												</svg>
-												{currentNookLabel()}
+												<span class={styles.dropdownItemContent}>
+													<span
+														style={{
+															display: "flex",
+															"align-items": "center",
+															gap: "6px",
+														}}
+													>
+														{(() => {
+															const found = nooks().find(
+																(nn) => nn.id === currentNookId(),
+															);
+															const color = found?.accent_color;
+															return (
+																<span
+																	style={{
+																		display: "inline-block",
+																		width: "10px",
+																		height: "10px",
+																		"border-radius": "3px",
+																		background: color || "#3b82f6",
+																		"flex-shrink": "0",
+																	}}
+																/>
+															);
+														})()}
+														<span>{currentNookLabel()}</span>
+													</span>
+												</span>
+												{(() => {
+													const found = nooks().find(
+														(n) => n.id === currentNookId(),
+													);
+													const role = found?.role ?? "";
+													return role ? (
+														<span class={styles["dropdown-meta"]}>
+															{role === "readonly"
+																? "read-only"
+																: role === "readwrite"
+																	? "read-write"
+																	: role}
+														</span>
+													) : null;
+												})()}
 											</A>
 										</div>
 									</Show>
@@ -571,13 +598,36 @@ export function Nav() {
 														<div class={styles["dropdown-list"]}>
 															<For each={otherNooks()}>
 																{(n) => (
-																	<button
-																		type="button"
+																	<A
+																		href={`/nooks/${encodeURIComponent(n.id)}`}
 																		class={`${styles["dropdown-item"]}${!n.is_owned ? ` ${styles.sharedNookItem}` : ""}`}
 																		onClick={() => onSelectNook(n.id)}
 																	>
 																		<span class={styles.dropdownItemContent}>
-																			<span>{nookDisplayName(n)}</span>
+																			<span
+																				style={{
+																					display: "flex",
+																					"align-items": "center",
+																					gap: "6px",
+																				}}
+																			>
+																				{(() => {
+																					return (
+																						<span
+																							style={{
+																								display: "inline-block",
+																								width: "10px",
+																								height: "10px",
+																								"border-radius": "3px",
+																								background:
+																									n.accent_color || "#3b82f6",
+																								"flex-shrink": "0",
+																							}}
+																						/>
+																					);
+																				})()}
+																				<span>{nookDisplayName(n)}</span>
+																			</span>
 																			<Show when={!n.is_owned && n.owner_name}>
 																				<span class={styles.sharedByLabel}>
 																					Shared by {n.owner_name}
@@ -591,7 +641,7 @@ export function Nav() {
 																					? "read-write"
 																					: n.role}
 																		</span>
-																	</button>
+																	</A>
 																)}
 															</For>
 														</div>
