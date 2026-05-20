@@ -159,6 +159,42 @@ function currentMode(): "light" | "dark" {
 }
 
 /** Called when navigating to a nook — applies stored seed overrides for current mode */
+const DEFAULT_ACCENT = "#3b82f6";
+const AI_MEMORY_ACCENT = "#ec4899";
+
+/** Set a default accent color for a nook if not already set. */
+export function ensureNookAccentColor(
+	nookId: string,
+	isAiMemory = false,
+): void {
+	try {
+		for (const mode of ["light", "dark"]) {
+			const key = `${STORAGE_PREFIX}${nookId}:${mode}:accent`;
+			if (!window.localStorage.getItem(key)) {
+				window.localStorage.setItem(
+					key,
+					isAiMemory ? AI_MEMORY_ACCENT : DEFAULT_ACCENT,
+				);
+			}
+		}
+	} catch {
+		// ignore
+	}
+}
+
+/** Get the accent color for a nook (from localStorage). Returns null if not set. */
+export function getNookAccentColor(nookId: string): string | null {
+	try {
+		const mode = currentMode();
+		const v = window.localStorage.getItem(
+			`${STORAGE_PREFIX}${nookId}:${mode}:accent`,
+		);
+		return v && /^#[0-9a-f]{6}$/i.test(v) ? v : null;
+	} catch {
+		return null;
+	}
+}
+
 export function applyNookSeeds(nookId: string) {
 	const mode = currentMode();
 	const overrides = loadOverrides(nookId, mode);
@@ -255,7 +291,7 @@ export function NookSettingsLanding(props: NookSettingsLandingProps) {
 			}
 		}
 
-		// Persist
+		// Persist locally
 		try {
 			const key = storageKey(props.nookId, m, seedKey);
 			if (value) {
@@ -265,6 +301,26 @@ export function NookSettingsLanding(props: NookSettingsLandingProps) {
 			}
 		} catch {
 			// ignore
+		}
+
+		// Persist accent to backend (per user-nook preference)
+		if (seedKey === "accent") {
+			void (async () => {
+				try {
+					await apiFetch(
+						`/api/nooks/${encodeURIComponent(props.nookId)}/preferences`,
+						{
+							method: "PUT",
+							headers: { "Content-Type": "application/json" },
+							body: JSON.stringify({
+								settings: { accent_color: value || null },
+							}),
+						},
+					);
+				} catch {
+					// best-effort
+				}
+			})();
 		}
 	};
 

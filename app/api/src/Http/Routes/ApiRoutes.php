@@ -68,6 +68,8 @@ final class ApiRoutes
         $r->get('/nooks/ai-memory', [NooksController::class, 'aiMemory']);
         $r->post('/nooks', [NooksController::class, 'create']);
         $r->add('PUT', '/nooks/{nookId}', [NooksController::class, 'update']);
+        $r->get('/nooks/{nookId}/preferences', [NooksController::class, 'getPreferences']);
+        $r->add('PUT', '/nooks/{nookId}/preferences', [NooksController::class, 'updatePreferences']);
 
         // Nook sharing: invitations & members
         $r->post('/nooks/{nookId}/invitations', [InvitationsController::class, 'invite']);

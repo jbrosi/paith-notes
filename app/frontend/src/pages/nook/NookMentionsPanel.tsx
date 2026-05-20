@@ -1,6 +1,7 @@
 import { useNavigate } from "@solidjs/router";
 import { For, Show } from "solid-js";
 import { useNotePreview, useNoteResolver } from "./NookContext";
+import { getNookAccentColor } from "./NookSettingsLanding";
 import type { Mention, NoteSummary } from "./types";
 
 export type NookMentionsPanelProps = {
@@ -80,11 +81,33 @@ export function NookMentionsPanel(props: NookMentionsPanelProps) {
 					</span>
 				</Show>
 				<Show when={crossNook}>
-					<span
-						style={{ color: "var(--color-text-faint)", "font-size": "0.65rem" }}
-					>
-						in {nook}
-					</span>
+					{(() => {
+						const color = getNookAccentColor(m.nookId);
+						return (
+							<span
+								style={{
+									display: "inline-flex",
+									"align-items": "center",
+									gap: "3px",
+									color: "var(--color-text-faint)",
+									"font-size": "0.65rem",
+								}}
+							>
+								{color ? (
+									<span
+										style={{
+											display: "inline-block",
+											width: "7px",
+											height: "7px",
+											"border-radius": "2px",
+											background: color,
+										}}
+									/>
+								) : null}
+								in {nook}
+							</span>
+						);
+					})()}
 				</Show>
 			</div>
 		);

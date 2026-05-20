@@ -27,10 +27,12 @@ final class NooksController
                 nm.role,
                 n.owner_id,
                 u.first_name as owner_first_name,
-                u.last_name as owner_last_name
+                u.last_name as owner_last_name,
+                unp.settings as user_settings
             from global.nooks n
             join global.nook_members nm on nm.nook_id = n.id
             join global.users u on u.id = n.owner_id
+            left join global.user_nook_preferences unp on unp.nook_id = n.id and unp.user_id = nm.user_id
             where
                 nm.user_id = :user_id
                 and n.purpose = 'general'
@@ -57,12 +59,21 @@ final class NooksController
             $ownerLast = is_scalar($r['owner_last_name'] ?? null) ? (string)$r['owner_last_name'] : '';
             $ownerName = trim($ownerFirst . ' ' . $ownerLast);
 
+            $userSettings = [];
+            if (is_scalar($r['user_settings'] ?? null)) {
+                $decoded = json_decode((string)$r['user_settings'], true);
+                if (is_array($decoded)) {
+                    $userSettings = $decoded;
+                }
+            }
+
             $nooks[] = [
                 'id' => is_scalar($id) ? (string)$id : '',
                 'name' => is_scalar($name) ? (string)$name : '',
                 'role' => is_scalar($role) ? (string)$role : '',
                 'is_owned' => $isOwned,
                 'owner_name' => $isOwned ? '' : $ownerName,
+                'accent_color' => is_string($userSettings['accent_color'] ?? null) ? $userSettings['accent_color'] : null,
             ];
         }
 
@@ -180,5 +191,53 @@ final class NooksController
                 'name' => is_scalar($row['name'] ?? null) ? (string)$row['name'] : '',
             ],
         ]);
+    }
+
+    public function getPreferences(Request $request, Context $context): Response
+    {
+        $pdo = $context->pdo();
+        $user = $context->user();
+        $userId = is_scalar($user['id'] ?? null) ? (string)$user['id'] : '';
+        $nookId = trim($request->routeParam('nookId'));
+
+        $stmt = $pdo->prepare(
+            'select settings from global.user_nook_preferences where user_id = :user_id and nook_id = :nook_id'
+        );
+        $stmt->execute([':user_id' => $userId, ':nook_id' => $nookId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        $settings = [];
+        if (is_array($row) && is_scalar($row['settings'] ?? null)) {
+            $decoded = json_decode((string)$row['settings'], true);
+            if (is_array($decoded)) {
+                $settings = $decoded;
+            }
+        }
+
+        return JsonResponse::ok(['settings' => $settings]);
+    }
+
+    public function updatePreferences(Request $request, Context $context): Response
+    {
+        $pdo = $context->pdo();
+        $user = $context->user();
+        $userId = is_scalar($user['id'] ?? null) ? (string)$user['id'] : '';
+        $nookId = trim($request->routeParam('nookId'));
+
+        $data = $request->jsonBody();
+        $settings = is_array($data['settings'] ?? null) ? $data['settings'] : [];
+
+        $pdo->prepare(
+            "insert into global.user_nook_preferences (user_id, nook_id, settings)
+             values (:user_id, :nook_id, :settings)
+             on conflict (user_id, nook_id) do update set settings = :settings2"
+        )->execute([
+            ':user_id' => $userId,
+            ':nook_id' => $nookId,
+            ':settings' => json_encode($settings),
+            ':settings2' => json_encode($settings),
+        ]);
+
+        return JsonResponse::ok(['settings' => $settings]);
     }
 }
