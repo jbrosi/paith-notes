@@ -331,8 +331,8 @@ export function createNotePreview(nookId: () => string) {
 										};
 										const typeLabel = () => {
 											const t = data().type;
-											if (t === "person") return "Person";
 											if (t === "file") return "File";
+											if (t === "graph") return "Graph";
 											return "Note";
 										};
 

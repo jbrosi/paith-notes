@@ -35,8 +35,8 @@ export type NookGraphPanelProps = {
 	initialConfig?: GraphViewProperties | null;
 	/** Callback to save current filter state (used in embedded mode) */
 	onSaveConfig?: (config: GraphViewProperties) => void;
-	/** Called when embedded graph filters change (to mark store dirty) */
-	onDirty?: () => void;
+	/** Called when embedded graph filters change (syncs config + marks dirty) */
+	onDirty?: (config: GraphViewProperties) => void;
 };
 
 const GRAPH_WIDTH_STORAGE_KEY = "paith-notes:graphPanelWidth";
@@ -123,7 +123,10 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 	});
 
 	const markDirty = () => {
-		if (embedded()) props.onDirty?.();
+		if (embedded()) {
+			// Use setTimeout to read signals after they've been updated
+			setTimeout(() => props.onDirty?.(currentConfig()), 0);
+		}
 	};
 
 	const toggleFilterTypeId = (id: string) => {

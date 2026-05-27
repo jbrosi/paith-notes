@@ -17,9 +17,9 @@ use Throwable;
 final class NotesController
 {
     private const NOTE_TYPE_ANYTHING = 'anything';
-    private const NOTE_TYPE_PERSON = 'person';
     private const NOTE_TYPE_FILE = 'file';
     private const NOTE_TYPE_GRAPH = 'graph';
+    // "person" is accepted for backwards compatibility but has no special handling
 
     private MentionsService $mentions;
 
@@ -877,7 +877,7 @@ final class NotesController
         if ($t === '') {
             return $default;
         }
-        if ($t === self::NOTE_TYPE_ANYTHING || $t === self::NOTE_TYPE_PERSON || $t === self::NOTE_TYPE_FILE || $t === self::NOTE_TYPE_GRAPH) {
+        if ($t === self::NOTE_TYPE_ANYTHING || $t === 'person' || $t === self::NOTE_TYPE_FILE || $t === self::NOTE_TYPE_GRAPH) {
             return $t;
         }
         return $default;

@@ -108,7 +108,7 @@ export function registerTools(server: McpServer, ctx: ApiContext): void {
         'To link to another note inline, use [[note:<note_id>]] — the title is resolved automatically. ' +
         'To embed a file note as an image, use ![Note Title](note:<note_id>).'
       ),
-      type: z.string().optional().describe('Note type: "anything", "person", "file", or "graph"'),
+      type: z.string().optional().describe('Note type: "anything" (default), "file", or "graph"'),
       type_id: z.string().optional().describe('Note type ID from taxonomy'),
       properties: z.any().optional().describe('JSON properties. For graph: { rootNoteId, depth?, layout?, includeFiles?, ... }'),
     },

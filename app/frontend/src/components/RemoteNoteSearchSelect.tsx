@@ -97,12 +97,9 @@ export function RemoteNoteSearchSelect(props: RemoteNoteSearchSelectProps) {
 		return typed?.id ?? "";
 	});
 
-	function resolveKindForTerm(
-		termRaw: string,
-	): "anything" | "person" | "file" | "" {
+	function resolveKindForTerm(termRaw: string): "anything" | "file" | "" {
 		const term = normalizeToken(termRaw);
 		if (term === "") return "";
-		if ("person".startsWith(term) || term === "pe") return "person";
 		if ("file".startsWith(term) || term === "fi") return "file";
 		if (
 			"anything".startsWith(term) ||

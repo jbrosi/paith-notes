@@ -423,8 +423,8 @@ final class NoteTypesController
         $kind = strtolower(trim($request->queryParam('kind')));
         $whereKind = '';
         if ($kind !== '') {
-            if (!in_array($kind, ['anything', 'person', 'file'], true)) {
-                throw new HttpError('kind must be one of anything, person, file', 400);
+            if (!in_array($kind, ['anything', 'person', 'file', 'graph'], true)) {
+                throw new HttpError('kind must be one of anything, person, file, graph', 400);
             }
             $whereKind = 'and n.type = :kind';
         }

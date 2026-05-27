@@ -17,6 +17,12 @@ export function NookEmbeddedGraph(props: NookEmbeddedGraphProps) {
 		return params.has("fullscreen");
 	});
 
+	const handleConfigChange = (config: GraphViewProperties) => {
+		// Sync current graph config to store so toolbar save picks it up
+		store().setGraphProperties(config);
+		store().setIsDirty(true);
+	};
+
 	const handleSave = async (config: GraphViewProperties) => {
 		store().setGraphProperties(config);
 		await store().saveNote();
@@ -32,7 +38,7 @@ export function NookEmbeddedGraph(props: NookEmbeddedGraphProps) {
 					rootNoteId={gp().rootNoteId}
 					initialConfig={gp()}
 					onSaveConfig={handleSave}
-					onDirty={() => store().setIsDirty(true)}
+					onDirty={handleConfigChange}
 				/>
 			)}
 		</Show>

@@ -21,7 +21,7 @@ export const TOOLS: Anthropic.Tool[] = [
       properties: {
         title:      { type: 'string' },
         content:    { type: 'string', description: 'Note content in markdown. To link to another note use [[note:<full_uuid>]] with the complete UUID (never shorten) — the title is resolved automatically. To embed a file note as an image use ![Note Title](note:<full_uuid>).' },
-        type:       { type: 'string', description: 'Note type: "anything" (default), "person", "file", or "graph" for saved graph views.' },
+        type:       { type: 'string', description: 'Note type: "anything" (default), "file", or "graph" for saved graph views.' },
         type_id:    { type: 'string', description: 'Note type ID from taxonomy' },
         properties: { type: 'object', description: 'JSON properties. For graph notes: { rootNoteId: "<uuid>", depth?: 2, layout?: "force"|"tree"|"radial", includeFiles?: false, ... }' },
       },
