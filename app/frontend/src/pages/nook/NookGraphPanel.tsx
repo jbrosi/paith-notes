@@ -99,6 +99,7 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 	);
 	const [nodeSize, setNodeSize] = createSignal(ic?.nodeSize ?? 6);
 	const [linkWidth, setLinkWidth] = createSignal(ic?.linkWidth ?? 1);
+	const [strictTypeFilter, setStrictTypeFilter] = createSignal(true);
 
 	const [predicates, setPredicates] = createSignal<LinkPredicate[]>([]);
 
@@ -364,12 +365,13 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 			noteType: noteTypeFor(centerId),
 		});
 
-		// When type filters are active, only show nodes whose taxonomy type matches
+		// When type filters are active in strict mode, only show nodes whose taxonomy type matches
 		const activeTypeFilter = filterTypeIds();
 		const hasTypeFilter = activeTypeFilter.size > 0;
+		const strict = strictTypeFilter();
 		const taxMap = taxonomyTypeById();
 		const nodeMatchesTypeFilter = (id: string) => {
-			if (!hasTypeFilter) return true;
+			if (!hasTypeFilter || !strict) return true;
 			if (id === centerId) return true; // always show center node
 			const tid = taxMap.get(id) ?? "";
 			return tid !== "" && activeTypeFilter.has(tid);
@@ -383,8 +385,8 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 			if (hidden.has(s) || hidden.has(t)) continue;
 			if (exclude && (s === exclude || t === exclude)) continue;
 			// Frontend type filter: skip links where a non-center endpoint doesn't match
-			if (hasTypeFilter && !nodeMatchesTypeFilter(s)) continue;
-			if (hasTypeFilter && !nodeMatchesTypeFilter(t)) continue;
+			if (hasTypeFilter && strict && !nodeMatchesTypeFilter(s)) continue;
+			if (hasTypeFilter && strict && !nodeMatchesTypeFilter(t)) continue;
 			if (!nodes.has(s))
 				nodes.set(s, {
 					id: s,
@@ -408,9 +410,9 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 			});
 		}
 
-		// When type filter is active, prune nodes not reachable from center
+		// When strict type filter is active, prune nodes not reachable from center
 		// (BFS can reach nodes through filtered-out intermediaries)
-		if (hasTypeFilter && nodes.size > 1) {
+		if (hasTypeFilter && strict && nodes.size > 1) {
 			const adj = new Map<string, Set<string>>();
 			for (const e of edges) {
 				if (!adj.has(e.source)) adj.set(e.source, new Set());
@@ -603,6 +605,8 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 						setLinkWidth(v);
 						markDirty();
 					}}
+					strictTypeFilter={strictTypeFilter()}
+					onStrictTypeFilterChange={setStrictTypeFilter}
 				/>
 				<Show when={hiddenCount() > 0}>
 					<button

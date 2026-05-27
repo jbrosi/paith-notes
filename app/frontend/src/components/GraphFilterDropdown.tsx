@@ -24,6 +24,8 @@ export type GraphFilterDropdownProps = {
 	onNodeSizeChange: (v: number) => void;
 	linkWidth: number;
 	onLinkWidthChange: (v: number) => void;
+	strictTypeFilter: boolean;
+	onStrictTypeFilterChange: (v: boolean) => void;
 };
 
 type Tab = "types" | "links" | "display";
@@ -292,6 +294,29 @@ export function GraphFilterDropdown(props: GraphFilterDropdownProps) {
 							/>
 							<span class={navStyles.typeCheckLabel}>Include files</span>
 						</label>
+						<Show when={props.selectedTypeIds.size > 0}>
+							<label
+								class={navStyles.typeCheckItem}
+								style={{
+									"border-bottom": "1px solid var(--color-border-light)",
+								}}
+							>
+								<input
+									type="checkbox"
+									checked={props.strictTypeFilter}
+									onChange={(e) =>
+										props.onStrictTypeFilterChange(e.currentTarget.checked)
+									}
+									class={navStyles.typeCheckbox}
+								/>
+								<span class={navStyles.typeCheckLabel}>Strict filtering</span>
+								<span class={navStyles["dropdown-meta"]}>
+									{props.strictTypeFilter
+										? "only matching nodes"
+										: "show connections"}
+								</span>
+							</label>
+						</Show>
 						<div style={{ padding: "8px" }}>
 							<input
 								ref={inputRef}
