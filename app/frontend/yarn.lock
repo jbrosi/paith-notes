@@ -4763,10 +4763,10 @@ slice-ansi@^8.0.0:
     ansi-styles "^6.2.3"
     is-fullwidth-code-point "^5.1.0"
 
-solid-js@^1.9.11:
-  version "1.9.12"
-  resolved "https://registry.yarnpkg.com/solid-js/-/solid-js-1.9.12.tgz#9bc014fe9fbfa590681dc9b4597927153e6bc713"
-  integrity sha512-QzKaSJq2/iDrWR1As6MHZQ8fQkdOBf8GReYb7L5iKwMGceg7HxDcaOHk0at66tNgn9U2U7dXo8ZZpLIAmGMzgw==
+solid-js@^1.9.13:
+  version "1.9.13"
+  resolved "https://registry.yarnpkg.com/solid-js/-/solid-js-1.9.13.tgz#11da289c3c43ab29f1154632002913cce895fb8e"
+  integrity sha512-6hJeJMOcEX8ktqjpDoJZEmld3ijvcvWBDtiXBm7f4332SiFN66QeAQI1REQshvyUoISsSeJ4PHDauKYbwao9JQ==
   dependencies:
     csstype "^3.1.0"
     seroval "~1.5.0"
