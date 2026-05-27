@@ -40,6 +40,7 @@ export type NookGraphPanelProps = {
 type GraphNode = {
 	id: string;
 	label: string;
+	noteType?: string;
 	x?: number;
 	y?: number;
 	vx?: number;
@@ -162,6 +163,56 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 
 	const markDirty = () => {
 		if (embedded()) props.onDirty?.();
+	};
+
+	// Expanded graph nodes: maps graph-note ID → its fetched sub-links
+	const [expandedGraphLinks, setExpandedGraphLinks] = createSignal<
+		Map<string, NoteLink[]>
+	>(new Map());
+	const isExpanded = (id: string) => expandedGraphLinks().has(id);
+
+	const toggleExpandGraphNode = async (graphNoteId: string) => {
+		if (isExpanded(graphNoteId)) {
+			const next = new Map(expandedGraphLinks());
+			next.delete(graphNoteId);
+			setExpandedGraphLinks(next);
+			return;
+		}
+		const n = nookId().trim();
+		if (n === "") return;
+		try {
+			// Fetch the graph note to get its properties (rootNoteId + filters)
+			const noteRes = await apiFetch(`/api/nooks/${n}/notes/${graphNoteId}`, {
+				method: "GET",
+			});
+			if (!noteRes.ok) return;
+			const noteJson = await noteRes.json();
+			const noteBody = NoteResponseSchema.parse(noteJson);
+			const props = noteBody.note.properties;
+			const rootId =
+				typeof props?.rootNoteId === "string" ? props.rootNoteId : "";
+			if (rootId === "") return;
+
+			// Fetch links for the root note with saved config
+			const params = new URLSearchParams({
+				direction: "both",
+				depth: String(typeof props?.depth === "number" ? props.depth : 2),
+			});
+			if (!props?.includeFiles) params.set("exclude_note_types", "file");
+			const linksRes = await apiFetch(
+				`/api/nooks/${n}/notes/${rootId}/links?${params.toString()}`,
+				{ method: "GET" },
+			);
+			if (!linksRes.ok) return;
+			const linksJson = await linksRes.json();
+			const linksBody = NoteLinksListResponseSchema.parse(linksJson);
+
+			const next = new Map(expandedGraphLinks());
+			next.set(graphNoteId, linksBody.links);
+			setExpandedGraphLinks(next);
+		} catch {
+			/* ignore */
+		}
 	};
 
 	const toggleFilterTypeId = (id: string) => {
@@ -325,9 +376,20 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 	const [error, setError] = createSignal<string>("");
 	const [links, setLinks] = createSignal<NoteLink[]>([]);
 
+	const allLinks = createMemo(() => {
+		const base = links();
+		const expanded = expandedGraphLinks();
+		if (expanded.size === 0) return base;
+		const all = [...base];
+		for (const subLinks of expanded.values()) {
+			for (const l of subLinks) all.push(l);
+		}
+		return all;
+	});
+
 	const titleById = createMemo(() => {
 		const m = new Map<string, string>();
-		for (const l of links()) {
+		for (const l of allLinks()) {
 			if (l.sourceNoteId.trim() !== "") {
 				m.set(
 					l.sourceNoteId,
@@ -345,6 +407,18 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 	});
 
 	const labelFor = (id: string) => titleById().get(id) ?? id;
+
+	const noteTypeById = createMemo(() => {
+		const m = new Map<string, string>();
+		for (const l of allLinks()) {
+			if (l.sourceNoteId.trim() !== "" && l.sourceNoteType)
+				m.set(l.sourceNoteId, l.sourceNoteType);
+			if (l.targetNoteId.trim() !== "" && l.targetNoteType)
+				m.set(l.targetNoteId, l.targetNoteType);
+		}
+		return m;
+	});
+	const noteTypeFor = (id: string) => noteTypeById().get(id) ?? "anything";
 
 	const loadLinks = async () => {
 		if (nookId().trim() === "") return;
@@ -402,8 +476,6 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 	const graph = createMemo((): { nodes: GraphNode[]; edges: GraphEdge[] } => {
 		const centerId = noteId().trim();
 		if (centerId === "") return { nodes: [], edges: [] };
-		// For embedded mode, the selected note is the graph note, not the root —
-		// so fall back to the label from link data for the center node title.
 		const centerTitle = embedded()
 			? labelFor(centerId)
 			: store().title().trim();
@@ -413,16 +485,30 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 		nodes.set(centerId, {
 			id: centerId,
 			label: centerTitle !== "" ? centerTitle : labelFor(centerId),
+			noteType: noteTypeFor(centerId),
 		});
 
+		const seenEdges = new Set<string>();
 		const edges: GraphEdge[] = [];
-		for (const l of links()) {
+		for (const l of allLinks()) {
 			const s = l.sourceNoteId.trim();
 			const t = l.targetNoteId.trim();
 			if (s === "" || t === "") continue;
 			if (hidden.has(s) || hidden.has(t)) continue;
-			if (!nodes.has(s)) nodes.set(s, { id: s, label: labelFor(s) });
-			if (!nodes.has(t)) nodes.set(t, { id: t, label: labelFor(t) });
+			if (seenEdges.has(l.id)) continue;
+			seenEdges.add(l.id);
+			if (!nodes.has(s))
+				nodes.set(s, {
+					id: s,
+					label: labelFor(s),
+					noteType: noteTypeFor(s),
+				});
+			if (!nodes.has(t))
+				nodes.set(t, {
+					id: t,
+					label: labelFor(t),
+					noteType: noteTypeFor(t),
+				});
 			const edgeLabel = l.forwardLabel?.trim()
 				? l.forwardLabel
 				: l.predicateKey;
@@ -509,7 +595,17 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 		const colorEdgeLabel = tv("--color-text-muted", "#64748b");
 		const colorEdgeLabelBg = tv("--color-bg", "#ffffff");
 		const colorHoverBg = tv("--color-bg-hover", "#e2e8f0");
+		const colorGraphNode = tv("--color-accent", "#8b5cf6");
 		const _colorNodeStroke = tv("--color-bg", "#ffffff");
+
+		const hexPath = (r: number) => {
+			const a = Math.PI / 3;
+			const pts = Array.from({ length: 6 }, (_, i) => {
+				const angle = a * i - Math.PI / 6;
+				return `${r * Math.cos(angle)},${r * Math.sin(angle)}`;
+			});
+			return `M${pts.join("L")}Z`;
+		};
 
 		const edges = g.edges.map((e) => ({ ...e }));
 		const nodes = g.nodes.map((n) => ({ ...n }));
@@ -623,15 +719,38 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 			.style("text-decoration", "none")
 			.style("pointer-events", "all");
 
-		const nodeSel = nodeLinkSel
-			.append("circle")
-			.attr("r", (d) => (d.id === centerId ? 9 : 6))
-			.attr("fill", (d) => (d.id === centerId ? colorNodeCenter : colorNode))
-			.attr("stroke", "transparent")
-			.attr("stroke-width", 2)
-			.style("cursor", "pointer");
-
-		nodeSel.append("title").text((d) => d.label);
+		// Draw circles for regular nodes, hexagons for graph nodes
+		nodeLinkSel.each(function (_d) {
+			const el = d3.select(this as Element);
+			const d = _d;
+			const isGraph = d.noteType === "graph";
+			const isCenter = d.id === centerId;
+			const r = isCenter ? 9 : isGraph ? 8 : 6;
+			const fill = isCenter
+				? colorNodeCenter
+				: isGraph
+					? colorGraphNode
+					: colorNode;
+			if (isGraph) {
+				el.append("path")
+					.attr("d", hexPath(r))
+					.attr("fill", fill)
+					.attr("stroke", "transparent")
+					.attr("stroke-width", 2)
+					.style("cursor", "pointer")
+					.attr("class", "node-shape");
+			} else {
+				el.append("circle")
+					.attr("r", r)
+					.attr("fill", fill)
+					.attr("stroke", "transparent")
+					.attr("stroke-width", 2)
+					.style("cursor", "pointer")
+					.attr("class", "node-shape");
+			}
+			el.append("title").text(d.label);
+		});
+		const nodeSel = nodeLinkSel.select<SVGElement>(".node-shape");
 
 		const labelSel = labelG
 			.selectAll("a")
@@ -676,7 +795,7 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 		});
 
 		const drag = d3
-			.drag<SVGCircleElement, GraphNode>()
+			.drag<SVGElement, GraphNode>()
 			.on("start", (event, d) => {
 				if (event.sourceEvent) event.sourceEvent.stopPropagation();
 				if (!simulation) return;
@@ -748,6 +867,7 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 				})
 				.attr("fill", (d) => {
 					if (d.id === centerId) return colorNodeCenter;
+					if (d.noteType === "graph") return colorGraphNode;
 					if (d.id === hoveredId) return colorEdgeLabel;
 					return colorNode;
 				});
@@ -781,6 +901,10 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 			event.stopPropagation(); // prevent SolidJS router from intercepting
 			if (event.shiftKey) {
 				hideNode(d.id);
+				return;
+			}
+			if (d.noteType === "graph") {
+				void toggleExpandGraphNode(d.id);
 				return;
 			}
 			selectNote(d.id);
@@ -865,7 +989,11 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 							2,
 					);
 
-				nodeSel.attr("cx", (d) => d.x ?? 0).attr("cy", (d) => d.y ?? 0);
+				// Position the node wrappers (works for both circles and hexagon paths)
+				nodeLinkSel.attr(
+					"transform",
+					(d) => `translate(${d.x ?? 0},${d.y ?? 0})`,
+				);
 
 				labelSel.attr(
 					"transform",
