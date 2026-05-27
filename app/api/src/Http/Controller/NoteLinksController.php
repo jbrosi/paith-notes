@@ -67,7 +67,10 @@ final class NoteLinksController
         }
 
         // Optional filter: only surface links where source or target is one of these type IDs.
-        // BFS traversal still expands through all nodes regardless of this filter.
+        // In strict mode, only expand the frontier through matching nodes and only include
+        // links where both endpoints match (or are the starting note).
+        // In non-strict mode (default), BFS traverses through all nodes but only surfaces
+        // links where at least one endpoint matches.
         $nodeTypeIds = [];
         $nodeTypeIdsRaw = trim($request->queryParam('node_type_ids'));
         if ($nodeTypeIdsRaw !== '') {
@@ -78,6 +81,7 @@ final class NoteLinksController
                 }
             }
         }
+        $strictTypeFilter = trim($request->queryParam('strict_type_filter')) === '1';
 
         // Optional filter: exclude links where a non-start endpoint has one of these note types
         // (e.g. "file"). The starting note is never excluded by this filter.
@@ -188,12 +192,24 @@ final class NoteLinksController
                 $sourceTypeId = is_scalar($r['source_type_id'] ?? null) ? (string)$r['source_type_id'] : '';
                 $targetTypeId = is_scalar($r['target_type_id'] ?? null) ? (string)$r['target_type_id'] : '';
 
-                // Expand frontier to unvisited nodes (regardless of type filter, so we traverse through all nodes)
-                if ($sourceId !== '' && self::isUuid($sourceId) && !isset($visited[$sourceId])) {
-                    $nextFrontier[$sourceId] = true;
-                }
-                if ($targetId !== '' && self::isUuid($targetId) && !isset($visited[$targetId])) {
-                    $nextFrontier[$targetId] = true;
+                $sourceMatchesType = $nodeTypeIds === [] || in_array($sourceTypeId, $nodeTypeIds, true) || $sourceId === $noteId;
+                $targetMatchesType = $nodeTypeIds === [] || in_array($targetTypeId, $nodeTypeIds, true) || $targetId === $noteId;
+
+                // Expand frontier: in strict mode only through matching nodes, otherwise through all
+                if ($strictTypeFilter && $nodeTypeIds !== []) {
+                    if ($sourceId !== '' && self::isUuid($sourceId) && !isset($visited[$sourceId]) && $sourceMatchesType) {
+                        $nextFrontier[$sourceId] = true;
+                    }
+                    if ($targetId !== '' && self::isUuid($targetId) && !isset($visited[$targetId]) && $targetMatchesType) {
+                        $nextFrontier[$targetId] = true;
+                    }
+                } else {
+                    if ($sourceId !== '' && self::isUuid($sourceId) && !isset($visited[$sourceId])) {
+                        $nextFrontier[$sourceId] = true;
+                    }
+                    if ($targetId !== '' && self::isUuid($targetId) && !isset($visited[$targetId])) {
+                        $nextFrontier[$targetId] = true;
+                    }
                 }
 
                 // Skip already-seen links
@@ -201,9 +217,19 @@ final class NoteLinksController
                     continue;
                 }
 
-                // Apply node type filter to results (but not to traversal above)
-                if ($nodeTypeIds !== [] && !in_array($sourceTypeId, $nodeTypeIds, true) && !in_array($targetTypeId, $nodeTypeIds, true)) {
-                    continue;
+                // Apply node type filter:
+                // Strict: both endpoints must match (or be the center note)
+                // Non-strict: at least one endpoint must match
+                if ($nodeTypeIds !== []) {
+                    if ($strictTypeFilter) {
+                        if (!$sourceMatchesType || !$targetMatchesType) {
+                            continue;
+                        }
+                    } else {
+                        if (!$sourceMatchesType && !$targetMatchesType) {
+                            continue;
+                        }
+                    }
                 }
 
                 $sourceNoteType = is_scalar($r['source_note_type'] ?? null) ? (string)$r['source_note_type'] : 'anything';

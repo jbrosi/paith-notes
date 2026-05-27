@@ -282,18 +282,6 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 	});
 	const noteTypeFor = (id: string) => noteTypeById().get(id) ?? "anything";
 
-	// Map note IDs to taxonomy type IDs (for frontend-side type filtering)
-	const taxonomyTypeById = createMemo(() => {
-		const m = new Map<string, string>();
-		for (const l of links()) {
-			if (l.sourceNoteId.trim() !== "" && l.sourceTypeId)
-				m.set(l.sourceNoteId, l.sourceTypeId);
-			if (l.targetNoteId.trim() !== "" && l.targetTypeId)
-				m.set(l.targetNoteId, l.targetTypeId);
-		}
-		return m;
-	});
-
 	const loadLinks = async () => {
 		if (nookId().trim() === "") return;
 		if (noteId().trim() === "") {
@@ -313,6 +301,7 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 			});
 			if (excludeTypes) params.set("exclude_note_types", excludeTypes);
 			if (typeIds) params.set("node_type_ids", typeIds);
+			if (typeIds && strictTypeFilter()) params.set("strict_type_filter", "1");
 			if (predIds) params.set("predicate_ids", predIds);
 			const res = await apiFetch(
 				`/api/nooks/${nookId()}/notes/${noteId()}/links?${params.toString()}`,
@@ -365,18 +354,6 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 			noteType: noteTypeFor(centerId),
 		});
 
-		// When type filters are active in strict mode, only show nodes whose taxonomy type matches
-		const activeTypeFilter = filterTypeIds();
-		const hasTypeFilter = activeTypeFilter.size > 0;
-		const strict = strictTypeFilter();
-		const taxMap = taxonomyTypeById();
-		const nodeMatchesTypeFilter = (id: string) => {
-			if (!hasTypeFilter || !strict) return true;
-			if (id === centerId) return true; // always show center node
-			const tid = taxMap.get(id) ?? "";
-			return tid !== "" && activeTypeFilter.has(tid);
-		};
-
 		const edges: GraphEdge[] = [];
 		for (const l of links()) {
 			const s = l.sourceNoteId.trim();
@@ -384,9 +361,6 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 			if (s === "" || t === "") continue;
 			if (hidden.has(s) || hidden.has(t)) continue;
 			if (exclude && (s === exclude || t === exclude)) continue;
-			// Frontend type filter: skip links where a non-center endpoint doesn't match
-			if (hasTypeFilter && strict && !nodeMatchesTypeFilter(s)) continue;
-			if (hasTypeFilter && strict && !nodeMatchesTypeFilter(t)) continue;
 			if (!nodes.has(s))
 				nodes.set(s, {
 					id: s,
@@ -408,37 +382,6 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 				target: t,
 				label: edgeLabel,
 			});
-		}
-
-		// When strict type filter is active, prune nodes not reachable from center
-		// (BFS can reach nodes through filtered-out intermediaries)
-		if (hasTypeFilter && strict && nodes.size > 1) {
-			const adj = new Map<string, Set<string>>();
-			for (const e of edges) {
-				if (!adj.has(e.source)) adj.set(e.source, new Set());
-				if (!adj.has(e.target)) adj.set(e.target, new Set());
-				adj.get(e.source)!.add(e.target);
-				adj.get(e.target)!.add(e.source);
-			}
-			const reachable = new Set<string>();
-			const queue = [centerId];
-			reachable.add(centerId);
-			while (queue.length > 0) {
-				const cur = queue.shift()!;
-				for (const neighbor of adj.get(cur) ?? []) {
-					if (!reachable.has(neighbor)) {
-						reachable.add(neighbor);
-						queue.push(neighbor);
-					}
-				}
-			}
-			for (const id of nodes.keys()) {
-				if (!reachable.has(id)) nodes.delete(id);
-			}
-			const filteredEdges = edges.filter(
-				(e) => reachable.has(e.source) && reachable.has(e.target),
-			);
-			return { nodes: Array.from(nodes.values()), edges: filteredEdges };
 		}
 
 		return { nodes: Array.from(nodes.values()), edges };
