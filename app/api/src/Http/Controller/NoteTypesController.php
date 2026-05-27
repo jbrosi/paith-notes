@@ -429,6 +429,12 @@ final class NoteTypesController
             $whereKind = 'and n.type = :kind';
         }
 
+        $unlinked = $request->queryParam('unlinked') === '1';
+        $whereUnlinked = $unlinked
+            ? 'and coalesce(ns.outgoing_links, 0) = 0 and coalesce(ns.incoming_links, 0) = 0
+               and coalesce(ns.outgoing_mentions, 0) = 0 and coalesce(ns.incoming_mentions, 0) = 0'
+            : '';
+
         $whereCursor = '';
         if ($cursor !== '') {
             $whereCursor = "and (n.{$sortCol}, n.id) {$cursorOp} (:cursor_sort_val::timestamptz, :cursor_id::uuid)";
@@ -453,6 +459,7 @@ final class NoteTypesController
                 where n.nook_id = :nook_id ' . $whereCursor . '
                 ' . $whereSearch . '
                 ' . $whereKind . '
+                ' . $whereUnlinked . '
                 ' . $orderByWithRank . '
                 limit :limit'
             );
@@ -487,6 +494,7 @@ final class NoteTypesController
                 ' . $whereCursor . '
                 ' . $whereSearch . '
                 ' . $whereKind . '
+                ' . $whereUnlinked . '
                 ' . $orderByWithRank . '
                 limit :limit'
             );
@@ -513,6 +521,7 @@ final class NoteTypesController
                 where n.nook_id = :nook_id and n.type_id = :type_id ' . $whereCursor . '
                 ' . $whereSearch . '
                 ' . $whereKind . '
+                ' . $whereUnlinked . '
                 ' . $orderByWithRank . '
                 limit :limit'
             );

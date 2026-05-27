@@ -1,6 +1,7 @@
 import { createMemo, createSignal, For, Show } from "solid-js";
 import { normalizeToken, parseTypedSearch } from "../../noteSearch";
 import type { NookStore } from "../../pages/nook/store";
+import { SEARCH_DEBOUNCE_MS } from "../../settings";
 import styles from "../Nav.module.css";
 
 export type NookNotesSearchDropdownProps = {
@@ -15,6 +16,7 @@ export function NookNotesSearchDropdown(props: NookNotesSearchDropdownProps) {
 
 	const [open, setOpen] = createSignal<boolean>(false);
 	let closeTimeout: number | undefined;
+	let debounceTimer: ReturnType<typeof setTimeout> | undefined;
 	let inputRef: HTMLInputElement | undefined;
 	let panelInputRef: HTMLInputElement | undefined;
 
@@ -44,6 +46,8 @@ export function NookNotesSearchDropdown(props: NookNotesSearchDropdownProps) {
 		return parsed.typeTerm.trim() !== "";
 	});
 
+	const isUnlinkedFilter = createMemo(() => parseTypedSearch(query()).unlinked);
+
 	const typeSuggestions = createMemo(() => {
 		const s = query().trim();
 		if (s === "") return [];
@@ -69,6 +73,14 @@ export function NookNotesSearchDropdown(props: NookNotesSearchDropdownProps) {
 		}
 		return [...prefix, ...contains].slice(0, 6);
 	});
+
+	const onSearchInput = (val: string) => {
+		if (debounceTimer) clearTimeout(debounceTimer);
+		debounceTimer = setTimeout(
+			() => store()?.setNotesQuery(val),
+			SEARCH_DEBOUNCE_MS,
+		);
+	};
 
 	const applyTypeSuggestion = (key: string) => {
 		const fill = `${key}: `;
@@ -151,7 +163,7 @@ export function NookNotesSearchDropdown(props: NookNotesSearchDropdownProps) {
 					disabled={!storeReady()}
 					value={query()}
 					placeholder="Search notes..."
-					onInput={(e) => store()?.setNotesQuery(e.currentTarget.value)}
+					onInput={(e) => onSearchInput(e.currentTarget.value)}
 					onFocus={handleFocus}
 					onBlur={handleBlur}
 					onKeyDown={(e) => {
@@ -194,8 +206,8 @@ export function NookNotesSearchDropdown(props: NookNotesSearchDropdownProps) {
 							type="text"
 							disabled={!storeReady()}
 							value={query()}
-							placeholder="Search notes... (type: to filter)"
-							onInput={(e) => store()?.setNotesQuery(e.currentTarget.value)}
+							placeholder="Search notes... (type: or unlinked:)"
+							onInput={(e) => onSearchInput(e.currentTarget.value)}
 							style={{
 								width: "100%",
 								padding: "10px 12px",
@@ -227,12 +239,17 @@ export function NookNotesSearchDropdown(props: NookNotesSearchDropdownProps) {
 					{/* Active type filter indicator */}
 					<Show
 						when={
-							activeFilterLabels().length > 0 && typeSuggestions().length === 0
+							(activeFilterLabels().length > 0 || isUnlinkedFilter()) &&
+							typeSuggestions().length === 0
 						}
 					>
 						<div class={styles.activeFilter}>
 							<span class={styles.activeFilterLabel}>
-								Filtered by: {activeFilterLabels().join(", ")}
+								Filtered by:{" "}
+								{[
+									...(isUnlinkedFilter() ? ["Unlinked"] : []),
+									...activeFilterLabels(),
+								].join(", ")}
 							</span>
 							<Show when={!isTypedFilter()}>
 								<button
