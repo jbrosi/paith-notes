@@ -6,12 +6,28 @@ export function normalizeToken(v: string): string {
 		.toLowerCase();
 }
 
-export function parseTypedSearch(raw: string): {
+export type ParsedSearch = {
 	typeTerm: string;
 	textTerm: string;
 	explicitNoType: boolean;
-} {
+	unlinked: boolean;
+};
+
+export function parseTypedSearch(raw: string): ParsedSearch {
 	const s = String(raw ?? "").trim();
+
+	// Check for "unlinked:" prefix
+	const unlinkedMatch = /^unlinked\s*:\s*/i.exec(s);
+	if (unlinkedMatch) {
+		const rest = s.slice(unlinkedMatch[0].length);
+		const inner = parseTypedSearchInner(rest);
+		return { ...inner, unlinked: true };
+	}
+
+	return { ...parseTypedSearchInner(s), unlinked: false };
+}
+
+function parseTypedSearchInner(s: string): Omit<ParsedSearch, "unlinked"> {
 	const idx = s.indexOf(":");
 	if (idx <= 0) {
 		if (idx === 0) {

@@ -244,7 +244,9 @@ export function createNookStore(nookId: () => string) {
 		}
 	};
 
-	const clearSelectedTypes = () => setSelectedTypeIds(new Set<string>());
+	const clearSelectedTypes = () => {
+		if (selectedTypeIds().size > 0) setSelectedTypeIds(new Set<string>());
+	};
 
 	const activeTypeIds = createMemo((): Set<string> => {
 		const parsed = parseTypedSearch(notesQuery());
@@ -741,8 +743,15 @@ export function createNookStore(nookId: () => string) {
 		}
 	};
 
+	let loadNotesVersion = 0;
+	let loadNotesAbort: AbortController | null = null;
+
 	const loadNotes = async (opts?: { reset?: boolean }) => {
 		if (nookId() === "") return;
+		loadNotesAbort?.abort();
+		const version = ++loadNotesVersion;
+		const abort = new AbortController();
+		loadNotesAbort = abort;
 		const reset = opts?.reset ?? true;
 		const parsed = parseTypedSearch(notesQuery());
 		const typedTypeId = resolveTypeIdForTermInStore(parsed.typeTerm);
@@ -769,17 +778,20 @@ export function createNookStore(nookId: () => string) {
 			qs.set("limit", "50");
 			if (q !== "") qs.set("q", q);
 			if (cursor !== "") qs.set("cursor", cursor);
+			if (parsed.unlinked) qs.set("unlinked", "1");
 
 			const res = await apiFetch(
 				`/api/nooks/${nookId()}/note-types/${typeForList}/notes?${qs.toString()}`,
-				{ method: "GET" },
+				{ method: "GET", signal: abort.signal },
 			);
+			if (version !== loadNotesVersion) return;
 			if (!res.ok) {
 				throw new Error(
 					`Failed to load notes: ${res.status} ${res.statusText}`,
 				);
 			}
 			const json = await res.json();
+			if (version !== loadNotesVersion) return;
 			const body = NoteTypeNotesResponseSchema.parse(json);
 			let fetched = body.notes;
 			// Client-side filter when multiple types selected
@@ -793,9 +805,13 @@ export function createNookStore(nookId: () => string) {
 			setNotes(rankNotesByQuery(nextNotes, q));
 			setNotesNextCursor(body.nextCursor);
 		} catch (e) {
+			if (e instanceof DOMException && e.name === "AbortError") return;
+			if (version !== loadNotesVersion) return;
 			setError(String(e));
 		} finally {
-			setLoading(false);
+			if (version === loadNotesVersion) {
+				setLoading(false);
+			}
 		}
 	};
 
@@ -1000,26 +1016,28 @@ export function createNookStore(nookId: () => string) {
 
 	/** Load a note by ID into the store (called by URL→store sync) */
 	const loadNoteById = async (noteId: string) => {
-		let found = notes().find((n) => n.id === noteId);
-		if (!found) {
-			clearSelectedTypes();
-			await loadNotes({ reset: true });
-			found = notes().find((n) => n.id === noteId);
+		const found = notes().find((n) => n.id === noteId);
+		if (found) {
+			selectNote(found);
+			return;
 		}
-		if (!found) {
+		// Note not in current list — fetch it directly instead of reloading
+		// the full list (which races with the reactive loadNotes effect).
+		const detail = await loadNoteDetail(noteId);
+		if (!detail) {
 			setError(`Note not found: ${noteId}`);
 			return;
 		}
-		selectNote(found);
+		selectNote(toSummary(detail));
 	};
 
 	const insertMention = async () => {
 		if (!isEditing()) return;
 		const targetId = mentionTargetId();
 		if (targetId === "") return;
-		const target = notes().find((n) => n.id === targetId) ?? null;
-		const title = target?.title?.trim()
-			? target.title
+		const cached = noteTitleCache.get(titleKey(nookId(), targetId));
+		const title = cached?.trim()
+			? cached
 			: ((await loadNoteDetail(targetId))?.title ?? "");
 		if (title.trim() === "") return;
 		const shouldEmbed = mentionEmbedImage() && mentionCanEmbedImage();

@@ -36,6 +36,22 @@ type GraphEdge = {
 	label: string;
 };
 
+const GRAPH_WIDTH_STORAGE_KEY = "paith-notes:graphPanelWidth";
+const DEFAULT_GRAPH_WIDTH = 300;
+const MIN_GRAPH_WIDTH = 200;
+const MAX_GRAPH_WIDTH_RATIO = 0.5;
+
+function loadStoredWidth(): number {
+	try {
+		const v = localStorage.getItem(GRAPH_WIDTH_STORAGE_KEY);
+		if (v) {
+			const n = Number(v);
+			if (Number.isFinite(n) && n >= MIN_GRAPH_WIDTH) return n;
+		}
+	} catch { /* ignore */ }
+	return DEFAULT_GRAPH_WIDTH;
+}
+
 export function NookGraphPanel(props: NookGraphPanelProps) {
 	const navigate = useNavigate();
 	const store = () => props.store;
@@ -43,6 +59,33 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 	const noteId = () => store().selectedId();
 	const fullscreen = () => Boolean(props.fullscreen);
 	const [depth, setDepth] = createSignal<number>(2);
+
+	const [graphWidth, setGraphWidth] = createSignal(loadStoredWidth());
+
+	const onResizeStart = (e: MouseEvent) => {
+		e.preventDefault();
+		const startX = e.clientX;
+		const startWidth = graphWidth();
+		const onMove = (ev: MouseEvent) => {
+			const delta = startX - ev.clientX;
+			const next = Math.max(
+				MIN_GRAPH_WIDTH,
+				Math.min(window.innerWidth * MAX_GRAPH_WIDTH_RATIO, startWidth + delta),
+			);
+			setGraphWidth(next);
+		};
+		const onUp = () => {
+			document.removeEventListener("mousemove", onMove);
+			document.removeEventListener("mouseup", onUp);
+			document.body.style.cursor = "";
+			document.body.style.userSelect = "";
+			try { localStorage.setItem(GRAPH_WIDTH_STORAGE_KEY, String(graphWidth())); } catch { /* ignore */ }
+		};
+		document.body.style.cursor = "col-resize";
+		document.body.style.userSelect = "none";
+		document.addEventListener("mousemove", onMove);
+		document.addEventListener("mouseup", onUp);
+	};
 	const selectNote = (id: string) => {
 		void store().onNoteLinkClick(id);
 	};
@@ -607,7 +650,11 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 	return (
 		<div
 			class={`${styles.container} ${fullscreen() ? styles.containerFullscreen : ""}`}
+			style={fullscreen() ? undefined : { width: `${graphWidth()}px` }}
 		>
+			<Show when={!fullscreen()}>
+				<div class={styles.resizeHandle} onMouseDown={onResizeStart} />
+			</Show>
 			<div class={styles.header}>
 				<div class={styles.title}>Graph</div>
 				<button
