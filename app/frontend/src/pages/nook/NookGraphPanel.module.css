@@ -137,11 +137,6 @@
 	font-size: 12px;
 }
 
-.controlCheckbox {
-	margin: 0;
-	cursor: pointer;
-}
-
 .controlBtn {
 	border: 1px solid var(--color-border);
 	border-radius: 6px;

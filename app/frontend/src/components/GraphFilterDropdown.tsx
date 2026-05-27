@@ -11,6 +11,8 @@ export type GraphFilterDropdownProps = {
 	onTogglePredicateId: (id: string) => void;
 	onClearAll: () => void;
 	disabled?: boolean;
+	includeFiles: boolean;
+	onIncludeFilesChange: (v: boolean) => void;
 	// Display settings
 	layout: GraphLayout;
 	onLayoutChange: (layout: GraphLayout) => void;
@@ -33,7 +35,10 @@ export function GraphFilterDropdown(props: GraphFilterDropdownProps) {
 	let inputRef: HTMLInputElement | undefined;
 
 	const activeCount = createMemo(
-		() => props.selectedTypeIds.size + props.selectedPredicateIds.size,
+		() =>
+			props.selectedTypeIds.size +
+			props.selectedPredicateIds.size +
+			(props.includeFiles ? 0 : 1),
 	);
 	const hasFilter = createMemo(() => activeCount() > 0);
 
@@ -252,6 +257,20 @@ export function GraphFilterDropdown(props: GraphFilterDropdownProps) {
 
 					{/* Filters tab */}
 					<Show when={tab() === "filters"}>
+						<label
+							class={navStyles.typeCheckItem}
+							style={{ "border-bottom": "1px solid var(--color-border-light)" }}
+						>
+							<input
+								type="checkbox"
+								checked={props.includeFiles}
+								onChange={(e) =>
+									props.onIncludeFilesChange(e.currentTarget.checked)
+								}
+								class={navStyles.typeCheckbox}
+							/>
+							<span class={navStyles.typeCheckLabel}>Include files</span>
+						</label>
 						<div style={{ padding: "8px" }}>
 							<input
 								ref={inputRef}
@@ -275,7 +294,9 @@ export function GraphFilterDropdown(props: GraphFilterDropdownProps) {
 
 						<Show when={treeItems().length > 0}>
 							<div class={navStyles.dropdownSection}>
-								<div class={navStyles.dropdownSectionTitle}>Note Types</div>
+								<div class={navStyles.dropdownSectionTitle}>
+									Show only note types
+								</div>
 							</div>
 							<div class={navStyles["dropdown-list"]}>
 								<For each={treeItems()}>
@@ -304,7 +325,9 @@ export function GraphFilterDropdown(props: GraphFilterDropdownProps) {
 
 						<Show when={filteredPredicates().length > 0}>
 							<div class={navStyles.dropdownSection}>
-								<div class={navStyles.dropdownSectionTitle}>Link Types</div>
+								<div class={navStyles.dropdownSectionTitle}>
+									Show only link types
+								</div>
 							</div>
 							<div class={navStyles["dropdown-list"]}>
 								<For each={filteredPredicates()}>

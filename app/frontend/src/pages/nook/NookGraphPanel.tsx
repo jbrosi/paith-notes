@@ -220,6 +220,7 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 	const clearAllFilters = () => {
 		setFilterTypeIds(new Set<string>());
 		setFilterPredicateIds(new Set<string>());
+		setIncludeFiles(false);
 		markDirty();
 	};
 
@@ -599,19 +600,6 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 						<option value="5">5</option>
 					</select>
 				</label>
-				<label class={styles.controlLabel}>
-					<input
-						type="checkbox"
-						checked={includeFiles()}
-						onChange={(e) => {
-							setIncludeFiles(e.currentTarget.checked);
-							markDirty();
-						}}
-						disabled={noteId().trim() === ""}
-						class={styles.controlCheckbox}
-					/>
-					<span class={styles.controlLabelText}>Files</span>
-				</label>
 				<GraphFilterDropdown
 					noteTypes={store().noteTypes()}
 					predicates={predicates()}
@@ -621,6 +609,11 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 					onTogglePredicateId={toggleFilterPredicateId}
 					onClearAll={clearAllFilters}
 					disabled={noteId().trim() === ""}
+					includeFiles={includeFiles()}
+					onIncludeFilesChange={(v) => {
+						setIncludeFiles(v);
+						markDirty();
+					}}
 					layout={layout()}
 					onLayoutChange={(v) => {
 						setLayout(v);
