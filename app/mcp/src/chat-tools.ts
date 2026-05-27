@@ -15,14 +15,15 @@ export const TOOLS: Anthropic.Tool[] = [
   },
   {
     name: 'create_note',
-    description: 'Create a new note in the current nook',
+    description: 'Create a new note in the current nook. To create a graph view note, set type to "graph" and pass properties with rootNoteId (the center note UUID) and optional settings: depth (1-5), includeFiles (boolean), layout ("force"|"tree"|"radial"), filterTypeIds (string[]), filterPredicateIds (string[]), hiddenNodeIds (string[]), linkDistance (number), chargeStrength (number), nodeSize (number), linkWidth (number).',
     input_schema: {
       type: 'object',
       properties: {
         title:      { type: 'string' },
         content:    { type: 'string', description: 'Note content in markdown. To link to another note use [[note:<full_uuid>]] with the complete UUID (never shorten) — the title is resolved automatically. To embed a file note as an image use ![Note Title](note:<full_uuid>).' },
-        type_id:    { type: 'string', description: 'Note type ID' },
-        properties: { type: 'object', description: 'Arbitrary JSON properties' },
+        type:       { type: 'string', description: 'Note type: "anything" (default), "file", or "graph" for saved graph views.' },
+        type_id:    { type: 'string', description: 'Note type ID from taxonomy' },
+        properties: { type: 'object', description: 'JSON properties. For graph notes: { rootNoteId: "<uuid>", depth?: 2, layout?: "force"|"tree"|"radial", includeFiles?: false, ... }' },
       },
       required: ['title'],
     },
@@ -201,6 +202,21 @@ export const TOOLS: Anthropic.Tool[] = [
         end_date:       { type: 'string', description: 'ISO date string' },
       },
       required: ['source_note_id', 'target_note_id', 'predicate_id'],
+    },
+  },
+  // ── Search agent (sub-agent with own context window) ──
+  {
+    name: 'search_agent',
+    description: 'Delegate a research task to a search agent that runs in its own context window. The agent searches and reads notes in the current nook and user memories — the user will be asked to approve before it runs. It returns ranked results with relevant excerpts, keeping this conversation\'s context clean. Use this instead of searching manually when the query may require reading multiple notes or complex filtering. For simple single-note lookups, prefer search_notes/get_note directly. Always tell the user what you\'re about to search for and that the agent will search their notes.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        task: {
+          type: 'string',
+          description: 'A clear description of what to research. Be specific about what information you need and how results should be organized.',
+        },
+      },
+      required: ['task'],
     },
   },
   // ── User memory nook tools (cross-nook, auto-approved) ──

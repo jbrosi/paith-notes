@@ -6,6 +6,7 @@ import {
 	resolveTypeIdForTerm,
 } from "../../noteSearch";
 import type {
+	GraphViewProperties,
 	Mention,
 	Note,
 	NoteHistoryEntry,
@@ -19,6 +20,8 @@ import {
 	NoteTypeNotesResponseSchema,
 	NoteTypeResponseSchema,
 	NoteTypesListResponseSchema,
+	parseGraphProperties,
+	serializeGraphProperties,
 } from "./types";
 
 export function createNookStore(nookId: () => string) {
@@ -130,12 +133,9 @@ export function createNookStore(nookId: () => string) {
 	const [title, setTitle] = createSignal<string>("");
 	const [titleIsManual, setTitleIsManual] = createSignal<boolean>(false);
 	const [content, setContent] = createSignal<string>("");
-	const [type, setType] = createSignal<"anything" | "person" | "file">(
+	const [type, setType] = createSignal<"anything" | "file" | "graph">(
 		"anything",
 	);
-	const [personFirstName, setPersonFirstName] = createSignal<string>("");
-	const [personLastName, setPersonLastName] = createSignal<string>("");
-	const [personDateOfBirth, setPersonDateOfBirth] = createSignal<string>("");
 	const [fileFilename, setFileFilename] = createSignal<string>("");
 	const [fileExtension, setFileExtension] = createSignal<string>("");
 	const [fileFilesize, setFileFilesize] = createSignal<string>("");
@@ -143,6 +143,8 @@ export function createNookStore(nookId: () => string) {
 	const fileContentType = createMemo(() => normalizeMimeType(fileMimeType()));
 	const [fileChecksum, setFileChecksum] = createSignal<string>("");
 	const [fileInlineUrl, setFileInlineUrl] = createSignal<string>("");
+	const [graphProperties, setGraphProperties] =
+		createSignal<GraphViewProperties | null>(null);
 	const [formerProperties, setFormerProperties] = createSignal<
 		Record<string, unknown>
 	>({});
@@ -265,12 +267,6 @@ export function createNookStore(nookId: () => string) {
 
 	const isEditing = () => mode() === "edit";
 	const filteredNotes = createMemo(() => notes());
-
-	const personDerivedTitle = () => {
-		const first = personFirstName().trim();
-		const last = personLastName().trim();
-		return `${first} ${last}`.trim();
-	};
 
 	const toSummary = (note: Note): NoteSummary => ({
 		id: note.id,
@@ -480,18 +476,8 @@ export function createNookStore(nookId: () => string) {
 		}
 	};
 
-	const derivedTitleFromNote = (note: Note) => {
-		const first = String(note.properties?.first_name ?? "").trim();
-		const last = String(note.properties?.last_name ?? "").trim();
-		return `${first} ${last}`.trim();
-	};
-
 	const setTitleFromUser = (next: string) => {
 		setTitle(next);
-		if (type() === "person" && next.trim() === "") {
-			setTitleIsManual(false);
-			return;
-		}
 		setTitleIsManual(true);
 	};
 
@@ -837,14 +823,12 @@ export function createNookStore(nookId: () => string) {
 		setTitleIsManual(false);
 		setContent("");
 		setType("anything");
-		setPersonFirstName("");
-		setPersonLastName("");
-		setPersonDateOfBirth("");
 		setFileFilename("");
 		setFileExtension("");
 		setFileFilesize("");
 		setFileMimeType("");
 		setFileChecksum("");
+		setGraphProperties(null);
 		setFormerProperties({});
 		setError("");
 		setMentionTargetId("");
@@ -859,20 +843,20 @@ export function createNookStore(nookId: () => string) {
 		setTitle(note.title);
 		setContent(note.content);
 		setType(
-			note.type === "person"
-				? "person"
-				: note.type === "file"
-					? "file"
+			note.type === "file"
+				? "file"
+				: note.type === "graph"
+					? "graph"
 					: "anything",
 		);
-		setPersonFirstName(String(note.properties?.first_name ?? ""));
-		setPersonLastName(String(note.properties?.last_name ?? ""));
-		setPersonDateOfBirth(String(note.properties?.date_of_birth ?? ""));
 		setFileFilename(String(note.properties?.filename ?? ""));
 		setFileExtension(String(note.properties?.extension ?? ""));
 		setFileFilesize(String(note.properties?.filesize ?? ""));
 		setFileMimeType(String(note.properties?.mime_type ?? ""));
 		setFileChecksum(String(note.properties?.checksum ?? ""));
+		setGraphProperties(
+			note.type === "graph" ? parseGraphProperties(note.properties) : null,
+		);
 		if (note.type === "file") {
 			const extFromProps = normalizeExtension(
 				String(note.properties?.extension ?? ""),
@@ -889,12 +873,7 @@ export function createNookStore(nookId: () => string) {
 		} else {
 			setFileInlineUrl("");
 		}
-		if (note.type === "person") {
-			const derived = derivedTitleFromNote(note);
-			setTitleIsManual(derived === "" ? true : note.title.trim() !== derived);
-		} else {
-			setTitleIsManual(true);
-		}
+		setTitleIsManual(true);
 		setFormerProperties(note.formerProperties ?? {});
 		setNoteVersion(note.version ?? 0);
 		setViewCount(note.viewCount ?? 0);
@@ -910,21 +889,19 @@ export function createNookStore(nookId: () => string) {
 		setTypeId(String(note.typeId ?? "").trim());
 		setTitle(note.title);
 		setType(
-			note.type === "person"
-				? "person"
-				: note.type === "file"
-					? "file"
+			note.type === "file"
+				? "file"
+				: note.type === "graph"
+					? "graph"
 					: "anything",
 		);
 		setFormerProperties({});
-		setPersonFirstName("");
-		setPersonLastName("");
-		setPersonDateOfBirth("");
 		setFileFilename("");
 		setFileExtension("");
 		setFileFilesize("");
 		setFileMimeType("");
 		setFileChecksum("");
+		setGraphProperties(null);
 		setFileInlineUrl("");
 		setError("");
 		setMentionTargetId("");
@@ -961,36 +938,6 @@ export function createNookStore(nookId: () => string) {
 			setFileInlineUrl("");
 		}
 	};
-
-	createEffect(() => {
-		if (type() !== "person") return;
-		if (
-			personFirstName() !== "" ||
-			personLastName() !== "" ||
-			personDateOfBirth() !== ""
-		) {
-			return;
-		}
-		const fp = formerProperties();
-		const person = fp.person;
-		if (!person || typeof person !== "object") return;
-		const p = person as Record<string, unknown>;
-		if (typeof p.first_name === "string") setPersonFirstName(p.first_name);
-		if (typeof p.last_name === "string") setPersonLastName(p.last_name);
-		if (typeof p.date_of_birth === "string") {
-			setPersonDateOfBirth(p.date_of_birth);
-		}
-	});
-
-	createEffect(() => {
-		if (!isEditing()) return;
-		if (type() !== "person") return;
-		if (titleIsManual()) return;
-
-		const derived = personDerivedTitle();
-		if (derived === "") return;
-		setTitle(derived);
-	});
 
 	// Navigation callback — set by Nook.tsx to use the router's navigate()
 	let navigatorFn: ((noteId: string, nookId?: string) => void) | null = null;
@@ -1052,21 +999,15 @@ export function createNookStore(nookId: () => string) {
 		setConflictError(null);
 		if (!isEditing()) return;
 		const noteType = type();
-		const t = title().trim();
-		const titleForSave =
-			noteType === "person" && t === "" ? personDerivedTitle() : t;
+		const titleForSave = title().trim();
 		if (titleForSave === "") {
 			setError("Title is required");
 			return;
 		}
 
 		const properties =
-			noteType === "person"
-				? {
-						first_name: personFirstName().trim(),
-						last_name: personLastName().trim(),
-						date_of_birth: personDateOfBirth().trim(),
-					}
+			noteType === "graph" && graphProperties()
+				? serializeGraphProperties(graphProperties() as GraphViewProperties)
 				: null;
 
 		setLoading(true);
@@ -1232,14 +1173,12 @@ export function createNookStore(nookId: () => string) {
 				setTitleIsManual(false);
 				setContent("");
 				setType("anything");
-				setPersonFirstName("");
-				setPersonLastName("");
-				setPersonDateOfBirth("");
 				setFileFilename("");
 				setFileExtension("");
 				setFileFilesize("");
 				setFileMimeType("");
 				setFileChecksum("");
+				setGraphProperties(null);
 				setFileInlineUrl("");
 				setFormerProperties({});
 				setMode("view");
@@ -1355,6 +1294,7 @@ export function createNookStore(nookId: () => string) {
 		setFileFilesize(String(file.size));
 		setFileMimeType(mime);
 		setFileChecksum("");
+		setGraphProperties(null);
 		setTitleFromUser(filename);
 		setContent("");
 		await loadNotes();
@@ -1450,9 +1390,6 @@ export function createNookStore(nookId: () => string) {
 		title,
 		content,
 		type,
-		personFirstName,
-		personLastName,
-		personDateOfBirth,
 		fileFilename,
 		fileExtension,
 		fileFilesize,
@@ -1460,9 +1397,12 @@ export function createNookStore(nookId: () => string) {
 		fileContentType,
 		fileChecksum,
 		fileInlineUrl,
+		graphProperties,
+		setGraphProperties,
 		formerProperties,
 		mode,
 		isDirty,
+		setIsDirty,
 		pendingNav,
 		loading,
 		error,
@@ -1478,9 +1418,6 @@ export function createNookStore(nookId: () => string) {
 		confirmPendingNav,
 		cancelPendingNav,
 		setType,
-		setPersonFirstName,
-		setPersonLastName,
-		setPersonDateOfBirth,
 		setFileFilename,
 		setFileExtension,
 		setFileFilesize,

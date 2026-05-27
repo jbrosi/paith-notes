@@ -37,6 +37,33 @@
 	border-left: none;
 }
 
+.containerEmbedded {
+	width: 100%;
+	min-width: 0;
+	max-width: none;
+	height: 400px;
+	border-left: none;
+	border: 1px solid var(--color-border-light);
+	border-radius: 8px;
+	margin: 1rem 0;
+}
+
+.containerEmbeddedFullscreen {
+	position: fixed;
+	top: 0;
+	left: 0;
+	width: 100vw;
+	height: 100vh;
+	min-width: 0;
+	max-width: none;
+	border: none;
+	border-left: none;
+	border-radius: 0;
+	margin: 0;
+	z-index: 100;
+	background: var(--color-bg);
+}
+
 .header {
 	display: flex;
 	align-items: center;
@@ -70,10 +97,12 @@
 
 .controls {
 	display: flex;
+	flex-wrap: wrap;
 	gap: 6px;
 	padding: 8px 16px;
 	border-bottom: 1px solid var(--color-border-light);
 	flex-shrink: 0;
+	align-items: center;
 }
 
 .controlLabel {

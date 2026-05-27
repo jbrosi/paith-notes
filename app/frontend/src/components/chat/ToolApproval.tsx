@@ -1,5 +1,5 @@
 import { A } from "@solidjs/router";
-import { For } from "solid-js";
+import { For, Show } from "solid-js";
 import type { NotePreviewController } from "../../pages/nook/NookContext";
 import { Button } from "../Button";
 import type { ToolUse } from "./ChatMessage";
@@ -29,6 +29,7 @@ type Props = {
 	onDeny: () => void;
 	disabled: boolean;
 	notePreview?: NotePreviewController;
+	nookName?: string;
 };
 
 function InputValue(props: {
@@ -80,6 +81,12 @@ export function ToolApproval(props: Props) {
 						<div
 							class={`${styles.toolItem} ${kind === "destructive" ? styles.destructive : kind === "write" ? styles.write : ""}`}
 						>
+							<Show when={t.name === "search_agent"}>
+								<div class={styles.searchAgentScope}>
+									Will search notes in:{" "}
+									<strong>{props.nookName || "current nook"}</strong> + memories
+								</div>
+							</Show>
 							<div class={styles.toolName}>
 								{t.name}
 								{kind === "destructive" && (

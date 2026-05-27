@@ -1,5 +1,4 @@
 import { useNavigate } from "@solidjs/router";
-import * as d3 from "d3";
 import {
 	createEffect,
 	createMemo,
@@ -8,32 +7,36 @@ import {
 	Show,
 } from "solid-js";
 import { apiFetch } from "../../auth/keycloak";
+import { GraphFilterDropdown } from "../../components/GraphFilterDropdown";
+import { renderGraph } from "./graphRenderer";
+import type { GraphData, GraphEdge, GraphNode } from "./graphTypes";
 import styles from "./NookGraphPanel.module.css";
 import type { NookStore } from "./store";
-import { type NoteLink, NoteLinksListResponseSchema } from "./types";
+import {
+	type GraphLayout,
+	type GraphViewProperties,
+	type LinkPredicate,
+	LinkPredicatesListResponseSchema,
+	type NoteLink,
+	NoteLinksListResponseSchema,
+	NoteResponseSchema,
+	serializeGraphProperties,
+} from "./types";
 
 export type NookGraphPanelProps = {
 	store: NookStore;
 	fullscreen?: boolean;
 	onClose?: () => void;
-};
-
-type GraphNode = {
-	id: string;
-	label: string;
-	x?: number;
-	y?: number;
-	vx?: number;
-	vy?: number;
-	fx?: number | null;
-	fy?: number | null;
-};
-
-type GraphEdge = {
-	id: string;
-	source: string;
-	target: string;
-	label: string;
+	/** Embedded mode: render as inline graph block for a graph-type note */
+	embedded?: boolean;
+	/** Root note ID override (used in embedded mode) */
+	rootNoteId?: string;
+	/** Initial config to seed filters (used in embedded mode) */
+	initialConfig?: GraphViewProperties | null;
+	/** Callback to save current filter state (used in embedded mode) */
+	onSaveConfig?: (config: GraphViewProperties) => void;
+	/** Called when embedded graph filters change (syncs config + marks dirty) */
+	onDirty?: (config: GraphViewProperties) => void;
 };
 
 const GRAPH_WIDTH_STORAGE_KEY = "paith-notes:graphPanelWidth";
@@ -58,9 +61,154 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 	const navigate = useNavigate();
 	const store = () => props.store;
 	const nookId = () => store().nookId();
-	const noteId = () => store().selectedId();
+	const embedded = () => Boolean(props.embedded);
+	const isGraphNote = () =>
+		store().type() === "graph" && !!store().graphProperties()?.rootNoteId;
+	const noteId = () => {
+		if (embedded()) return props.rootNoteId ?? "";
+		// For graph notes, the sidebar graph shows the rootNoteId, not the graph note itself
+		if (isGraphNote()) return store().graphProperties()?.rootNoteId ?? "";
+		return store().selectedId();
+	};
+	const excludeNoteId = () =>
+		isGraphNote() && !embedded() ? store().selectedId() : "";
 	const fullscreen = () => Boolean(props.fullscreen);
-	const [depth, setDepth] = createSignal<number>(2);
+
+	// Seed signals from initialConfig (embedded/graph note mode)
+	const ic = props.initialConfig;
+	const [depth, setDepth] = createSignal<number>(ic?.depth ?? 2);
+	const [includeFiles, setIncludeFiles] = createSignal(
+		ic?.includeFiles ?? false,
+	);
+	const [filterTypeIds, setFilterTypeIds] = createSignal(
+		ic?.filterTypeIds?.length ? new Set(ic.filterTypeIds) : new Set<string>(),
+	);
+	const [filterPredicateIds, setFilterPredicateIds] = createSignal(
+		ic?.filterPredicateIds?.length
+			? new Set(ic.filterPredicateIds)
+			: new Set<string>(),
+	);
+	const [hiddenNodeIds, setHiddenNodeIds] = createSignal(
+		ic?.hiddenNodeIds?.length ? new Set(ic.hiddenNodeIds) : new Set<string>(),
+	);
+	// Display settings
+	const [layout, setLayout] = createSignal<GraphLayout>(ic?.layout ?? "force");
+	const [linkDistance, setLinkDistance] = createSignal(ic?.linkDistance ?? 90);
+	const [chargeStrength, setChargeStrength] = createSignal(
+		ic?.chargeStrength ?? -280,
+	);
+	const [nodeSize, setNodeSize] = createSignal(ic?.nodeSize ?? 6);
+	const [linkWidth, setLinkWidth] = createSignal(ic?.linkWidth ?? 1);
+
+	const [predicates, setPredicates] = createSignal<LinkPredicate[]>([]);
+
+	const loadPredicates = async () => {
+		const n = nookId().trim();
+		if (n === "") return;
+		try {
+			const res = await apiFetch(`/api/nooks/${n}/link-predicates`, {
+				method: "GET",
+			});
+			if (res.ok) {
+				const json = await res.json();
+				const body = LinkPredicatesListResponseSchema.parse(json);
+				setPredicates(body.predicates);
+			}
+		} catch {
+			/* ignore */
+		}
+	};
+	createEffect(() => {
+		void loadPredicates();
+	});
+
+	const markDirty = () => {
+		if (embedded()) {
+			// Use setTimeout to read signals after they've been updated
+			setTimeout(() => props.onDirty?.(currentConfig()), 0);
+		}
+	};
+
+	const toggleFilterTypeId = (id: string) => {
+		const s = new Set(filterTypeIds());
+		if (s.has(id)) s.delete(id);
+		else s.add(id);
+		setFilterTypeIds(s);
+		markDirty();
+	};
+	const toggleFilterPredicateId = (id: string) => {
+		const s = new Set(filterPredicateIds());
+		if (s.has(id)) s.delete(id);
+		else s.add(id);
+		setFilterPredicateIds(s);
+		markDirty();
+	};
+	const clearAllFilters = () => {
+		setFilterTypeIds(new Set<string>());
+		setFilterPredicateIds(new Set<string>());
+		setIncludeFiles(false);
+		markDirty();
+	};
+
+	const hideNode = (id: string) => {
+		const centerId = noteId().trim();
+		if (id === centerId) return;
+		const s = new Set(hiddenNodeIds());
+		s.add(id);
+		setHiddenNodeIds(s);
+		markDirty();
+	};
+	const unhideAll = () => {
+		setHiddenNodeIds(new Set<string>());
+		markDirty();
+	};
+	const hiddenCount = createMemo(() => hiddenNodeIds().size);
+
+	const currentConfig = (): GraphViewProperties => ({
+		rootNoteId: noteId().trim(),
+		depth: depth(),
+		includeFiles: includeFiles(),
+		filterTypeIds: [...filterTypeIds()],
+		filterPredicateIds: [...filterPredicateIds()],
+		hiddenNodeIds: [...hiddenNodeIds()],
+		layout: layout(),
+		linkDistance: linkDistance(),
+		chargeStrength: chargeStrength(),
+		nodeSize: nodeSize(),
+		linkWidth: linkWidth(),
+	});
+
+	const onSaveConfig = () => {
+		props.onSaveConfig?.(currentConfig());
+	};
+
+	const onSaveAsGraphNote = async () => {
+		const config = currentConfig();
+		if (config.rootNoteId === "") return;
+		const n = nookId().trim();
+		if (n === "") return;
+		try {
+			const centerTitle = titleById().get(config.rootNoteId) ?? "";
+			const res = await apiFetch(`/api/nooks/${n}/notes`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					title: centerTitle ? `Graph: ${centerTitle}` : "Untitled Graph View",
+					content: "",
+					type: "graph",
+					properties: serializeGraphProperties(config),
+				}),
+			});
+			if (!res.ok) return;
+			const json = await res.json();
+			const body = NoteResponseSchema.parse(json);
+			navigate(
+				`/nooks/${encodeURIComponent(n)}/notes/${encodeURIComponent(body.note.id)}`,
+			);
+		} catch {
+			/* ignore */
+		}
+	};
 
 	const [graphWidth, setGraphWidth] = createSignal(loadStoredWidth());
 
@@ -121,6 +269,18 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 
 	const labelFor = (id: string) => titleById().get(id) ?? id;
 
+	const noteTypeById = createMemo(() => {
+		const m = new Map<string, string>();
+		for (const l of links()) {
+			if (l.sourceNoteId.trim() !== "" && l.sourceNoteType)
+				m.set(l.sourceNoteId, l.sourceNoteType);
+			if (l.targetNoteId.trim() !== "" && l.targetNoteType)
+				m.set(l.targetNoteId, l.targetNoteType);
+		}
+		return m;
+	});
+	const noteTypeFor = (id: string) => noteTypeById().get(id) ?? "anything";
+
 	const loadLinks = async () => {
 		if (nookId().trim() === "") return;
 		if (noteId().trim() === "") {
@@ -128,11 +288,21 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 			return;
 		}
 		const d = depth();
+		const excludeTypes = includeFiles() ? "" : "file";
+		const typeIds = [...filterTypeIds()].join(",");
+		const predIds = [...filterPredicateIds()].join(",");
 		setLoading(true);
 		setError("");
 		try {
+			const params = new URLSearchParams({
+				direction: "both",
+				depth: String(d),
+			});
+			if (excludeTypes) params.set("exclude_note_types", excludeTypes);
+			if (typeIds) params.set("node_type_ids", typeIds);
+			if (predIds) params.set("predicate_ids", predIds);
 			const res = await apiFetch(
-				`/api/nooks/${nookId()}/notes/${noteId()}/links?direction=both&depth=${d}`,
+				`/api/nooks/${nookId()}/notes/${noteId()}/links?${params.toString()}`,
 				{ method: "GET" },
 			);
 			if (!res.ok) {
@@ -164,15 +334,22 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 		void loadLinks();
 	});
 
-	const graph = createMemo((): { nodes: GraphNode[]; edges: GraphEdge[] } => {
+	const graph = createMemo((): GraphData => {
 		const centerId = noteId().trim();
 		if (centerId === "") return { nodes: [], edges: [] };
-		const centerTitle = store().title().trim();
+		const centerTitle = embedded()
+			? labelFor(centerId)
+			: isGraphNote()
+				? labelFor(centerId)
+				: store().title().trim();
+		const hidden = hiddenNodeIds();
+		const exclude = excludeNoteId();
 
 		const nodes = new Map<string, GraphNode>();
 		nodes.set(centerId, {
 			id: centerId,
 			label: centerTitle !== "" ? centerTitle : labelFor(centerId),
+			noteType: noteTypeFor(centerId),
 		});
 
 		const edges: GraphEdge[] = [];
@@ -180,8 +357,20 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 			const s = l.sourceNoteId.trim();
 			const t = l.targetNoteId.trim();
 			if (s === "" || t === "") continue;
-			if (!nodes.has(s)) nodes.set(s, { id: s, label: labelFor(s) });
-			if (!nodes.has(t)) nodes.set(t, { id: t, label: labelFor(t) });
+			if (hidden.has(s) || hidden.has(t)) continue;
+			if (exclude && (s === exclude || t === exclude)) continue;
+			if (!nodes.has(s))
+				nodes.set(s, {
+					id: s,
+					label: labelFor(s),
+					noteType: noteTypeFor(s),
+				});
+			if (!nodes.has(t))
+				nodes.set(t, {
+					id: t,
+					label: labelFor(t),
+					noteType: noteTypeFor(t),
+				});
 			const edgeLabel = l.forwardLabel?.trim()
 				? l.forwardLabel
 				: l.predicateKey;
@@ -197,11 +386,18 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 	});
 
 	let svgEl: SVGSVGElement | undefined;
-	let simulation: d3.Simulation<GraphNode, undefined> | undefined;
-	let hoveredId: string | null = null;
-	let centerView: (() => void) | undefined;
-	const onCenter = () => centerView?.();
+	let currentRender: ReturnType<typeof renderGraph> = null;
+	const onCenter = () => currentRender?.centerView();
 	const onFullscreen = () => {
+		if (embedded()) {
+			const n = nookId().trim();
+			const graphNoteId = store().selectedId().trim();
+			if (n === "" || graphNoteId === "") return;
+			navigate(
+				`/nooks/${encodeURIComponent(n)}/notes/${encodeURIComponent(graphNoteId)}?fullscreen`,
+			);
+			return;
+		}
 		const n = nookId().trim();
 		const note = noteId().trim();
 		if (n === "" || note === "") return;
@@ -211,7 +407,8 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 	};
 	const onCloseFullscreen = () => {
 		const n = nookId().trim();
-		const note = noteId().trim();
+		// For embedded fullscreen, go back to the graph note (not the root note)
+		const note = embedded() ? store().selectedId().trim() : noteId().trim();
 		if (n === "") return;
 		if (note !== "") {
 			navigate(
@@ -225,423 +422,30 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 	createEffect(() => {
 		const g = graph();
 		if (!svgEl) return;
-		const bb = svgEl.getBoundingClientRect();
-		const width = Math.max(200, Math.floor(bb.width));
-		const height = Math.max(200, Math.floor(bb.height));
 
-		const svg = d3.select(svgEl);
-		svg.selectAll("*").remove();
-		svg.attr("viewBox", `0 0 ${width} ${height}`);
+		// Read reactive signals to track dependencies
+		const currentLayout = layout();
+		const currentNodeSize = nodeSize();
+		const currentLinkWidth = linkWidth();
+		const currentLinkDistance = linkDistance();
+		const currentChargeStrength = chargeStrength();
 
-		if (g.nodes.length === 0) return;
-
-		const viewport = svg.append("g");
-		const zoom = d3
-			.zoom<SVGSVGElement, unknown>()
-			.scaleExtent([0.25, 3])
-			.on("zoom", (event) => {
-				viewport.attr("transform", String(event.transform));
-			});
-		svg.call(zoom);
-		centerView = () => {
-			svg.transition().duration(150).call(zoom.transform, d3.zoomIdentity);
-		};
-
-		// Read theme colors from CSS variables
-		const cs = getComputedStyle(document.documentElement);
-		const tv = (name: string, fallback: string) =>
-			cs.getPropertyValue(name).trim() || fallback;
-		const colorEdge = tv("--color-border-medium", "#cbd5e1");
-		const colorNode = tv("--color-text-muted", "#94a3b8");
-		const colorNodeCenter = tv("--color-primary-light", "#0ea5e9");
-		const colorNodeHover = tv("--color-primary", "#0ea5e9");
-		const colorHighlight = tv("--seed-accent", "#f59e0b");
-		const colorLabel = tv("--color-text", "#334155");
-		const colorEdgeLabel = tv("--color-text-muted", "#64748b");
-		const colorEdgeLabelBg = tv("--color-bg", "#ffffff");
-		const colorHoverBg = tv("--color-bg-hover", "#e2e8f0");
-		const _colorNodeStroke = tv("--color-bg", "#ffffff");
-
-		const edges = g.edges.map((e) => ({ ...e }));
-		const nodes = g.nodes.map((n) => ({ ...n }));
-
-		const edgeG = viewport.append("g").attr("stroke", colorEdge);
-		const nodeG = viewport.append("g");
-		const labelG = viewport.append("g");
-		const edgeLabelG = viewport.append("g");
-
-		const edgeHitWidth = 12;
-
-		const linkHitSel = edgeG
-			.selectAll("line.hit")
-			.data(edges)
-			.enter()
-			.append("line")
-			.attr("class", "hit")
-			.attr("stroke", "transparent")
-			.attr("stroke-width", edgeHitWidth)
-			.style("pointer-events", "stroke")
-			.style("cursor", "help");
-
-		const linkSel = edgeG
-			.selectAll("line.edge")
-			.data(edges)
-			.enter()
-			.append("line")
-			.attr("class", "edge")
-			.attr("stroke-width", 1)
-			.style("pointer-events", "none");
-
-		linkSel.append("title").text((d) => d.label);
-
-		const centerId = noteId().trim();
-		let hoveredEdgeId: string | null = null;
-
-		const adjacency = (() => {
-			const m = new Map<string, Array<{ next: string; edgeId: string }>>();
-			for (const e of edges) {
-				if (!m.has(e.source)) m.set(e.source, []);
-				if (!m.has(e.target)) m.set(e.target, []);
-				m.get(e.source)?.push({ next: e.target, edgeId: e.id });
-				m.get(e.target)?.push({ next: e.source, edgeId: e.id });
-			}
-			return m;
-		})();
-
-		const pathToCenter = (
-			fromId: string | null,
-		): { nodeIds: Set<string>; edgeIds: Set<string> } => {
-			if (!fromId) {
-				return { nodeIds: new Set<string>(), edgeIds: new Set<string>() };
-			}
-			const start = fromId.trim();
-			const goal = centerId.trim();
-			if (start === "" || goal === "") {
-				return { nodeIds: new Set<string>(), edgeIds: new Set<string>() };
-			}
-			if (start === goal) {
-				return {
-					nodeIds: new Set<string>([start]),
-					edgeIds: new Set<string>(),
-				};
-			}
-
-			const q: string[] = [start];
-			const visited = new Set<string>([start]);
-			const prev = new Map<string, { prevId: string; edgeId: string }>();
-
-			while (q.length > 0) {
-				const cur = q.shift();
-				if (!cur) break;
-				if (cur === goal) break;
-				const nexts = adjacency.get(cur) ?? [];
-				for (const n of nexts) {
-					if (visited.has(n.next)) continue;
-					visited.add(n.next);
-					prev.set(n.next, { prevId: cur, edgeId: n.edgeId });
-					q.push(n.next);
-				}
-			}
-
-			if (!prev.has(goal)) {
-				return { nodeIds: new Set<string>(), edgeIds: new Set<string>() };
-			}
-
-			const nodeIds = new Set<string>();
-			const edgeIds = new Set<string>();
-			let cur = goal;
-			nodeIds.add(cur);
-			while (cur !== start) {
-				const p = prev.get(cur);
-				if (!p) break;
-				edgeIds.add(p.edgeId);
-				cur = p.prevId;
-				nodeIds.add(cur);
-			}
-			return { nodeIds, edgeIds };
-		};
-
-		const nodeLinkSel = nodeG
-			.selectAll("a")
-			.data(nodes)
-			.enter()
-			.append("a")
-			.attr(
-				"href",
-				(d) => `/nooks/${nookId()}/notes/${encodeURIComponent(d.id)}`,
-			)
-			.attr("target", "_self")
-			.attr("rel", "noopener")
-			.style("cursor", "pointer")
-			.style("text-decoration", "none")
-			.style("pointer-events", "all");
-
-		const nodeSel = nodeLinkSel
-			.append("circle")
-			.attr("r", (d) => (d.id === centerId ? 9 : 6))
-			.attr("fill", (d) => (d.id === centerId ? colorNodeCenter : colorNode))
-			.attr("stroke", "transparent")
-			.attr("stroke-width", 2)
-			.style("cursor", "pointer");
-
-		nodeSel.append("title").text((d) => d.label);
-
-		const labelSel = labelG
-			.selectAll("a")
-			.data(nodes)
-			.enter()
-			.append("a")
-			.attr(
-				"href",
-				(d) => `/nooks/${nookId()}/notes/${encodeURIComponent(d.id)}`,
-			)
-			.attr("target", "_self")
-			.attr("rel", "noopener")
-			.style("cursor", "pointer")
-			.style("text-decoration", "none")
-			.style("pointer-events", "all");
-
-		const labelGroupSel = labelSel.append("g").style("cursor", "pointer");
-
-		const labelRectSel = labelGroupSel
-			.append("rect")
-			.attr("fill", "transparent")
-			.attr("rx", 4)
-			.attr("ry", 4)
-			.style("pointer-events", "all");
-
-		const labelTextSel = labelGroupSel
-			.append("text")
-			.text((d) => d.label)
-			.attr("font-size", 10)
-			.attr("fill", colorLabel)
-			.attr("dominant-baseline", "middle");
-
-		labelGroupSel.each(function (this: SVGGElement) {
-			const textEl = d3.select(this).select<SVGTextElement>("text").node();
-			if (!textEl) return;
-			const bb = textEl.getBBox();
-			const pad = 6;
-			d3.select(this)
-				.select("rect")
-				.attr("x", bb.x - pad)
-				.attr("y", bb.y - pad)
-				.attr("width", bb.width + pad * 2)
-				.attr("height", bb.height + pad * 2);
+		currentRender?.simulation.stop();
+		currentRender = renderGraph(svgEl, g, {
+			nookId: nookId(),
+			centerId: noteId().trim(),
+			layout: currentLayout,
+			nodeSize: currentNodeSize,
+			linkWidth: currentLinkWidth,
+			linkDistance: currentLinkDistance,
+			chargeStrength: currentChargeStrength,
+			onSelectNote: selectNote,
+			onHideNode: hideNode,
+			onOpenGraphNode: selectNote,
 		});
 
-		const drag = d3
-			.drag<SVGCircleElement, GraphNode>()
-			.on("start", (event, d) => {
-				if (event.sourceEvent) event.sourceEvent.stopPropagation();
-				if (!simulation) return;
-				if (!event.active) simulation.alphaTarget(0.2).restart();
-				d.fx = d.x ?? 0;
-				d.fy = d.y ?? 0;
-			})
-			.on("drag", (event, d) => {
-				d.fx = event.x;
-				d.fy = event.y;
-			})
-			.on("end", (event, d) => {
-				if (!simulation) return;
-				if (!event.active) simulation.alphaTarget(0);
-				d.fx = null;
-				d.fy = null;
-			});
-
-		nodeSel.call(drag);
-
-		const edgeTextSel = edgeLabelG
-			.selectAll("text")
-			.data(edges)
-			.enter()
-			.append("text")
-			.text((d) => d.label)
-			.attr("font-size", 10)
-			.attr("fill", colorEdgeLabel)
-			.attr("text-anchor", "middle")
-			.attr("dominant-baseline", "middle")
-			.style("paint-order", "stroke")
-			.style("stroke", colorEdgeLabelBg)
-			.style("stroke-width", "3")
-			.style("pointer-events", "none")
-			.style("opacity", 0);
-
-		const applyHover = () => {
-			const hasFocus = hoveredId !== null;
-			const path = pathToCenter(hoveredId);
-			const inPath = (id: string) => path.nodeIds.has(id);
-			const edgeInPath = (id: string) => path.edgeIds.has(id);
-
-			linkSel
-				.attr("stroke", (d) =>
-					edgeInPath(d.id) || hoveredEdgeId === d.id
-						? colorHighlight
-						: colorEdge,
-				)
-				.attr("stroke-width", (d) =>
-					edgeInPath(d.id) || hoveredEdgeId === d.id ? 2.5 : 1,
-				)
-				.style("opacity", (d) => {
-					if (!hasFocus) return 1;
-					if (hoveredEdgeId === d.id) return 1;
-					return edgeInPath(d.id) ? 1 : 0.15;
-				});
-
-			nodeSel
-				.attr("stroke", (d) => {
-					if (d.id === hoveredId) return colorNodeHover;
-					if (hasFocus && inPath(d.id) && d.id !== centerId)
-						return colorHighlight;
-					return "transparent";
-				})
-				.attr("stroke-width", (d) => {
-					if (d.id === hoveredId) return 3;
-					if (hasFocus && inPath(d.id) && d.id !== centerId) return 3;
-					return 2;
-				})
-				.attr("fill", (d) => {
-					if (d.id === centerId) return colorNodeCenter;
-					if (d.id === hoveredId) return colorEdgeLabel;
-					return colorNode;
-				});
-			nodeSel.style("opacity", (d) => {
-				if (!hasFocus) return 1;
-				if (d.id === centerId) return 1;
-				if (d.id === hoveredId) return 1;
-				return inPath(d.id) ? 1 : 0.35;
-			});
-			labelSel.style("opacity", (d) => {
-				if (!hasFocus) return 1;
-				if (d.id === centerId) return 1;
-				if (d.id === hoveredId) return 1;
-				return inPath(d.id) ? 1 : 0.35;
-			});
-			labelTextSel.attr("font-weight", (d) => (d.id === hoveredId ? 700 : 400));
-			labelRectSel.attr("fill", (d) =>
-				d.id === hoveredId ? colorHoverBg : "transparent",
-			);
-			edgeTextSel.style("opacity", (d) => {
-				if (hoveredEdgeId === d.id) return 1;
-				if (!hasFocus) return 0;
-				return edgeInPath(d.id) ? 1 : 0;
-			});
-		};
-
-		nodeLinkSel
-			.on("mouseenter", (_event, d) => {
-				hoveredId = d.id;
-				applyHover();
-			})
-			.on("mouseleave", () => {
-				hoveredId = null;
-				applyHover();
-			})
-			.on("click", (event, d) => {
-				if (
-					event.button !== 0 ||
-					event.ctrlKey ||
-					event.metaKey ||
-					event.shiftKey ||
-					event.altKey
-				) {
-					return;
-				}
-				event.preventDefault();
-				selectNote(d.id);
-			});
-
-		labelSel
-			.on("mouseenter", (_event, d) => {
-				hoveredId = d.id;
-				applyHover();
-			})
-			.on("mouseleave", () => {
-				hoveredId = null;
-				applyHover();
-			})
-			.on("click", (event, d) => {
-				if (
-					event.button !== 0 ||
-					event.ctrlKey ||
-					event.metaKey ||
-					event.shiftKey ||
-					event.altKey
-				) {
-					return;
-				}
-				event.preventDefault();
-				selectNote(d.id);
-			});
-
-		linkHitSel
-			.on("mouseenter", (_event, d) => {
-				hoveredEdgeId = d.id;
-				applyHover();
-			})
-			.on("mouseleave", () => {
-				hoveredEdgeId = null;
-				applyHover();
-			});
-
-		applyHover();
-
-		simulation?.stop();
-		simulation = d3
-			.forceSimulation(nodes)
-			.force(
-				"link",
-				d3
-					.forceLink<GraphNode, { source: string; target: string }>(
-						edges as unknown as Array<{ source: string; target: string }>,
-					)
-					.id((d) => d.id)
-					.distance(90)
-					.strength(0.7),
-			)
-			.force("charge", d3.forceManyBody().strength(-280))
-			.force("center", d3.forceCenter(width / 2, height / 2))
-			.force("collide", d3.forceCollide().radius(18))
-			.on("tick", () => {
-				linkSel
-					.attr("x1", (d) => (d.source as unknown as GraphNode).x ?? 0)
-					.attr("y1", (d) => (d.source as unknown as GraphNode).y ?? 0)
-					.attr("x2", (d) => (d.target as unknown as GraphNode).x ?? 0)
-					.attr("y2", (d) => (d.target as unknown as GraphNode).y ?? 0);
-
-				linkHitSel
-					.attr("x1", (d) => (d.source as unknown as GraphNode).x ?? 0)
-					.attr("y1", (d) => (d.source as unknown as GraphNode).y ?? 0)
-					.attr("x2", (d) => (d.target as unknown as GraphNode).x ?? 0)
-					.attr("y2", (d) => (d.target as unknown as GraphNode).y ?? 0);
-
-				edgeTextSel
-					.attr(
-						"x",
-						(d) =>
-							(((d.source as unknown as GraphNode).x ?? 0) +
-								((d.target as unknown as GraphNode).x ?? 0)) /
-							2,
-					)
-					.attr(
-						"y",
-						(d) =>
-							(((d.source as unknown as GraphNode).y ?? 0) +
-								((d.target as unknown as GraphNode).y ?? 0)) /
-							2,
-					);
-
-				nodeSel.attr("cx", (d) => d.x ?? 0).attr("cy", (d) => d.y ?? 0);
-
-				labelSel.attr(
-					"transform",
-					(d) => `translate(${(d.x ?? 0) + 10},${d.y ?? 0})`,
-				);
-			});
-
 		onCleanup(() => {
-			simulation?.stop();
+			currentRender?.simulation.stop();
 		});
 	});
 
@@ -655,27 +459,31 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 
 	return (
 		<div
-			class={`${styles.container} ${fullscreen() ? styles.containerFullscreen : ""}`}
-			style={fullscreen() ? undefined : { width: `${graphWidth()}px` }}
+			class={`${styles.container} ${fullscreen() && !embedded() ? styles.containerFullscreen : ""} ${embedded() ? (fullscreen() ? styles.containerEmbeddedFullscreen : styles.containerEmbedded) : ""}`}
+			style={
+				fullscreen() || embedded() ? undefined : { width: `${graphWidth()}px` }
+			}
 		>
-			<Show when={!fullscreen()}>
+			<Show when={!fullscreen() && !embedded()}>
 				<hr
 					tabIndex={0}
 					class={styles.resizeHandle}
 					onMouseDown={onResizeStart}
 				/>
 			</Show>
-			<div class={styles.header}>
-				<div class={styles.title}>Graph</div>
-				<button
-					type="button"
-					class={styles.closeBtn}
-					onClick={handleClose}
-					title="Close graph"
-				>
-					&times;
-				</button>
-			</div>
+			<Show when={!embedded() || fullscreen()}>
+				<div class={styles.header}>
+					<div class={styles.title}>Graph</div>
+					<button
+						type="button"
+						class={styles.closeBtn}
+						onClick={handleClose}
+						title={fullscreen() ? "Exit fullscreen" : "Close graph"}
+					>
+						&times;
+					</button>
+				</div>
+			</Show>
 
 			<div class={styles.controls}>
 				<label class={styles.controlLabel}>
@@ -687,6 +495,7 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 							setDepth(
 								Number.isFinite(next) ? Math.min(5, Math.max(1, next)) : 2,
 							);
+							markDirty();
 						}}
 						disabled={noteId().trim() === ""}
 						class={styles.controlSelect}
@@ -698,6 +507,56 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 						<option value="5">5</option>
 					</select>
 				</label>
+				<GraphFilterDropdown
+					noteTypes={store().noteTypes()}
+					predicates={predicates()}
+					selectedTypeIds={filterTypeIds()}
+					selectedPredicateIds={filterPredicateIds()}
+					onToggleTypeId={toggleFilterTypeId}
+					onTogglePredicateId={toggleFilterPredicateId}
+					onClearAll={clearAllFilters}
+					disabled={noteId().trim() === ""}
+					includeFiles={includeFiles()}
+					onIncludeFilesChange={(v) => {
+						setIncludeFiles(v);
+						markDirty();
+					}}
+					layout={layout()}
+					onLayoutChange={(v) => {
+						setLayout(v);
+						markDirty();
+					}}
+					linkDistance={linkDistance()}
+					onLinkDistanceChange={(v) => {
+						setLinkDistance(v);
+						markDirty();
+					}}
+					chargeStrength={chargeStrength()}
+					onChargeStrengthChange={(v) => {
+						setChargeStrength(v);
+						markDirty();
+					}}
+					nodeSize={nodeSize()}
+					onNodeSizeChange={(v) => {
+						setNodeSize(v);
+						markDirty();
+					}}
+					linkWidth={linkWidth()}
+					onLinkWidthChange={(v) => {
+						setLinkWidth(v);
+						markDirty();
+					}}
+				/>
+				<Show when={hiddenCount() > 0}>
+					<button
+						type="button"
+						class={styles.controlBtn}
+						onClick={unhideAll}
+						title="Unhide all hidden nodes"
+					>
+						{hiddenCount()} hidden &times;
+					</button>
+				</Show>
 				<button
 					type="button"
 					class={styles.controlBtn}
@@ -706,6 +565,30 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 				>
 					Center
 				</button>
+				<Show
+					when={embedded()}
+					fallback={
+						<button
+							type="button"
+							class={styles.controlBtn}
+							onClick={onSaveAsGraphNote}
+							disabled={noteId().trim() === ""}
+							title="Save as graph view note"
+						>
+							Save as note
+						</button>
+					}
+				>
+					<button
+						type="button"
+						class={styles.controlBtn}
+						onClick={onSaveConfig}
+						disabled={noteId().trim() === ""}
+						title="Save graph configuration"
+					>
+						Save
+					</button>
+				</Show>
 				<Show when={!fullscreen()}>
 					<button
 						type="button"

@@ -26,7 +26,7 @@ type NookStats = {
 };
 
 const TIPS = [
-	'Use "type: person" in search to filter by note type.',
+	'Use "type: <name>" in search to filter by note type.',
 	"Type @ in the editor to mention and link to another note.",
 	"Use !! in the editor to embed an image from another note.",
 	"You can drag nodes in the graph view to rearrange them.",
