@@ -70,11 +70,15 @@ function parseUrlParams(search: string) {
 	const predicateIds = (p.get("predicateIds") ?? "")
 		.split(",")
 		.filter((s) => s.trim() !== "");
+	const hidden = (p.get("hidden") ?? "")
+		.split(",")
+		.filter((s) => s.trim() !== "");
 	return {
 		depth: Number.isFinite(depth) && depth >= 1 && depth <= 5 ? depth : null,
 		includeFiles: p.has("includeFiles") ? includeFiles : null,
 		typeIds: typeIds.length > 0 ? new Set(typeIds) : null,
 		predicateIds: predicateIds.length > 0 ? new Set(predicateIds) : null,
+		hidden: hidden.length > 0 ? new Set(hidden) : null,
 	};
 }
 
@@ -97,6 +101,9 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 	);
 	const [filterPredicateIds, setFilterPredicateIds] = createSignal(
 		initParams?.predicateIds ?? new Set<string>(),
+	);
+	const [hiddenNodeIds, setHiddenNodeIds] = createSignal(
+		initParams?.hidden ?? new Set<string>(),
 	);
 	const [predicates, setPredicates] = createSignal<LinkPredicate[]>([]);
 
@@ -137,6 +144,16 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 		setFilterPredicateIds(new Set<string>());
 	};
 
+	const hideNode = (id: string) => {
+		const centerId = noteId().trim();
+		if (id === centerId) return; // never hide the center node
+		const s = new Set(hiddenNodeIds());
+		s.add(id);
+		setHiddenNodeIds(s);
+	};
+	const unhideAll = () => setHiddenNodeIds(new Set<string>());
+	const hiddenCount = createMemo(() => hiddenNodeIds().size);
+
 	const buildGraphSearch = () => {
 		const p = new URLSearchParams();
 		const d = depth();
@@ -146,6 +163,8 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 		if (tIds) p.set("typeIds", tIds);
 		const pIds = [...filterPredicateIds()].join(",");
 		if (pIds) p.set("predicateIds", pIds);
+		const hIds = [...hiddenNodeIds()].join(",");
+		if (hIds) p.set("hidden", hIds);
 		const qs = p.toString();
 		return qs ? `?${qs}` : "";
 	};
@@ -298,6 +317,7 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 		const centerId = noteId().trim();
 		if (centerId === "") return { nodes: [], edges: [] };
 		const centerTitle = store().title().trim();
+		const hidden = hiddenNodeIds();
 
 		const nodes = new Map<string, GraphNode>();
 		nodes.set(centerId, {
@@ -310,6 +330,7 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 			const s = l.sourceNoteId.trim();
 			const t = l.targetNoteId.trim();
 			if (s === "" || t === "") continue;
+			if (hidden.has(s) || hidden.has(t)) continue;
 			if (!nodes.has(s)) nodes.set(s, { id: s, label: labelFor(s) });
 			if (!nodes.has(t)) nodes.set(t, { id: t, label: labelFor(t) });
 			const edgeLabel = l.forwardLabel?.trim()
@@ -656,6 +677,16 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 			});
 		};
 
+		const handleNodeClick = (event: MouseEvent, d: GraphNode) => {
+			if (event.button !== 0) return;
+			event.preventDefault();
+			if (event.shiftKey || event.ctrlKey || event.metaKey) {
+				hideNode(d.id);
+				return;
+			}
+			selectNote(d.id);
+		};
+
 		nodeLinkSel
 			.on("mouseenter", (_event, d) => {
 				hoveredId = d.id;
@@ -665,19 +696,7 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 				hoveredId = null;
 				applyHover();
 			})
-			.on("click", (event, d) => {
-				if (
-					event.button !== 0 ||
-					event.ctrlKey ||
-					event.metaKey ||
-					event.shiftKey ||
-					event.altKey
-				) {
-					return;
-				}
-				event.preventDefault();
-				selectNote(d.id);
-			});
+			.on("click", (event, d) => handleNodeClick(event, d));
 
 		labelSel
 			.on("mouseenter", (_event, d) => {
@@ -688,19 +707,7 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 				hoveredId = null;
 				applyHover();
 			})
-			.on("click", (event, d) => {
-				if (
-					event.button !== 0 ||
-					event.ctrlKey ||
-					event.metaKey ||
-					event.shiftKey ||
-					event.altKey
-				) {
-					return;
-				}
-				event.preventDefault();
-				selectNote(d.id);
-			});
+			.on("click", (event, d) => handleNodeClick(event, d));
 
 		linkHitSel
 			.on("mouseenter", (_event, d) => {
@@ -845,6 +852,16 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 					onClearAll={clearAllFilters}
 					disabled={noteId().trim() === ""}
 				/>
+				<Show when={hiddenCount() > 0}>
+					<button
+						type="button"
+						class={styles.controlBtn}
+						onClick={unhideAll}
+						title="Unhide all hidden nodes"
+					>
+						{hiddenCount()} hidden &times;
+					</button>
+				</Show>
 				<button
 					type="button"
 					class={styles.controlBtn}
