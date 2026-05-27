@@ -1,7 +1,12 @@
 import { z } from "zod";
 
-const NoteTypeEnum = z.enum(["anything", "person", "file", "graph"]);
-// Note: "person" is kept in the enum for backwards compatibility but no longer has special handling.
+const NoteTypeEnum = z
+	.string()
+	.transform((v) => {
+		if (v === "file" || v === "graph") return v;
+		return "anything" as const;
+	})
+	.pipe(z.enum(["anything", "file", "graph"]));
 
 export const GraphLayoutEnum = z.enum(["force", "tree", "radial"]);
 export type GraphLayout = z.infer<typeof GraphLayoutEnum>;

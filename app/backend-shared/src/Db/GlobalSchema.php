@@ -191,6 +191,9 @@ final class GlobalSchema
             $pdo->exec('alter table global.notes add column if not exists type_id uuid null references global.note_types(id) on delete set null');
             $pdo->exec('create index if not exists notes_type_id_idx on global.notes (type_id)');
 
+            // Migrate "person" type to "anything" — person is no longer a built-in type
+            $pdo->exec("update global.notes set type = 'anything' where type = 'person'");
+
 
             $pdo->exec(" 
                 create table if not exists global.note_files (
