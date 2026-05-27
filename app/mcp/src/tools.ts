@@ -99,7 +99,7 @@ export function registerTools(server: McpServer, ctx: ApiContext): void {
 
   tool(server,
     'create_note',
-    'Create a new note in a nook',
+    'Create a new note in a nook. Set type to "graph" with properties.rootNoteId to create a graph view.',
     {
       nook_id: z.string(),
       title: z.string(),
@@ -108,8 +108,9 @@ export function registerTools(server: McpServer, ctx: ApiContext): void {
         'To link to another note inline, use [[note:<note_id>]] — the title is resolved automatically. ' +
         'To embed a file note as an image, use ![Note Title](note:<note_id>).'
       ),
-      type_id: z.string().optional().describe('Note type ID to assign'),
-      properties: z.any().optional().describe('Arbitrary JSON properties'),
+      type: z.string().optional().describe('Note type: "anything" (default), "file", or "graph"'),
+      type_id: z.string().optional().describe('Note type ID from taxonomy'),
+      properties: z.any().optional().describe('JSON properties. For graph: { rootNoteId, depth?, layout?, includeFiles?, ... }'),
     },
     async ({ nook_id, ...body }) => {
       requireNookWrite(ctx.scopes, nook_id);

@@ -110,6 +110,13 @@
 	font-style: italic;
 }
 
+.searchAgentScope {
+	font-family: inherit;
+	font-size: 0.8125rem;
+	color: var(--color-text-muted);
+	margin-bottom: 4px;
+}
+
 .actions {
 	display: flex;
 	gap: 8px;

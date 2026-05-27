@@ -3,6 +3,34 @@ import type express from 'express';
 import Anthropic from '@anthropic-ai/sdk';
 import rateLimit from 'express-rate-limit';
 import { TOOLS, executeTool } from './chat-tools.js';
+import { runSearchAgent, type SearchAgentContext } from './search-agent.js';
+
+function buildConversationSummary(messages: Anthropic.MessageParam[], maxLength = 500): string {
+  const parts: string[] = [];
+  let len = 0;
+  for (const msg of messages) {
+    if (len >= maxLength) break;
+    const blocks = Array.isArray(msg.content) ? msg.content : [{ type: 'text', text: String(msg.content) }];
+    for (const block of blocks) {
+      if (typeof block === 'object' && block !== null && 'type' in block && block.type === 'text' && 'text' in block) {
+        const text = String(block.text).slice(0, 150);
+        parts.push(`${msg.role}: ${text}`);
+        len += text.length;
+        if (len >= maxLength) break;
+      }
+    }
+  }
+  return parts.join('\n');
+}
+
+async function resolveNookName(nookId: string, cookie: string, apiBase: string): Promise<string> {
+  try {
+    const data = await phpApi('GET', '/api/nooks', cookie, apiBase) as { nooks?: Array<{ id: string; name: string }> } | null;
+    return data?.nooks?.find(n => n.id === nookId)?.name ?? '';
+  } catch {
+    return '';
+  }
+}
 
 const DEFAULT_MODEL = 'claude-sonnet-4-6';
 const MAX_TOKENS    = 8096;
@@ -323,7 +351,13 @@ General rules:
 
 **search_notes behavior:** The q parameter is optional — omit it or pass an empty string to list all notes (optionally filtered by type_id). Do NOT search for common words like "a" or "the" to find all notes. Multiple words are automatically split: by default all must match (AND). Use search_mode="or" if you want any word to match. The same applies to explore_notes q parameter.
 
-**Tool approval:** The following tools auto-execute without user approval: search_notes, explore_notes, get_note_mentions, list_note_types, list_link_predicates, and all memory_* tools (memory_search, memory_get, memory_create, memory_update). All other tools (get_note, create_note, update_note, delete_note, create_note_link, open_note, create_note_type, update_note_type) require user confirmation.
+**search_agent:** When you need to research a topic across multiple notes, use the search_agent tool instead of searching manually. The search agent runs in its own context window, can search and read notes across all accessible nooks, and returns ranked results with relevant excerpts — keeping this conversation's context clean. The user must approve before it runs. Always tell the user what you're about to search for before calling it. Use it for:
+- Broad research questions ("find everything about X")
+- Questions that may require reading multiple notes to synthesize an answer
+- When context usage is high and you need to search
+For simple, targeted lookups (one search + one note read), use search_notes/get_note directly — the search agent adds overhead for trivial queries.
+
+**Tool approval:** The following tools auto-execute without user approval: search_notes, explore_notes, get_note_mentions, list_note_types, list_link_predicates, and all memory_* tools (memory_search, memory_get, memory_create, memory_update). All other tools (get_note, create_note, update_note, delete_note, create_note_link, open_note, create_note_type, update_note_type, search_agent) require user confirmation.
 
 **Mermaid diagrams:** Both note content and your chat responses support mermaid diagrams via fenced code blocks (\`\`\`mermaid). Use them when visualizing relationships, flows, timelines, or architectures would help the user. The UI renders them as interactive SVGs.`,
     memoryNookId
@@ -336,6 +370,15 @@ At the start of each conversation, proactively search user memory with memory_se
 When you create or update a memory note, the system automatically links it to the current conversation — this builds a knowledge trail showing why each memory exists and which conversations contributed to it.`
       : '',
     `**Note type taxonomy:** You can help the user manage their note taxonomy. Use list_note_types to see the full hierarchy before suggesting or creating types. When creating a type, always tell the user where in the hierarchy it will appear (e.g. "Creating 'Employee' as a subtype of 'Person'"). You can update a type's label or description with update_note_type. Never create a type without showing the user what you're about to create and where it fits.`,
+    `**Graph view notes:** You can create saved graph views as notes with type "graph". These render as interactive graph visualizations in the UI. To create one:
+1. Identify or create the root note (the center of the graph)
+2. Use create_note with type: "graph" and properties: { rootNoteId: "<root_note_uuid>" }
+3. Optional properties: depth (1-5, default 2), layout ("force"|"tree"|"radial"), includeFiles (boolean), linkDistance, chargeStrength, nodeSize, linkWidth, filterTypeIds, filterPredicateIds, hiddenNodeIds
+
+Example: To create a family tree graph centered on a note:
+- create_note({ title: "Family Tree: Smith Family", type: "graph", properties: { rootNoteId: "<root_note_id>", layout: "tree", depth: 3 } })
+
+Graph notes appear as purple hexagons when shown in other graphs, and clicking them navigates into that saved view. They can be linked to other notes and described with content like any other note.`,
     `**Conversation hygiene:** When you notice the user switching to a completely different topic, gently suggest starting a new chat — this keeps conversations focused and searchable. Before they do, offer to:
 - Save nook-specific outcomes/decisions as a note in the current nook (using create_note)
 - Save personal preferences or cross-nook context to memory (using memory_create/memory_update)
@@ -530,7 +573,27 @@ async function streamConversation(
                   let resultContent: string;
                   let isError = false;
                   try {
-                    resultContent = await executeTool(t.name, t.input, apiBase, cookie, nookId, memoryNookId ?? undefined);
+                    if (t.name === 'search_agent') {
+                      const agentCtx: SearchAgentContext = {
+                        contextNote: contextNote ?? undefined,
+                        nookInstructions,
+                        memoryNotes,
+                        conversationSummary: buildConversationSummary(msgs),
+                      };
+                      resultContent = await runSearchAgent(
+                        String(t.input.task ?? ''),
+                        model,
+                        apiBase,
+                        cookie,
+                        nookId,
+                        nookName,
+                        memoryNookId ?? undefined,
+                        (status) => sse(res, 'search_agent_progress', { tool_use_id: t.id, status }),
+                        agentCtx,
+                      );
+                    } else {
+                      resultContent = await executeTool(t.name, t.input, apiBase, cookie, nookId, memoryNookId ?? undefined);
+                    }
                   } catch (err) {
                     resultContent = `Error: ${err instanceof Error ? err.message : 'unknown'}`;
                     isError = true;
@@ -572,6 +635,8 @@ async function streamConversation(
                 conversation_id: conversationId,
                 tools: toolsPayload,
                 display_names: displayNames,
+                nook_name: nookName,
+                nook_id: nookId,
               });
               return;
             }
@@ -708,13 +773,59 @@ export function createChatRouter(apiBase: string): Router {
       ]);
 
       // Execute approved tools, build tool_result content blocks
+      // Resolve nook name lazily (only if search_agent is among approved tools)
+      let cachedNookName: string | undefined;
+      const getNookName = async () => {
+        if (cachedNookName === undefined) cachedNookName = await resolveNookName(nook_id, cookieHeader, apiBase);
+        return cachedNookName;
+      };
+
+      const hasSearchAgent = tool_results.some(tr => tr.tool_name === 'search_agent' && tr.approved);
+      if (hasSearchAgent) sseHeaders(res);
+
+      // Resolve search agent context lazily
+      let searchAgentCtx: SearchAgentContext | undefined;
+      const getSearchAgentCtx = async (): Promise<SearchAgentContext> => {
+        if (!searchAgentCtx) {
+          const [nookInstr, memNotes] = await Promise.all([
+            fetchInstructionNotes(nook_id, cookieHeader, apiBase),
+            memNookId ? fetchMemoryInstructionNotes(memNookId, cookieHeader, apiBase) : Promise.resolve([]),
+          ]);
+          const ctxNote = (typeof context_note_id === 'string' && context_note_id)
+            ? { id: context_note_id, title: typeof context_note_title === 'string' ? context_note_title : context_note_id, type: typeof context_note_type === 'string' ? context_note_type : undefined }
+            : undefined;
+          searchAgentCtx = {
+            contextNote: ctxNote,
+            nookInstructions: nookInstr,
+            memoryNotes: memNotes,
+            conversationSummary: buildConversationSummary(history),
+          };
+        }
+        return searchAgentCtx;
+      };
+
       const resultBlocks: Anthropic.ToolResultBlockParam[] = await Promise.all(
         tool_results.map(async (tr): Promise<Anthropic.ToolResultBlockParam> => {
           if (!tr.approved) {
             return { type: 'tool_result', tool_use_id: tr.tool_use_id, content: 'User denied this action.' };
           }
           try {
-            const result = await executeTool(tr.tool_name, tr.tool_input, apiBase, cookieHeader, nook_id, memNookId ?? undefined);
+            let result: string;
+            if (tr.tool_name === 'search_agent') {
+              result = await runSearchAgent(
+                String(tr.tool_input.task ?? ''),
+                resolvedModel,
+                apiBase,
+                cookieHeader,
+                nook_id,
+                await getNookName(),
+                memNookId ?? undefined,
+                (status) => sse(res, 'search_agent_progress', { tool_use_id: tr.tool_use_id, status }),
+                await getSearchAgentCtx(),
+              );
+            } else {
+              result = await executeTool(tr.tool_name, tr.tool_input, apiBase, cookieHeader, nook_id, memNookId ?? undefined);
+            }
             return { type: 'tool_result', tool_use_id: tr.tool_use_id, content: result };
           } catch (err) {
             return {
@@ -745,7 +856,7 @@ export function createChatRouter(apiBase: string): Router {
           }
         : undefined;
 
-      sseHeaders(res);
+      if (!res.headersSent) sseHeaders(res);
       await streamConversation(res, history, resolvedModel, conversation_id, cookieHeader, apiBase, nook_id, contextNote, memNookId);
     } catch (err) {
       if (!res.headersSent) {

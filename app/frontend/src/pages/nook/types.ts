@@ -1,5 +1,64 @@
 import { z } from "zod";
 
+const NoteTypeEnum = z
+	.string()
+	.transform((v) => {
+		if (v === "file" || v === "graph") return v;
+		return "anything" as const;
+	})
+	.pipe(z.enum(["anything", "file", "graph"]));
+
+export const GraphLayoutEnum = z.enum(["force", "tree", "radial"]);
+export type GraphLayout = z.infer<typeof GraphLayoutEnum>;
+
+export const GraphViewPropertiesSchema = z.object({
+	rootNoteId: z.string(),
+	depth: z.number().int().min(1).max(5).optional(),
+	includeFiles: z.boolean().optional(),
+	filterTypeIds: z.array(z.string()).optional(),
+	filterPredicateIds: z.array(z.string()).optional(),
+	hiddenNodeIds: z.array(z.string()).optional(),
+	// Display settings
+	layout: GraphLayoutEnum.optional(),
+	linkDistance: z.number().min(20).max(300).optional(),
+	chargeStrength: z.number().min(-1000).max(0).optional(),
+	nodeSize: z.number().min(3).max(20).optional(),
+	linkWidth: z.number().min(0.5).max(5).optional(),
+});
+
+export type GraphViewProperties = z.infer<typeof GraphViewPropertiesSchema>;
+
+export function parseGraphProperties(
+	raw: Record<string, unknown>,
+): GraphViewProperties | null {
+	const result = GraphViewPropertiesSchema.safeParse(raw);
+	return result.success ? result.data : null;
+}
+
+export function serializeGraphProperties(
+	props: GraphViewProperties,
+): Record<string, unknown> {
+	const out: Record<string, unknown> = {
+		rootNoteId: props.rootNoteId,
+	};
+	if (props.depth !== undefined && props.depth !== 2) out.depth = props.depth;
+	if (props.includeFiles) out.includeFiles = true;
+	if (props.filterTypeIds?.length) out.filterTypeIds = props.filterTypeIds;
+	if (props.filterPredicateIds?.length)
+		out.filterPredicateIds = props.filterPredicateIds;
+	if (props.hiddenNodeIds?.length) out.hiddenNodeIds = props.hiddenNodeIds;
+	if (props.layout && props.layout !== "force") out.layout = props.layout;
+	if (props.linkDistance !== undefined && props.linkDistance !== 90)
+		out.linkDistance = props.linkDistance;
+	if (props.chargeStrength !== undefined && props.chargeStrength !== -280)
+		out.chargeStrength = props.chargeStrength;
+	if (props.nodeSize !== undefined && props.nodeSize !== 6)
+		out.nodeSize = props.nodeSize;
+	if (props.linkWidth !== undefined && props.linkWidth !== 1)
+		out.linkWidth = props.linkWidth;
+	return out;
+}
+
 const NoteSummaryApiSchema = z
 	.object({
 		id: z.string(),
@@ -9,7 +68,7 @@ const NoteSummaryApiSchema = z
 		incoming_mentions_count: z.number().int().optional(),
 		outgoing_links_count: z.number().int().optional(),
 		incoming_links_count: z.number().int().optional(),
-		type: z.enum(["anything", "person", "file"]).optional(),
+		type: NoteTypeEnum.optional(),
 		created_at: z.string().optional(),
 	})
 	.transform((n) => ({
@@ -30,7 +89,7 @@ const NoteDetailApiSchema = z
 		title: z.string(),
 		content: z.string(),
 		type_id: z.string().optional(),
-		type: z.enum(["anything", "person", "file"]).optional(),
+		type: NoteTypeEnum.optional(),
 		properties: z.record(z.string(), z.unknown()).optional(),
 		former_properties: z.record(z.string(), z.unknown()).optional(),
 		version: z.number().int().optional(),
@@ -220,8 +279,10 @@ const NoteLinkApiSchema = z
 		supports_end_date: z.boolean().optional(),
 		source_note_id: z.string(),
 		source_note_title: z.string().optional(),
+		source_note_type: NoteTypeEnum.optional(),
 		target_note_id: z.string(),
 		target_note_title: z.string().optional(),
+		target_note_type: NoteTypeEnum.optional(),
 		start_date: z.string().optional(),
 		end_date: z.string().optional(),
 		former: z.record(z.string(), z.unknown()).optional(),
@@ -241,8 +302,10 @@ const NoteLinkApiSchema = z
 		supportsEndDate: l.supports_end_date ?? false,
 		sourceNoteId: l.source_note_id,
 		sourceNoteTitle: l.source_note_title ?? "",
+		sourceNoteType: l.source_note_type ?? "anything",
 		targetNoteId: l.target_note_id,
 		targetNoteTitle: l.target_note_title ?? "",
+		targetNoteType: l.target_note_type ?? "anything",
 		startDate: l.start_date ?? "",
 		endDate: l.end_date ?? "",
 		former: l.former ?? {},
