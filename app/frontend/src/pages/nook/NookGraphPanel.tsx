@@ -62,8 +62,16 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 	const store = () => props.store;
 	const nookId = () => store().nookId();
 	const embedded = () => Boolean(props.embedded);
-	const noteId = () =>
-		embedded() ? (props.rootNoteId ?? "") : store().selectedId();
+	const isGraphNote = () =>
+		store().type() === "graph" && !!store().graphProperties()?.rootNoteId;
+	const noteId = () => {
+		if (embedded()) return props.rootNoteId ?? "";
+		// For graph notes, the sidebar graph shows the rootNoteId, not the graph note itself
+		if (isGraphNote()) return store().graphProperties()!.rootNoteId;
+		return store().selectedId();
+	};
+	const excludeNoteId = () =>
+		isGraphNote() && !embedded() ? store().selectedId() : "";
 	const fullscreen = () => Boolean(props.fullscreen);
 
 	// Seed signals from initialConfig (embedded/graph note mode)
@@ -328,8 +336,11 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 		if (centerId === "") return { nodes: [], edges: [] };
 		const centerTitle = embedded()
 			? labelFor(centerId)
-			: store().title().trim();
+			: isGraphNote()
+				? labelFor(centerId)
+				: store().title().trim();
 		const hidden = hiddenNodeIds();
+		const exclude = excludeNoteId();
 
 		const nodes = new Map<string, GraphNode>();
 		nodes.set(centerId, {
@@ -344,6 +355,7 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 			const t = l.targetNoteId.trim();
 			if (s === "" || t === "") continue;
 			if (hidden.has(s) || hidden.has(t)) continue;
+			if (exclude && (s === exclude || t === exclude)) continue;
 			if (!nodes.has(s))
 				nodes.set(s, {
 					id: s,
