@@ -17,8 +17,10 @@ const ALLOWED_TOOLS = new Set([
 
 const SEARCH_AGENT_TOOLS = TOOLS.filter(t => ALLOWED_TOOLS.has(t.name));
 
-function buildSearchAgentPrompt(nookId: string, nookName: string): string {
-  return `You are a research assistant for a note-taking app called paith notes. You are searching notes in nook "${nookName}" (${nookId}).
+function buildSearchAgentPrompt(nookId: string, nookName: string, context?: SearchAgentContext): string {
+  const parts: string[] = [];
+
+  parts.push(`You are a research assistant for a note-taking app called paith notes. You are searching notes in nook "${nookName}" (${nookId}).
 
 Your job: search the user's notes efficiently and return a structured JSON report of what you found.
 
@@ -66,10 +68,41 @@ Rules for findings:
 - Include excerpts with the exact text from the note content. Calculate char_start/char_end as character positions within the note content.
 - rest_summary should briefly describe what else the note contains beyond the excerpts.
 - If nothing relevant is found, return an empty findings array with an explanation in search_summary.
-- Only include notes that are actually relevant to the task.`;
+- Only include notes that are actually relevant to the task.`);
+
+  if (context?.contextNote) {
+    parts.push(`**Current note open in editor:**
+Title: ${context.contextNote.title}
+ID: ${context.contextNote.id}
+Type: ${context.contextNote.type ?? 'note'}
+When the task references "this note", "the current note", "my note", etc., it means this note.`);
+  }
+
+  if (context?.nookInstructions?.length) {
+    const list = context.nookInstructions.map(n => `- "${n.title}" (ID: ${n.id})`).join('\n');
+    parts.push(`**Nook-specific instructions** (read with get_note if relevant to the search task):\n${list}`);
+  }
+
+  if (context?.memoryNotes?.length) {
+    const list = context.memoryNotes.map(n => `- "${n.title}" (ID: ${n.id})`).join('\n');
+    parts.push(`**User memory notes** (read with memory_get if relevant):\n${list}`);
+  }
+
+  if (context?.conversationSummary) {
+    parts.push(`**Conversation context:** ${context.conversationSummary}`);
+  }
+
+  return parts.join('\n\n');
 }
 
 export type SearchAgentProgress = (status: string) => void;
+
+export type SearchAgentContext = {
+  contextNote?: { id: string; title: string; type?: string };
+  nookInstructions?: Array<{ id: string; title: string }>;
+  memoryNotes?: Array<{ id: string; title: string }>;
+  conversationSummary?: string;
+};
 
 export async function runSearchAgent(
   task: string,
@@ -80,9 +113,10 @@ export async function runSearchAgent(
   nookName: string,
   memoryNookId?: string,
   onProgress?: SearchAgentProgress,
+  context?: SearchAgentContext,
 ): Promise<string> {
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-  const systemPrompt = buildSearchAgentPrompt(nookId, nookName);
+  const systemPrompt = buildSearchAgentPrompt(nookId, nookName, context);
   const messages: Anthropic.MessageParam[] = [{ role: 'user', content: task }];
 
   onProgress?.('Starting search...');

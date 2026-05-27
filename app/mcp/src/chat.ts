@@ -3,7 +3,25 @@ import type express from 'express';
 import Anthropic from '@anthropic-ai/sdk';
 import rateLimit from 'express-rate-limit';
 import { TOOLS, executeTool } from './chat-tools.js';
-import { runSearchAgent } from './search-agent.js';
+import { runSearchAgent, type SearchAgentContext } from './search-agent.js';
+
+function buildConversationSummary(messages: Anthropic.MessageParam[], maxLength = 500): string {
+  const parts: string[] = [];
+  let len = 0;
+  for (const msg of messages) {
+    if (len >= maxLength) break;
+    const blocks = Array.isArray(msg.content) ? msg.content : [{ type: 'text', text: String(msg.content) }];
+    for (const block of blocks) {
+      if (typeof block === 'object' && block !== null && 'type' in block && block.type === 'text' && 'text' in block) {
+        const text = String(block.text).slice(0, 150);
+        parts.push(`${msg.role}: ${text}`);
+        len += text.length;
+        if (len >= maxLength) break;
+      }
+    }
+  }
+  return parts.join('\n');
+}
 
 async function resolveNookName(nookId: string, cookie: string, apiBase: string): Promise<string> {
   try {
@@ -556,6 +574,12 @@ async function streamConversation(
                   let isError = false;
                   try {
                     if (t.name === 'search_agent') {
+                      const agentCtx: SearchAgentContext = {
+                        contextNote: contextNote ?? undefined,
+                        nookInstructions,
+                        memoryNotes,
+                        conversationSummary: buildConversationSummary(msgs),
+                      };
                       resultContent = await runSearchAgent(
                         String(t.input.task ?? ''),
                         model,
@@ -565,6 +589,7 @@ async function streamConversation(
                         nookName,
                         memoryNookId ?? undefined,
                         (status) => sse(res, 'search_agent_progress', { tool_use_id: t.id, status }),
+                        agentCtx,
                       );
                     } else {
                       resultContent = await executeTool(t.name, t.input, apiBase, cookie, nookId, memoryNookId ?? undefined);
@@ -758,6 +783,27 @@ export function createChatRouter(apiBase: string): Router {
       const hasSearchAgent = tool_results.some(tr => tr.tool_name === 'search_agent' && tr.approved);
       if (hasSearchAgent) sseHeaders(res);
 
+      // Resolve search agent context lazily
+      let searchAgentCtx: SearchAgentContext | undefined;
+      const getSearchAgentCtx = async (): Promise<SearchAgentContext> => {
+        if (!searchAgentCtx) {
+          const [nookInstr, memNotes] = await Promise.all([
+            fetchInstructionNotes(nook_id, cookieHeader, apiBase),
+            memNookId ? fetchMemoryInstructionNotes(memNookId, cookieHeader, apiBase) : Promise.resolve([]),
+          ]);
+          const ctxNote = (typeof context_note_id === 'string' && context_note_id)
+            ? { id: context_note_id, title: typeof context_note_title === 'string' ? context_note_title : context_note_id, type: typeof context_note_type === 'string' ? context_note_type : undefined }
+            : undefined;
+          searchAgentCtx = {
+            contextNote: ctxNote,
+            nookInstructions: nookInstr,
+            memoryNotes: memNotes,
+            conversationSummary: buildConversationSummary(history),
+          };
+        }
+        return searchAgentCtx;
+      };
+
       const resultBlocks: Anthropic.ToolResultBlockParam[] = await Promise.all(
         tool_results.map(async (tr): Promise<Anthropic.ToolResultBlockParam> => {
           if (!tr.approved) {
@@ -775,6 +821,7 @@ export function createChatRouter(apiBase: string): Router {
                 await getNookName(),
                 memNookId ?? undefined,
                 (status) => sse(res, 'search_agent_progress', { tool_use_id: tr.tool_use_id, status }),
+                await getSearchAgentCtx(),
               );
             } else {
               result = await executeTool(tr.tool_name, tr.tool_input, apiBase, cookieHeader, nook_id, memNookId ?? undefined);
