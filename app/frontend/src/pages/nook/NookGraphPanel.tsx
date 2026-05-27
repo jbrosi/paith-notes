@@ -679,8 +679,9 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 
 		const handleNodeClick = (event: MouseEvent, d: GraphNode) => {
 			if (event.button !== 0) return;
+			if (event.ctrlKey || event.metaKey) return; // let browser handle open-in-new-tab
 			event.preventDefault();
-			if (event.shiftKey || event.ctrlKey || event.metaKey) {
+			if (event.shiftKey) {
 				hideNode(d.id);
 				return;
 			}
