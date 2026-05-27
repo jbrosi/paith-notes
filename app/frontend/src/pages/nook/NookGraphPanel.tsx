@@ -48,7 +48,9 @@ function loadStoredWidth(): number {
 			const n = Number(v);
 			if (Number.isFinite(n) && n >= MIN_GRAPH_WIDTH) return n;
 		}
-	} catch { /* ignore */ }
+	} catch {
+		/* ignore */
+	}
 	return DEFAULT_GRAPH_WIDTH;
 }
 
@@ -79,7 +81,11 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 			document.removeEventListener("mouseup", onUp);
 			document.body.style.cursor = "";
 			document.body.style.userSelect = "";
-			try { localStorage.setItem(GRAPH_WIDTH_STORAGE_KEY, String(graphWidth())); } catch { /* ignore */ }
+			try {
+				localStorage.setItem(GRAPH_WIDTH_STORAGE_KEY, String(graphWidth()));
+			} catch {
+				/* ignore */
+			}
 		};
 		document.body.style.cursor = "col-resize";
 		document.body.style.userSelect = "none";
@@ -653,7 +659,11 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 			style={fullscreen() ? undefined : { width: `${graphWidth()}px` }}
 		>
 			<Show when={!fullscreen()}>
-				<div class={styles.resizeHandle} onMouseDown={onResizeStart} />
+				<hr
+					tabIndex={0}
+					class={styles.resizeHandle}
+					onMouseDown={onResizeStart}
+				/>
 			</Show>
 			<div class={styles.header}>
 				<div class={styles.title}>Graph</div>

@@ -76,7 +76,10 @@ export function NookNotesSearchDropdown(props: NookNotesSearchDropdownProps) {
 
 	const onSearchInput = (val: string) => {
 		if (debounceTimer) clearTimeout(debounceTimer);
-		debounceTimer = setTimeout(() => store()?.setNotesQuery(val), SEARCH_DEBOUNCE_MS);
+		debounceTimer = setTimeout(
+			() => store()?.setNotesQuery(val),
+			SEARCH_DEBOUNCE_MS,
+		);
 	};
 
 	const applyTypeSuggestion = (key: string) => {
