@@ -627,6 +627,7 @@ export function ChatPanel(props: Props) {
 									message={m}
 									notePreview={props.notePreview}
 									onNavigateToNote={props.onNavigateToNote}
+									memoryNookId={props.chatNookId}
 								/>
 							)}
 						</For>

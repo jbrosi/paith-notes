@@ -67,7 +67,10 @@ final class NoteLinksController
         }
 
         // Optional filter: only surface links where source or target is one of these type IDs.
-        // BFS traversal still expands through all nodes regardless of this filter.
+        // In strict mode, only expand the frontier through matching nodes and only include
+        // links where both endpoints match (or are the starting note).
+        // In non-strict mode (default), BFS traverses through all nodes but only surfaces
+        // links where at least one endpoint matches.
         $nodeTypeIds = [];
         $nodeTypeIdsRaw = trim($request->queryParam('node_type_ids'));
         if ($nodeTypeIdsRaw !== '') {
@@ -78,6 +81,7 @@ final class NoteLinksController
                 }
             }
         }
+        $strictTypeFilter = trim($request->queryParam('strict_type_filter')) === '1';
 
         // Optional filter: exclude links where a non-start endpoint has one of these note types
         // (e.g. "file"). The starting note is never excluded by this filter.
@@ -188,12 +192,24 @@ final class NoteLinksController
                 $sourceTypeId = is_scalar($r['source_type_id'] ?? null) ? (string)$r['source_type_id'] : '';
                 $targetTypeId = is_scalar($r['target_type_id'] ?? null) ? (string)$r['target_type_id'] : '';
 
-                // Expand frontier to unvisited nodes (regardless of type filter, so we traverse through all nodes)
-                if ($sourceId !== '' && self::isUuid($sourceId) && !isset($visited[$sourceId])) {
-                    $nextFrontier[$sourceId] = true;
-                }
-                if ($targetId !== '' && self::isUuid($targetId) && !isset($visited[$targetId])) {
-                    $nextFrontier[$targetId] = true;
+                $sourceMatchesType = $nodeTypeIds === [] || in_array($sourceTypeId, $nodeTypeIds, true) || $sourceId === $noteId;
+                $targetMatchesType = $nodeTypeIds === [] || in_array($targetTypeId, $nodeTypeIds, true) || $targetId === $noteId;
+
+                // Expand frontier: in strict mode only through matching nodes, otherwise through all
+                if ($strictTypeFilter && $nodeTypeIds !== []) {
+                    if ($sourceId !== '' && self::isUuid($sourceId) && !isset($visited[$sourceId]) && $sourceMatchesType) {
+                        $nextFrontier[$sourceId] = true;
+                    }
+                    if ($targetId !== '' && self::isUuid($targetId) && !isset($visited[$targetId]) && $targetMatchesType) {
+                        $nextFrontier[$targetId] = true;
+                    }
+                } else {
+                    if ($sourceId !== '' && self::isUuid($sourceId) && !isset($visited[$sourceId])) {
+                        $nextFrontier[$sourceId] = true;
+                    }
+                    if ($targetId !== '' && self::isUuid($targetId) && !isset($visited[$targetId])) {
+                        $nextFrontier[$targetId] = true;
+                    }
                 }
 
                 // Skip already-seen links
@@ -201,9 +217,19 @@ final class NoteLinksController
                     continue;
                 }
 
-                // Apply node type filter to results (but not to traversal above)
-                if ($nodeTypeIds !== [] && !in_array($sourceTypeId, $nodeTypeIds, true) && !in_array($targetTypeId, $nodeTypeIds, true)) {
-                    continue;
+                // Apply node type filter:
+                // Strict: both endpoints must match (or be the center note)
+                // Non-strict: at least one endpoint must match
+                if ($nodeTypeIds !== []) {
+                    if ($strictTypeFilter) {
+                        if (!$sourceMatchesType || !$targetMatchesType) {
+                            continue;
+                        }
+                    } else {
+                        if (!$sourceMatchesType && !$targetMatchesType) {
+                            continue;
+                        }
+                    }
                 }
 
                 $sourceNoteType = is_scalar($r['source_note_type'] ?? null) ? (string)$r['source_note_type'] : 'anything';
@@ -301,6 +327,68 @@ final class NoteLinksController
                 $tgtMatch = $link['target_note_id'] !== $noteId && isset($matchingIds[$link['target_note_id']]);
                 if (!$srcMatch && !$tgtMatch) {
                     unset($linksById[$linkId]);
+                }
+            }
+        }
+
+        // Non-strict type filter post-processing: prune non-matching leaf nodes.
+        // A non-matching node is kept only if it directly connects to 2+ matching nodes
+        // (i.e. it bridges between matching nodes). Repeat until stable.
+        if (!$strictTypeFilter && $nodeTypeIds !== [] && $linksById !== []) {
+            $matchingNodes = [$noteId => true]; // center always matches
+            foreach ($linksById as $link) {
+                if (in_array($link['source_type_id'], $nodeTypeIds, true)) {
+                    $matchingNodes[$link['source_note_id']] = true;
+                }
+                if (in_array($link['target_type_id'], $nodeTypeIds, true)) {
+                    $matchingNodes[$link['target_note_id']] = true;
+                }
+            }
+
+            $changed = true;
+            while ($changed) {
+                $changed = false;
+                // Count matching neighbors for each non-matching node
+                $matchingNeighborCount = [];
+                foreach ($linksById as $link) {
+                    $src = $link['source_note_id'];
+                    $tgt = $link['target_note_id'];
+                    if (!isset($matchingNodes[$src])) {
+                        if (isset($matchingNodes[$tgt])) {
+                            $matchingNeighborCount[$src] = ($matchingNeighborCount[$src] ?? 0) + 1;
+                        }
+                    }
+                    if (!isset($matchingNodes[$tgt])) {
+                        if (isset($matchingNodes[$src])) {
+                            $matchingNeighborCount[$tgt] = ($matchingNeighborCount[$tgt] ?? 0) + 1;
+                        }
+                    }
+                }
+
+                // Remove links involving non-matching nodes with < 2 matching neighbors
+                $removeNodes = [];
+                foreach ($matchingNeighborCount as $nodeId2 => $count) {
+                    if ($count < 2) {
+                        $removeNodes[$nodeId2] = true;
+                    }
+                }
+                // Also remove non-matching nodes with 0 matching neighbors (not in count at all)
+                foreach ($linksById as $link) {
+                    foreach ([$link['source_note_id'], $link['target_note_id']] as $nid) {
+                        if (!isset($matchingNodes[$nid]) && !isset($matchingNeighborCount[$nid])) {
+                            $removeNodes[$nid] = true;
+                        }
+                    }
+                }
+
+                if ($removeNodes !== []) {
+                    foreach (array_keys($linksById) as $linkId) {
+                        $link = $linksById[$linkId];
+                        if (isset($removeNodes[$link['source_note_id']]) || isset($removeNodes[$link['target_note_id']])) {
+                            unset($linksById[$linkId]);
+                            $changed = true;
+                        }
+                    }
                 }
             }
         }
