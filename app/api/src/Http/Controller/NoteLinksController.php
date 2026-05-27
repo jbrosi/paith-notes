@@ -331,6 +331,68 @@ final class NoteLinksController
             }
         }
 
+        // Non-strict type filter post-processing: prune non-matching leaf nodes.
+        // A non-matching node is kept only if it directly connects to 2+ matching nodes
+        // (i.e. it bridges between matching nodes). Repeat until stable.
+        if (!$strictTypeFilter && $nodeTypeIds !== [] && $linksById !== []) {
+            $matchingNodes = [$noteId => true]; // center always matches
+            foreach ($linksById as $link) {
+                if (in_array($link['source_type_id'], $nodeTypeIds, true)) {
+                    $matchingNodes[$link['source_note_id']] = true;
+                }
+                if (in_array($link['target_type_id'], $nodeTypeIds, true)) {
+                    $matchingNodes[$link['target_note_id']] = true;
+                }
+            }
+
+            $changed = true;
+            while ($changed) {
+                $changed = false;
+                // Count matching neighbors for each non-matching node
+                $matchingNeighborCount = [];
+                foreach ($linksById as $link) {
+                    $src = $link['source_note_id'];
+                    $tgt = $link['target_note_id'];
+                    if (!isset($matchingNodes[$src])) {
+                        if (isset($matchingNodes[$tgt])) {
+                            $matchingNeighborCount[$src] = ($matchingNeighborCount[$src] ?? 0) + 1;
+                        }
+                    }
+                    if (!isset($matchingNodes[$tgt])) {
+                        if (isset($matchingNodes[$src])) {
+                            $matchingNeighborCount[$tgt] = ($matchingNeighborCount[$tgt] ?? 0) + 1;
+                        }
+                    }
+                }
+
+                // Remove links involving non-matching nodes with < 2 matching neighbors
+                $removeNodes = [];
+                foreach ($matchingNeighborCount as $nodeId2 => $count) {
+                    if ($count < 2) {
+                        $removeNodes[$nodeId2] = true;
+                    }
+                }
+                // Also remove non-matching nodes with 0 matching neighbors (not in count at all)
+                foreach ($linksById as $link) {
+                    foreach ([$link['source_note_id'], $link['target_note_id']] as $nid) {
+                        if (!isset($matchingNodes[$nid]) && !isset($matchingNeighborCount[$nid])) {
+                            $removeNodes[$nid] = true;
+                        }
+                    }
+                }
+
+                if ($removeNodes !== []) {
+                    foreach (array_keys($linksById) as $linkId) {
+                        $link = $linksById[$linkId];
+                        if (isset($removeNodes[$link['source_note_id']]) || isset($removeNodes[$link['target_note_id']])) {
+                            unset($linksById[$linkId]);
+                            $changed = true;
+                        }
+                    }
+                }
+            }
+        }
+
         return JsonResponse::ok(['links' => array_values($linksById)]);
     }
 
