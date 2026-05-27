@@ -1,4 +1,4 @@
-import { useNavigate } from "@solidjs/router";
+import { useLocation, useNavigate } from "@solidjs/router";
 import * as d3 from "d3";
 import {
 	createEffect,
@@ -8,9 +8,15 @@ import {
 	Show,
 } from "solid-js";
 import { apiFetch } from "../../auth/keycloak";
+import { GraphFilterDropdown } from "../../components/GraphFilterDropdown";
 import styles from "./NookGraphPanel.module.css";
 import type { NookStore } from "./store";
-import { type NoteLink, NoteLinksListResponseSchema } from "./types";
+import {
+	type LinkPredicate,
+	LinkPredicatesListResponseSchema,
+	type NoteLink,
+	NoteLinksListResponseSchema,
+} from "./types";
 
 export type NookGraphPanelProps = {
 	store: NookStore;
@@ -54,13 +60,127 @@ function loadStoredWidth(): number {
 	return DEFAULT_GRAPH_WIDTH;
 }
 
+function parseUrlParams(search: string) {
+	const p = new URLSearchParams(search);
+	const depth = Number.parseInt(p.get("depth") ?? "", 10);
+	const includeFiles = p.get("includeFiles") === "1";
+	const typeIds = (p.get("typeIds") ?? "")
+		.split(",")
+		.filter((s) => s.trim() !== "");
+	const predicateIds = (p.get("predicateIds") ?? "")
+		.split(",")
+		.filter((s) => s.trim() !== "");
+	return {
+		depth: Number.isFinite(depth) && depth >= 1 && depth <= 5 ? depth : null,
+		includeFiles: p.has("includeFiles") ? includeFiles : null,
+		typeIds: typeIds.length > 0 ? new Set(typeIds) : null,
+		predicateIds: predicateIds.length > 0 ? new Set(predicateIds) : null,
+	};
+}
+
 export function NookGraphPanel(props: NookGraphPanelProps) {
 	const navigate = useNavigate();
+	const location = useLocation();
 	const store = () => props.store;
 	const nookId = () => store().nookId();
 	const noteId = () => store().selectedId();
 	const fullscreen = () => Boolean(props.fullscreen);
-	const [depth, setDepth] = createSignal<number>(2);
+
+	// Seed signals from URL params (fullscreen mode)
+	const initParams = fullscreen() ? parseUrlParams(location.search) : null;
+	const [depth, setDepth] = createSignal<number>(initParams?.depth ?? 2);
+	const [includeFiles, setIncludeFiles] = createSignal(
+		initParams?.includeFiles ?? false,
+	);
+	const [filterTypeIds, setFilterTypeIds] = createSignal(
+		initParams?.typeIds ?? new Set<string>(),
+	);
+	const [filterPredicateIds, setFilterPredicateIds] = createSignal(
+		initParams?.predicateIds ?? new Set<string>(),
+	);
+	const [predicates, setPredicates] = createSignal<LinkPredicate[]>([]);
+
+	const loadPredicates = async () => {
+		const n = nookId().trim();
+		if (n === "") return;
+		try {
+			const res = await apiFetch(`/api/nooks/${n}/link-predicates`, {
+				method: "GET",
+			});
+			if (res.ok) {
+				const json = await res.json();
+				const body = LinkPredicatesListResponseSchema.parse(json);
+				setPredicates(body.predicates);
+			}
+		} catch {
+			/* ignore */
+		}
+	};
+	createEffect(() => {
+		void loadPredicates();
+	});
+
+	const toggleFilterTypeId = (id: string) => {
+		const s = new Set(filterTypeIds());
+		if (s.has(id)) s.delete(id);
+		else s.add(id);
+		setFilterTypeIds(s);
+	};
+	const toggleFilterPredicateId = (id: string) => {
+		const s = new Set(filterPredicateIds());
+		if (s.has(id)) s.delete(id);
+		else s.add(id);
+		setFilterPredicateIds(s);
+	};
+	const clearAllFilters = () => {
+		setFilterTypeIds(new Set<string>());
+		setFilterPredicateIds(new Set<string>());
+	};
+
+	const buildGraphSearch = () => {
+		const p = new URLSearchParams();
+		const d = depth();
+		if (d !== 2) p.set("depth", String(d));
+		if (includeFiles()) p.set("includeFiles", "1");
+		const tIds = [...filterTypeIds()].join(",");
+		if (tIds) p.set("typeIds", tIds);
+		const pIds = [...filterPredicateIds()].join(",");
+		if (pIds) p.set("predicateIds", pIds);
+		const qs = p.toString();
+		return qs ? `?${qs}` : "";
+	};
+
+	const buildGraphUrl = () => {
+		const n = nookId().trim();
+		const note = noteId().trim();
+		if (n === "" || note === "") return "";
+		return `/nooks/${encodeURIComponent(n)}/graph/${encodeURIComponent(note)}${buildGraphSearch()}`;
+	};
+
+	// In fullscreen mode, keep the URL in sync with filter state via replaceState
+	createEffect(() => {
+		if (!fullscreen()) return;
+		const url = buildGraphUrl();
+		if (url === "") return;
+		const current = `${location.pathname}${location.search}`;
+		if (url !== current) {
+			window.history.replaceState(null, "", url);
+		}
+	});
+
+	const [linkCopied, setLinkCopied] = createSignal(false);
+	const onCopyLink = async () => {
+		const url = buildGraphUrl();
+		if (url === "") return;
+		const full = `${window.location.origin}${url}`;
+		try {
+			await navigator.clipboard.writeText(full);
+			setLinkCopied(true);
+			setTimeout(() => setLinkCopied(false), 2000);
+		} catch {
+			/* ignore */
+		}
+	};
 
 	const [graphWidth, setGraphWidth] = createSignal(loadStoredWidth());
 
@@ -128,11 +248,21 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 			return;
 		}
 		const d = depth();
+		const excludeTypes = includeFiles() ? "" : "file";
+		const typeIds = [...filterTypeIds()].join(",");
+		const predIds = [...filterPredicateIds()].join(",");
 		setLoading(true);
 		setError("");
 		try {
+			const params = new URLSearchParams({
+				direction: "both",
+				depth: String(d),
+			});
+			if (excludeTypes) params.set("exclude_note_types", excludeTypes);
+			if (typeIds) params.set("node_type_ids", typeIds);
+			if (predIds) params.set("predicate_ids", predIds);
 			const res = await apiFetch(
-				`/api/nooks/${nookId()}/notes/${noteId()}/links?direction=both&depth=${d}`,
+				`/api/nooks/${nookId()}/notes/${noteId()}/links?${params.toString()}`,
 				{ method: "GET" },
 			);
 			if (!res.ok) {
@@ -202,12 +332,9 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 	let centerView: (() => void) | undefined;
 	const onCenter = () => centerView?.();
 	const onFullscreen = () => {
-		const n = nookId().trim();
-		const note = noteId().trim();
-		if (n === "" || note === "") return;
-		navigate(
-			`/nooks/${encodeURIComponent(n)}/graph/${encodeURIComponent(note)}`,
-		);
+		const url = buildGraphUrl();
+		if (url === "") return;
+		navigate(url);
 	};
 	const onCloseFullscreen = () => {
 		const n = nookId().trim();
@@ -698,6 +825,26 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 						<option value="5">5</option>
 					</select>
 				</label>
+				<label class={styles.controlLabel}>
+					<input
+						type="checkbox"
+						checked={includeFiles()}
+						onChange={(e) => setIncludeFiles(e.currentTarget.checked)}
+						disabled={noteId().trim() === ""}
+						class={styles.controlCheckbox}
+					/>
+					<span class={styles.controlLabelText}>Files</span>
+				</label>
+				<GraphFilterDropdown
+					noteTypes={store().noteTypes()}
+					predicates={predicates()}
+					selectedTypeIds={filterTypeIds()}
+					selectedPredicateIds={filterPredicateIds()}
+					onToggleTypeId={toggleFilterTypeId}
+					onTogglePredicateId={toggleFilterPredicateId}
+					onClearAll={clearAllFilters}
+					disabled={noteId().trim() === ""}
+				/>
 				<button
 					type="button"
 					class={styles.controlBtn}
@@ -705,6 +852,15 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 					disabled={noteId().trim() === ""}
 				>
 					Center
+				</button>
+				<button
+					type="button"
+					class={styles.controlBtn}
+					onClick={onCopyLink}
+					disabled={noteId().trim() === ""}
+					title="Copy link to this graph view"
+				>
+					{linkCopied() ? "Copied!" : "Copy link"}
 				</button>
 				<Show when={!fullscreen()}>
 					<button

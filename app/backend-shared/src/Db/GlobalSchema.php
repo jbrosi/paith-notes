@@ -302,6 +302,9 @@ final class GlobalSchema
             $pdo->exec('create index if not exists note_links_predicate_id_idx on global.note_links (predicate_id)');
             $pdo->exec('create index if not exists note_links_source_note_id_idx on global.note_links (source_note_id)');
             $pdo->exec('create index if not exists note_links_target_note_id_idx on global.note_links (target_note_id)');
+            // Composite indexes for graph traversal query (nook_id + source/target)
+            $pdo->exec('create index if not exists note_links_nook_source_idx on global.note_links (nook_id, source_note_id)');
+            $pdo->exec('create index if not exists note_links_nook_target_idx on global.note_links (nook_id, target_note_id)');
 
             $pdo->exec(" 
                 create table if not exists global.auth_states (
