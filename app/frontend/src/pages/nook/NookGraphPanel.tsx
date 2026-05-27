@@ -12,16 +12,29 @@ import { GraphFilterDropdown } from "../../components/GraphFilterDropdown";
 import styles from "./NookGraphPanel.module.css";
 import type { NookStore } from "./store";
 import {
+	type GraphViewProperties,
 	type LinkPredicate,
 	LinkPredicatesListResponseSchema,
 	type NoteLink,
 	NoteLinksListResponseSchema,
+	NoteResponseSchema,
+	serializeGraphProperties,
 } from "./types";
 
 export type NookGraphPanelProps = {
 	store: NookStore;
 	fullscreen?: boolean;
 	onClose?: () => void;
+	/** Embedded mode: render as inline graph block for a graph-type note */
+	embedded?: boolean;
+	/** Root note ID override (used in embedded mode) */
+	rootNoteId?: string;
+	/** Initial config to seed filters (used in embedded mode) */
+	initialConfig?: GraphViewProperties | null;
+	/** Callback to save current filter state (used in embedded mode) */
+	onSaveConfig?: (config: GraphViewProperties) => void;
+	/** Called when embedded graph filters change (to mark store dirty) */
+	onDirty?: () => void;
 };
 
 type GraphNode = {
@@ -87,11 +100,31 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 	const location = useLocation();
 	const store = () => props.store;
 	const nookId = () => store().nookId();
-	const noteId = () => store().selectedId();
+	const embedded = () => Boolean(props.embedded);
+	const noteId = () =>
+		embedded() ? (props.rootNoteId ?? "") : store().selectedId();
 	const fullscreen = () => Boolean(props.fullscreen);
 
-	// Seed signals from URL params (fullscreen mode)
-	const initParams = fullscreen() ? parseUrlParams(location.search) : null;
+	// Seed signals: embedded mode uses initialConfig, fullscreen uses URL params
+	const embeddedConfig = props.initialConfig;
+	const initParams =
+		embedded() && embeddedConfig
+			? {
+					depth: embeddedConfig.depth ?? null,
+					includeFiles: embeddedConfig.includeFiles ?? null,
+					typeIds: embeddedConfig.filterTypeIds?.length
+						? new Set(embeddedConfig.filterTypeIds)
+						: null,
+					predicateIds: embeddedConfig.filterPredicateIds?.length
+						? new Set(embeddedConfig.filterPredicateIds)
+						: null,
+					hidden: embeddedConfig.hiddenNodeIds?.length
+						? new Set(embeddedConfig.hiddenNodeIds)
+						: null,
+				}
+			: fullscreen()
+				? parseUrlParams(location.search)
+				: null;
 	const [depth, setDepth] = createSignal<number>(initParams?.depth ?? 2);
 	const [includeFiles, setIncludeFiles] = createSignal(
 		initParams?.includeFiles ?? false,
@@ -127,31 +160,42 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 		void loadPredicates();
 	});
 
+	const markDirty = () => {
+		if (embedded()) props.onDirty?.();
+	};
+
 	const toggleFilterTypeId = (id: string) => {
 		const s = new Set(filterTypeIds());
 		if (s.has(id)) s.delete(id);
 		else s.add(id);
 		setFilterTypeIds(s);
+		markDirty();
 	};
 	const toggleFilterPredicateId = (id: string) => {
 		const s = new Set(filterPredicateIds());
 		if (s.has(id)) s.delete(id);
 		else s.add(id);
 		setFilterPredicateIds(s);
+		markDirty();
 	};
 	const clearAllFilters = () => {
 		setFilterTypeIds(new Set<string>());
 		setFilterPredicateIds(new Set<string>());
+		markDirty();
 	};
 
 	const hideNode = (id: string) => {
 		const centerId = noteId().trim();
-		if (id === centerId) return; // never hide the center node
+		if (id === centerId) return;
 		const s = new Set(hiddenNodeIds());
 		s.add(id);
 		setHiddenNodeIds(s);
+		markDirty();
 	};
-	const unhideAll = () => setHiddenNodeIds(new Set<string>());
+	const unhideAll = () => {
+		setHiddenNodeIds(new Set<string>());
+		markDirty();
+	};
 	const hiddenCount = createMemo(() => hiddenNodeIds().size);
 
 	const buildGraphSearch = () => {
@@ -176,8 +220,22 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 		return `/nooks/${encodeURIComponent(n)}/graph/${encodeURIComponent(note)}${buildGraphSearch()}`;
 	};
 
-	// In fullscreen mode, keep the URL in sync with filter state via replaceState
+	const currentConfig = (): GraphViewProperties => ({
+		rootNoteId: noteId().trim(),
+		depth: depth(),
+		includeFiles: includeFiles(),
+		filterTypeIds: [...filterTypeIds()],
+		filterPredicateIds: [...filterPredicateIds()],
+		hiddenNodeIds: [...hiddenNodeIds()],
+	});
+
+	const onSaveConfig = () => {
+		props.onSaveConfig?.(currentConfig());
+	};
+
+	// In fullscreen mode (non-embedded), keep the URL in sync with filter state via replaceState
 	createEffect(() => {
+		if (embedded()) return;
 		if (!fullscreen()) return;
 		const url = buildGraphUrl();
 		if (url === "") return;
@@ -196,6 +254,34 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 			await navigator.clipboard.writeText(full);
 			setLinkCopied(true);
 			setTimeout(() => setLinkCopied(false), 2000);
+		} catch {
+			/* ignore */
+		}
+	};
+
+	const onSaveAsGraphNote = async () => {
+		const config = currentConfig();
+		if (config.rootNoteId === "") return;
+		const n = nookId().trim();
+		if (n === "") return;
+		try {
+			const centerTitle = titleById().get(config.rootNoteId) ?? "";
+			const res = await apiFetch(`/api/nooks/${n}/notes`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					title: centerTitle ? `Graph: ${centerTitle}` : "Untitled Graph View",
+					content: "",
+					type: "graph",
+					properties: serializeGraphProperties(config),
+				}),
+			});
+			if (!res.ok) return;
+			const json = await res.json();
+			const body = NoteResponseSchema.parse(json);
+			navigate(
+				`/nooks/${encodeURIComponent(n)}/notes/${encodeURIComponent(body.note.id)}`,
+			);
 		} catch {
 			/* ignore */
 		}
@@ -316,7 +402,11 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 	const graph = createMemo((): { nodes: GraphNode[]; edges: GraphEdge[] } => {
 		const centerId = noteId().trim();
 		if (centerId === "") return { nodes: [], edges: [] };
-		const centerTitle = store().title().trim();
+		// For embedded mode, the selected note is the graph note, not the root —
+		// so fall back to the label from link data for the center node title.
+		const centerTitle = embedded()
+			? labelFor(centerId)
+			: store().title().trim();
 		const hidden = hiddenNodeIds();
 
 		const nodes = new Map<string, GraphNode>();
@@ -353,13 +443,24 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 	let centerView: (() => void) | undefined;
 	const onCenter = () => centerView?.();
 	const onFullscreen = () => {
+		if (embedded()) {
+			// For embedded graph notes, fullscreen is ?fullscreen on the current note URL
+			const n = nookId().trim();
+			const graphNoteId = store().selectedId().trim();
+			if (n === "" || graphNoteId === "") return;
+			navigate(
+				`/nooks/${encodeURIComponent(n)}/notes/${encodeURIComponent(graphNoteId)}?fullscreen`,
+			);
+			return;
+		}
 		const url = buildGraphUrl();
 		if (url === "") return;
 		navigate(url);
 	};
 	const onCloseFullscreen = () => {
 		const n = nookId().trim();
-		const note = noteId().trim();
+		// For embedded fullscreen, go back to the graph note (not the root note)
+		const note = embedded() ? store().selectedId().trim() : noteId().trim();
 		if (n === "") return;
 		if (note !== "") {
 			navigate(
@@ -518,8 +619,6 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 				"href",
 				(d) => `/nooks/${nookId()}/notes/${encodeURIComponent(d.id)}`,
 			)
-			.attr("target", "_self")
-			.attr("rel", "noopener")
 			.style("cursor", "pointer")
 			.style("text-decoration", "none")
 			.style("pointer-events", "all");
@@ -543,8 +642,6 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 				"href",
 				(d) => `/nooks/${nookId()}/notes/${encodeURIComponent(d.id)}`,
 			)
-			.attr("target", "_self")
-			.attr("rel", "noopener")
 			.style("cursor", "pointer")
 			.style("text-decoration", "none")
 			.style("pointer-events", "all");
@@ -679,8 +776,9 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 
 		const handleNodeClick = (event: MouseEvent, d: GraphNode) => {
 			if (event.button !== 0) return;
-			if (event.ctrlKey || event.metaKey) return; // let browser handle open-in-new-tab
+			if (event.ctrlKey || event.metaKey) return; // let <a> handle open-in-new-tab
 			event.preventDefault();
+			event.stopPropagation(); // prevent SolidJS router from intercepting
 			if (event.shiftKey) {
 				hideNode(d.id);
 				return;
@@ -790,27 +888,31 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 
 	return (
 		<div
-			class={`${styles.container} ${fullscreen() ? styles.containerFullscreen : ""}`}
-			style={fullscreen() ? undefined : { width: `${graphWidth()}px` }}
+			class={`${styles.container} ${fullscreen() && !embedded() ? styles.containerFullscreen : ""} ${embedded() ? (fullscreen() ? styles.containerEmbeddedFullscreen : styles.containerEmbedded) : ""}`}
+			style={
+				fullscreen() || embedded() ? undefined : { width: `${graphWidth()}px` }
+			}
 		>
-			<Show when={!fullscreen()}>
+			<Show when={!fullscreen() && !embedded()}>
 				<hr
 					tabIndex={0}
 					class={styles.resizeHandle}
 					onMouseDown={onResizeStart}
 				/>
 			</Show>
-			<div class={styles.header}>
-				<div class={styles.title}>Graph</div>
-				<button
-					type="button"
-					class={styles.closeBtn}
-					onClick={handleClose}
-					title="Close graph"
-				>
-					&times;
-				</button>
-			</div>
+			<Show when={!embedded() || fullscreen()}>
+				<div class={styles.header}>
+					<div class={styles.title}>Graph</div>
+					<button
+						type="button"
+						class={styles.closeBtn}
+						onClick={handleClose}
+						title={fullscreen() ? "Exit fullscreen" : "Close graph"}
+					>
+						&times;
+					</button>
+				</div>
+			</Show>
 
 			<div class={styles.controls}>
 				<label class={styles.controlLabel}>
@@ -822,6 +924,7 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 							setDepth(
 								Number.isFinite(next) ? Math.min(5, Math.max(1, next)) : 2,
 							);
+							markDirty();
 						}}
 						disabled={noteId().trim() === ""}
 						class={styles.controlSelect}
@@ -837,7 +940,10 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 					<input
 						type="checkbox"
 						checked={includeFiles()}
-						onChange={(e) => setIncludeFiles(e.currentTarget.checked)}
+						onChange={(e) => {
+							setIncludeFiles(e.currentTarget.checked);
+							markDirty();
+						}}
 						disabled={noteId().trim() === ""}
 						class={styles.controlCheckbox}
 					/>
@@ -871,15 +977,41 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 				>
 					Center
 				</button>
-				<button
-					type="button"
-					class={styles.controlBtn}
-					onClick={onCopyLink}
-					disabled={noteId().trim() === ""}
-					title="Copy link to this graph view"
+				<Show
+					when={embedded()}
+					fallback={
+						<>
+							<button
+								type="button"
+								class={styles.controlBtn}
+								onClick={onCopyLink}
+								disabled={noteId().trim() === ""}
+								title="Copy link to this graph view"
+							>
+								{linkCopied() ? "Copied!" : "Copy link"}
+							</button>
+							<button
+								type="button"
+								class={styles.controlBtn}
+								onClick={onSaveAsGraphNote}
+								disabled={noteId().trim() === ""}
+								title="Save as graph view note"
+							>
+								Save as note
+							</button>
+						</>
+					}
 				>
-					{linkCopied() ? "Copied!" : "Copy link"}
-				</button>
+					<button
+						type="button"
+						class={styles.controlBtn}
+						onClick={onSaveConfig}
+						disabled={noteId().trim() === ""}
+						title="Save graph configuration"
+					>
+						Save
+					</button>
+				</Show>
 				<Show when={!fullscreen()}>
 					<button
 						type="button"

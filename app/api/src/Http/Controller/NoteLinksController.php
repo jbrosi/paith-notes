@@ -84,7 +84,7 @@ final class NoteLinksController
         $excludeNoteTypes = [];
         $excludeNoteTypesRaw = trim($request->queryParam('exclude_note_types'));
         if ($excludeNoteTypesRaw !== '') {
-            $allowed = ['anything', 'person', 'file'];
+            $allowed = ['anything', 'person', 'file', 'graph'];
             foreach (explode(',', $excludeNoteTypesRaw) as $nt) {
                 $nt = trim(strtolower($nt));
                 if (in_array($nt, $allowed, true)) {

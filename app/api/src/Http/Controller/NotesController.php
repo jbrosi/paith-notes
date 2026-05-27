@@ -19,6 +19,7 @@ final class NotesController
     private const NOTE_TYPE_ANYTHING = 'anything';
     private const NOTE_TYPE_PERSON = 'person';
     private const NOTE_TYPE_FILE = 'file';
+    private const NOTE_TYPE_GRAPH = 'graph';
 
     private MentionsService $mentions;
 
@@ -876,7 +877,7 @@ final class NotesController
         if ($t === '') {
             return $default;
         }
-        if ($t === self::NOTE_TYPE_ANYTHING || $t === self::NOTE_TYPE_PERSON || $t === self::NOTE_TYPE_FILE) {
+        if ($t === self::NOTE_TYPE_ANYTHING || $t === self::NOTE_TYPE_PERSON || $t === self::NOTE_TYPE_FILE || $t === self::NOTE_TYPE_GRAPH) {
             return $t;
         }
         return $default;

@@ -6,6 +6,7 @@ import {
 	resolveTypeIdForTerm,
 } from "../../noteSearch";
 import type {
+	GraphViewProperties,
 	Mention,
 	Note,
 	NoteHistoryEntry,
@@ -19,6 +20,8 @@ import {
 	NoteTypeNotesResponseSchema,
 	NoteTypeResponseSchema,
 	NoteTypesListResponseSchema,
+	parseGraphProperties,
+	serializeGraphProperties,
 } from "./types";
 
 export function createNookStore(nookId: () => string) {
@@ -130,8 +133,9 @@ export function createNookStore(nookId: () => string) {
 	const [title, setTitle] = createSignal<string>("");
 	const [titleIsManual, setTitleIsManual] = createSignal<boolean>(false);
 	const [content, setContent] = createSignal<string>("");
-	const [type, setType] = createSignal<"anything" | "person" | "file">(
-		"anything",
+	const [type, setType] = createSignal<
+		"anything" | "person" | "file" | "graph"
+	>("anything",
 	);
 	const [personFirstName, setPersonFirstName] = createSignal<string>("");
 	const [personLastName, setPersonLastName] = createSignal<string>("");
@@ -143,6 +147,8 @@ export function createNookStore(nookId: () => string) {
 	const fileContentType = createMemo(() => normalizeMimeType(fileMimeType()));
 	const [fileChecksum, setFileChecksum] = createSignal<string>("");
 	const [fileInlineUrl, setFileInlineUrl] = createSignal<string>("");
+	const [graphProperties, setGraphProperties] =
+		createSignal<GraphViewProperties | null>(null);
 	const [formerProperties, setFormerProperties] = createSignal<
 		Record<string, unknown>
 	>({});
@@ -845,6 +851,7 @@ export function createNookStore(nookId: () => string) {
 		setFileFilesize("");
 		setFileMimeType("");
 		setFileChecksum("");
+		setGraphProperties(null);
 		setFormerProperties({});
 		setError("");
 		setMentionTargetId("");
@@ -863,7 +870,9 @@ export function createNookStore(nookId: () => string) {
 				? "person"
 				: note.type === "file"
 					? "file"
-					: "anything",
+					: note.type === "graph"
+						? "graph"
+						: "anything",
 		);
 		setPersonFirstName(String(note.properties?.first_name ?? ""));
 		setPersonLastName(String(note.properties?.last_name ?? ""));
@@ -873,6 +882,9 @@ export function createNookStore(nookId: () => string) {
 		setFileFilesize(String(note.properties?.filesize ?? ""));
 		setFileMimeType(String(note.properties?.mime_type ?? ""));
 		setFileChecksum(String(note.properties?.checksum ?? ""));
+		setGraphProperties(
+			note.type === "graph" ? parseGraphProperties(note.properties) : null,
+		);
 		if (note.type === "file") {
 			const extFromProps = normalizeExtension(
 				String(note.properties?.extension ?? ""),
@@ -914,7 +926,9 @@ export function createNookStore(nookId: () => string) {
 				? "person"
 				: note.type === "file"
 					? "file"
-					: "anything",
+					: note.type === "graph"
+						? "graph"
+						: "anything",
 		);
 		setFormerProperties({});
 		setPersonFirstName("");
@@ -925,6 +939,7 @@ export function createNookStore(nookId: () => string) {
 		setFileFilesize("");
 		setFileMimeType("");
 		setFileChecksum("");
+		setGraphProperties(null);
 		setFileInlineUrl("");
 		setError("");
 		setMentionTargetId("");
@@ -1067,7 +1082,9 @@ export function createNookStore(nookId: () => string) {
 						last_name: personLastName().trim(),
 						date_of_birth: personDateOfBirth().trim(),
 					}
-				: null;
+				: noteType === "graph" && graphProperties()
+					? serializeGraphProperties(graphProperties()!)
+					: null;
 
 		setLoading(true);
 		setError("");
@@ -1240,6 +1257,7 @@ export function createNookStore(nookId: () => string) {
 				setFileFilesize("");
 				setFileMimeType("");
 				setFileChecksum("");
+		setGraphProperties(null);
 				setFileInlineUrl("");
 				setFormerProperties({});
 				setMode("view");
@@ -1355,6 +1373,7 @@ export function createNookStore(nookId: () => string) {
 		setFileFilesize(String(file.size));
 		setFileMimeType(mime);
 		setFileChecksum("");
+		setGraphProperties(null);
 		setTitleFromUser(filename);
 		setContent("");
 		await loadNotes();
@@ -1460,9 +1479,12 @@ export function createNookStore(nookId: () => string) {
 		fileContentType,
 		fileChecksum,
 		fileInlineUrl,
+		graphProperties,
+		setGraphProperties,
 		formerProperties,
 		mode,
 		isDirty,
+		setIsDirty,
 		pendingNav,
 		loading,
 		error,
