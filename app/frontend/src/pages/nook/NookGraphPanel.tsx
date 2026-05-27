@@ -408,6 +408,37 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 			});
 		}
 
+		// When type filter is active, prune nodes not reachable from center
+		// (BFS can reach nodes through filtered-out intermediaries)
+		if (hasTypeFilter && nodes.size > 1) {
+			const adj = new Map<string, Set<string>>();
+			for (const e of edges) {
+				if (!adj.has(e.source)) adj.set(e.source, new Set());
+				if (!adj.has(e.target)) adj.set(e.target, new Set());
+				adj.get(e.source)!.add(e.target);
+				adj.get(e.target)!.add(e.source);
+			}
+			const reachable = new Set<string>();
+			const queue = [centerId];
+			reachable.add(centerId);
+			while (queue.length > 0) {
+				const cur = queue.shift()!;
+				for (const neighbor of adj.get(cur) ?? []) {
+					if (!reachable.has(neighbor)) {
+						reachable.add(neighbor);
+						queue.push(neighbor);
+					}
+				}
+			}
+			for (const id of nodes.keys()) {
+				if (!reachable.has(id)) nodes.delete(id);
+			}
+			const filteredEdges = edges.filter(
+				(e) => reachable.has(e.source) && reachable.has(e.target),
+			);
+			return { nodes: Array.from(nodes.values()), edges: filteredEdges };
+		}
+
 		return { nodes: Array.from(nodes.values()), edges };
 	});
 
