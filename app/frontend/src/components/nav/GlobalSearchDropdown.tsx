@@ -1,6 +1,8 @@
 import { A } from "@solidjs/router";
 import { createSignal, For, Show } from "solid-js";
 import { apiFetch } from "../../auth/keycloak";
+import { getNookAccentColor } from "../../pages/nook/NookSettingsLanding";
+import { SEARCH_DEBOUNCE_MS } from "../../settings";
 import styles from "../Nav.module.css";
 
 type SearchResult = {
@@ -43,7 +45,7 @@ export function GlobalSearchDropdown() {
 	const onInput = (val: string) => {
 		setQuery(val);
 		if (debounceTimer) clearTimeout(debounceTimer);
-		debounceTimer = setTimeout(() => void doSearch(val), 250);
+		debounceTimer = setTimeout(() => void doSearch(val), SEARCH_DEBOUNCE_MS);
 	};
 
 	const close = () => {
@@ -202,8 +204,26 @@ export function GlobalSearchDropdown() {
 											style={{
 												"font-size": "0.7rem",
 												color: "var(--color-text-muted)",
+												display: "flex",
+												"align-items": "center",
+												gap: "4px",
 											}}
 										>
+											{(() => {
+												const color = getNookAccentColor(note.nook_id);
+												return color ? (
+													<span
+														style={{
+															display: "inline-block",
+															width: "8px",
+															height: "8px",
+															"border-radius": "2px",
+															background: color,
+															"flex-shrink": "0",
+														}}
+													/>
+												) : null;
+											})()}
 											{note.nook_name}
 										</div>
 									</A>

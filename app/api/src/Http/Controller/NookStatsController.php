@@ -71,9 +71,10 @@ final class NookStatsController
         // Unlinked notes (no links and no mentions, either direction)
         $stmt = $pdo->prepare(
             'SELECT count(*) FROM global.notes n
+             LEFT JOIN global.note_stats ns ON ns.note_id = n.id
              WHERE n.nook_id = :nook_id
-               AND NOT EXISTS (SELECT 1 FROM global.note_links l WHERE l.source_note_id = n.id OR l.target_note_id = n.id)
-               AND NOT EXISTS (SELECT 1 FROM global.note_mentions m WHERE m.source_note_id = n.id OR m.target_note_id = n.id)'
+               AND coalesce(ns.outgoing_links, 0) = 0 AND coalesce(ns.incoming_links, 0) = 0
+               AND coalesce(ns.outgoing_mentions, 0) = 0 AND coalesce(ns.incoming_mentions, 0) = 0'
         );
         $stmt->execute([':nook_id' => $nookId]);
         $col = $stmt->fetchColumn();
@@ -206,9 +207,10 @@ final class NookStatsController
         $stmt = $pdo->prepare(
             'SELECT n.id, n.title, n.type, n.type_id, n.created_at, n.updated_at
              FROM global.notes n
+             LEFT JOIN global.note_stats ns ON ns.note_id = n.id
              WHERE n.nook_id = :nook_id
-               AND NOT EXISTS (SELECT 1 FROM global.note_links l WHERE l.source_note_id = n.id OR l.target_note_id = n.id)
-               AND NOT EXISTS (SELECT 1 FROM global.note_mentions m WHERE m.source_note_id = n.id OR m.target_note_id = n.id)
+               AND coalesce(ns.outgoing_links, 0) = 0 AND coalesce(ns.incoming_links, 0) = 0
+               AND coalesce(ns.outgoing_mentions, 0) = 0 AND coalesce(ns.incoming_mentions, 0) = 0
              ORDER BY n.updated_at DESC
              LIMIT :limit OFFSET :offset'
         );
