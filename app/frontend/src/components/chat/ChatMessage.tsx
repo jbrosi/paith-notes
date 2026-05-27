@@ -21,11 +21,18 @@ export type ChatMessageData =
 
 /** Keys in tool input that typically hold note IDs */
 const NOTE_ID_KEYS = new Set(["note_id", "source_note_id", "target_note_id"]);
+const MEMORY_TOOLS = new Set([
+	"memory_get",
+	"memory_search",
+	"memory_create",
+	"memory_update",
+]);
 
 type Props = {
 	message: ChatMessageData;
 	notePreview?: NotePreviewController;
 	onNavigateToNote?: (noteId: string) => void;
+	memoryNookId?: string;
 };
 
 export function ChatMessage(props: Props) {
@@ -76,10 +83,16 @@ export function ChatMessage(props: Props) {
 																		const rect = (
 																			e.currentTarget as HTMLElement
 																		).getBoundingClientRect();
+																		const previewOpts =
+																			MEMORY_TOOLS.has(t.name) &&
+																			props.memoryNookId
+																				? { nookId: props.memoryNookId }
+																				: undefined;
 																		props.notePreview?.show(
 																			val,
 																			rect.left,
 																			rect.bottom,
+																			previewOpts,
 																		);
 																	}}
 																	onMouseLeave={() => props.notePreview?.hide()}

@@ -99,6 +99,7 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 	);
 	const [nodeSize, setNodeSize] = createSignal(ic?.nodeSize ?? 6);
 	const [linkWidth, setLinkWidth] = createSignal(ic?.linkWidth ?? 1);
+	const [strictTypeFilter, setStrictTypeFilter] = createSignal(true);
 
 	const [predicates, setPredicates] = createSignal<LinkPredicate[]>([]);
 
@@ -300,6 +301,7 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 			});
 			if (excludeTypes) params.set("exclude_note_types", excludeTypes);
 			if (typeIds) params.set("node_type_ids", typeIds);
+			if (typeIds && strictTypeFilter()) params.set("strict_type_filter", "1");
 			if (predIds) params.set("predicate_ids", predIds);
 			const res = await apiFetch(
 				`/api/nooks/${nookId()}/notes/${noteId()}/links?${params.toString()}`,
@@ -546,6 +548,8 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 						setLinkWidth(v);
 						markDirty();
 					}}
+					strictTypeFilter={strictTypeFilter()}
+					onStrictTypeFilterChange={setStrictTypeFilter}
 				/>
 				<Show when={hiddenCount() > 0}>
 					<button
