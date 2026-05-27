@@ -67,7 +67,7 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 	const noteId = () => {
 		if (embedded()) return props.rootNoteId ?? "";
 		// For graph notes, the sidebar graph shows the rootNoteId, not the graph note itself
-		if (isGraphNote()) return store().graphProperties()!.rootNoteId;
+		if (isGraphNote()) return store().graphProperties()?.rootNoteId ?? "";
 		return store().selectedId();
 	};
 	const excludeNoteId = () =>

@@ -135,8 +135,7 @@ export function createNookStore(nookId: () => string) {
 	const [content, setContent] = createSignal<string>("");
 	const [type, setType] = createSignal<
 		"anything" | "person" | "file" | "graph"
-	>("anything",
-	);
+	>("anything");
 	const [personFirstName, setPersonFirstName] = createSignal<string>("");
 	const [personLastName, setPersonLastName] = createSignal<string>("");
 	const [personDateOfBirth, setPersonDateOfBirth] = createSignal<string>("");
@@ -1083,7 +1082,7 @@ export function createNookStore(nookId: () => string) {
 						date_of_birth: personDateOfBirth().trim(),
 					}
 				: noteType === "graph" && graphProperties()
-					? serializeGraphProperties(graphProperties()!)
+					? serializeGraphProperties(graphProperties() as GraphViewProperties)
 					: null;
 
 		setLoading(true);
@@ -1257,7 +1256,7 @@ export function createNookStore(nookId: () => string) {
 				setFileFilesize("");
 				setFileMimeType("");
 				setFileChecksum("");
-		setGraphProperties(null);
+				setGraphProperties(null);
 				setFileInlineUrl("");
 				setFormerProperties({});
 				setMode("view");
