@@ -15,14 +15,15 @@ export const TOOLS: Anthropic.Tool[] = [
   },
   {
     name: 'create_note',
-    description: 'Create a new note in the current nook',
+    description: 'Create a new note in the current nook. To create a graph view note, set type to "graph" and pass properties with rootNoteId (the center note UUID) and optional settings: depth (1-5), includeFiles (boolean), layout ("force"|"tree"|"radial"), filterTypeIds (string[]), filterPredicateIds (string[]), hiddenNodeIds (string[]), linkDistance (number), chargeStrength (number), nodeSize (number), linkWidth (number).',
     input_schema: {
       type: 'object',
       properties: {
         title:      { type: 'string' },
         content:    { type: 'string', description: 'Note content in markdown. To link to another note use [[note:<full_uuid>]] with the complete UUID (never shorten) — the title is resolved automatically. To embed a file note as an image use ![Note Title](note:<full_uuid>).' },
-        type_id:    { type: 'string', description: 'Note type ID' },
-        properties: { type: 'object', description: 'Arbitrary JSON properties' },
+        type:       { type: 'string', description: 'Note type: "anything" (default), "person", "file", or "graph" for saved graph views.' },
+        type_id:    { type: 'string', description: 'Note type ID from taxonomy' },
+        properties: { type: 'object', description: 'JSON properties. For graph notes: { rootNoteId: "<uuid>", depth?: 2, layout?: "force"|"tree"|"radial", includeFiles?: false, ... }' },
       },
       required: ['title'],
     },
