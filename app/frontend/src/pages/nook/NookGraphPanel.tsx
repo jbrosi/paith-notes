@@ -126,6 +126,7 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 	type GraphViewEntry = {
 		rootNoteId: string;
 		label: string;
+		graphNoteTitle: string;
 		depth: number;
 		includeFiles: boolean;
 		filterTypeIds: string[];
@@ -135,10 +136,8 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 	const [graphViewStack, setGraphViewStack] = createSignal<GraphViewEntry[]>(
 		[],
 	);
-	const pushedView = () => {
-		const stack = graphViewStack();
-		return stack.length > 0 ? stack[stack.length - 1] : null;
-	};
+	const [activeGraphNoteTitle, setActiveGraphNoteTitle] = createSignal("");
+	const isInsideGraphView = () => graphViewStack().length > 0;
 
 	const openGraphNode = async (graphNoteId: string) => {
 		const n = nookId().trim();
@@ -158,6 +157,7 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 			const currentEntry: GraphViewEntry = {
 				rootNoteId: noteId().trim(),
 				label: titleById().get(noteId().trim()) ?? store().title().trim(),
+				graphNoteTitle: activeGraphNoteTitle(),
 				depth: depth(),
 				includeFiles: includeFiles(),
 				filterTypeIds: [...filterTypeIds()],
@@ -167,6 +167,7 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 
 			// Push current state and switch to the graph note's view
 			setGraphViewStack([...graphViewStack(), currentEntry]);
+			setActiveGraphNoteTitle(noteBody.note.title || "Graph View");
 			setOverrideRootNoteId(rootId);
 			setDepth(typeof gp?.depth === "number" ? gp.depth : 2);
 			setIncludeFiles(Boolean(gp?.includeFiles));
@@ -196,6 +197,7 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 		const prev = stack[stack.length - 1];
 		setGraphViewStack(stack.slice(0, -1));
 		setOverrideRootNoteId(stack.length > 1 ? prev.rootNoteId : "");
+		setActiveGraphNoteTitle(prev.graphNoteTitle);
 		setDepth(prev.depth);
 		setIncludeFiles(prev.includeFiles);
 		setFilterTypeIds(new Set(prev.filterTypeIds));
@@ -414,6 +416,7 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 		if (graphViewStack().length > 0) {
 			setGraphViewStack([]);
 			setOverrideRootNoteId("");
+			setActiveGraphNoteTitle("");
 		}
 	});
 
@@ -565,16 +568,35 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 				</div>
 			</Show>
 
-			<Show when={pushedView()}>
-				<div class={styles.graphBreadcrumb}>
+			<Show when={isInsideGraphView()}>
+				<div class={styles.graphViewBanner}>
+					<svg
+						aria-hidden="true"
+						width="14"
+						height="14"
+						viewBox="-10 -10 20 20"
+						class={styles.graphViewIcon}
+					>
+						<polygon
+							points={(() => {
+								const r = 8;
+								const a = Math.PI / 3;
+								return Array.from({ length: 6 }, (_, i) => {
+									const angle = a * i - Math.PI / 6;
+									return `${r * Math.cos(angle)},${r * Math.sin(angle)}`;
+								}).join(" ");
+							})()}
+						/>
+					</svg>
+					<span class={styles.graphViewTitle}>{activeGraphNoteTitle()}</span>
 					<button
 						type="button"
-						class={styles.controlBtn}
+						class={styles.graphViewClose}
 						onClick={popGraphView}
+						title="Close graph view"
 					>
-						&larr; Back
+						&times;
 					</button>
-					<span class={styles.controlLabelText}>{pushedView()?.label}</span>
 				</div>
 			</Show>
 
