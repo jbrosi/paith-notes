@@ -569,7 +569,7 @@ it('can create link predicates, set rules, and link notes with dates (duplicates
 	expect(count($listData2['links']))->toBe(1);
 });
 
-it('can change a person-typed note to anything and back', function (): void {
+it('person type is mapped to anything', function (): void {
 	$userId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
 	$headers = [
 		'X-Nook-User' => $userId,
@@ -585,6 +585,7 @@ it('can change a person-typed note to anything and back', function (): void {
 	$nookId = (string)($createNookData['nook']['id'] ?? '');
 	expect($nookId)->not->toBe('');
 
+	// Creating with type 'person' should be mapped to 'anything' (person type removed)
 	$createPerson = App::handle(
 		'POST',
 		'/api/nooks/' . $nookId . '/notes',
@@ -605,48 +606,27 @@ it('can change a person-typed note to anything and back', function (): void {
 	expect($createPersonData)->toBeArray();
 	$noteId = (string)($createPersonData['note']['id'] ?? '');
 	expect($noteId)->not->toBe('');
-	expect($createPersonData['note']['type'])->toBe('person');
+	expect($createPersonData['note']['type'])->toBe('anything');
 
-	$demote = App::handle(
+	// Properties are still preserved even though type is mapped
+	expect($createPersonData['note']['properties'])->toBeArray();
+
+	// Updating with type 'person' should also map to 'anything'
+	$update = App::handle(
 		'PUT',
 		'/api/nooks/' . $nookId . '/notes/' . $noteId,
 		$headers,
 		json_encode([
 			'title' => 'Ada Lovelace',
-			'content' => 'Initial content',
-			'type' => 'anything',
-			'properties' => [],
-		], JSON_UNESCAPED_SLASHES)
-	);
-	expect($demote['status'])->toBe(200);
-	$demoteData = json_decode($demote['body'], true);
-	expect($demoteData)->toBeArray();
-	expect($demoteData['note']['type'])->toBe('anything');
-	expect($demoteData['note']['former_properties'])->toBeArray();
-
-	// Person is no longer special-cased: former_properties is not expected to contain a preserved "person" block.
-	expect(isset($demoteData['note']['former_properties']['person']))->toBeFalse();
-
-	$promote = App::handle(
-		'PUT',
-		'/api/nooks/' . $nookId . '/notes/' . $noteId,
-		$headers,
-		json_encode([
-			'title' => 'Ada Lovelace',
-			'content' => 'Initial content',
+			'content' => 'Updated content',
 			'type' => 'person',
 			'properties' => [],
 		], JSON_UNESCAPED_SLASHES)
 	);
-	expect($promote['status'])->toBe(200);
-	$promoteData = json_decode($promote['body'], true);
-	expect($promoteData)->toBeArray();
-	expect($promoteData['note']['type'])->toBe('person');
-	expect($promoteData['note']['properties'])->toBeArray();
-
-	// No automatic restoration of person fields.
-	expect((string)($promoteData['note']['properties']['first_name'] ?? ''))->toBe('');
-
+	expect($update['status'])->toBe(200);
+	$updateData = json_decode($update['body'], true);
+	expect($updateData)->toBeArray();
+	expect($updateData['note']['type'])->toBe('anything');
 });
 
 it('denies PUT to /files/tmp when upload is missing or does not match', function (): void {

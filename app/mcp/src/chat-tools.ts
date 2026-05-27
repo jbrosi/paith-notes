@@ -204,6 +204,21 @@ export const TOOLS: Anthropic.Tool[] = [
       required: ['source_note_id', 'target_note_id', 'predicate_id'],
     },
   },
+  // ── Search agent (sub-agent with own context window) ──
+  {
+    name: 'search_agent',
+    description: 'Delegate a research task to a search agent that runs in its own context window. The agent searches and reads notes in the current nook and user memories — the user will be asked to approve before it runs. It returns ranked results with relevant excerpts, keeping this conversation\'s context clean. Use this instead of searching manually when the query may require reading multiple notes or complex filtering. For simple single-note lookups, prefer search_notes/get_note directly. Always tell the user what you\'re about to search for and that the agent will search their notes.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        task: {
+          type: 'string',
+          description: 'A clear description of what to research. Be specific about what information you need and how results should be organized.',
+        },
+      },
+      required: ['task'],
+    },
+  },
   // ── User memory nook tools (cross-nook, auto-approved) ──
   {
     name: 'memory_search',

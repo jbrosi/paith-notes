@@ -21,6 +21,7 @@ type PendingApproval = {
 	contextNoteId?: string;
 	contextNoteTitle?: string;
 	contextNoteType?: string;
+	nookName?: string;
 };
 
 import type { NotePreviewController } from "../../pages/nook/NookContext";
@@ -349,8 +350,32 @@ export function ChatPanel(props: Props) {
 							DisplayName
 						>,
 						contextNoteId: props.currentNoteId,
+						nookName: data.nook_name as string | undefined,
 					});
 					return;
+				} else if (event === "search_agent_progress") {
+					// Update the last assistant message's tool with progress status
+					const toolId = data.tool_use_id as string;
+					const status = data.status as string;
+					setMessages((prev) => {
+						const last = prev[prev.length - 1];
+						if (
+							last?.role === "assistant" &&
+							(last as { toolUses?: ToolUse[] }).toolUses
+						) {
+							const toolUses =
+								(last as { toolUses?: ToolUse[] }).toolUses ?? [];
+							const updated = toolUses.map((t) =>
+								t.id === toolId ? { ...t, progress: status } : t,
+							);
+							return [
+								...prev.slice(0, -1),
+								{ ...last, toolUses: updated } as ChatMessageData,
+							];
+						}
+						return prev;
+					});
+					scrollToBottom();
 				} else if (event === "done") {
 					terminalEventSeen = true;
 					finalizeAssistant();
@@ -617,6 +642,7 @@ export function ChatPanel(props: Props) {
 							onDeny={() => void submitToolResults(false)}
 							disabled={streaming()}
 							notePreview={props.notePreview}
+							nookName={pendingApproval()?.nookName}
 						/>
 					</Show>
 
