@@ -1,5 +1,5 @@
 import { createMemo, createSignal, For, Show } from "solid-js";
-import type { LinkPredicate, NoteType } from "../pages/nook/types";
+import type { GraphLayout, LinkPredicate, NoteType } from "../pages/nook/types";
 import navStyles from "./Nav.module.css";
 
 export type GraphFilterDropdownProps = {
@@ -11,10 +11,24 @@ export type GraphFilterDropdownProps = {
 	onTogglePredicateId: (id: string) => void;
 	onClearAll: () => void;
 	disabled?: boolean;
+	// Display settings
+	layout: GraphLayout;
+	onLayoutChange: (layout: GraphLayout) => void;
+	linkDistance: number;
+	onLinkDistanceChange: (v: number) => void;
+	chargeStrength: number;
+	onChargeStrengthChange: (v: number) => void;
+	nodeSize: number;
+	onNodeSizeChange: (v: number) => void;
+	linkWidth: number;
+	onLinkWidthChange: (v: number) => void;
 };
+
+type Tab = "filters" | "display";
 
 export function GraphFilterDropdown(props: GraphFilterDropdownProps) {
 	const [open, setOpen] = createSignal(false);
+	const [tab, setTab] = createSignal<Tab>("filters");
 	const [query, setQuery] = createSignal("");
 	let inputRef: HTMLInputElement | undefined;
 
@@ -101,6 +115,65 @@ export function GraphFilterDropdown(props: GraphFilterDropdownProps) {
 		setQuery("");
 	};
 
+	const tabStyle = (t: Tab) => ({
+		padding: "6px 12px",
+		border: "none",
+		background: tab() === t ? "var(--color-bg)" : "transparent",
+		"border-bottom":
+			tab() === t ? "2px solid var(--color-primary)" : "2px solid transparent",
+		cursor: "pointer",
+		"font-size": "0.8125rem",
+		"font-weight": tab() === t ? "600" : "400",
+		color: tab() === t ? "var(--color-text)" : "var(--color-text-muted)",
+	});
+
+	const rangeRow = (
+		label: string,
+		value: number,
+		min: number,
+		max: number,
+		step: number,
+		onChange: (v: number) => void,
+	) => (
+		<div
+			style={{
+				display: "flex",
+				"align-items": "center",
+				gap: "8px",
+				padding: "4px 12px",
+			}}
+		>
+			<span
+				style={{
+					"font-size": "0.8125rem",
+					"min-width": "80px",
+					color: "var(--color-text-muted)",
+				}}
+			>
+				{label}
+			</span>
+			<input
+				type="range"
+				min={min}
+				max={max}
+				step={step}
+				value={value}
+				onInput={(e) => onChange(Number(e.currentTarget.value))}
+				style={{ flex: "1" }}
+			/>
+			<span
+				style={{
+					"font-size": "0.75rem",
+					"min-width": "32px",
+					"text-align": "right",
+					color: "var(--color-text-muted)",
+				}}
+			>
+				{value}
+			</span>
+		</div>
+	);
+
 	return (
 		<div class={navStyles.dropdown}>
 			<button
@@ -136,7 +209,7 @@ export function GraphFilterDropdown(props: GraphFilterDropdownProps) {
 				<div class={navStyles.dropdownBackdrop} onClick={close} />
 				<div class={navStyles["dropdown-menu"]}>
 					<div class={navStyles.dropdownCloseBar}>
-						<span>Filter graph</span>
+						<span>Graph settings</span>
 						<button
 							type="button"
 							onMouseDown={(e) => e.preventDefault()}
@@ -153,94 +226,198 @@ export function GraphFilterDropdown(props: GraphFilterDropdownProps) {
 							&times;
 						</button>
 					</div>
-					<div style={{ padding: "8px" }}>
-						<input
-							ref={inputRef}
-							type="text"
-							value={query()}
-							placeholder="Search types & predicates..."
-							onInput={(e) => setQuery(e.currentTarget.value)}
-							onKeyDown={(e) => {
-								if (e.key === "Escape") close();
-							}}
-							style={{
-								width: "100%",
-								padding: "6px 8px",
-								border: "1px solid #ddd",
-								"border-radius": "6px",
-								"font-size": "0.875rem",
-								outline: "none",
-							}}
-						/>
+
+					{/* Tabs */}
+					<div
+						style={{
+							display: "flex",
+							"border-bottom": "1px solid var(--color-border-light)",
+						}}
+					>
+						<button
+							type="button"
+							style={tabStyle("filters")}
+							onClick={() => setTab("filters")}
+						>
+							Filters
+						</button>
+						<button
+							type="button"
+							style={tabStyle("display")}
+							onClick={() => setTab("display")}
+						>
+							Display
+						</button>
 					</div>
 
-					<Show when={treeItems().length > 0}>
-						<div class={navStyles.dropdownSection}>
-							<div class={navStyles.dropdownSectionTitle}>Note Types</div>
+					{/* Filters tab */}
+					<Show when={tab() === "filters"}>
+						<div style={{ padding: "8px" }}>
+							<input
+								ref={inputRef}
+								type="text"
+								value={query()}
+								placeholder="Search types & predicates..."
+								onInput={(e) => setQuery(e.currentTarget.value)}
+								onKeyDown={(e) => {
+									if (e.key === "Escape") close();
+								}}
+								style={{
+									width: "100%",
+									padding: "6px 8px",
+									border: "1px solid #ddd",
+									"border-radius": "6px",
+									"font-size": "0.875rem",
+									outline: "none",
+								}}
+							/>
 						</div>
-						<div class={navStyles["dropdown-list"]}>
-							<For each={treeItems()}>
-								{(t) => (
-									<label
-										class={navStyles.typeCheckItem}
-										style={{
-											"padding-left": `${10 + t.depth * 16}px`,
-										}}
-									>
-										<input
-											type="checkbox"
-											checked={props.selectedTypeIds.has(t.id)}
-											onChange={() => props.onToggleTypeId(t.id)}
-											class={navStyles.typeCheckbox}
-										/>
-										<span class={navStyles.typeCheckLabel}>{t.label}</span>
-										<Show when={t.key.trim() !== ""}>
-											<span class={navStyles["dropdown-meta"]}>{t.key}</span>
-										</Show>
-									</label>
-								)}
-							</For>
-						</div>
-					</Show>
 
-					<Show when={filteredPredicates().length > 0}>
-						<div class={navStyles.dropdownSection}>
-							<div class={navStyles.dropdownSectionTitle}>Link Types</div>
-						</div>
-						<div class={navStyles["dropdown-list"]}>
-							<For each={filteredPredicates()}>
-								{(p) => (
-									<label class={navStyles.typeCheckItem}>
-										<input
-											type="checkbox"
-											checked={props.selectedPredicateIds.has(p.id)}
-											onChange={() => props.onTogglePredicateId(p.id)}
-											class={navStyles.typeCheckbox}
-										/>
-										<span class={navStyles.typeCheckLabel}>
-											{p.forwardLabel || p.key}
-										</span>
-										<Show
-											when={p.key.trim() !== "" && p.forwardLabel.trim() !== ""}
+						<Show when={treeItems().length > 0}>
+							<div class={navStyles.dropdownSection}>
+								<div class={navStyles.dropdownSectionTitle}>Note Types</div>
+							</div>
+							<div class={navStyles["dropdown-list"]}>
+								<For each={treeItems()}>
+									{(t) => (
+										<label
+											class={navStyles.typeCheckItem}
+											style={{
+												"padding-left": `${10 + t.depth * 16}px`,
+											}}
 										>
-											<span class={navStyles["dropdown-meta"]}>{p.key}</span>
-										</Show>
-									</label>
-								)}
-							</For>
-						</div>
+											<input
+												type="checkbox"
+												checked={props.selectedTypeIds.has(t.id)}
+												onChange={() => props.onToggleTypeId(t.id)}
+												class={navStyles.typeCheckbox}
+											/>
+											<span class={navStyles.typeCheckLabel}>{t.label}</span>
+											<Show when={t.key.trim() !== ""}>
+												<span class={navStyles["dropdown-meta"]}>{t.key}</span>
+											</Show>
+										</label>
+									)}
+								</For>
+							</div>
+						</Show>
+
+						<Show when={filteredPredicates().length > 0}>
+							<div class={navStyles.dropdownSection}>
+								<div class={navStyles.dropdownSectionTitle}>Link Types</div>
+							</div>
+							<div class={navStyles["dropdown-list"]}>
+								<For each={filteredPredicates()}>
+									{(p) => (
+										<label class={navStyles.typeCheckItem}>
+											<input
+												type="checkbox"
+												checked={props.selectedPredicateIds.has(p.id)}
+												onChange={() => props.onTogglePredicateId(p.id)}
+												class={navStyles.typeCheckbox}
+											/>
+											<span class={navStyles.typeCheckLabel}>
+												{p.forwardLabel || p.key}
+											</span>
+											<Show
+												when={
+													p.key.trim() !== "" && p.forwardLabel.trim() !== ""
+												}
+											>
+												<span class={navStyles["dropdown-meta"]}>{p.key}</span>
+											</Show>
+										</label>
+									)}
+								</For>
+							</div>
+						</Show>
+
+						<Show when={hasFilter()}>
+							<div class={navStyles.filterFooter}>
+								<button
+									type="button"
+									class={navStyles.filterClearBtn}
+									onMouseDown={(e) => e.preventDefault()}
+									onClick={props.onClearAll}
+								>
+									Clear all
+								</button>
+							</div>
+						</Show>
 					</Show>
 
-					<Show when={hasFilter()}>
-						<div class={navStyles.filterFooter}>
-							<button
-								type="button"
-								class={navStyles.filterClearBtn}
-								onMouseDown={(e) => e.preventDefault()}
-								onClick={props.onClearAll}
+					{/* Display tab */}
+					<Show when={tab() === "display"}>
+						<div style={{ padding: "8px 0" }}>
+							<div
+								style={{
+									display: "flex",
+									"align-items": "center",
+									gap: "8px",
+									padding: "4px 12px 8px",
+								}}
 							>
-								Clear all
-							</button>
+								<span
+									style={{
+										"font-size": "0.8125rem",
+										"min-width": "80px",
+										color: "var(--color-text-muted)",
+									}}
+								>
+									Layout
+								</span>
+								<select
+									value={props.layout}
+									onChange={(e) =>
+										props.onLayoutChange(e.currentTarget.value as GraphLayout)
+									}
+									style={{
+										flex: "1",
+										padding: "4px 6px",
+										border: "1px solid var(--color-border)",
+										"border-radius": "6px",
+										background: "var(--color-bg)",
+										color: "var(--color-text)",
+										"font-size": "0.8125rem",
+									}}
+								>
+									<option value="force">Force</option>
+									<option value="tree">Tree</option>
+									<option value="radial">Radial</option>
+								</select>
+							</div>
+							{rangeRow(
+								"Link dist.",
+								props.linkDistance,
+								20,
+								300,
+								5,
+								props.onLinkDistanceChange,
+							)}
+							{rangeRow(
+								"Repulsion",
+								props.chargeStrength,
+								-1000,
+								0,
+								10,
+								props.onChargeStrengthChange,
+							)}
+							{rangeRow(
+								"Node size",
+								props.nodeSize,
+								3,
+								20,
+								1,
+								props.onNodeSizeChange,
+							)}
+							{rangeRow(
+								"Link width",
+								props.linkWidth,
+								0.5,
+								5,
+								0.5,
+								props.onLinkWidthChange,
+							)}
 						</div>
 					</Show>
 				</div>

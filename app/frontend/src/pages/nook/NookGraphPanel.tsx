@@ -1,4 +1,4 @@
-import { useLocation, useNavigate } from "@solidjs/router";
+import { useNavigate } from "@solidjs/router";
 import * as d3 from "d3";
 import {
 	createEffect,
@@ -12,6 +12,7 @@ import { GraphFilterDropdown } from "../../components/GraphFilterDropdown";
 import styles from "./NookGraphPanel.module.css";
 import type { NookStore } from "./store";
 import {
+	type GraphLayout,
 	type GraphViewProperties,
 	type LinkPredicate,
 	LinkPredicatesListResponseSchema,
@@ -74,31 +75,8 @@ function loadStoredWidth(): number {
 	return DEFAULT_GRAPH_WIDTH;
 }
 
-function parseUrlParams(search: string) {
-	const p = new URLSearchParams(search);
-	const depth = Number.parseInt(p.get("depth") ?? "", 10);
-	const includeFiles = p.get("includeFiles") === "1";
-	const typeIds = (p.get("typeIds") ?? "")
-		.split(",")
-		.filter((s) => s.trim() !== "");
-	const predicateIds = (p.get("predicateIds") ?? "")
-		.split(",")
-		.filter((s) => s.trim() !== "");
-	const hidden = (p.get("hidden") ?? "")
-		.split(",")
-		.filter((s) => s.trim() !== "");
-	return {
-		depth: Number.isFinite(depth) && depth >= 1 && depth <= 5 ? depth : null,
-		includeFiles: p.has("includeFiles") ? includeFiles : null,
-		typeIds: typeIds.length > 0 ? new Set(typeIds) : null,
-		predicateIds: predicateIds.length > 0 ? new Set(predicateIds) : null,
-		hidden: hidden.length > 0 ? new Set(hidden) : null,
-	};
-}
-
 export function NookGraphPanel(props: NookGraphPanelProps) {
 	const navigate = useNavigate();
-	const location = useLocation();
 	const store = () => props.store;
 	const nookId = () => store().nookId();
 	const embedded = () => Boolean(props.embedded);
@@ -110,39 +88,32 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 	};
 	const fullscreen = () => Boolean(props.fullscreen);
 
-	// Seed signals: embedded mode uses initialConfig, fullscreen uses URL params
-	const embeddedConfig = props.initialConfig;
-	const initParams =
-		embedded() && embeddedConfig
-			? {
-					depth: embeddedConfig.depth ?? null,
-					includeFiles: embeddedConfig.includeFiles ?? null,
-					typeIds: embeddedConfig.filterTypeIds?.length
-						? new Set(embeddedConfig.filterTypeIds)
-						: null,
-					predicateIds: embeddedConfig.filterPredicateIds?.length
-						? new Set(embeddedConfig.filterPredicateIds)
-						: null,
-					hidden: embeddedConfig.hiddenNodeIds?.length
-						? new Set(embeddedConfig.hiddenNodeIds)
-						: null,
-				}
-			: fullscreen()
-				? parseUrlParams(location.search)
-				: null;
-	const [depth, setDepth] = createSignal<number>(initParams?.depth ?? 2);
+	// Seed signals from initialConfig (embedded/graph note mode)
+	const ic = props.initialConfig;
+	const [depth, setDepth] = createSignal<number>(ic?.depth ?? 2);
 	const [includeFiles, setIncludeFiles] = createSignal(
-		initParams?.includeFiles ?? false,
+		ic?.includeFiles ?? false,
 	);
 	const [filterTypeIds, setFilterTypeIds] = createSignal(
-		initParams?.typeIds ?? new Set<string>(),
+		ic?.filterTypeIds?.length ? new Set(ic.filterTypeIds) : new Set<string>(),
 	);
 	const [filterPredicateIds, setFilterPredicateIds] = createSignal(
-		initParams?.predicateIds ?? new Set<string>(),
+		ic?.filterPredicateIds?.length
+			? new Set(ic.filterPredicateIds)
+			: new Set<string>(),
 	);
 	const [hiddenNodeIds, setHiddenNodeIds] = createSignal(
-		initParams?.hidden ?? new Set<string>(),
+		ic?.hiddenNodeIds?.length ? new Set(ic.hiddenNodeIds) : new Set<string>(),
 	);
+	// Display settings
+	const [layout, setLayout] = createSignal<GraphLayout>(ic?.layout ?? "force");
+	const [linkDistance, setLinkDistance] = createSignal(ic?.linkDistance ?? 90);
+	const [chargeStrength, setChargeStrength] = createSignal(
+		ic?.chargeStrength ?? -280,
+	);
+	const [nodeSize, setNodeSize] = createSignal(ic?.nodeSize ?? 6);
+	const [linkWidth, setLinkWidth] = createSignal(ic?.linkWidth ?? 1);
+
 	const [predicates, setPredicates] = createSignal<LinkPredicate[]>([]);
 
 	const loadPredicates = async () => {
@@ -284,28 +255,6 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 	};
 	const hiddenCount = createMemo(() => hiddenNodeIds().size);
 
-	const buildGraphSearch = () => {
-		const p = new URLSearchParams();
-		const d = depth();
-		if (d !== 2) p.set("depth", String(d));
-		if (includeFiles()) p.set("includeFiles", "1");
-		const tIds = [...filterTypeIds()].join(",");
-		if (tIds) p.set("typeIds", tIds);
-		const pIds = [...filterPredicateIds()].join(",");
-		if (pIds) p.set("predicateIds", pIds);
-		const hIds = [...hiddenNodeIds()].join(",");
-		if (hIds) p.set("hidden", hIds);
-		const qs = p.toString();
-		return qs ? `?${qs}` : "";
-	};
-
-	const buildGraphUrl = () => {
-		const n = nookId().trim();
-		const note = noteId().trim();
-		if (n === "" || note === "") return "";
-		return `/nooks/${encodeURIComponent(n)}/graph/${encodeURIComponent(note)}${buildGraphSearch()}`;
-	};
-
 	const currentConfig = (): GraphViewProperties => ({
 		rootNoteId: noteId().trim(),
 		depth: depth(),
@@ -313,36 +262,15 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 		filterTypeIds: [...filterTypeIds()],
 		filterPredicateIds: [...filterPredicateIds()],
 		hiddenNodeIds: [...hiddenNodeIds()],
+		layout: layout(),
+		linkDistance: linkDistance(),
+		chargeStrength: chargeStrength(),
+		nodeSize: nodeSize(),
+		linkWidth: linkWidth(),
 	});
 
 	const onSaveConfig = () => {
 		props.onSaveConfig?.(currentConfig());
-	};
-
-	// In fullscreen mode (non-embedded), keep the URL in sync with filter state via replaceState
-	createEffect(() => {
-		if (embedded()) return;
-		if (!fullscreen()) return;
-		const url = buildGraphUrl();
-		if (url === "") return;
-		const current = `${location.pathname}${location.search}`;
-		if (url !== current) {
-			window.history.replaceState(null, "", url);
-		}
-	});
-
-	const [linkCopied, setLinkCopied] = createSignal(false);
-	const onCopyLink = async () => {
-		const url = buildGraphUrl();
-		if (url === "") return;
-		const full = `${window.location.origin}${url}`;
-		try {
-			await navigator.clipboard.writeText(full);
-			setLinkCopied(true);
-			setTimeout(() => setLinkCopied(false), 2000);
-		} catch {
-			/* ignore */
-		}
 	};
 
 	const onSaveAsGraphNote = async () => {
@@ -561,7 +489,6 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 	const onCenter = () => centerView?.();
 	const onFullscreen = () => {
 		if (embedded()) {
-			// For embedded graph notes, fullscreen is ?fullscreen on the current note URL
 			const n = nookId().trim();
 			const graphNoteId = store().selectedId().trim();
 			if (n === "" || graphNoteId === "") return;
@@ -570,9 +497,12 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 			);
 			return;
 		}
-		const url = buildGraphUrl();
-		if (url === "") return;
-		navigate(url);
+		const n = nookId().trim();
+		const note = noteId().trim();
+		if (n === "" || note === "") return;
+		navigate(
+			`/nooks/${encodeURIComponent(n)}/graph/${encodeURIComponent(note)}`,
+		);
 	};
 	const onCloseFullscreen = () => {
 		const n = nookId().trim();
@@ -751,12 +681,13 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 			.style("pointer-events", "all");
 
 		// Draw circles for regular nodes, hexagons for graph nodes
+		const baseSize = nodeSize();
 		nodeLinkSel.each(function (_d) {
 			const el = d3.select(this as Element);
 			const d = _d;
 			const isGraph = d.noteType === "graph";
 			const isCenter = d.id === centerId;
-			const r = isCenter ? 9 : isGraph ? 8 : 6;
+			const r = isCenter ? baseSize + 3 : isGraph ? baseSize + 2 : baseSize;
 			const fill = isCenter
 				? colorNodeCenter
 				: isGraph
@@ -975,6 +906,88 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 
 		applyHover();
 
+		const currentLayout = layout();
+		const currentNodeSize = nodeSize();
+		const currentLinkWidth = linkWidth();
+
+		// Apply link width
+		linkSel.attr("stroke-width", currentLinkWidth);
+
+		// For tree/radial layouts, compute initial positions from hierarchy
+		if (currentLayout === "tree" || currentLayout === "radial") {
+			// Build a hierarchy rooted at centerId
+			const childMap = new Map<string, string[]>();
+			const hasParent = new Set<string>();
+			for (const e of edges) {
+				const src =
+					typeof e.source === "string"
+						? e.source
+						: (e.source as unknown as GraphNode).id;
+				const tgt =
+					typeof e.target === "string"
+						? e.target
+						: (e.target as unknown as GraphNode).id;
+				if (!childMap.has(src)) childMap.set(src, []);
+				childMap.get(src)?.push(tgt);
+				hasParent.add(tgt);
+			}
+			// Also add reverse edges for nodes not reachable forward
+			for (const e of edges) {
+				const src =
+					typeof e.source === "string"
+						? e.source
+						: (e.source as unknown as GraphNode).id;
+				const tgt =
+					typeof e.target === "string"
+						? e.target
+						: (e.target as unknown as GraphNode).id;
+				if (!childMap.has(tgt)) childMap.set(tgt, []);
+				if (!hasParent.has(src) && src !== centerId) {
+					childMap.get(tgt)?.push(src);
+				}
+			}
+
+			type HNode = { id: string; children?: HNode[] };
+			const visited = new Set<string>();
+			const buildTree = (id: string): HNode => {
+				visited.add(id);
+				const kids = (childMap.get(id) ?? []).filter((c) => !visited.has(c));
+				return {
+					id,
+					children: kids.length > 0 ? kids.map(buildTree) : undefined,
+				};
+			};
+			const root = d3.hierarchy(buildTree(centerId));
+
+			if (currentLayout === "tree") {
+				const treeLayout = d3.tree<HNode>().size([height - 40, width - 80]);
+				treeLayout(root);
+				const nodeById = new Map(nodes.map((n) => [n.id, n]));
+				for (const desc of root.descendants()) {
+					const n = nodeById.get(desc.data.id);
+					if (n) {
+						n.x = (desc.y ?? 0) + 40;
+						n.y = (desc.x ?? 0) + 20;
+					}
+				}
+			} else {
+				const radialLayout = d3
+					.tree<HNode>()
+					.size([2 * Math.PI, Math.min(width, height) / 2 - 40]);
+				radialLayout(root);
+				const nodeById = new Map(nodes.map((n) => [n.id, n]));
+				for (const desc of root.descendants()) {
+					const n = nodeById.get(desc.data.id);
+					if (n) {
+						const angle = desc.x ?? 0;
+						const radius = desc.y ?? 0;
+						n.x = width / 2 + radius * Math.cos(angle - Math.PI / 2);
+						n.y = height / 2 + radius * Math.sin(angle - Math.PI / 2);
+					}
+				}
+			}
+		}
+
 		simulation?.stop();
 		simulation = d3
 			.forceSimulation(nodes)
@@ -985,12 +998,22 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 						edges as unknown as Array<{ source: string; target: string }>,
 					)
 					.id((d) => d.id)
-					.distance(90)
-					.strength(0.7),
+					.distance(linkDistance())
+					.strength(currentLayout === "force" ? 0.7 : 0),
 			)
-			.force("charge", d3.forceManyBody().strength(-280))
-			.force("center", d3.forceCenter(width / 2, height / 2))
-			.force("collide", d3.forceCollide().radius(18))
+			.force(
+				"charge",
+				d3
+					.forceManyBody()
+					.strength(currentLayout === "force" ? chargeStrength() : 0),
+			)
+			.force(
+				"center",
+				currentLayout === "force"
+					? d3.forceCenter(width / 2, height / 2)
+					: null,
+			)
+			.force("collide", d3.forceCollide().radius(currentNodeSize + 4))
 			.on("tick", () => {
 				linkSel
 					.attr("x1", (d) => (d.source as unknown as GraphNode).x ?? 0)
@@ -1130,6 +1153,31 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 					onTogglePredicateId={toggleFilterPredicateId}
 					onClearAll={clearAllFilters}
 					disabled={noteId().trim() === ""}
+					layout={layout()}
+					onLayoutChange={(v) => {
+						setLayout(v);
+						markDirty();
+					}}
+					linkDistance={linkDistance()}
+					onLinkDistanceChange={(v) => {
+						setLinkDistance(v);
+						markDirty();
+					}}
+					chargeStrength={chargeStrength()}
+					onChargeStrengthChange={(v) => {
+						setChargeStrength(v);
+						markDirty();
+					}}
+					nodeSize={nodeSize()}
+					onNodeSizeChange={(v) => {
+						setNodeSize(v);
+						markDirty();
+					}}
+					linkWidth={linkWidth()}
+					onLinkWidthChange={(v) => {
+						setLinkWidth(v);
+						markDirty();
+					}}
 				/>
 				<Show when={hiddenCount() > 0}>
 					<button
@@ -1152,26 +1200,15 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 				<Show
 					when={embedded()}
 					fallback={
-						<>
-							<button
-								type="button"
-								class={styles.controlBtn}
-								onClick={onCopyLink}
-								disabled={noteId().trim() === ""}
-								title="Copy link to this graph view"
-							>
-								{linkCopied() ? "Copied!" : "Copy link"}
-							</button>
-							<button
-								type="button"
-								class={styles.controlBtn}
-								onClick={onSaveAsGraphNote}
-								disabled={noteId().trim() === ""}
-								title="Save as graph view note"
-							>
-								Save as note
-							</button>
-						</>
+						<button
+							type="button"
+							class={styles.controlBtn}
+							onClick={onSaveAsGraphNote}
+							disabled={noteId().trim() === ""}
+							title="Save as graph view note"
+						>
+							Save as note
+						</button>
 					}
 				>
 					<button

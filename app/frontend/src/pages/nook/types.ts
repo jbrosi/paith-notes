@@ -2,6 +2,9 @@ import { z } from "zod";
 
 const NoteTypeEnum = z.enum(["anything", "person", "file", "graph"]);
 
+export const GraphLayoutEnum = z.enum(["force", "tree", "radial"]);
+export type GraphLayout = z.infer<typeof GraphLayoutEnum>;
+
 export const GraphViewPropertiesSchema = z.object({
 	rootNoteId: z.string(),
 	depth: z.number().int().min(1).max(5).optional(),
@@ -9,6 +12,12 @@ export const GraphViewPropertiesSchema = z.object({
 	filterTypeIds: z.array(z.string()).optional(),
 	filterPredicateIds: z.array(z.string()).optional(),
 	hiddenNodeIds: z.array(z.string()).optional(),
+	// Display settings
+	layout: GraphLayoutEnum.optional(),
+	linkDistance: z.number().min(20).max(300).optional(),
+	chargeStrength: z.number().min(-1000).max(0).optional(),
+	nodeSize: z.number().min(3).max(20).optional(),
+	linkWidth: z.number().min(0.5).max(5).optional(),
 });
 
 export type GraphViewProperties = z.infer<typeof GraphViewPropertiesSchema>;
@@ -32,6 +41,15 @@ export function serializeGraphProperties(
 	if (props.filterPredicateIds?.length)
 		out.filterPredicateIds = props.filterPredicateIds;
 	if (props.hiddenNodeIds?.length) out.hiddenNodeIds = props.hiddenNodeIds;
+	if (props.layout && props.layout !== "force") out.layout = props.layout;
+	if (props.linkDistance !== undefined && props.linkDistance !== 90)
+		out.linkDistance = props.linkDistance;
+	if (props.chargeStrength !== undefined && props.chargeStrength !== -280)
+		out.chargeStrength = props.chargeStrength;
+	if (props.nodeSize !== undefined && props.nodeSize !== 6)
+		out.nodeSize = props.nodeSize;
+	if (props.linkWidth !== undefined && props.linkWidth !== 1)
+		out.linkWidth = props.linkWidth;
 	return out;
 }
 
