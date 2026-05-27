@@ -102,8 +102,12 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 	const store = () => props.store;
 	const nookId = () => store().nookId();
 	const embedded = () => Boolean(props.embedded);
-	const noteId = () =>
-		embedded() ? (props.rootNoteId ?? "") : store().selectedId();
+	const [overrideRootNoteId, setOverrideRootNoteId] = createSignal("");
+	const noteId = () => {
+		const override = overrideRootNoteId();
+		if (override) return override;
+		return embedded() ? (props.rootNoteId ?? "") : store().selectedId();
+	};
 	const fullscreen = () => Boolean(props.fullscreen);
 
 	// Seed signals: embedded mode uses initialConfig, fullscreen uses URL params
@@ -165,54 +169,85 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 		if (embedded()) props.onDirty?.();
 	};
 
-	// Expanded graph nodes: maps graph-note ID → its fetched sub-links
-	const [expandedGraphLinks, setExpandedGraphLinks] = createSignal<
-		Map<string, NoteLink[]>
-	>(new Map());
-	const isExpanded = (id: string) => expandedGraphLinks().has(id);
+	// Graph view stack: navigate into graph nodes, back to return
+	type GraphViewEntry = {
+		rootNoteId: string;
+		label: string;
+		depth: number;
+		includeFiles: boolean;
+		filterTypeIds: string[];
+		filterPredicateIds: string[];
+		hiddenNodeIds: string[];
+	};
+	const [graphViewStack, setGraphViewStack] = createSignal<GraphViewEntry[]>(
+		[],
+	);
+	const pushedView = () => {
+		const stack = graphViewStack();
+		return stack.length > 0 ? stack[stack.length - 1] : null;
+	};
 
-	const toggleExpandGraphNode = async (graphNoteId: string) => {
-		if (isExpanded(graphNoteId)) {
-			const next = new Map(expandedGraphLinks());
-			next.delete(graphNoteId);
-			setExpandedGraphLinks(next);
-			return;
-		}
+	const openGraphNode = async (graphNoteId: string) => {
 		const n = nookId().trim();
 		if (n === "") return;
 		try {
-			// Fetch the graph note to get its properties (rootNoteId + filters)
 			const noteRes = await apiFetch(`/api/nooks/${n}/notes/${graphNoteId}`, {
 				method: "GET",
 			});
 			if (!noteRes.ok) return;
 			const noteJson = await noteRes.json();
 			const noteBody = NoteResponseSchema.parse(noteJson);
-			const props = noteBody.note.properties;
-			const rootId =
-				typeof props?.rootNoteId === "string" ? props.rootNoteId : "";
+			const gp = noteBody.note.properties;
+			const rootId = typeof gp?.rootNoteId === "string" ? gp.rootNoteId : "";
 			if (rootId === "") return;
 
-			// Fetch links for the root note with saved config
-			const params = new URLSearchParams({
-				direction: "both",
-				depth: String(typeof props?.depth === "number" ? props.depth : 2),
-			});
-			if (!props?.includeFiles) params.set("exclude_note_types", "file");
-			const linksRes = await apiFetch(
-				`/api/nooks/${n}/notes/${rootId}/links?${params.toString()}`,
-				{ method: "GET" },
-			);
-			if (!linksRes.ok) return;
-			const linksJson = await linksRes.json();
-			const linksBody = NoteLinksListResponseSchema.parse(linksJson);
+			// Save current view state before pushing
+			const currentEntry: GraphViewEntry = {
+				rootNoteId: noteId().trim(),
+				label: titleById().get(noteId().trim()) ?? store().title().trim(),
+				depth: depth(),
+				includeFiles: includeFiles(),
+				filterTypeIds: [...filterTypeIds()],
+				filterPredicateIds: [...filterPredicateIds()],
+				hiddenNodeIds: [...hiddenNodeIds()],
+			};
 
-			const next = new Map(expandedGraphLinks());
-			next.set(graphNoteId, linksBody.links);
-			setExpandedGraphLinks(next);
+			// Push current state and switch to the graph note's view
+			setGraphViewStack([...graphViewStack(), currentEntry]);
+			setOverrideRootNoteId(rootId);
+			setDepth(typeof gp?.depth === "number" ? gp.depth : 2);
+			setIncludeFiles(Boolean(gp?.includeFiles));
+			setFilterTypeIds(
+				Array.isArray(gp?.filterTypeIds)
+					? new Set(gp.filterTypeIds as string[])
+					: new Set<string>(),
+			);
+			setFilterPredicateIds(
+				Array.isArray(gp?.filterPredicateIds)
+					? new Set(gp.filterPredicateIds as string[])
+					: new Set<string>(),
+			);
+			setHiddenNodeIds(
+				Array.isArray(gp?.hiddenNodeIds)
+					? new Set(gp.hiddenNodeIds as string[])
+					: new Set<string>(),
+			);
 		} catch {
 			/* ignore */
 		}
+	};
+
+	const popGraphView = () => {
+		const stack = graphViewStack();
+		if (stack.length === 0) return;
+		const prev = stack[stack.length - 1];
+		setGraphViewStack(stack.slice(0, -1));
+		setOverrideRootNoteId(stack.length > 1 ? prev.rootNoteId : "");
+		setDepth(prev.depth);
+		setIncludeFiles(prev.includeFiles);
+		setFilterTypeIds(new Set(prev.filterTypeIds));
+		setFilterPredicateIds(new Set(prev.filterPredicateIds));
+		setHiddenNodeIds(new Set(prev.hiddenNodeIds));
 	};
 
 	const toggleFilterTypeId = (id: string) => {
@@ -376,20 +411,9 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 	const [error, setError] = createSignal<string>("");
 	const [links, setLinks] = createSignal<NoteLink[]>([]);
 
-	const allLinks = createMemo(() => {
-		const base = links();
-		const expanded = expandedGraphLinks();
-		if (expanded.size === 0) return base;
-		const all = [...base];
-		for (const subLinks of expanded.values()) {
-			for (const l of subLinks) all.push(l);
-		}
-		return all;
-	});
-
 	const titleById = createMemo(() => {
 		const m = new Map<string, string>();
-		for (const l of allLinks()) {
+		for (const l of links()) {
 			if (l.sourceNoteId.trim() !== "") {
 				m.set(
 					l.sourceNoteId,
@@ -410,7 +434,7 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 
 	const noteTypeById = createMemo(() => {
 		const m = new Map<string, string>();
-		for (const l of allLinks()) {
+		for (const l of links()) {
 			if (l.sourceNoteId.trim() !== "" && l.sourceNoteType)
 				m.set(l.sourceNoteId, l.sourceNoteType);
 			if (l.targetNoteId.trim() !== "" && l.targetNoteType)
@@ -473,12 +497,22 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 		void loadLinks();
 	});
 
+	// Reset graph view stack when the base note changes
+	createEffect(() => {
+		store().selectedId(); // track
+		if (graphViewStack().length > 0) {
+			setGraphViewStack([]);
+			setOverrideRootNoteId("");
+		}
+	});
+
 	const graph = createMemo((): { nodes: GraphNode[]; edges: GraphEdge[] } => {
 		const centerId = noteId().trim();
 		if (centerId === "") return { nodes: [], edges: [] };
-		const centerTitle = embedded()
-			? labelFor(centerId)
-			: store().title().trim();
+		const centerTitle =
+			embedded() || overrideRootNoteId()
+				? labelFor(centerId)
+				: store().title().trim();
 		const hidden = hiddenNodeIds();
 
 		const nodes = new Map<string, GraphNode>();
@@ -488,15 +522,12 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 			noteType: noteTypeFor(centerId),
 		});
 
-		const seenEdges = new Set<string>();
 		const edges: GraphEdge[] = [];
-		for (const l of allLinks()) {
+		for (const l of links()) {
 			const s = l.sourceNoteId.trim();
 			const t = l.targetNoteId.trim();
 			if (s === "" || t === "") continue;
 			if (hidden.has(s) || hidden.has(t)) continue;
-			if (seenEdges.has(l.id)) continue;
-			seenEdges.add(l.id);
 			if (!nodes.has(s))
 				nodes.set(s, {
 					id: s,
@@ -904,7 +935,7 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 				return;
 			}
 			if (d.noteType === "graph") {
-				void toggleExpandGraphNode(d.id);
+				void openGraphNode(d.id);
 				return;
 			}
 			selectNote(d.id);
@@ -1039,6 +1070,19 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 					>
 						&times;
 					</button>
+				</div>
+			</Show>
+
+			<Show when={pushedView()}>
+				<div class={styles.graphBreadcrumb}>
+					<button
+						type="button"
+						class={styles.controlBtn}
+						onClick={popGraphView}
+					>
+						&larr; Back
+					</button>
+					<span class={styles.controlLabelText}>{pushedView()?.label}</span>
 				</div>
 			</Show>
 
