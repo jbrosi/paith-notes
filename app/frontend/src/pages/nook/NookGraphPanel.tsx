@@ -281,6 +281,18 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 	});
 	const noteTypeFor = (id: string) => noteTypeById().get(id) ?? "anything";
 
+	// Map note IDs to taxonomy type IDs (for frontend-side type filtering)
+	const taxonomyTypeById = createMemo(() => {
+		const m = new Map<string, string>();
+		for (const l of links()) {
+			if (l.sourceNoteId.trim() !== "" && l.sourceTypeId)
+				m.set(l.sourceNoteId, l.sourceTypeId);
+			if (l.targetNoteId.trim() !== "" && l.targetTypeId)
+				m.set(l.targetNoteId, l.targetTypeId);
+		}
+		return m;
+	});
+
 	const loadLinks = async () => {
 		if (nookId().trim() === "") return;
 		if (noteId().trim() === "") {
@@ -352,6 +364,17 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 			noteType: noteTypeFor(centerId),
 		});
 
+		// When type filters are active, only show nodes whose taxonomy type matches
+		const activeTypeFilter = filterTypeIds();
+		const hasTypeFilter = activeTypeFilter.size > 0;
+		const taxMap = taxonomyTypeById();
+		const nodeMatchesTypeFilter = (id: string) => {
+			if (!hasTypeFilter) return true;
+			if (id === centerId) return true; // always show center node
+			const tid = taxMap.get(id) ?? "";
+			return tid !== "" && activeTypeFilter.has(tid);
+		};
+
 		const edges: GraphEdge[] = [];
 		for (const l of links()) {
 			const s = l.sourceNoteId.trim();
@@ -359,6 +382,9 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 			if (s === "" || t === "") continue;
 			if (hidden.has(s) || hidden.has(t)) continue;
 			if (exclude && (s === exclude || t === exclude)) continue;
+			// Frontend type filter: skip links where a non-center endpoint doesn't match
+			if (hasTypeFilter && !nodeMatchesTypeFilter(s)) continue;
+			if (hasTypeFilter && !nodeMatchesTypeFilter(t)) continue;
 			if (!nodes.has(s))
 				nodes.set(s, {
 					id: s,

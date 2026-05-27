@@ -26,11 +26,11 @@ export type GraphFilterDropdownProps = {
 	onLinkWidthChange: (v: number) => void;
 };
 
-type Tab = "filters" | "display";
+type Tab = "types" | "links" | "display";
 
 export function GraphFilterDropdown(props: GraphFilterDropdownProps) {
 	const [open, setOpen] = createSignal(false);
-	const [tab, setTab] = createSignal<Tab>("filters");
+	const [tab, setTab] = createSignal<Tab>("types");
 	const [query, setQuery] = createSignal("");
 	let inputRef: HTMLInputElement | undefined;
 
@@ -249,10 +249,23 @@ export function GraphFilterDropdown(props: GraphFilterDropdownProps) {
 					>
 						<button
 							type="button"
-							style={tabStyle("filters")}
-							onClick={() => setTab("filters")}
+							style={tabStyle("types")}
+							onClick={() => setTab("types")}
 						>
-							Filters
+							Types
+							{props.selectedTypeIds.size > 0
+								? ` (${props.selectedTypeIds.size})`
+								: ""}
+						</button>
+						<button
+							type="button"
+							style={tabStyle("links")}
+							onClick={() => setTab("links")}
+						>
+							Links
+							{props.selectedPredicateIds.size > 0
+								? ` (${props.selectedPredicateIds.size})`
+								: ""}
 						</button>
 						<button
 							type="button"
@@ -263,8 +276,8 @@ export function GraphFilterDropdown(props: GraphFilterDropdownProps) {
 						</button>
 					</div>
 
-					{/* Filters tab */}
-					<Show when={tab() === "filters"}>
+					{/* Types tab */}
+					<Show when={tab() === "types"}>
 						<label
 							class={navStyles.typeCheckItem}
 							style={{ "border-bottom": "1px solid var(--color-border-light)" }}
@@ -284,7 +297,7 @@ export function GraphFilterDropdown(props: GraphFilterDropdownProps) {
 								ref={inputRef}
 								type="text"
 								value={query()}
-								placeholder="Search types & predicates..."
+								placeholder="Search note types..."
 								onInput={(e) => setQuery(e.currentTarget.value)}
 								onKeyDown={(e) => {
 									if (e.key === "Escape") close();
@@ -299,13 +312,7 @@ export function GraphFilterDropdown(props: GraphFilterDropdownProps) {
 								}}
 							/>
 						</div>
-
 						<Show when={treeItems().length > 0}>
-							<div class={navStyles.dropdownSection}>
-								<div class={navStyles.dropdownSectionTitle}>
-									Show only note types
-								</div>
-							</div>
 							<div class={navStyles["dropdown-list"]}>
 								<For each={treeItems()}>
 									{(t) => (
@@ -330,13 +337,43 @@ export function GraphFilterDropdown(props: GraphFilterDropdownProps) {
 								</For>
 							</div>
 						</Show>
-
-						<Show when={filteredPredicates().length > 0}>
-							<div class={navStyles.dropdownSection}>
-								<div class={navStyles.dropdownSectionTitle}>
-									Show only link types
-								</div>
+						<Show when={props.selectedTypeIds.size > 0}>
+							<div class={navStyles.filterFooter}>
+								<button
+									type="button"
+									class={navStyles.filterClearBtn}
+									onMouseDown={(e) => e.preventDefault()}
+									onClick={props.onClearAll}
+								>
+									Clear all
+								</button>
 							</div>
+						</Show>
+					</Show>
+
+					{/* Links tab */}
+					<Show when={tab() === "links"}>
+						<div style={{ padding: "8px" }}>
+							<input
+								ref={inputRef}
+								type="text"
+								value={query()}
+								placeholder="Search link types..."
+								onInput={(e) => setQuery(e.currentTarget.value)}
+								onKeyDown={(e) => {
+									if (e.key === "Escape") close();
+								}}
+								style={{
+									width: "100%",
+									padding: "6px 8px",
+									border: "1px solid #ddd",
+									"border-radius": "6px",
+									"font-size": "0.875rem",
+									outline: "none",
+								}}
+							/>
+						</div>
+						<Show when={filteredPredicates().length > 0}>
 							<div class={navStyles["dropdown-list"]}>
 								<For each={filteredPredicates()}>
 									{(p) => (
@@ -362,8 +399,7 @@ export function GraphFilterDropdown(props: GraphFilterDropdownProps) {
 								</For>
 							</div>
 						</Show>
-
-						<Show when={hasFilter()}>
+						<Show when={props.selectedPredicateIds.size > 0}>
 							<div class={navStyles.filterFooter}>
 								<button
 									type="button"
