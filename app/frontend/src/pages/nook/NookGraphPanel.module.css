@@ -95,49 +95,6 @@
 	color: var(--color-text);
 }
 
-.graphViewBanner {
-	display: flex;
-	align-items: center;
-	gap: 8px;
-	padding: 8px 16px;
-	border-bottom: 1px solid var(--color-border-light);
-	background: var(--color-bg-tertiary, #f8f9fa);
-	flex-shrink: 0;
-}
-
-.graphViewIcon {
-	flex-shrink: 0;
-	fill: var(--color-accent, #8b5cf6);
-}
-
-.graphViewTitle {
-	flex: 1;
-	font-size: 13px;
-	font-weight: 600;
-	color: var(--color-text);
-	min-width: 0;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-}
-
-.graphViewClose {
-	flex-shrink: 0;
-	background: none;
-	border: none;
-	cursor: pointer;
-	padding: 2px 6px;
-	font-size: 1.1rem;
-	line-height: 1;
-	color: var(--color-text-muted);
-	border-radius: 4px;
-}
-
-.graphViewClose:hover {
-	background: var(--color-bg-hover);
-	color: var(--color-text);
-}
-
 .controls {
 	display: flex;
 	flex-wrap: wrap;
