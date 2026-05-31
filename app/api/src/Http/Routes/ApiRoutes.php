@@ -18,6 +18,7 @@ use Paith\Notes\Api\Http\Controller\Module1Controller;
 use Paith\Notes\Api\Http\Controller\InvitationsController;
 use Paith\Notes\Api\Http\Controller\NookStatsController;
 use Paith\Notes\Api\Http\Controller\NoteTypesController;
+use Paith\Notes\Api\Http\Controller\TypeAttributesController;
 use Paith\Notes\Api\Http\Controller\NoteLinksController;
 use Paith\Notes\Api\Http\Controller\NooksController;
 use Paith\Notes\Api\Http\Controller\NotesController;
@@ -94,6 +95,11 @@ final class ApiRoutes
         $r->add('PUT', '/nooks/{nookId}/note-types/{typeId}', [NoteTypesController::class, 'update']);
         $r->add('DELETE', '/nooks/{nookId}/note-types/{typeId}', [NoteTypesController::class, 'delete']);
         $r->get('/nooks/{nookId}/note-types/{typeId}/notes', [NoteTypesController::class, 'notes']);
+
+        $r->get('/nooks/{nookId}/note-types/{typeId}/attributes', [TypeAttributesController::class, 'list']);
+        $r->post('/nooks/{nookId}/note-types/{typeId}/attributes', [TypeAttributesController::class, 'create']);
+        $r->add('PUT', '/nooks/{nookId}/note-types/{typeId}/attributes/{attributeId}', [TypeAttributesController::class, 'update']);
+        $r->add('DELETE', '/nooks/{nookId}/note-types/{typeId}/attributes/{attributeId}', [TypeAttributesController::class, 'delete']);
 
         $r->get('/nooks/{nookId}/link-predicates', [LinkPredicatesController::class, 'list']);
         $r->post('/nooks/{nookId}/link-predicates', [LinkPredicatesController::class, 'create']);

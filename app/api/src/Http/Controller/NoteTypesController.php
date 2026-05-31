@@ -306,6 +306,17 @@ final class NoteTypesController
             throw new HttpError('root file type cannot be deleted', 400);
         }
 
+        // Prevent deletion if type has children
+        $childCheck = $pdo->prepare('select 1 from global.note_types where parent_id = :id and nook_id = :nook_id limit 1');
+        $childCheck->execute([':id' => $typeId, ':nook_id' => $nookId]);
+        if ($childCheck->fetchColumn()) {
+            throw new HttpError('cannot delete type that has child types — delete or reparent children first', 400);
+        }
+
+        // Unset type_id on notes (attributes stay as inert JSONB)
+        $pdo->prepare('update global.notes set type_id = null where type_id = :type_id and nook_id = :nook_id')
+            ->execute([':type_id' => $typeId, ':nook_id' => $nookId]);
+
         $stmt = $pdo->prepare('delete from global.note_types where id = :id and nook_id = :nook_id returning id');
         $stmt->execute([':id' => $typeId, ':nook_id' => $nookId]);
         $id = $stmt->fetchColumn();
