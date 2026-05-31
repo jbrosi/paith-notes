@@ -197,7 +197,7 @@ final class NotesController
         $this->requireMember($pdo, $user, $nookId);
 
         $stmt = $pdo->prepare(
-            'select id, title, content, type, type_id, properties, former_properties, version, created_at '
+            'select id, title, content, type, type_id, properties, former_properties, attributes, archive, version, created_at '
             . 'from global.notes where nook_id = :nook_id and id = :id'
         );
         $stmt->execute([':nook_id' => $nookId, ':id' => $noteId]);
@@ -208,6 +208,8 @@ final class NotesController
 
         $properties = self::decodeJsonObject($r['properties'] ?? null);
         $formerProperties = self::decodeJsonObject($r['former_properties'] ?? null);
+        $attributes = self::decodeJsonObject($r['attributes'] ?? null);
+        $archive = self::decodeJsonObject($r['archive'] ?? null);
 
         // Total view count for this note
         $vcStmt = $pdo->prepare('select coalesce(sum(count), 0) from global.note_views where note_id = :note_id');
@@ -225,6 +227,8 @@ final class NotesController
                 'type_id' => is_scalar($r['type_id'] ?? null) ? (string)$r['type_id'] : '',
                 'properties' => $properties === [] ? (object)[] : $properties,
                 'former_properties' => $formerProperties === [] ? (object)[] : $formerProperties,
+                'attributes' => $attributes === [] ? (object)[] : $attributes,
+                'archive' => $archive === [] ? (object)[] : $archive,
                 'version' => Row::int($r, 'version'),
                 'view_count' => $viewCount,
                 'created_at' => Row::str($r, 'created_at'),
@@ -262,6 +266,7 @@ final class NotesController
 
         $type = self::normalizeNoteType($data['type'] ?? null, self::NOTE_TYPE_ANYTHING);
         $properties = self::normalizeProperties($data['properties'] ?? null);
+        $attributes = is_array($data['attributes'] ?? null) ? $data['attributes'] : [];
         if ($title === '') {
             throw new HttpError('title is required', 400);
         }
@@ -284,7 +289,8 @@ final class NotesController
             $pdo->beginTransaction();
 
             $stmt = $pdo->prepare(
-                "insert into global.notes (nook_id, created_by, title, content, type, type_id, properties, former_properties, actor) values (:nook_id, :created_by, :title, :content, :type, :type_id, :properties, :former_properties, :actor) returning id, created_at"
+                "insert into global.notes (nook_id, created_by, title, content, type, type_id, properties, former_properties, attributes, actor) "
+                . "values (:nook_id, :created_by, :title, :content, :type, :type_id, :properties, :former_properties, :attributes::jsonb, :actor) returning id, created_at"
             );
             $stmt->execute([
                 ':nook_id' => $nookId,
@@ -295,6 +301,7 @@ final class NotesController
                 ':type_id' => $typeId !== '' ? $typeId : null,
                 ':properties' => self::encodeJsonObject($properties),
                 ':former_properties' => '{}',
+                ':attributes' => json_encode($attributes === [] ? (object)[] : $attributes),
                 ':actor' => $context->actor(),
             ]);
 
@@ -324,6 +331,8 @@ final class NotesController
                     'type_id' => $typeId,
                     'properties' => $properties === [] ? (object)[] : $properties,
                     'former_properties' => (object)[],
+                    'attributes' => $attributes === [] ? (object)[] : $attributes,
+                    'archive' => (object)[],
                     'created_at' => is_scalar($createdAt) ? (string)$createdAt : '',
                 ],
             ]);
@@ -391,7 +400,7 @@ final class NotesController
             throw new HttpError('forbidden', 403);
         }
 
-        $existingStmt = $pdo->prepare('select type, type_id, properties, former_properties from global.notes where id = :id and nook_id = :nook_id');
+        $existingStmt = $pdo->prepare('select type, type_id, properties, former_properties, attributes, archive from global.notes where id = :id and nook_id = :nook_id');
         $existingStmt->execute([':id' => $noteId, ':nook_id' => $nookId]);
         $existingRow = $existingStmt->fetch(PDO::FETCH_ASSOC);
         if (!is_array($existingRow)) {
@@ -402,6 +411,8 @@ final class NotesController
         $existingTypeId = is_scalar($existingRow['type_id'] ?? null) ? trim((string)$existingRow['type_id']) : '';
         $existingProperties = self::decodeJsonObject($existingRow['properties'] ?? null);
         $existingFormerProperties = self::decodeJsonObject($existingRow['former_properties'] ?? null);
+        $existingAttributes = self::decodeJsonObject($existingRow['attributes'] ?? null);
+        $existingArchive = self::decodeJsonObject($existingRow['archive'] ?? null);
 
         $typeIdRaw = $data['type_id'] ?? null;
         $typeId = $existingTypeId !== '' ? $existingTypeId : null;
@@ -415,6 +426,23 @@ final class NotesController
 
         $type = self::normalizeNoteType($typeRaw, $existingType);
         $properties = $propertiesRaw === null ? $existingProperties : self::normalizeProperties($propertiesRaw);
+
+        // Merge incoming attribute values (if provided) into existing attributes
+        $incomingAttributes = $data['attributes'] ?? null;
+        $attributes = $existingAttributes;
+        if (is_array($incomingAttributes)) {
+            foreach ($incomingAttributes as $k => $v) {
+                if (!is_string($k)) {
+                    continue;
+                }
+                if ($v === null) {
+                    unset($attributes[$k]);
+                } else {
+                    $attributes[$k] = $v;
+                }
+            }
+        }
+        $archive = $existingArchive;
 
         if ($existingType !== $type) {
             if ($existingType === self::NOTE_TYPE_FILE || $type === self::NOTE_TYPE_FILE) {
@@ -448,6 +476,42 @@ final class NotesController
             }
         }
 
+        // Type switch: bidirectional archive/attributes swap
+        $newTypeIdStr = is_string($typeId) ? $typeId : '';
+        if ($newTypeIdStr !== $existingTypeId) {
+            $visibleUuids = [];
+            if ($newTypeIdStr !== '') {
+                $visibleUuids = $this->resolveVisibleAttributeIds($pdo, $nookId, $newTypeIdStr);
+            }
+
+            $newAttributes = [];
+            $newArchive = [];
+
+            // Keys in current attributes: keep if visible, else move to archive
+            foreach ($attributes as $k => $v) {
+                if (isset($visibleUuids[$k])) {
+                    $newAttributes[$k] = $v;
+                } else {
+                    $newArchive[$k] = $v;
+                }
+            }
+
+            // Keys in current archive: restore if visible, else keep in archive
+            foreach ($archive as $k => $v) {
+                if (isset($visibleUuids[$k])) {
+                    // Only restore from archive if not already set in attributes
+                    if (!isset($newAttributes[$k])) {
+                        $newAttributes[$k] = $v;
+                    }
+                } else {
+                    $newArchive[$k] = $v;
+                }
+            }
+
+            $attributes = $newAttributes;
+            $archive = $newArchive;
+        }
+
         // Optimistic locking: if expected_version is provided, check it matches current
         $expectedVersion = $data['expected_version'] ?? null;
         if ($expectedVersion !== null && is_numeric($expectedVersion)) {
@@ -467,7 +531,10 @@ final class NotesController
             $pdo->beginTransaction();
 
             $stmt = $pdo->prepare(
-                'update global.notes set title = :title, content = :content, type = :type, type_id = :type_id, properties = :properties, former_properties = :former_properties, updated_at = now() where id = :id and nook_id = :nook_id returning id, version, created_at, updated_at'
+                'update global.notes set title = :title, content = :content, type = :type, type_id = :type_id, '
+                . 'properties = :properties, former_properties = :former_properties, '
+                . 'attributes = :attributes::jsonb, archive = :archive::jsonb, '
+                . 'updated_at = now() where id = :id and nook_id = :nook_id returning id, version, created_at, updated_at'
             );
             $stmt->execute([
                 ':id' => $noteId,
@@ -478,6 +545,8 @@ final class NotesController
                 ':type_id' => $typeId,
                 ':properties' => self::encodeJsonObject($properties),
                 ':former_properties' => self::encodeJsonObject($formerProperties),
+                ':attributes' => json_encode($attributes === [] ? (object)[] : $attributes),
+                ':archive' => json_encode($archive === [] ? (object)[] : $archive),
             ]);
             $row = $stmt->fetch(PDO::FETCH_ASSOC);
             if (!is_array($row)) {
@@ -502,6 +571,8 @@ final class NotesController
                     'type_id' => is_string($typeId) ? $typeId : '',
                     'properties' => $properties === [] ? (object)[] : $properties,
                     'former_properties' => $formerProperties === [] ? (object)[] : $formerProperties,
+                    'attributes' => $attributes === [] ? (object)[] : $attributes,
+                    'archive' => $archive === [] ? (object)[] : $archive,
                     'version' => Row::int($row, 'version'),
                     'created_at' => is_scalar($createdAt) ? (string)$createdAt : '',
                 ],
@@ -843,6 +914,36 @@ final class NotesController
         }
 
         return JsonResponse::ok(['history' => $history]);
+    }
+
+    /**
+     * Resolve the set of attribute UUIDs visible to a type (own + inherited).
+     * @return array<string, true>
+     */
+    private function resolveVisibleAttributeIds(PDO $pdo, string $nookId, string $typeId): array
+    {
+        $stmt = $pdo->prepare(
+            'with recursive type_tree as (
+                select id from global.note_types where id = :type_id and nook_id = :nook_id
+                union all
+                select t.parent_id from global.note_types t
+                join type_tree tt on t.id = tt.id
+                where t.parent_id is not null
+            )
+            select ta.id from global.type_attributes ta
+            join type_tree tt on ta.type_id = tt.id'
+        );
+        $stmt->bindValue(':type_id', $typeId);
+        $stmt->bindValue(':nook_id', $nookId);
+        $stmt->execute();
+
+        $ids = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $id) {
+            if (is_scalar($id)) {
+                $ids[(string)$id] = true;
+            }
+        }
+        return $ids;
     }
 
     private function requireMember(PDO $pdo, array $user, string $nookId): array
