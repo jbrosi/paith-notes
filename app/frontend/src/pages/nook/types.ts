@@ -197,6 +197,57 @@ export const NoteTypeResponseSchema = z
 		type: r.type,
 	}));
 
+// ─── Type Attributes ────────────────────────────────────────────────────────
+
+export const TypeAttributeKinds = [
+	"text",
+	"number",
+	"boolean",
+	"date",
+	"date_range",
+	"select",
+	"file",
+] as const;
+export type TypeAttributeKind = (typeof TypeAttributeKinds)[number];
+
+const TypeAttributeApiSchema = z
+	.object({
+		id: z.string(),
+		type_id: z.string(),
+		name: z.string(),
+		kind: z.string(),
+		config: z.record(z.string(), z.unknown()).optional(),
+		indexed: z.boolean().optional(),
+		inherited: z.boolean().optional(),
+		created_at: z.string().optional(),
+		updated_at: z.string().optional(),
+	})
+	.transform((a) => ({
+		id: a.id,
+		typeId: a.type_id,
+		name: a.name,
+		kind: a.kind as TypeAttributeKind,
+		config: (a.config ?? {}) as Record<string, unknown>,
+		indexed: a.indexed ?? false,
+		inherited: a.inherited ?? false,
+		createdAt: a.created_at,
+		updatedAt: a.updated_at,
+	}));
+
+export type TypeAttribute = z.infer<typeof TypeAttributeApiSchema>;
+
+export const TypeAttributesListResponseSchema = z
+	.object({
+		attributes: z.array(TypeAttributeApiSchema),
+	})
+	.transform((r) => ({ attributes: r.attributes }));
+
+export const TypeAttributeResponseSchema = z
+	.object({
+		attribute: TypeAttributeApiSchema,
+	})
+	.transform((r) => ({ attribute: r.attribute }));
+
 const LinkPredicateApiSchema = z
 	.object({
 		id: z.string(),

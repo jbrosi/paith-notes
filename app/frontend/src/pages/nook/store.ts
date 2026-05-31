@@ -146,6 +146,9 @@ export function createNookStore(nookId: () => string) {
 	const [formerProperties, setFormerProperties] = createSignal<
 		Record<string, unknown>
 	>({});
+	const [noteAttributes, setNoteAttributes] = createSignal<
+		Record<string, unknown>
+	>({});
 	const [mode, setMode] = createSignal<"view" | "edit">("view");
 	const [isDirty, setIsDirty] = createSignal<boolean>(false);
 	type PendingNav = { proceed: () => void | Promise<void> };
@@ -840,6 +843,10 @@ export function createNookStore(nookId: () => string) {
 		setGraphProperties(
 			note.type === "graph" ? parseGraphProperties(note.properties) : null,
 		);
+		setNoteAttributes(
+			(note as unknown as { attributes?: Record<string, unknown> })
+				.attributes ?? {},
+		);
 		setFileInlineUrl("");
 		setTitleIsManual(true);
 		setFormerProperties(note.formerProperties ?? {});
@@ -956,6 +963,16 @@ export function createNookStore(nookId: () => string) {
 		setContentFromUser(`${content()}${prefix}${text}`);
 	};
 
+	const setNoteAttribute = (attrId: string, value: unknown) => {
+		setNoteAttributes((prev) => ({ ...prev, [attrId]: value }));
+		setIsDirty(true);
+	};
+
+	const loadDetail = async () => {
+		const id = selectedId();
+		if (id) void loadNoteDetail(id);
+	};
+
 	const saveNote = async () => {
 		setConflictError(null);
 		if (!isEditing()) return;
@@ -986,6 +1003,7 @@ export function createNookStore(nookId: () => string) {
 						content: content(),
 						type_id: typeId(),
 						...(properties ? { properties } : {}),
+						attributes: noteAttributes(),
 					}),
 				});
 				if (!res.ok) {
@@ -1012,6 +1030,7 @@ export function createNookStore(nookId: () => string) {
 						content: content(),
 						type_id: typeId(),
 						...(properties ? { properties } : {}),
+						attributes: noteAttributes(),
 						...(noteVersion() > 0 ? { expected_version: noteVersion() } : {}),
 					}),
 				});
@@ -1395,6 +1414,9 @@ export function createNookStore(nookId: () => string) {
 		uploadEmbeddedImage,
 		saveNote,
 		deleteNote,
+		noteAttributes,
+		setNoteAttribute,
+		loadDetail,
 		uploadFile,
 		quickUploadFile,
 		downloadFile,

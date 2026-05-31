@@ -1,6 +1,7 @@
 import { useNavigate } from "@solidjs/router";
 import { createEffect, createMemo, createSignal, Show } from "solid-js";
 import { Button } from "../../components/Button";
+import { TypeAttributeEditor } from "./components/TypeAttributeEditor";
 import type { NookStore } from "./store";
 
 export type NookTypeEditPanelProps = {
@@ -143,6 +144,11 @@ export function NookTypeEditPanel(props: NookTypeEditPanelProps) {
 						</Button>
 					</div>
 				</div>
+
+				<TypeAttributeEditor
+					nookId={store().nookId()}
+					typeId={props.typeId}
+				/>
 			</Show>
 		</div>
 	);
