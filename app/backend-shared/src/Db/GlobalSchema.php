@@ -108,14 +108,13 @@ final class GlobalSchema
             $pdo->exec("alter table global.notes add column if not exists actor text not null default 'user'");
             $pdo->exec('create index if not exists notes_updated_at_idx on global.notes (nook_id, updated_at desc)');
 
-            $pdo->exec(" 
+            $pdo->exec("
                 create table if not exists global.note_types (
                     id uuid primary key default gen_random_uuid(),
                     nook_id uuid not null references global.nooks(id) on delete cascade,
                     key text not null,
                     label text not null,
                     parent_id uuid null references global.note_types(id) on delete set null,
-                    applies_to text not null default 'notes' check (applies_to in ('notes', 'files')),
                     created_at timestamptz not null default now(),
                     updated_at timestamptz not null default now()
                 );
@@ -126,32 +125,10 @@ final class GlobalSchema
             // Remove former soft-delete column (we prefer hard deletes; history can be added later).
             $pdo->exec('alter table global.note_types drop column if exists archived_at');
 
-            // Migrate: replace applies_to_files + applies_to_notes booleans with applies_to enum.
-            $pdo->exec("
-                do \$\$ begin
-                    if exists (
-                        select 1 from information_schema.columns
-                        where table_schema = 'global' and table_name = 'note_types' and column_name = 'applies_to_files'
-                    ) then
-                        alter table global.note_types add column if not exists applies_to text not null default 'notes';
-                        update global.note_types set applies_to = case when applies_to_files then 'files' else 'notes' end;
-                        alter table global.note_types drop column applies_to_files;
-                        alter table global.note_types drop column applies_to_notes;
-                    end if;
-                end \$\$;
-            ");
-            $pdo->exec("
-                do \$\$ begin
-                    if not exists (
-                        select 1 from pg_constraint
-                        where conname = 'note_types_applies_to_check'
-                        and conrelid = 'global.note_types'::regclass
-                    ) then
-                        alter table global.note_types add constraint note_types_applies_to_check
-                            check (applies_to in ('notes', 'files'));
-                    end if;
-                end \$\$;
-            ");
+            // Drop legacy columns
+            $pdo->exec('alter table global.note_types drop column if exists applies_to');
+            $pdo->exec('alter table global.note_types drop column if exists applies_to_files');
+            $pdo->exec('alter table global.note_types drop column if exists applies_to_notes');
 
             $pdo->exec('drop index if exists global.note_types_nook_key_uidx');
             $pdo->exec('drop index if exists note_types_nook_key_uidx');
@@ -218,15 +195,13 @@ final class GlobalSchema
                 );
             ");
 
-            $pdo->exec("alter table global.notes add column if not exists type text not null default 'anything'");
-            $pdo->exec("alter table global.notes add column if not exists properties jsonb not null default '{}'::jsonb");
-            $pdo->exec("alter table global.notes add column if not exists former_properties jsonb not null default '{}'::jsonb");
+            // Drop legacy columns
+            $pdo->exec('alter table global.notes drop column if exists type');
+            $pdo->exec('alter table global.notes drop column if exists properties');
+            $pdo->exec('alter table global.notes drop column if exists former_properties');
 
             $pdo->exec('alter table global.notes add column if not exists type_id uuid null references global.note_types(id) on delete set null');
             $pdo->exec('create index if not exists notes_type_id_idx on global.notes (type_id)');
-
-            // Migrate "person" type to "anything" — person is no longer a built-in type
-            $pdo->exec("update global.notes set type = 'anything' where type = 'person'");
 
 
             $pdo->exec(" 
