@@ -353,8 +353,8 @@ final class AttributeFilesController
 
             // Create the note
             $noteStmt = $pdo->prepare(
-                "insert into global.notes (nook_id, created_by, title, content, type, type_id, properties, former_properties, attributes) "
-                . "values (:nook_id, :created_by, :title, '', 'anything', :type_id, '{}', '{}', :attributes::jsonb) "
+                "insert into global.notes (nook_id, created_by, title, content, type_id, attributes) "
+                . "values (:nook_id, :created_by, :title, '', :type_id, :attributes::jsonb) "
                 . "returning id, created_at"
             );
             $noteStmt->execute([
@@ -438,10 +438,7 @@ final class AttributeFilesController
                     'nook_id' => $nookId,
                     'title' => $title,
                     'content' => '',
-                    'type' => 'anything',
                     'type_id' => $typeId,
-                    'properties' => (object)[],
-                    'former_properties' => (object)[],
                     'attributes' => $attributes,
                     'archive' => (object)[],
                     'created_at' => $createdAt,

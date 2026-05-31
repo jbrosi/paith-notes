@@ -1,13 +1,5 @@
 import { z } from "zod";
 
-const NoteTypeEnum = z
-	.string()
-	.transform((v) => {
-		if (v === "graph") return v;
-		return "anything" as const;
-	})
-	.pipe(z.enum(["anything", "graph"]));
-
 export const GraphLayoutEnum = z.enum(["force", "tree", "radial"]);
 export type GraphLayout = z.infer<typeof GraphLayoutEnum>;
 
@@ -66,7 +58,6 @@ const NoteSummaryApiSchema = z
 		incoming_mentions_count: z.number().int().optional(),
 		outgoing_links_count: z.number().int().optional(),
 		incoming_links_count: z.number().int().optional(),
-		type: NoteTypeEnum.optional(),
 		created_at: z.string().optional(),
 	})
 	.transform((n) => ({
@@ -77,7 +68,6 @@ const NoteSummaryApiSchema = z
 		incomingMentionsCount: n.incoming_mentions_count ?? 0,
 		outgoingLinksCount: n.outgoing_links_count ?? 0,
 		incomingLinksCount: n.incoming_links_count ?? 0,
-		type: n.type ?? "anything",
 		createdAt: n.created_at,
 	}));
 
@@ -87,9 +77,8 @@ const NoteDetailApiSchema = z
 		title: z.string(),
 		content: z.string(),
 		type_id: z.string().optional(),
-		type: NoteTypeEnum.optional(),
-		properties: z.record(z.string(), z.unknown()).optional(),
-		former_properties: z.record(z.string(), z.unknown()).optional(),
+		attributes: z.record(z.string(), z.unknown()).optional(),
+		archive: z.record(z.string(), z.unknown()).optional(),
 		version: z.number().int().optional(),
 		view_count: z.number().int().optional(),
 		created_at: z.string().optional(),
@@ -99,9 +88,8 @@ const NoteDetailApiSchema = z
 		title: n.title,
 		content: n.content,
 		typeId: n.type_id ?? "",
-		type: n.type ?? "anything",
-		properties: n.properties ?? {},
-		formerProperties: n.former_properties ?? {},
+		attributes: n.attributes ?? {},
+		archive: n.archive ?? {},
 		version: n.version ?? 0,
 		viewCount: n.view_count ?? 0,
 		createdAt: n.created_at,
@@ -328,11 +316,11 @@ const NoteLinkApiSchema = z
 		source_note_id: z.string(),
 		source_note_title: z.string().optional(),
 		source_type_id: z.string().optional(),
-		source_note_type: NoteTypeEnum.optional(),
+		source_note_type: z.string().optional(),
 		target_note_id: z.string(),
 		target_note_title: z.string().optional(),
 		target_type_id: z.string().optional(),
-		target_note_type: NoteTypeEnum.optional(),
+		target_note_type: z.string().optional(),
 		start_date: z.string().optional(),
 		end_date: z.string().optional(),
 		former: z.record(z.string(), z.unknown()).optional(),

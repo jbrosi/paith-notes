@@ -63,16 +63,11 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 	const store = () => props.store;
 	const nookId = () => store().nookId();
 	const embedded = () => Boolean(props.embedded);
-	const isGraphNote = () =>
-		!!store().graphProperties()?.rootNoteId;
 	const noteId = () => {
 		if (embedded()) return props.rootNoteId ?? "";
-		// For graph notes, the sidebar graph shows the rootNoteId, not the graph note itself
-		if (isGraphNote()) return store().graphProperties()?.rootNoteId ?? "";
 		return store().selectedId();
 	};
-	const excludeNoteId = () =>
-		isGraphNote() && !embedded() ? store().selectedId() : "";
+	const excludeNoteId = () => "";
 	const fullscreen = () => Boolean(props.fullscreen);
 
 	// Seed signals from initialConfig (embedded/graph note mode)
@@ -355,9 +350,7 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 		if (centerId === "") return { nodes: [], edges: [] };
 		const centerTitle = embedded()
 			? labelFor(centerId)
-			: isGraphNote()
-				? labelFor(centerId)
-				: store().title().trim();
+			: store().title().trim();
 		const hidden = hiddenNodeIds();
 		const exclude = excludeNoteId();
 

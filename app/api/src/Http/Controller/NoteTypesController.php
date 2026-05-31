@@ -407,14 +407,7 @@ final class NoteTypesController
             ? "order by search_rank desc, n.{$sortCol} {$sortDir}, n.id {$sortDir}"
             : $orderBy;
 
-        $kind = strtolower(trim($request->queryParam('kind')));
         $whereKind = '';
-        if ($kind !== '') {
-            if (!in_array($kind, ['anything', 'file', 'graph'], true)) {
-                throw new HttpError('kind must be one of anything, file, graph', 400);
-            }
-            $whereKind = 'and n.type = :kind';
-        }
 
         $unlinked = $request->queryParam('unlinked') === '1';
         $whereUnlinked = $unlinked
@@ -429,7 +422,7 @@ final class NoteTypesController
 
         $limitPlusOne = $limit + 1;
 
-        $selectCols = "select n.id, n.title, n.type, n.type_id, n.created_at, n.updated_at,
+        $selectCols = "select n.id, n.title, n.type_id, n.created_at, n.updated_at,
                     coalesce(ns.outgoing_mentions, 0) as outgoing_mentions_count,
                     coalesce(ns.incoming_mentions, 0) as incoming_mentions_count,
                     coalesce(ns.outgoing_links, 0) as outgoing_links_count,
@@ -455,9 +448,6 @@ final class NoteTypesController
             $stmt->bindValue(':limit', $limitPlusOne, PDO::PARAM_INT);
             foreach ($searchBindings as $param => $val) {
                 $stmt->bindValue($param, $val);
-            }
-            if ($kind !== '') {
-                $stmt->bindValue(':kind', $kind);
             }
             if ($cursor !== '') {
                 $stmt->bindValue(':cursor_sort_val', $cursorCreatedAt);
@@ -492,9 +482,6 @@ final class NoteTypesController
             foreach ($searchBindings as $param => $val) {
                 $stmt->bindValue($param, $val);
             }
-            if ($kind !== '') {
-                $stmt->bindValue(':kind', $kind);
-            }
             if ($cursor !== '') {
                 $stmt->bindValue(':cursor_sort_val', $cursorCreatedAt);
                 $stmt->bindValue(':cursor_id', $cursorId);
@@ -518,9 +505,6 @@ final class NoteTypesController
             $stmt->bindValue(':limit', $limitPlusOne, PDO::PARAM_INT);
             foreach ($searchBindings as $param => $val) {
                 $stmt->bindValue($param, $val);
-            }
-            if ($kind !== '') {
-                $stmt->bindValue(':kind', $kind);
             }
             if ($cursor !== '') {
                 $stmt->bindValue(':cursor_sort_val', $cursorCreatedAt);
@@ -548,7 +532,6 @@ final class NoteTypesController
                 'id' => is_scalar($r['id'] ?? null) ? (string)$r['id'] : '',
                 'nook_id' => $nookId,
                 'title' => is_scalar($r['title'] ?? null) ? (string)$r['title'] : '',
-                'type' => is_scalar($r['type'] ?? null) ? (string)$r['type'] : 'anything',
                 'type_id' => is_scalar($r['type_id'] ?? null) ? (string)$r['type_id'] : '',
                 'created_at' => is_scalar($r['created_at'] ?? null) ? (string)$r['created_at'] : '',
                 'updated_at' => is_scalar($r['updated_at'] ?? null) ? (string)$r['updated_at'] : '',

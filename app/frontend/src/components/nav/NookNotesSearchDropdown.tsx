@@ -274,7 +274,6 @@ export function NookNotesSearchDropdown(props: NookNotesSearchDropdownProps) {
 									onClick={() => selectNote(n.id)}
 								>
 									<span>{n.title}</span>
-									<span class={styles["dropdown-meta"]}>{n.type}</span>
 								</button>
 							)}
 						</For>

@@ -370,15 +370,10 @@ At the start of each conversation, proactively search user memory with memory_se
 When you create or update a memory note, the system automatically links it to the current conversation — this builds a knowledge trail showing why each memory exists and which conversations contributed to it.`
       : '',
     `**Note type taxonomy:** You can help the user manage their note taxonomy. Use list_note_types to see the full hierarchy before suggesting or creating types. When creating a type, always tell the user where in the hierarchy it will appear (e.g. "Creating 'Employee' as a subtype of 'Person'"). You can update a type's label or description with update_note_type. Never create a type without showing the user what you're about to create and where it fits.`,
-    `**Graph view notes:** You can create saved graph views as notes with type "graph". These render as interactive graph visualizations in the UI. To create one:
-1. Identify or create the root note (the center of the graph)
-2. Use create_note with type: "graph" and properties: { rootNoteId: "<root_note_uuid>" }
-3. Optional properties: depth (1-5, default 2), layout ("force"|"tree"|"radial"), linkDistance, chargeStrength, nodeSize, linkWidth, filterTypeIds, filterPredicateIds, hiddenNodeIds
-
-Example: To create a family tree graph centered on a note:
-- create_note({ title: "Family Tree: Smith Family", type: "graph", properties: { rootNoteId: "<root_note_id>", layout: "tree", depth: 3 } })
-
-Graph notes appear as purple hexagons when shown in other graphs, and clicking them navigates into that saved view. They can be linked to other notes and described with content like any other note.`,
+    `**Graph view notes:** Graph views are notes with a "Graph View" type that has a graph attribute. The graph attribute stores the visualization config. To create one:
+1. Find the "Graph View" type and its graph attribute ID using list_note_types
+2. Use create_note with type_id set to the Graph View type and attributes containing the graph config keyed by the graph attribute UUID
+3. Graph config: { rootNoteId: "<uuid>", depth?: 2, layout?: "force"|"tree"|"radial", filterTypeIds?, filterPredicateIds?, hiddenNodeIds?, linkDistance?, chargeStrength?, nodeSize?, linkWidth? }`,
     `**Conversation hygiene:** When you notice the user switching to a completely different topic, gently suggest starting a new chat — this keeps conversations focused and searchable. Before they do, offer to:
 - Save nook-specific outcomes/decisions as a note in the current nook (using create_note)
 - Save personal preferences or cross-nook context to memory (using memory_create/memory_update)

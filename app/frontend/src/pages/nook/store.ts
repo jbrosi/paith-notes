@@ -6,7 +6,6 @@ import {
 	resolveTypeIdForTerm,
 } from "../../noteSearch";
 import type {
-	GraphViewProperties,
 	Mention,
 	Note,
 	NoteHistoryEntry,
@@ -21,8 +20,6 @@ import {
 	NoteTypeResponseSchema,
 	NoteTypesListResponseSchema,
 	TypeAttributesListResponseSchema,
-	parseGraphProperties,
-	serializeGraphProperties,
 } from "./types";
 
 export function createNookStore(nookId: () => string) {
@@ -112,11 +109,6 @@ export function createNookStore(nookId: () => string) {
 	const [title, setTitle] = createSignal<string>("");
 	const [titleIsManual, setTitleIsManual] = createSignal<boolean>(false);
 	const [content, setContent] = createSignal<string>("");
-	const [graphProperties, setGraphProperties] =
-		createSignal<GraphViewProperties | null>(null);
-	const [formerProperties, setFormerProperties] = createSignal<
-		Record<string, unknown>
-	>({});
 	const [noteAttributes, setNoteAttributes] = createSignal<
 		Record<string, unknown>
 	>({});
@@ -242,7 +234,6 @@ export function createNookStore(nookId: () => string) {
 		id: note.id,
 		title: note.title,
 		typeId: note.typeId,
-		type: note.type,
 		outgoingMentionsCount: 0,
 		incomingMentionsCount: 0,
 		outgoingLinksCount: 0,
@@ -545,7 +536,13 @@ export function createNookStore(nookId: () => string) {
 				setMentionCanEmbedImage(false);
 				return;
 			}
-			const ok = String(d.properties?.mime_type ?? "").startsWith("image/");
+			const attrs = d.attributes ?? {};
+			const ok = Object.values(attrs).some(
+				(v) =>
+					typeof v === "object" &&
+					v !== null &&
+					String((v as Record<string, unknown>).content_type ?? "").startsWith("image/"),
+			);
 			setMentionCanEmbedImage(ok);
 		})();
 	});
@@ -831,8 +828,8 @@ export function createNookStore(nookId: () => string) {
 		setTitleIsManual(false);
 		setContent("");
 
-		setGraphProperties(null);
-		setFormerProperties({});
+
+
 		setError("");
 		setMentionTargetId("");
 		setMentionEmbedImage(false);
@@ -845,13 +842,9 @@ export function createNookStore(nookId: () => string) {
 		setTypeId(String(note.typeId ?? "").trim());
 		setTitle(note.title);
 		setContent(note.content);
-		setGraphProperties(null);
-		setNoteAttributes(
-			(note as unknown as { attributes?: Record<string, unknown> })
-				.attributes ?? {},
-		);
+
+		setNoteAttributes(note.attributes ?? {});
 		setTitleIsManual(true);
-		setFormerProperties(note.formerProperties ?? {});
 		setNoteVersion(note.version ?? 0);
 		setViewCount(note.viewCount ?? 0);
 		setError("");
@@ -865,8 +858,8 @@ export function createNookStore(nookId: () => string) {
 		setSelectedId(note.id);
 		setTypeId(String(note.typeId ?? "").trim());
 		setTitle(note.title);
-		setFormerProperties({});
-		setGraphProperties(null);
+
+
 		setError("");
 		setMentionTargetId("");
 		setMentionEmbedImage(false);
@@ -1113,8 +1106,8 @@ export function createNookStore(nookId: () => string) {
 				setTitleIsManual(false);
 				setContent("");
 		
-				setGraphProperties(null);
-				setFormerProperties({});
+		
+		
 				setMode("view");
 				setIsDirty(false);
 				setError("");
@@ -1268,9 +1261,6 @@ export function createNookStore(nookId: () => string) {
 		setSelectedId,
 		title,
 		content,
-		graphProperties,
-		setGraphProperties,
-		formerProperties,
 		mode,
 		isDirty,
 		setIsDirty,
@@ -1287,7 +1277,6 @@ export function createNookStore(nookId: () => string) {
 		setContent: setContentFromUser,
 		confirmPendingNav,
 		cancelPendingNav,
-		setFormerProperties,
 		setMode,
 		setMentionTargetId,
 		setMentionEmbedImage,
