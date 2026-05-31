@@ -131,7 +131,7 @@ function AppContent(props: RouteSectionProps) {
 							contextNookId={store()?.nookId() ?? ""}
 							currentNoteId={store()?.selectedId() || undefined}
 							currentNoteTitle={store()?.title() || undefined}
-							currentNoteType={store()?.type() || undefined}
+							currentNoteType={undefined}
 							onClose={() => ui.toggleChatPanel()}
 							onNavigateToNote={(id) => {
 								void store()?.onNoteLinkClick(id);

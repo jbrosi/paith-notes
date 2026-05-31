@@ -8,7 +8,7 @@ export function PrimaryTypeSelect(props: { store: NookStore }) {
 				<div>
 					<div>Primary type</div>
 					<Show
-						when={`${props.store.selectedId()}|${props.store.type()}|${props.store.noteTypes().length}`}
+						when={`${props.store.selectedId()}|${props.store.typeId()}|${props.store.noteTypes().length}`}
 						keyed
 					>
 						{(_) => (

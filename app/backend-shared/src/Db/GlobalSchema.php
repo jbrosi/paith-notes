@@ -170,7 +170,7 @@ final class GlobalSchema
                     nook_id uuid not null references global.nooks(id) on delete cascade,
                     type_id uuid not null references global.note_types(id) on delete cascade,
                     name text not null,
-                    kind text not null check (kind in ('text', 'number', 'boolean', 'date', 'date_range', 'select', 'file')),
+                    kind text not null check (kind in ('text', 'number', 'boolean', 'date', 'date_range', 'select', 'file', 'graph')),
                     config jsonb not null default '{}'::jsonb,
                     indexed boolean not null default false,
                     created_at timestamptz not null default now(),

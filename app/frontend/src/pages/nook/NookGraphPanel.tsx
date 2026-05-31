@@ -20,6 +20,7 @@ import {
 	type NoteLink,
 	NoteLinksListResponseSchema,
 	NoteResponseSchema,
+	TypeAttributesListResponseSchema,
 	serializeGraphProperties,
 } from "./types";
 
@@ -63,7 +64,7 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 	const nookId = () => store().nookId();
 	const embedded = () => Boolean(props.embedded);
 	const isGraphNote = () =>
-		store().type() === "graph" && !!store().graphProperties()?.rootNoteId;
+		!!store().graphProperties()?.rootNoteId;
 	const noteId = () => {
 		if (embedded()) return props.rootNoteId ?? "";
 		// For graph notes, the sidebar graph shows the rootNoteId, not the graph note itself
@@ -184,15 +185,35 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 		const n = nookId().trim();
 		if (n === "") return;
 		try {
+			// Find the graph type and its graph attribute
+			const types = store().noteTypes();
+			const graphType = types.find((t) => t.key === "graph");
+			if (!graphType) return;
+
+			let graphAttrId = "";
+			const attrRes = await apiFetch(
+				`/api/nooks/${n}/note-types/${graphType.id}/attributes`,
+			);
+			if (attrRes.ok) {
+				const attrJson = await attrRes.json();
+				const attrs = TypeAttributesListResponseSchema.parse(attrJson).attributes;
+				const graphAttr = attrs.find((a) => a.kind === "graph");
+				if (graphAttr) graphAttrId = graphAttr.id;
+			}
+			if (!graphAttrId) return;
+
 			const centerTitle = titleById().get(config.rootNoteId) ?? "";
+			const attributes: Record<string, unknown> = {
+				[graphAttrId]: serializeGraphProperties(config),
+			};
 			const res = await apiFetch(`/api/nooks/${n}/notes`, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({
 					title: centerTitle ? `Graph: ${centerTitle}` : "Untitled Graph View",
 					content: "",
-					type: "graph",
-					properties: serializeGraphProperties(config),
+					type_id: graphType.id,
+					attributes,
 				}),
 			});
 			if (!res.ok) return;

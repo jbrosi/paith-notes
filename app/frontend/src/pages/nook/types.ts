@@ -207,6 +207,7 @@ export const TypeAttributeKinds = [
 	"date_range",
 	"select",
 	"file",
+	"graph",
 ] as const;
 export type TypeAttributeKind = (typeof TypeAttributeKinds)[number];
 

@@ -15,7 +15,6 @@ import notesStyles from "../Notes.module.css";
 import { EditorSection } from "./components/EditorSection";
 import { NoteAttributeFields } from "./components/NoteAttributeFields";
 import { TitleSection } from "./components/TitleSection";
-import { NookEmbeddedGraph } from "./NookEmbeddedGraph";
 import { NookToolbar } from "./NookToolbar";
 import type { NookStore } from "./store";
 import { UnsavedChangesDialog } from "./UnsavedChangesDialog";
@@ -268,9 +267,6 @@ export function NookMainPanel(props: NookMainPanelProps) {
 
 					<TitleSection store={store()} />
 					<NoteAttributeFields store={store()} />
-					<Show when={store().type() === "graph"}>
-						<NookEmbeddedGraph store={store()} />
-					</Show>
 					<EditorSection store={store()} />
 				</div>
 			</Show>

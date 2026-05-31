@@ -112,7 +112,6 @@ export function createNookStore(nookId: () => string) {
 	const [title, setTitle] = createSignal<string>("");
 	const [titleIsManual, setTitleIsManual] = createSignal<boolean>(false);
 	const [content, setContent] = createSignal<string>("");
-	const [type, setType] = createSignal<"anything" | "graph">("anything");
 	const [graphProperties, setGraphProperties] =
 		createSignal<GraphViewProperties | null>(null);
 	const [formerProperties, setFormerProperties] = createSignal<
@@ -831,7 +830,7 @@ export function createNookStore(nookId: () => string) {
 		setTitle("New note");
 		setTitleIsManual(false);
 		setContent("");
-		setType("anything");
+
 		setGraphProperties(null);
 		setFormerProperties({});
 		setError("");
@@ -846,10 +845,7 @@ export function createNookStore(nookId: () => string) {
 		setTypeId(String(note.typeId ?? "").trim());
 		setTitle(note.title);
 		setContent(note.content);
-		setType(note.type === "graph" ? "graph" : "anything");
-		setGraphProperties(
-			note.type === "graph" ? parseGraphProperties(note.properties) : null,
-		);
+		setGraphProperties(null);
 		setNoteAttributes(
 			(note as unknown as { attributes?: Record<string, unknown> })
 				.attributes ?? {},
@@ -869,7 +865,6 @@ export function createNookStore(nookId: () => string) {
 		setSelectedId(note.id);
 		setTypeId(String(note.typeId ?? "").trim());
 		setTitle(note.title);
-		setType(note.type === "graph" ? "graph" : "anything");
 		setFormerProperties({});
 		setGraphProperties(null);
 		setError("");
@@ -949,17 +944,11 @@ export function createNookStore(nookId: () => string) {
 	const saveNote = async () => {
 		setConflictError(null);
 		if (!isEditing()) return;
-		const noteType = type();
 		const titleForSave = title().trim();
 		if (titleForSave === "") {
 			setError("Title is required");
 			return;
 		}
-
-		const properties =
-			noteType === "graph" && graphProperties()
-				? serializeGraphProperties(graphProperties() as GraphViewProperties)
-				: null;
 
 		setLoading(true);
 		setError("");
@@ -975,7 +964,6 @@ export function createNookStore(nookId: () => string) {
 						title: titleForSave,
 						content: content(),
 						type_id: typeId(),
-						...(properties ? { properties } : {}),
 						attributes: noteAttributes(),
 					}),
 				});
@@ -1002,7 +990,6 @@ export function createNookStore(nookId: () => string) {
 						title: titleForSave,
 						content: content(),
 						type_id: typeId(),
-						...(properties ? { properties } : {}),
 						attributes: noteAttributes(),
 						...(noteVersion() > 0 ? { expected_version: noteVersion() } : {}),
 					}),
@@ -1125,7 +1112,7 @@ export function createNookStore(nookId: () => string) {
 				setTitle("");
 				setTitleIsManual(false);
 				setContent("");
-				setType("anything");
+		
 				setGraphProperties(null);
 				setFormerProperties({});
 				setMode("view");
@@ -1281,7 +1268,6 @@ export function createNookStore(nookId: () => string) {
 		setSelectedId,
 		title,
 		content,
-		type,
 		graphProperties,
 		setGraphProperties,
 		formerProperties,
@@ -1301,7 +1287,6 @@ export function createNookStore(nookId: () => string) {
 		setContent: setContentFromUser,
 		confirmPendingNav,
 		cancelPendingNav,
-		setType,
 		setFormerProperties,
 		setMode,
 		setMentionTargetId,

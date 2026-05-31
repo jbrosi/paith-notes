@@ -3,7 +3,11 @@ import { apiFetch } from "../../../auth/keycloak";
 import {
 	TypeAttributesListResponseSchema,
 	type TypeAttribute,
+	type GraphViewProperties,
+	parseGraphProperties,
+	serializeGraphProperties,
 } from "../types";
+import { NookEmbeddedGraph } from "../NookEmbeddedGraph";
 import type { NookStore } from "../store";
 
 export function NoteAttributeFields(props: { store: NookStore }) {
@@ -31,38 +35,57 @@ export function NoteAttributeFields(props: { store: NookStore }) {
 		props.store.setNoteAttribute?.(attrId, value);
 	};
 
+	const simpleAttrs = () =>
+		attributes()?.filter((a) => a.kind !== "file" && a.kind !== "graph") ?? [];
+	const fileAttrs = () =>
+		attributes()?.filter((a) => a.kind === "file") ?? [];
+	const graphAttrs = () =>
+		attributes()?.filter((a) => a.kind === "graph") ?? [];
+
 	return (
-		<Show when={attributes() && attributes()!.length > 0}>
-			<div
-				style={{
-					display: "grid",
-					gap: "8px",
-					padding: "8px 0",
-					"border-top": "1px solid #eee",
-					"margin-top": "8px",
-				}}
-			>
-				<For each={attributes()?.filter((a) => a.kind !== "file")}>
-					{(attr) => (
-						<AttributeField
-							attr={attr}
-							value={noteAttributes()[attr.id]}
-							onChange={(v) => setAttr(attr.id, v)}
-							disabled={props.store.mode() !== "edit"}
-						/>
-					)}
-				</For>
-				<For each={attributes()?.filter((a) => a.kind === "file")}>
-					{(attr) => (
-						<FileAttributeField
-							attr={attr}
-							value={noteAttributes()[attr.id] as Record<string, unknown> | undefined}
-							store={props.store}
-						/>
-					)}
-				</For>
-			</div>
-		</Show>
+		<>
+			<Show when={simpleAttrs().length > 0 || fileAttrs().length > 0}>
+				<div
+					style={{
+						display: "grid",
+						gap: "8px",
+						padding: "8px 0",
+						"border-top": "1px solid #eee",
+						"margin-top": "8px",
+					}}
+				>
+					<For each={simpleAttrs()}>
+						{(attr) => (
+							<AttributeField
+								attr={attr}
+								value={noteAttributes()[attr.id]}
+								onChange={(v) => setAttr(attr.id, v)}
+								disabled={props.store.mode() !== "edit"}
+							/>
+						)}
+					</For>
+					<For each={fileAttrs()}>
+						{(attr) => (
+							<FileAttributeField
+								attr={attr}
+								value={noteAttributes()[attr.id] as Record<string, unknown> | undefined}
+								store={props.store}
+							/>
+						)}
+					</For>
+				</div>
+			</Show>
+			<For each={graphAttrs()}>
+				{(attr) => (
+					<GraphAttributeField
+						attr={attr}
+						value={noteAttributes()[attr.id] as Record<string, unknown> | undefined}
+						onChange={(v) => setAttr(attr.id, v)}
+						store={props.store}
+					/>
+				)}
+			</For>
+		</>
 	);
 }
 
@@ -374,5 +397,40 @@ function FileAttributeField(props: {
 				/>
 			</Show>
 		</div>
+	);
+}
+
+function GraphAttributeField(props: {
+	attr: TypeAttribute;
+	value: Record<string, unknown> | undefined;
+	onChange: (v: unknown) => void;
+	store: NookStore;
+}) {
+	const graphProps = (): GraphViewProperties | null => {
+		if (!props.value) return null;
+		return parseGraphProperties(props.value as Record<string, unknown>);
+	};
+
+	const handleConfigChange = (config: GraphViewProperties) => {
+		props.onChange(serializeGraphProperties(config));
+		props.store.setIsDirty(true);
+	};
+
+	const handleSave = async (config: GraphViewProperties) => {
+		props.onChange(serializeGraphProperties(config));
+		await props.store.saveNote();
+	};
+
+	return (
+		<Show when={graphProps()}>
+			{(gp) => (
+				<NookEmbeddedGraph
+					store={props.store}
+					graphProps={gp()}
+					onConfigChange={handleConfigChange}
+					onSave={handleSave}
+				/>
+			)}
+		</Show>
 	);
 }
