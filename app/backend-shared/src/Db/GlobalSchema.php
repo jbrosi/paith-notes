@@ -167,6 +167,7 @@ final class GlobalSchema
             $pdo->exec("
                 create table if not exists global.type_attributes (
                     id uuid primary key default gen_random_uuid(),
+                    nook_id uuid not null references global.nooks(id) on delete cascade,
                     type_id uuid not null references global.note_types(id) on delete cascade,
                     name text not null,
                     kind text not null check (kind in ('text', 'number', 'boolean', 'date', 'date_range', 'select', 'file')),
@@ -177,6 +178,7 @@ final class GlobalSchema
                 );
             ");
 
+            $pdo->exec('create index if not exists type_attributes_nook_id_idx on global.type_attributes (nook_id)');
             $pdo->exec('create index if not exists type_attributes_type_id_idx on global.type_attributes (type_id)');
             $pdo->exec('create unique index if not exists type_attributes_type_name_uidx on global.type_attributes (type_id, name)');
 

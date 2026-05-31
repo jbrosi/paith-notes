@@ -77,10 +77,11 @@ final class TypeAttributesController
             $pdo->beginTransaction();
 
             $stmt = $pdo->prepare(
-                'insert into global.type_attributes (type_id, name, kind, config, indexed) '
-                . 'values (:type_id, :name, :kind, :config::jsonb, :indexed) '
+                'insert into global.type_attributes (nook_id, type_id, name, kind, config, indexed) '
+                . 'values (:nook_id, :type_id, :name, :kind, :config::jsonb, :indexed) '
                 . 'returning id, created_at, updated_at'
             );
+            $stmt->bindValue(':nook_id', $nookId);
             $stmt->bindValue(':type_id', $typeId);
             $stmt->bindValue(':name', $name);
             $stmt->bindValue(':kind', $kind);
@@ -134,8 +135,8 @@ final class TypeAttributesController
         $this->requireType($pdo, $nookId, $typeId);
 
         // Verify attribute belongs to this type (not inherited)
-        $check = $pdo->prepare('select id from global.type_attributes where id = :id and type_id = :type_id');
-        $check->execute([':id' => $attrId, ':type_id' => $typeId]);
+        $check = $pdo->prepare('select id from global.type_attributes where id = :id and type_id = :type_id and nook_id = :nook_id');
+        $check->execute([':id' => $attrId, ':type_id' => $typeId, ':nook_id' => $nookId]);
         if (!$check->fetchColumn()) {
             throw new HttpError('attribute not found on this type (inherited attributes cannot be edited here)', 404);
         }
@@ -166,10 +167,11 @@ final class TypeAttributesController
         $stmt = $pdo->prepare(
             'update global.type_attributes set name = :name, kind = :kind, config = :config::jsonb, '
             . 'indexed = :indexed, updated_at = now() '
-            . 'where id = :id and type_id = :type_id '
+            . 'where id = :id and type_id = :type_id and nook_id = :nook_id '
             . 'returning created_at, updated_at'
         );
         $stmt->bindValue(':id', $attrId);
+        $stmt->bindValue(':nook_id', $nookId);
         $stmt->bindValue(':type_id', $typeId);
         $stmt->bindValue(':name', $name);
         $stmt->bindValue(':kind', $kind);
@@ -214,9 +216,9 @@ final class TypeAttributesController
         $this->requireType($pdo, $nookId, $typeId);
 
         $stmt = $pdo->prepare(
-            'delete from global.type_attributes where id = :id and type_id = :type_id returning id'
+            'delete from global.type_attributes where id = :id and type_id = :type_id and nook_id = :nook_id returning id'
         );
-        $stmt->execute([':id' => $attrId, ':type_id' => $typeId]);
+        $stmt->execute([':id' => $attrId, ':type_id' => $typeId, ':nook_id' => $nookId]);
         $id = $stmt->fetchColumn();
         if (!is_scalar($id) || (string)$id === '') {
             throw new HttpError('attribute not found on this type', 404);
