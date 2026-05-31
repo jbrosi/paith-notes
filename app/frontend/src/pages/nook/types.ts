@@ -3,10 +3,10 @@ import { z } from "zod";
 const NoteTypeEnum = z
 	.string()
 	.transform((v) => {
-		if (v === "file" || v === "graph") return v;
+		if (v === "graph") return v;
 		return "anything" as const;
 	})
-	.pipe(z.enum(["anything", "file", "graph"]));
+	.pipe(z.enum(["anything", "graph"]));
 
 export const GraphLayoutEnum = z.enum(["force", "tree", "radial"]);
 export type GraphLayout = z.infer<typeof GraphLayoutEnum>;
@@ -14,7 +14,6 @@ export type GraphLayout = z.infer<typeof GraphLayoutEnum>;
 export const GraphViewPropertiesSchema = z.object({
 	rootNoteId: z.string(),
 	depth: z.number().int().min(1).max(5).optional(),
-	includeFiles: z.boolean().optional(),
 	filterTypeIds: z.array(z.string()).optional(),
 	filterPredicateIds: z.array(z.string()).optional(),
 	hiddenNodeIds: z.array(z.string()).optional(),
@@ -42,7 +41,6 @@ export function serializeGraphProperties(
 		rootNoteId: props.rootNoteId,
 	};
 	if (props.depth !== undefined && props.depth !== 2) out.depth = props.depth;
-	if (props.includeFiles) out.includeFiles = true;
 	if (props.filterTypeIds?.length) out.filterTypeIds = props.filterTypeIds;
 	if (props.filterPredicateIds?.length)
 		out.filterPredicateIds = props.filterPredicateIds;
@@ -169,7 +167,6 @@ const NoteTypeApiSchema = z
 		label: z.string(),
 		description: z.string().optional(),
 		parent_id: z.string().optional(),
-		applies_to: z.string().optional(),
 		created_at: z.string().optional(),
 		updated_at: z.string().optional(),
 	})
@@ -180,7 +177,6 @@ const NoteTypeApiSchema = z
 		label: t.label,
 		description: t.description ?? "",
 		parentId: t.parent_id ?? "",
-		appliesTo: (t.applies_to ?? "notes") as "notes" | "files",
 		createdAt: t.created_at,
 		updatedAt: t.updated_at,
 	}));

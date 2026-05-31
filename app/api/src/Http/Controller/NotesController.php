@@ -272,16 +272,10 @@ final class NotesController
         }
 
         if ($typeId !== '') {
-            $typeCheck = $pdo->prepare('select applies_to from global.note_types where id = :id and nook_id = :nook_id');
+            $typeCheck = $pdo->prepare('select 1 from global.note_types where id = :id and nook_id = :nook_id');
             $typeCheck->execute([':id' => $typeId, ':nook_id' => $nookId]);
-            $typeRow = $typeCheck->fetch(PDO::FETCH_ASSOC);
-            if (!is_array($typeRow)) {
+            if (!$typeCheck->fetchColumn()) {
                 throw new HttpError('type not found', 404);
-            }
-            $appliesTo = is_scalar($typeRow['applies_to'] ?? null) ? (string)$typeRow['applies_to'] : 'notes';
-            $expectedAppliesTo = $type === self::NOTE_TYPE_FILE ? 'files' : 'notes';
-            if ($appliesTo !== $expectedAppliesTo) {
-                throw new HttpError("type does not apply to {$expectedAppliesTo}", 400);
             }
         }
 
@@ -444,15 +438,8 @@ final class NotesController
         }
         $archive = $existingArchive;
 
-        if ($existingType !== $type) {
-            if ($existingType === self::NOTE_TYPE_FILE || $type === self::NOTE_TYPE_FILE) {
-                throw new HttpError('file note type cannot be changed', 400);
-            }
-        }
-
         $formerProperties = $existingFormerProperties;
         if ($title === '') {
-            // If no title provided on update, keep the existing one
             $existingTitleStmt = $pdo->prepare('select title from global.notes where id = :id and nook_id = :nook_id');
             $existingTitleStmt->execute([':id' => $noteId, ':nook_id' => $nookId]);
             $existingTitle = $existingTitleStmt->fetchColumn();
@@ -463,16 +450,10 @@ final class NotesController
         }
 
         if ($typeId !== null) {
-            $typeCheck = $pdo->prepare('select applies_to from global.note_types where id = :id and nook_id = :nook_id');
+            $typeCheck = $pdo->prepare('select 1 from global.note_types where id = :id and nook_id = :nook_id');
             $typeCheck->execute([':id' => $typeId, ':nook_id' => $nookId]);
-            $typeRow = $typeCheck->fetch(PDO::FETCH_ASSOC);
-            if (!is_array($typeRow)) {
+            if (!$typeCheck->fetchColumn()) {
                 throw new HttpError('type not found', 404);
-            }
-            $appliesTo = is_scalar($typeRow['applies_to'] ?? null) ? (string)$typeRow['applies_to'] : 'notes';
-            $expectedAppliesTo = $type === self::NOTE_TYPE_FILE ? 'files' : 'notes';
-            if ($appliesTo !== $expectedAppliesTo) {
-                throw new HttpError("type does not apply to {$expectedAppliesTo}", 400);
             }
         }
 

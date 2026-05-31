@@ -3,7 +3,7 @@ import type { NookStore } from "../store";
 
 export function FilePanel(props: { store: NookStore }) {
 	return (
-		<Show when={props.store.type() === "file"}>
+		<Show when={false}>
 			<div
 				style={{
 					display: "flex",

@@ -77,9 +77,6 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 	// Seed signals from initialConfig (embedded/graph note mode)
 	const ic = props.initialConfig;
 	const [depth, setDepth] = createSignal<number>(ic?.depth ?? 2);
-	const [includeFiles, setIncludeFiles] = createSignal(
-		ic?.includeFiles ?? false,
-	);
 	const [filterTypeIds, setFilterTypeIds] = createSignal(
 		ic?.filterTypeIds?.length ? new Set(ic.filterTypeIds) : new Set<string>(),
 	);
@@ -147,7 +144,6 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 	const clearAllFilters = () => {
 		setFilterTypeIds(new Set<string>());
 		setFilterPredicateIds(new Set<string>());
-		setIncludeFiles(false);
 		markDirty();
 	};
 
@@ -168,7 +164,6 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 	const currentConfig = (): GraphViewProperties => ({
 		rootNoteId: noteId().trim(),
 		depth: depth(),
-		includeFiles: includeFiles(),
 		filterTypeIds: [...filterTypeIds()],
 		filterPredicateIds: [...filterPredicateIds()],
 		hiddenNodeIds: [...hiddenNodeIds()],
@@ -289,7 +284,6 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 			return;
 		}
 		const d = depth();
-		const excludeTypes = includeFiles() ? "" : "file";
 		const typeIds = [...filterTypeIds()].join(",");
 		const predIds = [...filterPredicateIds()].join(",");
 		setLoading(true);
@@ -299,7 +293,6 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 				direction: "both",
 				depth: String(d),
 			});
-			if (excludeTypes) params.set("exclude_note_types", excludeTypes);
 			if (typeIds) params.set("node_type_ids", typeIds);
 			if (typeIds && strictTypeFilter()) params.set("strict_type_filter", "1");
 			if (predIds) params.set("predicate_ids", predIds);
@@ -518,11 +511,6 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 					onTogglePredicateId={toggleFilterPredicateId}
 					onClearAll={clearAllFilters}
 					disabled={noteId().trim() === ""}
-					includeFiles={includeFiles()}
-					onIncludeFilesChange={(v) => {
-						setIncludeFiles(v);
-						markDirty();
-					}}
 					layout={layout()}
 					onLayoutChange={(v) => {
 						setLayout(v);

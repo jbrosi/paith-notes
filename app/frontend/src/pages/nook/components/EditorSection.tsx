@@ -62,13 +62,7 @@ export function EditorSection(props: { store: NookStore }) {
 	const isViewMode = () => props.store.mode() !== "edit";
 
 	return (
-		<Show
-			when={
-				props.store.type() !== "file" ||
-				(props.store.fileFilename() !== "" &&
-					!props.store.fileUploadInProgress())
-			}
-		>
+		<Show when={true}>
 			<Show
 				when={isViewMode()}
 				fallback={

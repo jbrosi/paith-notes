@@ -14,7 +14,7 @@ use Throwable;
 
 final class NoteTypesController
 {
-    private const ROOT_FILE_TYPE_KEY = 'file';
+    private const DEFAULT_FILE_TYPE_KEY = 'file';
     private const TYPE_ID_ALL = 'all';
 
     public function list(Request $request, Context $context): Response
@@ -32,10 +32,10 @@ final class NoteTypesController
 
         $this->requireMember($pdo, $user, $nookId);
 
-        $this->ensureRootFileType($pdo, $nookId);
+        $this->ensureDefaultFileType($pdo, $nookId);
 
         $stmt = $pdo->prepare(
-            'select id, key, label, description, parent_id, applies_to, created_at, updated_at '
+            'select id, key, label, description, parent_id, created_at, updated_at '
             . 'from global.note_types where nook_id = :nook_id order by label asc'
         );
         $stmt->execute([':nook_id' => $nookId]);
@@ -53,7 +53,6 @@ final class NoteTypesController
                 'label' => is_scalar($r['label'] ?? null) ? (string)$r['label'] : '',
                 'description' => is_scalar($r['description'] ?? null) ? (string)$r['description'] : '',
                 'parent_id' => is_scalar($r['parent_id'] ?? null) ? (string)$r['parent_id'] : '',
-                'applies_to' => is_scalar($r['applies_to'] ?? null) ? (string)$r['applies_to'] : 'notes',
                 'created_at' => is_scalar($r['created_at'] ?? null) ? (string)$r['created_at'] : '',
                 'updated_at' => is_scalar($r['updated_at'] ?? null) ? (string)$r['updated_at'] : '',
             ];
@@ -100,24 +99,20 @@ final class NoteTypesController
             throw new HttpError('parent_id must be a UUID', 400);
         }
 
-        // Derive applies_to from parent chain (not from client input)
-        $appliesTo = 'notes';
         if ($parentId !== '') {
-            $p = $pdo->prepare('select applies_to from global.note_types where id = :id and nook_id = :nook_id');
+            $p = $pdo->prepare('select 1 from global.note_types where id = :id and nook_id = :nook_id');
             $p->execute([':id' => $parentId, ':nook_id' => $nookId]);
-            $parentAppliesTo = $p->fetchColumn();
-            if ($parentAppliesTo === false) {
+            if (!$p->fetchColumn()) {
                 throw new HttpError('parent not found', 404);
             }
-            $appliesTo = is_string($parentAppliesTo) ? $parentAppliesTo : 'notes';
         }
 
         try {
             $pdo->beginTransaction();
 
             $stmt = $pdo->prepare(
-                'insert into global.note_types (nook_id, key, label, description, parent_id, applies_to) '
-                . 'values (:nook_id, :key, :label, :description, :parent_id, :applies_to) '
+                'insert into global.note_types (nook_id, key, label, description, parent_id) '
+                . 'values (:nook_id, :key, :label, :description, :parent_id) '
                 . 'returning id, created_at, updated_at'
             );
             $stmt->bindValue(':nook_id', $nookId);
@@ -125,7 +120,6 @@ final class NoteTypesController
             $stmt->bindValue(':label', $label);
             $stmt->bindValue(':description', $description);
             $stmt->bindValue(':parent_id', $parentId !== '' ? $parentId : null);
-            $stmt->bindValue(':applies_to', $appliesTo);
             $stmt->execute();
 
             $row = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -145,7 +139,6 @@ final class NoteTypesController
                     'label' => $label,
                     'description' => $description,
                     'parent_id' => $parentId,
-                    'applies_to' => $appliesTo,
                     'created_at' => is_scalar($row['created_at'] ?? null) ? (string)$row['created_at'] : '',
                     'updated_at' => is_scalar($row['updated_at'] ?? null) ? (string)$row['updated_at'] : '',
                 ],
@@ -188,10 +181,6 @@ final class NoteTypesController
         if ($existingKey === '') {
             throw new HttpError('type not found', 404);
         }
-        if ($existingKey === self::ROOT_FILE_TYPE_KEY) {
-            throw new HttpError('root file type cannot be modified', 400);
-        }
-
         $data = $request->jsonBody();
 
         $keyRaw = $data['key'] ?? '';
@@ -218,16 +207,12 @@ final class NoteTypesController
             throw new HttpError('parent_id cannot be self', 400);
         }
 
-        // Derive applies_to from parent chain (not from client input)
-        $appliesTo = 'notes';
         if ($parentId !== '') {
-            $p = $pdo->prepare('select applies_to from global.note_types where id = :id and nook_id = :nook_id');
+            $p = $pdo->prepare('select 1 from global.note_types where id = :id and nook_id = :nook_id');
             $p->execute([':id' => $parentId, ':nook_id' => $nookId]);
-            $parentAppliesTo = $p->fetchColumn();
-            if ($parentAppliesTo === false) {
+            if (!$p->fetchColumn()) {
                 throw new HttpError('parent not found', 404);
             }
-            $appliesTo = is_string($parentAppliesTo) ? $parentAppliesTo : 'notes';
         }
 
         if ($key !== $existingKey) {
@@ -239,7 +224,7 @@ final class NoteTypesController
         }
 
         $stmt = $pdo->prepare(
-            'update global.note_types set key = :key, label = :label, description = :description, parent_id = :parent_id, applies_to = :applies_to, updated_at = now() '
+            'update global.note_types set key = :key, label = :label, description = :description, parent_id = :parent_id, updated_at = now() '
             . 'where id = :id and nook_id = :nook_id '
             . 'returning description, created_at, updated_at'
         );
@@ -249,7 +234,6 @@ final class NoteTypesController
         $stmt->bindValue(':label', $label);
         $stmt->bindValue(':description', $description);
         $stmt->bindValue(':parent_id', $parentId !== '' ? $parentId : null);
-        $stmt->bindValue(':applies_to', $appliesTo);
         $stmt->execute();
 
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -265,7 +249,6 @@ final class NoteTypesController
                 'label' => $label,
                 'description' => is_scalar($row['description'] ?? null) ? (string)$row['description'] : $description,
                 'parent_id' => $parentId,
-                'applies_to' => $appliesTo,
                 'created_at' => is_scalar($row['created_at'] ?? null) ? (string)$row['created_at'] : '',
                 'updated_at' => is_scalar($row['updated_at'] ?? null) ? (string)$row['updated_at'] : '',
             ],
@@ -295,15 +278,10 @@ final class NoteTypesController
 
         NookAccess::requireWriteAccess($pdo, $user, $nookId);
 
-        $keyCheck = $pdo->prepare('select key from global.note_types where id = :id and nook_id = :nook_id');
-        $keyCheck->execute([':id' => $typeId, ':nook_id' => $nookId]);
-        $existingKeyRaw = $keyCheck->fetchColumn();
-        $existingKey = is_scalar($existingKeyRaw) ? (string)$existingKeyRaw : '';
-        if ($existingKey === '') {
+        $typeCheck = $pdo->prepare('select 1 from global.note_types where id = :id and nook_id = :nook_id');
+        $typeCheck->execute([':id' => $typeId, ':nook_id' => $nookId]);
+        if (!$typeCheck->fetchColumn()) {
             throw new HttpError('type not found', 404);
-        }
-        if ($existingKey === self::ROOT_FILE_TYPE_KEY) {
-            throw new HttpError('root file type cannot be deleted', 400);
         }
 
         // Prevent deletion if type has children
@@ -618,23 +596,35 @@ final class NoteTypesController
         return $row;
     }
 
-    private function ensureRootFileType(PDO $pdo, string $nookId): void
+    private function ensureDefaultFileType(PDO $pdo, string $nookId): void
     {
-        $check = $pdo->prepare('select 1 from global.note_types where nook_id = :nook_id and key = :key');
-        $check->execute([':nook_id' => $nookId, ':key' => self::ROOT_FILE_TYPE_KEY]);
+        $check = $pdo->prepare('select id from global.note_types where nook_id = :nook_id and key = :key');
+        $check->execute([':nook_id' => $nookId, ':key' => self::DEFAULT_FILE_TYPE_KEY]);
         if ($check->fetchColumn()) {
             return;
         }
 
         $stmt = $pdo->prepare(
-            'insert into global.note_types (nook_id, key, label, parent_id, applies_to) '
-            . "values (:nook_id, :key, :label, null, 'files')"
+            'insert into global.note_types (nook_id, key, label) '
+            . 'values (:nook_id, :key, :label) '
+            . 'returning id'
         );
         $stmt->execute([
             ':nook_id' => $nookId,
-            ':key' => self::ROOT_FILE_TYPE_KEY,
-            ':label' => 'Files',
+            ':key' => self::DEFAULT_FILE_TYPE_KEY,
+            ':label' => 'File',
         ]);
+        $typeIdRaw = $stmt->fetchColumn();
+        $typeId = is_scalar($typeIdRaw) ? (string)$typeIdRaw : '';
+
+        if ($typeId !== '') {
+            $attrStmt = $pdo->prepare(
+                "insert into global.type_attributes (nook_id, type_id, name, kind, config) "
+                . "values (:nook_id, :type_id, 'File', 'file', '{\"display\": \"preview\"}'::jsonb) "
+                . "on conflict do nothing"
+            );
+            $attrStmt->execute([':nook_id' => $nookId, ':type_id' => $typeId]);
+        }
     }
 
     private static function isUuid(string $value): bool

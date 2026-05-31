@@ -9,9 +9,7 @@ export function TitleSection(props: { store: NookStore }) {
 	const [editingTitle, setEditingTitle] = createSignal(false);
 	let titleInputRef: HTMLInputElement | undefined;
 
-	const isVisible = () =>
-		props.store.type() !== "file" ||
-		(props.store.fileFilename() !== "" && !props.store.fileUploadInProgress());
+	const isVisible = () => true;
 
 	const types = createMemo(() => props.store.noteTypes());
 

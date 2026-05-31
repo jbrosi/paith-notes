@@ -373,7 +373,7 @@ When you create or update a memory note, the system automatically links it to th
     `**Graph view notes:** You can create saved graph views as notes with type "graph". These render as interactive graph visualizations in the UI. To create one:
 1. Identify or create the root note (the center of the graph)
 2. Use create_note with type: "graph" and properties: { rootNoteId: "<root_note_uuid>" }
-3. Optional properties: depth (1-5, default 2), layout ("force"|"tree"|"radial"), includeFiles (boolean), linkDistance, chargeStrength, nodeSize, linkWidth, filterTypeIds, filterPredicateIds, hiddenNodeIds
+3. Optional properties: depth (1-5, default 2), layout ("force"|"tree"|"radial"), linkDistance, chargeStrength, nodeSize, linkWidth, filterTypeIds, filterPredicateIds, hiddenNodeIds
 
 Example: To create a family tree graph centered on a note:
 - create_note({ title: "Family Tree: Smith Family", type: "graph", properties: { rootNoteId: "<root_note_id>", layout: "tree", depth: 3 } })

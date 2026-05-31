@@ -133,9 +133,7 @@ export function createNookStore(nookId: () => string) {
 	const [title, setTitle] = createSignal<string>("");
 	const [titleIsManual, setTitleIsManual] = createSignal<boolean>(false);
 	const [content, setContent] = createSignal<string>("");
-	const [type, setType] = createSignal<"anything" | "file" | "graph">(
-		"anything",
-	);
+	const [type, setType] = createSignal<"anything" | "graph">("anything");
 	const [fileFilename, setFileFilename] = createSignal<string>("");
 	const [fileExtension, setFileExtension] = createSignal<string>("");
 	const [fileFilesize, setFileFilesize] = createSignal<string>("");
@@ -488,7 +486,7 @@ export function createNookStore(nookId: () => string) {
 
 		const d = await loadNoteDetail(id);
 		if (!d) return null;
-		if (d.type !== "file") return null;
+		// Legacy file embed: check properties for image mime type
 		const mime = String(d.properties?.mime_type ?? "");
 		if (!mime.startsWith("image/")) return null;
 		const ext = String(d.properties?.extension ?? "");
@@ -539,9 +537,7 @@ export function createNookStore(nookId: () => string) {
 				setMentionCanEmbedImage(false);
 				return;
 			}
-			const ok =
-				d.type === "file" &&
-				String(d.properties?.mime_type ?? "").startsWith("image/");
+			const ok = String(d.properties?.mime_type ?? "").startsWith("image/");
 			setMentionCanEmbedImage(ok);
 		})();
 	});
@@ -835,13 +831,7 @@ export function createNookStore(nookId: () => string) {
 		setTypeId(String(note.typeId ?? "").trim());
 		setTitle(note.title);
 		setContent(note.content);
-		setType(
-			note.type === "file"
-				? "file"
-				: note.type === "graph"
-					? "graph"
-					: "anything",
-		);
+		setType(note.type === "graph" ? "graph" : "anything");
 		setFileFilename(String(note.properties?.filename ?? ""));
 		setFileExtension(String(note.properties?.extension ?? ""));
 		setFileFilesize(String(note.properties?.filesize ?? ""));
@@ -850,22 +840,7 @@ export function createNookStore(nookId: () => string) {
 		setGraphProperties(
 			note.type === "graph" ? parseGraphProperties(note.properties) : null,
 		);
-		if (note.type === "file") {
-			const extFromProps = normalizeExtension(
-				String(note.properties?.extension ?? ""),
-			);
-			const titleExt = (() => {
-				const t = String(note.title ?? "").trim();
-				if (t === "") return "";
-				const dot = t.lastIndexOf(".");
-				if (dot <= 0 || dot === t.length - 1) return "";
-				return normalizeExtension(t.slice(dot + 1));
-			})();
-			const ext = extFromProps !== "" ? extFromProps : titleExt;
-			setFileInlineUrl(`${filePublicPath(note.id, ext)}?inline=1`);
-		} else {
-			setFileInlineUrl("");
-		}
+		setFileInlineUrl("");
 		setTitleIsManual(true);
 		setFormerProperties(note.formerProperties ?? {});
 		setNoteVersion(note.version ?? 0);
@@ -881,13 +856,7 @@ export function createNookStore(nookId: () => string) {
 		setSelectedId(note.id);
 		setTypeId(String(note.typeId ?? "").trim());
 		setTitle(note.title);
-		setType(
-			note.type === "file"
-				? "file"
-				: note.type === "graph"
-					? "graph"
-					: "anything",
-		);
+		setType(note.type === "graph" ? "graph" : "anything");
 		setFormerProperties({});
 		setFileFilename("");
 		setFileExtension("");
@@ -910,10 +879,9 @@ export function createNookStore(nookId: () => string) {
 			setFileInlineUrl("");
 			return;
 		}
-		if (type() !== "file") {
-			setFileInlineUrl("");
-			return;
-		}
+		// File inline URL is no longer set from the note type — handled by attribute UI
+		setFileInlineUrl("");
+		return;
 
 		const extFromState = normalizeExtension(fileExtension());
 		const titleExt = (() => {
@@ -1294,53 +1262,13 @@ export function createNookStore(nookId: () => string) {
 		await loadFileInlineUrl();
 	};
 
-	const uploadFile = async (file: File) => {
-		if (!isEditing()) return;
-		if (type() !== "file") {
-			setError("Note type must be file");
-			return;
-		}
-
-		setFileUploadInProgress(true);
-		setLoading(true);
-		setError("");
-		try {
-			await doUploadFile(file, { forceNew: false });
-		} catch (e) {
-			setError(String(e));
-		} finally {
-			setLoading(false);
-			setFileUploadInProgress(false);
-		}
-	};
-
-	const quickUploadFile = async (file: File) => {
-		const previousMode = mode();
-
-		setMode("edit");
-		setType("file");
-		setSelectedId("");
-		setFileFilename("");
-
-		setFileUploadInProgress(true);
-		setLoading(true);
-		setError("");
-		try {
-			await doUploadFile(file, { forceNew: true });
-			setMode(previousMode);
-		} catch (e) {
-			setError(String(e));
-			setMode(previousMode);
-		} finally {
-			setLoading(false);
-			setFileUploadInProgress(false);
-		}
-	};
+	// Legacy file upload — disabled. Use attribute-based file upload instead.
+	const uploadFile = async (_file: File) => {};
+	const quickUploadFile = async (_file: File) => {};
 
 	const downloadFile = async () => {
 		const id = selectedId();
 		if (id === "") return;
-		if (type() !== "file") return;
 
 		setLoading(true);
 		setError("");
