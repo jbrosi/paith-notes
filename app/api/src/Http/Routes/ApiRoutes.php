@@ -9,7 +9,6 @@ use Paith\Notes\Api\Http\Controller\AuthController;
 use Paith\Notes\Api\Http\Controller\SearchController;
 use Paith\Notes\Api\Http\Controller\ChatController;
 use Paith\Notes\Api\Http\Controller\ConversationsController;
-use Paith\Notes\Api\Http\Controller\FileNotesController;
 use Paith\Notes\Api\Http\Controller\FilesController;
 use Paith\Notes\Api\Http\Controller\HealthController;
 use Paith\Notes\Api\Http\Controller\LinkPredicatesController;
@@ -123,13 +122,6 @@ final class ApiRoutes
         $r->post('/nooks/{nookId}/notes/{noteId}/links', [NoteLinksController::class, 'create']);
         $r->add('DELETE', '/nooks/{nookId}/notes/{noteId}/links/{linkId}', [NoteLinksController::class, 'delete']);
 
-
-        // File endpoints used by embedded image upload + download
-        $r->post('/nooks/{nookId}/notes/{noteId}/file/upload-url', [FileNotesController::class, 'fileUploadUrl']);
-        $r->post('/nooks/{nookId}/notes/{noteId}/file/finalize', [FileNotesController::class, 'fileFinalize']);
-        $r->get('/nooks/{nookId}/notes/{noteId}/file/download-url', [FileNotesController::class, 'fileDownloadUrl']);
-        $r->post('/nooks/{nookId}/file/upload-url', [FileNotesController::class, 'fileUploadUrlInit']);
-        $r->post('/nooks/{nookId}/file/finalize', [FileNotesController::class, 'fileFinalizeCreateNote']);
 
         // Attribute-based file endpoints
         $r->post('/nooks/{nookId}/notes/{noteId}/attributes/{attributeId}/file/upload-url', [AttributeFilesController::class, 'uploadUrl']);

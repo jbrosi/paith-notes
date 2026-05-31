@@ -453,17 +453,46 @@ export function createNookStore(nookId: () => string) {
 	const embeddedImageCache = new Map<string, string>();
 	const resolveEmbeddedImageSrc = async (noteId: string) => {
 		const id = noteId.trim();
-		if (id === "" || nookId() === "") return null;
+		const nook = nookId();
+		if (id === "" || nook === "") return null;
 		const cached = embeddedImageCache.get(id);
 		if (cached) return cached;
 
 		const d = await loadNoteDetail(id);
 		if (!d) return null;
-		const mime = String(d.properties?.mime_type ?? "");
-		if (!mime.startsWith("image/")) return null;
+
+		// Find the first file attribute with an image content_type
+		const attrs = (d as unknown as { attributes?: Record<string, unknown> })
+			.attributes ?? {};
+		let fileAttrId = "";
+		for (const [attrId, val] of Object.entries(attrs)) {
+			if (typeof val === "object" && val !== null) {
+				const ct = String((val as Record<string, unknown>).content_type ?? "");
+				if (ct.startsWith("image/")) {
+					fileAttrId = attrId;
+					break;
+				}
+			}
+		}
+		if (!fileAttrId) {
+			// Fallback: try legacy download endpoint for old file notes
+			try {
+				const res = await apiFetch(
+					`/api/nooks/${nook}/notes/${id}/file/download-url?inline=1`,
+				);
+				if (!res.ok) return null;
+				const json = (await res.json()) as { download_url?: string };
+				const url = json?.download_url ?? "";
+				if (url) embeddedImageCache.set(id, url);
+				return url || null;
+			} catch {
+				return null;
+			}
+		}
+
 		try {
 			const res = await apiFetch(
-				`/api/nooks/${nookId()}/notes/${id}/file/download-url?inline=1`,
+				`/api/nooks/${nook}/notes/${id}/attributes/${fileAttrId}/file/download-url?inline=1`,
 			);
 			if (!res.ok) return null;
 			const json = (await res.json()) as { download_url?: string };
@@ -625,73 +654,84 @@ export function createNookStore(nookId: () => string) {
 	};
 
 	const uploadEmbeddedImage = async (file: File) => {
-		if (nookId() === "") return null;
+		const nook = nookId();
+		if (nook === "") return null;
 		setError("");
 		try {
+			// Find the default file type and its file attribute
+			const types = noteTypes();
+			const fileType = types.find((t) => t.key === "file");
+			if (!fileType) throw new Error("No file type found");
+
+			let fileAttrId = "";
+			const attrRes = await apiFetch(
+				`/api/nooks/${nook}/note-types/${fileType.id}/attributes`,
+			);
+			if (attrRes.ok) {
+				const attrJson = await attrRes.json();
+				const attrs =
+					TypeAttributesListResponseSchema.parse(attrJson).attributes;
+				const fileAttr = attrs.find((a) => a.kind === "file");
+				if (fileAttr) fileAttrId = fileAttr.id;
+			}
+			if (!fileAttrId) throw new Error("File type has no file attribute");
+
 			const filename = file.name || "embedded";
 			const ext = filename.includes(".")
 				? (filename.split(".").pop() ?? "")
 				: "";
-			const mime = file.type;
 
-			const res = await apiFetch(`/api/nooks/${nookId()}/file/upload-url`, {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({
-					filename,
-					extension: ext,
-					filesize: file.size,
-					mime_type: mime,
-					checksum: "",
-				}),
-			});
-			if (!res.ok) {
-				throw new Error(
-					`Failed to get embedded upload URL: ${res.status} ${res.statusText}`,
-				);
-			}
-			const json = (await res.json()) as unknown as {
-				upload_url?: string;
-				upload_id?: string;
+			// Init upload
+			const res = await apiFetch(
+				`/api/nooks/${nook}/file/attr-upload-url`,
+				{
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({
+						filename,
+						extension: ext,
+						filesize: file.size,
+						mime_type: file.type,
+						type_id: fileType.id,
+						attribute_id: fileAttrId,
+					}),
+				},
+			);
+			if (!res.ok) throw new Error("Failed to get upload URL");
+			const initData = (await res.json()) as {
+				upload_url: string;
+				upload_id: string;
 			};
-			const uploadUrl = String(json?.upload_url ?? "");
-			const uploadId = String(json?.upload_id ?? "");
-			if (uploadUrl === "") {
-				throw new Error("Upload URL missing from response");
-			}
-			if (uploadId === "") {
-				throw new Error("Upload ID missing from response");
-			}
 
-			const putRes = await fetch(uploadUrl, {
+			// PUT file
+			const putRes = await fetch(initData.upload_url, {
 				method: "PUT",
 				credentials: "include",
 				body: file,
 			});
-			if (!putRes.ok) {
-				throw new Error(
-					`Embedded upload failed: ${putRes.status} ${putRes.statusText}`,
-				);
-			}
+			if (!putRes.ok) throw new Error("Upload failed");
 
-			const finRes = await apiFetch(`/api/nooks/${nookId()}/file/finalize`, {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ upload_id: uploadId }),
-			});
-			if (!finRes.ok) {
-				throw new Error(
-					`Embedded finalize failed: ${finRes.status} ${finRes.statusText}`,
-				);
-			}
+			// Finalize and create note
+			const finRes = await apiFetch(
+				`/api/nooks/${nook}/file/attr-finalize`,
+				{
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({
+						upload_id: initData.upload_id,
+						type_id: fileType.id,
+						attribute_id: fileAttrId,
+					}),
+				},
+			);
+			if (!finRes.ok) throw new Error("Finalize failed");
+
 			const finJson = await finRes.json();
 			const finBody = NoteResponseSchema.parse(finJson);
 			const note = finBody.note;
-			const noteId = note.id;
-			cacheTitles([{ id: noteId, title: note.title }]);
+			cacheTitles([{ id: note.id, title: note.title }]);
 			setNotes([toSummary(note), ...notes()]);
-
-			return noteId;
+			return note.id;
 		} catch (e) {
 			setError(String(e));
 			return null;
