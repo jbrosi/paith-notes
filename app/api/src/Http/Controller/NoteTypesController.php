@@ -100,18 +100,16 @@ final class NoteTypesController
             throw new HttpError('parent_id must be a UUID', 400);
         }
 
-        $appliesToRaw = $data['applies_to'] ?? 'notes';
-        $appliesTo = is_string($appliesToRaw) ? trim($appliesToRaw) : 'notes';
-        if (!in_array($appliesTo, ['notes', 'files'], true)) {
-            throw new HttpError('applies_to must be "notes" or "files"', 400);
-        }
-
+        // Derive applies_to from parent chain (not from client input)
+        $appliesTo = 'notes';
         if ($parentId !== '') {
-            $p = $pdo->prepare('select 1 from global.note_types where id = :id and nook_id = :nook_id');
+            $p = $pdo->prepare('select applies_to from global.note_types where id = :id and nook_id = :nook_id');
             $p->execute([':id' => $parentId, ':nook_id' => $nookId]);
-            if (!$p->fetchColumn()) {
+            $parentAppliesTo = $p->fetchColumn();
+            if ($parentAppliesTo === false) {
                 throw new HttpError('parent not found', 404);
             }
+            $appliesTo = is_string($parentAppliesTo) ? $parentAppliesTo : 'notes';
         }
 
         try {
@@ -220,18 +218,16 @@ final class NoteTypesController
             throw new HttpError('parent_id cannot be self', 400);
         }
 
-        $appliesToRaw = $data['applies_to'] ?? 'notes';
-        $appliesTo = is_string($appliesToRaw) ? trim($appliesToRaw) : 'notes';
-        if (!in_array($appliesTo, ['notes', 'files'], true)) {
-            throw new HttpError('applies_to must be "notes" or "files"', 400);
-        }
-
+        // Derive applies_to from parent chain (not from client input)
+        $appliesTo = 'notes';
         if ($parentId !== '') {
-            $p = $pdo->prepare('select 1 from global.note_types where id = :id and nook_id = :nook_id');
+            $p = $pdo->prepare('select applies_to from global.note_types where id = :id and nook_id = :nook_id');
             $p->execute([':id' => $parentId, ':nook_id' => $nookId]);
-            if (!$p->fetchColumn()) {
+            $parentAppliesTo = $p->fetchColumn();
+            if ($parentAppliesTo === false) {
                 throw new HttpError('parent not found', 404);
             }
+            $appliesTo = is_string($parentAppliesTo) ? $parentAppliesTo : 'notes';
         }
 
         if ($key !== $existingKey) {

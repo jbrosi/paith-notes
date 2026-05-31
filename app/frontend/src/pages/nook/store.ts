@@ -318,9 +318,6 @@ export function createNookStore(nookId: () => string) {
 		}
 
 		const parentId = input.parentId.trim();
-		const parent =
-			parentId === "" ? null : noteTypes().find((t) => t.id === parentId);
-		const appliesTo = parent ? parent.appliesTo : "notes";
 
 		setLoading(true);
 		setError("");
@@ -332,7 +329,6 @@ export function createNookStore(nookId: () => string) {
 					key,
 					label,
 					parent_id: parentId,
-					applies_to: appliesTo,
 				}),
 			});
 			if (!res.ok) {
@@ -372,7 +368,6 @@ export function createNookStore(nookId: () => string) {
 						label,
 						description: type.description,
 						parent_id: type.parentId,
-						applies_to: type.appliesTo,
 					}),
 				},
 			);
@@ -400,7 +395,6 @@ export function createNookStore(nookId: () => string) {
 			label: string;
 			description: string;
 			parentId: string;
-			appliesTo: "notes" | "files";
 		},
 	): Promise<NoteType | null> => {
 		if (nookId() === "") return null;
@@ -423,7 +417,6 @@ export function createNookStore(nookId: () => string) {
 						label,
 						description: next.description,
 						parent_id: next.parentId,
-						applies_to: next.appliesTo,
 					}),
 				},
 			);

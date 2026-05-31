@@ -46,7 +46,6 @@ export function NookTypeEditPanel(props: NookTypeEditPanelProps) {
 			label: label(),
 			description: description(),
 			parentId: t.parentId,
-			appliesTo: t.appliesTo,
 		});
 		if (updated) goBack();
 	};
