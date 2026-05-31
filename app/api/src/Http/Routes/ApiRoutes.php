@@ -17,6 +17,7 @@ use Paith\Notes\Api\Http\Controller\MeController;
 use Paith\Notes\Api\Http\Controller\Module1Controller;
 use Paith\Notes\Api\Http\Controller\InvitationsController;
 use Paith\Notes\Api\Http\Controller\NookStatsController;
+use Paith\Notes\Api\Http\Controller\AttributeFilesController;
 use Paith\Notes\Api\Http\Controller\NoteTypesController;
 use Paith\Notes\Api\Http\Controller\TypeAttributesController;
 use Paith\Notes\Api\Http\Controller\NoteLinksController;
@@ -123,12 +124,19 @@ final class ApiRoutes
         $r->add('DELETE', '/nooks/{nookId}/notes/{noteId}/links/{linkId}', [NoteLinksController::class, 'delete']);
 
 
+        // Legacy file endpoints (to be removed)
         $r->post('/nooks/{nookId}/notes/{noteId}/file/upload-url', [FileNotesController::class, 'fileUploadUrl']);
         $r->post('/nooks/{nookId}/notes/{noteId}/file/finalize', [FileNotesController::class, 'fileFinalize']);
         $r->get('/nooks/{nookId}/notes/{noteId}/file/download-url', [FileNotesController::class, 'fileDownloadUrl']);
-
         $r->post('/nooks/{nookId}/file/upload-url', [FileNotesController::class, 'fileUploadUrlInit']);
         $r->post('/nooks/{nookId}/file/finalize', [FileNotesController::class, 'fileFinalizeCreateNote']);
+
+        // Attribute-based file endpoints
+        $r->post('/nooks/{nookId}/notes/{noteId}/attributes/{attributeId}/file/upload-url', [AttributeFilesController::class, 'uploadUrl']);
+        $r->post('/nooks/{nookId}/notes/{noteId}/attributes/{attributeId}/file/finalize', [AttributeFilesController::class, 'finalize']);
+        $r->get('/nooks/{nookId}/notes/{noteId}/attributes/{attributeId}/file/download-url', [AttributeFilesController::class, 'downloadUrl']);
+        $r->post('/nooks/{nookId}/file/attr-upload-url', [AttributeFilesController::class, 'uploadUrlInit']);
+        $r->post('/nooks/{nookId}/file/attr-finalize', [AttributeFilesController::class, 'finalizeCreateNote']);
 
         $r->use('/conversations', new RequireUser());
         $r->use('/conversations', new RequireGroup('paith/notes/'));

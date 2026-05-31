@@ -245,6 +245,10 @@ final class GlobalSchema
 
             $pdo->exec('create index if not exists note_files_object_key_idx on global.note_files (object_key)');
 
+            // Add attribute_id to note_files for attribute-based file storage
+            $pdo->exec('alter table global.note_files add column if not exists attribute_id uuid null');
+            $pdo->exec('create index if not exists note_files_note_attr_idx on global.note_files (note_id, attribute_id)');
+
             $pdo->exec(" 
                 create table if not exists global.file_uploads (
                     id uuid primary key,
