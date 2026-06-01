@@ -98,6 +98,9 @@ final class TypeAttributesController
 
             $id = is_scalar($row['id'] ?? null) ? (string)$row['id'] : '';
 
+            // Index lifecycle: create after commit (outside transaction for safety)
+            $this->syncAttributeIndex($pdo, $id, $kind, $indexed);
+
             return JsonResponse::ok([
                 'attribute' => [
                     'id' => $id,
@@ -184,6 +187,9 @@ final class TypeAttributesController
             throw new HttpError('attribute not found', 404);
         }
 
+        // Index lifecycle: re-sync (kind or indexed flag may have changed)
+        $this->syncAttributeIndex($pdo, $attrId, $kind, $indexed);
+
         return JsonResponse::ok([
             'attribute' => [
                 'id' => $attrId,
@@ -222,6 +228,9 @@ final class TypeAttributesController
         if (!is_scalar($id) || (string)$id === '') {
             throw new HttpError('attribute not found on this type', 404);
         }
+
+        // Drop any expression index for this attribute
+        $this->dropAttributeIndex($pdo, $attrId);
 
         return JsonResponse::ok([
             'deleted' => true,
@@ -326,6 +335,52 @@ final class TypeAttributesController
         if ($conflictId !== false && (string)$conflictId !== $excludeAttrId) {
             throw new HttpError('attribute name "' . $name . '" conflicts with a descendant type attribute', 409);
         }
+    }
+
+    /**
+     * Create or drop an expression index on notes.attributes for the given attribute.
+     * Index name is deterministic: idx_notes_attr_<first 12 chars of uuid>.
+     */
+    private function syncAttributeIndex(PDO $pdo, string $attrId, string $kind, bool $indexed): void
+    {
+        // Sanitize: only hex + hyphens from UUID, take a short prefix for the index name
+        $short = str_replace('-', '', substr($attrId, 0, 12));
+        $idxName = 'idx_notes_attr_' . $short;
+
+        if (!$indexed) {
+            // Drop index if it exists (use IF EXISTS so it's safe to call even if not present)
+            $pdo->exec("drop index if exists global.{$idxName}");
+            return;
+        }
+
+        // Build the expression based on kind
+        $expr = match ($kind) {
+            'number' => "global.safe_numeric(attributes->>'{$attrId}')",
+            'date' => "(attributes->>'{$attrId}')::date",
+            'text' => "attributes->>'{$attrId}'",
+            'select' => "attributes->>'{$attrId}'",
+            default => null,
+        };
+
+        if ($expr === null) {
+            // Kinds like boolean, file, graph, date_range don't get a simple index
+            // date_range would need two indexes (from/to) — skip for now
+            return;
+        }
+
+        $whereClause = "attributes->>'{$attrId}' IS NOT NULL";
+
+        // Drop old index first (kind may have changed), then create new one.
+        // nook_id is included as the primary query scope for all attribute searches.
+        $pdo->exec("drop index if exists global.{$idxName}");
+        $pdo->exec("create index {$idxName} on global.notes (nook_id, {$expr}) where {$whereClause}");
+    }
+
+    private function dropAttributeIndex(PDO $pdo, string $attrId): void
+    {
+        $short = str_replace('-', '', substr($attrId, 0, 12));
+        $idxName = 'idx_notes_attr_' . $short;
+        $pdo->exec("drop index if exists global.{$idxName}");
     }
 
     private function validateConfig(string $kind, array $config): void

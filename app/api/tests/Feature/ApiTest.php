@@ -1223,3 +1223,52 @@ it('default file and graph types are seeded for new nooks', function (): void {
     $graphKinds = array_map(fn($a) => $a['kind'], $graphAttrs);
     expect(in_array('graph', $graphKinds, true))->toBeTrue();
 });
+
+it('indexed attributes create and drop expression indexes', function (): void {
+    $userId = 'ffffffff-ffff-4fff-8fff-ffffffffffff';
+    $headers = [
+        'X-Nook-User' => $userId,
+        'X-Nook-Groups' => 'paith/notes',
+    ];
+    App::handle('GET', '/api/me', $headers, '');
+
+    $nookId = json_decode(App::handle('POST', '/api/nooks', $headers, json_encode(['name' => 'Index Test']))['body'], true)['nook']['id'];
+
+    $typeId = json_decode(App::handle('POST', '/api/nooks/' . $nookId . '/note-types', $headers, json_encode([
+        'key' => 'indexed-type', 'label' => 'Indexed Type',
+    ]))['body'], true)['type']['id'];
+
+    // Create an indexed number attribute
+    $createRes = App::handle('POST', '/api/nooks/' . $nookId . '/note-types/' . $typeId . '/attributes', $headers, json_encode([
+        'name' => 'Score', 'kind' => 'number', 'indexed' => true,
+    ]));
+    expect($createRes['status'])->toBe(200);
+    $attrId = json_decode($createRes['body'], true)['attribute']['id'];
+
+    // Verify index exists
+    $pdo = test_pdo();
+    $short = str_replace('-', '', substr($attrId, 0, 12));
+    $idxName = 'idx_notes_attr_' . $short;
+    $stmt = $pdo->prepare("select 1 from pg_indexes where indexname = :name");
+    $stmt->execute([':name' => $idxName]);
+    expect($stmt->fetchColumn())->not->toBe(false);
+
+    // Update to non-indexed — index should be dropped
+    App::handle('PUT', '/api/nooks/' . $nookId . '/note-types/' . $typeId . '/attributes/' . $attrId, $headers, json_encode([
+        'name' => 'Score', 'kind' => 'number', 'indexed' => false,
+    ]));
+    $stmt->execute([':name' => $idxName]);
+    expect($stmt->fetchColumn())->toBe(false);
+
+    // Update back to indexed
+    App::handle('PUT', '/api/nooks/' . $nookId . '/note-types/' . $typeId . '/attributes/' . $attrId, $headers, json_encode([
+        'name' => 'Score', 'kind' => 'number', 'indexed' => true,
+    ]));
+    $stmt->execute([':name' => $idxName]);
+    expect($stmt->fetchColumn())->not->toBe(false);
+
+    // Delete attribute — index should be dropped
+    App::handle('DELETE', '/api/nooks/' . $nookId . '/note-types/' . $typeId . '/attributes/' . $attrId, $headers, '');
+    $stmt->execute([':name' => $idxName]);
+    expect($stmt->fetchColumn())->toBe(false);
+});
