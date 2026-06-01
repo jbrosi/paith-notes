@@ -827,9 +827,7 @@ export function createNookStore(nookId: () => string) {
 		setTitle("New note");
 		setTitleIsManual(false);
 		setContent("");
-
-
-
+		setNoteAttributes({});
 		setError("");
 		setMentionTargetId("");
 		setMentionEmbedImage(false);
@@ -858,8 +856,7 @@ export function createNookStore(nookId: () => string) {
 		setSelectedId(note.id);
 		setTypeId(String(note.typeId ?? "").trim());
 		setTitle(note.title);
-
-
+		setNoteAttributes({});
 		setError("");
 		setMentionTargetId("");
 		setMentionEmbedImage(false);
@@ -1105,9 +1102,7 @@ export function createNookStore(nookId: () => string) {
 				setTitle("");
 				setTitleIsManual(false);
 				setContent("");
-		
-		
-		
+				setNoteAttributes({});
 				setMode("view");
 				setIsDirty(false);
 				setError("");
