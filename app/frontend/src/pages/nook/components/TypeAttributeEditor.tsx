@@ -291,6 +291,7 @@ function AttributeRow(props: {
 				<strong>{props.attr.name}</strong>
 				<span style={{ color: "#888", "margin-left": "6px" }}>
 					{props.attr.kind}
+					{props.attr.config.display ? ` · ${props.attr.config.display}` : ""}
 				</span>
 				<Show when={props.attr.inherited}>
 					<span
@@ -335,6 +336,9 @@ function AttributeEditRow(props: {
 	const [display, setDisplay] = createSignal(
 		(props.attr.config.display as string) ?? "",
 	);
+	const [max, setMax] = createSignal(
+		String(props.attr.config.max ?? ""),
+	);
 
 	const buildConfig = (): Record<string, unknown> => {
 		const c: Record<string, unknown> = {};
@@ -345,6 +349,7 @@ function AttributeEditRow(props: {
 				.filter(Boolean);
 		}
 		if (display()) c.display = display();
+		if (kind() === "number" && max()) c.max = Number(max());
 		return c;
 	};
 
@@ -386,16 +391,48 @@ function AttributeEditRow(props: {
 				/>
 			</Show>
 
+			<Show when={kind() === "text"}>
+				<select
+					value={display()}
+					onChange={(e) => setDisplay(e.currentTarget.value)}
+					style={{ padding: "4px 6px" }}
+				>
+					<option value="">Single line (default)</option>
+					<option value="paragraph">Paragraph</option>
+				</select>
+			</Show>
+
+			<Show when={kind() === "number"}>
+				<div style={{ display: "flex", gap: "6px", "align-items": "center" }}>
+					<select
+						value={display()}
+						onChange={(e) => setDisplay(e.currentTarget.value)}
+						style={{ padding: "4px 6px" }}
+					>
+						<option value="">Plain number (default)</option>
+						<option value="rating">Rating</option>
+					</select>
+					<Show when={display() === "rating"}>
+						<input
+							type="number"
+							value={max()}
+							onInput={(e) => setMax(e.currentTarget.value)}
+							placeholder="Max (e.g. 5)"
+							style={{ width: "80px", padding: "4px 6px" }}
+						/>
+					</Show>
+				</div>
+			</Show>
+
 			<Show when={kind() === "file"}>
 				<select
 					value={display()}
 					onChange={(e) => setDisplay(e.currentTarget.value)}
 					style={{ padding: "4px 6px" }}
 				>
-					<option value="">Default (download)</option>
+					<option value="">Download (default)</option>
 					<option value="preview">Preview</option>
 					<option value="player">Player</option>
-					<option value="download">Download</option>
 				</select>
 			</Show>
 

@@ -116,21 +116,63 @@ function AttributeField(props: {
 		"font-size": "13px",
 	};
 
+	const display = () => (props.attr.config.display as string) ?? "";
+
 	switch (props.attr.kind) {
 		case "text":
 			return (
 				<label>
 					<div style={labelStyle}>{props.attr.name}</div>
-					<input
-						value={strVal()}
-						onInput={(e) => props.onChange(e.currentTarget.value)}
-						disabled={props.disabled}
-						style={inputStyle}
-					/>
+					{display() === "paragraph" ? (
+						<textarea
+							value={strVal()}
+							onInput={(e) => props.onChange(e.currentTarget.value)}
+							disabled={props.disabled}
+							rows={4}
+							style={inputStyle}
+						/>
+					) : (
+						<input
+							value={strVal()}
+							onInput={(e) => props.onChange(e.currentTarget.value)}
+							disabled={props.disabled}
+							style={inputStyle}
+						/>
+					)}
 				</label>
 			);
 
-		case "number":
+		case "number": {
+			if (display() === "rating") {
+				const maxVal = Number(props.attr.config.max ?? 5) || 5;
+				return (
+					<div>
+						<div style={labelStyle}>{props.attr.name}</div>
+						<div style={{ display: "flex", gap: "2px" }}>
+							{Array.from({ length: maxVal }, (_, i) => i + 1).map((n) => (
+								<button
+									type="button"
+									disabled={props.disabled}
+									onClick={() => props.onChange(numVal() === n ? 0 : n)}
+									style={{
+										border: "none",
+										background: "none",
+										cursor: props.disabled ? "default" : "pointer",
+										"font-size": "20px",
+										padding: "0 1px",
+										color: n <= numVal() ? "#f5a623" : "#ddd",
+									}}
+								>
+									★
+								</button>
+							))}
+							<span style={{ "font-size": "12px", color: "#999", "margin-left": "4px", "align-self": "center" }}>
+								{numVal() > 0 ? numVal() : ""}
+							</span>
+						</div>
+					</div>
+				);
+			}
 			return (
 				<label>
 					<div style={labelStyle}>{props.attr.name}</div>
@@ -143,6 +185,7 @@ function AttributeField(props: {
 					/>
 				</label>
 			);
+		}
 
 		case "boolean":
 			return (
