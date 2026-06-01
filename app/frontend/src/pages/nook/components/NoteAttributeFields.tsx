@@ -49,7 +49,7 @@ export function NoteAttributeFields(props: { store: NookStore }) {
 						display: "grid",
 						gap: "8px",
 						padding: "8px 0",
-						"border-top": "1px solid #eee",
+						"border-top": "1px solid var(--color-border-light)",
 						"margin-top": "8px",
 					}}
 				>
@@ -106,7 +106,7 @@ function AttributeField(props: {
 
 	const labelStyle = {
 		"font-size": "12px",
-		color: "#666",
+		color: "var(--color-text-secondary)",
 		"margin-bottom": "2px",
 	};
 	const inputStyle = {
@@ -160,13 +160,13 @@ function AttributeField(props: {
 										cursor: props.disabled ? "default" : "pointer",
 										"font-size": "20px",
 										padding: "0 1px",
-										color: n <= numVal() ? "#f5a623" : "#ddd",
+										color: n <= numVal() ? "var(--seed-warning)" : "var(--color-border-light)",
 									}}
 								>
 									★
 								</button>
 							))}
-							<span style={{ "font-size": "12px", color: "#999", "margin-left": "4px", "align-self": "center" }}>
+							<span style={{ "font-size": "12px", color: "var(--color-text-muted)", "margin-left": "4px", "align-self": "center" }}>
 								{numVal() > 0 ? numVal() : ""}
 							</span>
 						</div>
@@ -242,7 +242,7 @@ function AttributeField(props: {
 							disabled={props.disabled}
 							style={{ ...inputStyle, flex: 1 }}
 						/>
-						<span style={{ "align-self": "center", color: "#999" }}>to</span>
+						<span style={{ "align-self": "center", color: "var(--color-text-muted)" }}>to</span>
 						<input
 							type="date"
 							value={rangeVal().to}
@@ -386,7 +386,7 @@ function FileAttributeField(props: {
 	return (
 		<div>
 			<div
-				style={{ "font-size": "12px", color: "#666", "margin-bottom": "4px" }}
+				style={{ "font-size": "12px", color: "var(--color-text-secondary)", "margin-bottom": "4px" }}
 			>
 				{props.attr.name}
 			</div>
@@ -394,7 +394,7 @@ function FileAttributeField(props: {
 			<Show when={error() !== ""}>
 				<div
 					style={{
-						color: "#b00020",
+						color: "var(--color-danger)",
 						"font-size": "12px",
 						"margin-bottom": "4px",
 					}}
@@ -418,12 +418,12 @@ function FileAttributeField(props: {
 					<button type="button" onClick={() => void onDownload()}>
 						Download
 					</button>
-					<span style={{ "font-size": "12px", color: "#888" }}>
+					<span style={{ "font-size": "12px", color: "var(--color-text-muted)" }}>
 						{filename()} ({Math.round(size() / 1024)}KB)
 					</span>
 				</Show>
 				<Show when={uploading()}>
-					<span style={{ "font-size": "12px", color: "#888" }}>
+					<span style={{ "font-size": "12px", color: "var(--color-text-muted)" }}>
 						Uploading...
 					</span>
 				</Show>
@@ -443,7 +443,7 @@ function FileAttributeField(props: {
 						"max-width": "100%",
 						"max-height": "420px",
 						"margin-top": "8px",
-						border: "1px solid #eee",
+						border: "1px solid var(--color-border-light)",
 						"border-radius": "8px",
 					}}
 				/>
@@ -462,7 +462,7 @@ function FileAttributeField(props: {
 						width: "100%",
 						height: "520px",
 						"margin-top": "8px",
-						border: "1px solid #eee",
+						border: "1px solid var(--color-border-light)",
 						"border-radius": "8px",
 					}}
 				/>

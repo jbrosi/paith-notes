@@ -177,7 +177,7 @@ export function TypeAttributeEditor(props: TypeAttributeEditorProps) {
 				<pre
 					style={{
 						margin: "0 0 8px",
-						color: "#b00020",
+						color: "var(--color-danger)",
 						"white-space": "pre-wrap",
 						"font-size": "12px",
 					}}
@@ -189,7 +189,7 @@ export function TypeAttributeEditor(props: TypeAttributeEditorProps) {
 			<Show
 				when={attributes() && attributes()!.length > 0}
 				fallback={
-					<div style={{ color: "#999", "font-size": "13px" }}>
+					<div style={{ color: "var(--color-text-muted)", "font-size": "13px" }}>
 						No attributes defined.
 					</div>
 				}
@@ -239,9 +239,9 @@ function AttributeRow(props: {
 				"align-items": "center",
 				gap: "4px",
 				padding: "6px 8px",
-				border: "1px solid #eee",
+				border: "1px solid var(--color-border-light)",
 				"border-radius": "6px",
-				background: props.attr.inherited ? "#f8f8ff" : "#fff",
+				background: props.attr.inherited ? "var(--color-bg-secondary)" : "var(--color-bg)",
 			}}
 		>
 			<div
@@ -263,7 +263,7 @@ function AttributeRow(props: {
 						padding: "0",
 						"font-size": "10px",
 						"line-height": "1",
-						color: props.onMoveUp ? "#666" : "#ddd",
+						color: props.onMoveUp ? "var(--color-text-secondary)" : "var(--color-border-light)",
 					}}
 					title="Move up"
 				>
@@ -280,7 +280,7 @@ function AttributeRow(props: {
 						padding: "0",
 						"font-size": "10px",
 						"line-height": "1",
-						color: props.onMoveDown ? "#666" : "#ddd",
+						color: props.onMoveDown ? "var(--color-text-secondary)" : "var(--color-border-light)",
 					}}
 					title="Move down"
 				>
@@ -289,14 +289,14 @@ function AttributeRow(props: {
 			</div>
 			<span style={{ flex: 1, "font-size": "13px" }}>
 				<strong>{props.attr.name}</strong>
-				<span style={{ color: "#888", "margin-left": "6px" }}>
+				<span style={{ color: "var(--color-text-muted)", "margin-left": "6px" }}>
 					{props.attr.kind}
 					{props.attr.config.display ? ` · ${props.attr.config.display}` : ""}
 				</span>
 				<Show when={props.attr.inherited}>
 					<span
 						style={{
-							color: "#aaa",
+							color: "var(--color-text-faint)",
 							"margin-left": "6px",
 							"font-size": "11px",
 						}}
@@ -359,9 +359,9 @@ function AttributeEditRow(props: {
 				display: "grid",
 				gap: "6px",
 				padding: "8px",
-				border: "1px solid #ccc",
+				border: "1px solid var(--color-border-medium)",
 				"border-radius": "6px",
-				background: "#fafafa",
+				background: "var(--color-bg-secondary)",
 			}}
 		>
 			<div style={{ display: "flex", gap: "6px" }}>
