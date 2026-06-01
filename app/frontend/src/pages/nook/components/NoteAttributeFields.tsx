@@ -629,15 +629,43 @@ function ViewAttributeField(props: {
 		}
 	};
 
+	const typeName = () => {
+		const tid = config().type_id;
+		if (!tid) return "All types";
+		return types().find((t) => t.id === tid)?.label ?? tid;
+	};
+
 	return (
 		<div style={{ "margin-top": "8px" }}>
-			{/* Editor (edit mode) */}
-			<Show when={isEditing()}>
+			{/* Config — editable in edit mode, summary in view mode */}
+			<Show when={isEditing()} fallback={
+				<Show when={config().type_id || config().filters.length > 0}>
+					<div style={{
+						display: "flex", gap: "8px", "align-items": "center",
+						padding: "6px 8px", "margin-bottom": "8px",
+						border: "1px solid var(--color-border-light)", "border-radius": "6px",
+						"font-size": "12px", color: "var(--color-text-secondary)",
+					}}>
+						<span>{typeName()}</span>
+						<span style={{ color: "var(--color-text-muted)" }}>·</span>
+						<span>{config().display}</span>
+						<Show when={config().filters.length > 0}>
+							<span style={{ color: "var(--color-text-muted)" }}>·</span>
+							<span>{config().filters.length} filter{config().filters.length > 1 ? "s" : ""}</span>
+						</Show>
+						<button type="button" onClick={() => void executeView()}
+							style={{ "margin-left": "auto", border: "1px solid var(--color-border-light)", "border-radius": "4px", padding: "2px 8px", background: "var(--color-bg)", cursor: "pointer", "font-size": "11px" }}>
+							Refresh
+						</button>
+					</div>
+				</Show>
+			}>
 				<div style={{
 					display: "grid", gap: "6px", padding: "8px",
 					border: "1px solid var(--color-border-medium)", "border-radius": "8px",
 					background: "var(--color-bg-secondary)", "margin-bottom": "8px",
 				}}>
+					<div style={{ "font-size": "11px", color: "var(--color-text-secondary)" }}>View settings</div>
 					<div style={{ display: "flex", gap: "6px" }}>
 						<select
 							value={config().type_id}
@@ -716,12 +744,12 @@ function ViewAttributeField(props: {
 				</div>
 			</Show>
 
-			{/* Results */}
-			<Show when={!isEditing() && config().type_id}>
+			{/* Results — always shown when config has a type */}
+			<Show when={config().type_id}>
 				<Show when={viewLoading()}>
 					<div style={{ color: "var(--color-text-muted)", "font-size": "12px" }}>Loading...</div>
 				</Show>
-				<Show when={!viewLoading()}>
+				<Show when={!viewLoading() && results().length > 0}>
 					<div style={{ "font-size": "12px", color: "var(--color-text-muted)", "margin-bottom": "4px" }}>
 						{results().length} notes
 					</div>
@@ -732,6 +760,9 @@ function ViewAttributeField(props: {
 					) : (
 						<ViewList notes={results()} onSelect={(id) => props.store.onNoteLinkClick(id)} />
 					)}
+				</Show>
+				<Show when={!viewLoading() && results().length === 0 && !isEditing()}>
+					<div style={{ color: "var(--color-text-muted)", "font-size": "12px" }}>No matching notes.</div>
 				</Show>
 			</Show>
 		</div>
