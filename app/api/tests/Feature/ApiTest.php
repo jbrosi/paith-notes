@@ -955,3 +955,271 @@ it('auth logout clears cookie and deletes session', function (): void {
 	$stmt->execute([':id' => $sessionId]);
 	expect((int)$stmt->fetchColumn())->toBe(0);
 });
+
+// ─── Type Attributes ────────────────────────────────────────────────────────
+
+it('can create, list, update, and delete type attributes', function (): void {
+    $userId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    $headers = [
+        'X-Nook-User' => $userId,
+        'X-Nook-Groups' => 'paith/notes',
+    ];
+    App::handle('GET', '/api/me', $headers, '');
+
+    $nookId = json_decode(App::handle('POST', '/api/nooks', $headers, json_encode(['name' => 'Attr Test']))['body'], true)['nook']['id'];
+
+    // Create a type
+    $typeRes = App::handle('POST', '/api/nooks/' . $nookId . '/note-types', $headers, json_encode([
+        'key' => 'book', 'label' => 'Book',
+    ]));
+    expect($typeRes['status'])->toBe(200);
+    $typeId = json_decode($typeRes['body'], true)['type']['id'];
+
+    // Create a text attribute
+    $createAttr = App::handle('POST', '/api/nooks/' . $nookId . '/note-types/' . $typeId . '/attributes', $headers, json_encode([
+        'name' => 'Author', 'kind' => 'text',
+    ]));
+    expect($createAttr['status'])->toBe(200);
+    $attrData = json_decode($createAttr['body'], true)['attribute'];
+    expect($attrData['name'])->toBe('Author');
+    expect($attrData['kind'])->toBe('text');
+    expect($attrData['inherited'])->toBe(false);
+    $authorAttrId = $attrData['id'];
+
+    // Create a number attribute
+    $createRating = App::handle('POST', '/api/nooks/' . $nookId . '/note-types/' . $typeId . '/attributes', $headers, json_encode([
+        'name' => 'Rating', 'kind' => 'number',
+    ]));
+    expect($createRating['status'])->toBe(200);
+    $ratingAttrId = json_decode($createRating['body'], true)['attribute']['id'];
+
+    // Create a select attribute
+    $createGenre = App::handle('POST', '/api/nooks/' . $nookId . '/note-types/' . $typeId . '/attributes', $headers, json_encode([
+        'name' => 'Genre', 'kind' => 'select', 'config' => ['options' => ['sci-fi', 'fantasy', 'mystery']],
+    ]));
+    expect($createGenre['status'])->toBe(200);
+    $genreAttrId = json_decode($createGenre['body'], true)['attribute']['id'];
+
+    // List attributes — should have 3
+    $listRes = App::handle('GET', '/api/nooks/' . $nookId . '/note-types/' . $typeId . '/attributes', $headers, '');
+    expect($listRes['status'])->toBe(200);
+    $attrs = json_decode($listRes['body'], true)['attributes'];
+    expect(count($attrs))->toBe(3);
+
+    // Update: rename Author to Writer, change kind to text (same)
+    $updateRes = App::handle('PUT', '/api/nooks/' . $nookId . '/note-types/' . $typeId . '/attributes/' . $authorAttrId, $headers, json_encode([
+        'name' => 'Writer', 'kind' => 'text',
+    ]));
+    expect($updateRes['status'])->toBe(200);
+    expect(json_decode($updateRes['body'], true)['attribute']['name'])->toBe('Writer');
+
+    // Delete Rating
+    $deleteRes = App::handle('DELETE', '/api/nooks/' . $nookId . '/note-types/' . $typeId . '/attributes/' . $ratingAttrId, $headers, '');
+    expect($deleteRes['status'])->toBe(200);
+
+    // List should now have 2
+    $listRes2 = App::handle('GET', '/api/nooks/' . $nookId . '/note-types/' . $typeId . '/attributes', $headers, '');
+    $attrs2 = json_decode($listRes2['body'], true)['attributes'];
+    expect(count($attrs2))->toBe(2);
+
+    // Duplicate name should fail
+    $dupRes = App::handle('POST', '/api/nooks/' . $nookId . '/note-types/' . $typeId . '/attributes', $headers, json_encode([
+        'name' => 'Writer', 'kind' => 'text',
+    ]));
+    expect($dupRes['status'])->toBe(409);
+
+    // Select without options should fail
+    $badSelect = App::handle('POST', '/api/nooks/' . $nookId . '/note-types/' . $typeId . '/attributes', $headers, json_encode([
+        'name' => 'Status', 'kind' => 'select',
+    ]));
+    expect($badSelect['status'])->toBe(400);
+});
+
+it('attribute inheritance works across type hierarchy', function (): void {
+    $userId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+    $headers = [
+        'X-Nook-User' => $userId,
+        'X-Nook-Groups' => 'paith/notes',
+    ];
+    App::handle('GET', '/api/me', $headers, '');
+
+    $nookId = json_decode(App::handle('POST', '/api/nooks', $headers, json_encode(['name' => 'Inherit Test']))['body'], true)['nook']['id'];
+
+    // Create parent type with an attribute
+    $parentRes = App::handle('POST', '/api/nooks/' . $nookId . '/note-types', $headers, json_encode([
+        'key' => 'media', 'label' => 'Media',
+    ]));
+    $parentId = json_decode($parentRes['body'], true)['type']['id'];
+
+    App::handle('POST', '/api/nooks/' . $nookId . '/note-types/' . $parentId . '/attributes', $headers, json_encode([
+        'name' => 'Year', 'kind' => 'number',
+    ]));
+
+    // Create child type with its own attribute
+    $childRes = App::handle('POST', '/api/nooks/' . $nookId . '/note-types', $headers, json_encode([
+        'key' => 'movie', 'label' => 'Movie', 'parent_id' => $parentId,
+    ]));
+    $childId = json_decode($childRes['body'], true)['type']['id'];
+
+    App::handle('POST', '/api/nooks/' . $nookId . '/note-types/' . $childId . '/attributes', $headers, json_encode([
+        'name' => 'Director', 'kind' => 'text',
+    ]));
+
+    // List child attributes — should see both Year (inherited) and Director (own)
+    $listRes = App::handle('GET', '/api/nooks/' . $nookId . '/note-types/' . $childId . '/attributes', $headers, '');
+    $attrs = json_decode($listRes['body'], true)['attributes'];
+    expect(count($attrs))->toBe(2);
+
+    $names = array_map(fn($a) => $a['name'], $attrs);
+    sort($names);
+    expect($names)->toBe(['Director', 'Year']);
+
+    $inherited = array_filter($attrs, fn($a) => $a['inherited']);
+    $own = array_filter($attrs, fn($a) => !$a['inherited']);
+    expect(count($inherited))->toBe(1);
+    expect(count($own))->toBe(1);
+    expect(array_values($inherited)[0]['name'])->toBe('Year');
+    expect(array_values($own)[0]['name'])->toBe('Director');
+
+    // Cannot create attribute with same name as inherited one
+    $dupRes = App::handle('POST', '/api/nooks/' . $nookId . '/note-types/' . $childId . '/attributes', $headers, json_encode([
+        'name' => 'Year', 'kind' => 'text',
+    ]));
+    expect($dupRes['status'])->toBe(409);
+
+    // Cannot delete inherited attribute from child
+    $yearId = array_values($inherited)[0]['id'];
+    $delInherited = App::handle('DELETE', '/api/nooks/' . $nookId . '/note-types/' . $childId . '/attributes/' . $yearId, $headers, '');
+    expect($delInherited['status'])->toBe(404);
+});
+
+it('note attributes are stored and type switch moves values to archive', function (): void {
+    $userId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+    $headers = [
+        'X-Nook-User' => $userId,
+        'X-Nook-Groups' => 'paith/notes',
+    ];
+    App::handle('GET', '/api/me', $headers, '');
+
+    $nookId = json_decode(App::handle('POST', '/api/nooks', $headers, json_encode(['name' => 'Switch Test']))['body'], true)['nook']['id'];
+
+    // Create two types with different attributes
+    $typeARes = App::handle('POST', '/api/nooks/' . $nookId . '/note-types', $headers, json_encode([
+        'key' => 'type-a', 'label' => 'Type A',
+    ]));
+    $typeAId = json_decode($typeARes['body'], true)['type']['id'];
+    $attrARes = App::handle('POST', '/api/nooks/' . $nookId . '/note-types/' . $typeAId . '/attributes', $headers, json_encode([
+        'name' => 'Color', 'kind' => 'text',
+    ]));
+    $colorAttrId = json_decode($attrARes['body'], true)['attribute']['id'];
+
+    $typeBRes = App::handle('POST', '/api/nooks/' . $nookId . '/note-types', $headers, json_encode([
+        'key' => 'type-b', 'label' => 'Type B',
+    ]));
+    $typeBId = json_decode($typeBRes['body'], true)['type']['id'];
+    $attrBRes = App::handle('POST', '/api/nooks/' . $nookId . '/note-types/' . $typeBId . '/attributes', $headers, json_encode([
+        'name' => 'Size', 'kind' => 'number',
+    ]));
+    $sizeAttrId = json_decode($attrBRes['body'], true)['attribute']['id'];
+
+    // Create note with Type A and set Color attribute
+    $noteRes = App::handle('POST', '/api/nooks/' . $nookId . '/notes', $headers, json_encode([
+        'title' => 'Test Note',
+        'content' => '',
+        'type_id' => $typeAId,
+        'attributes' => [$colorAttrId => 'red'],
+    ]));
+    expect($noteRes['status'])->toBe(200);
+    $note = json_decode($noteRes['body'], true)['note'];
+    $noteId = $note['id'];
+    expect($note['attributes'][$colorAttrId] ?? null)->toBe('red');
+
+    // Switch to Type B — Color should move to archive
+    $switchRes = App::handle('PUT', '/api/nooks/' . $nookId . '/notes/' . $noteId, $headers, json_encode([
+        'title' => 'Test Note',
+        'content' => '',
+        'type_id' => $typeBId,
+        'attributes' => [$sizeAttrId => 42],
+    ]));
+    expect($switchRes['status'])->toBe(200);
+    $switched = json_decode($switchRes['body'], true)['note'];
+    expect($switched['attributes'][$sizeAttrId] ?? null)->toBe(42);
+    expect($switched['attributes'][$colorAttrId] ?? null)->toBeNull();
+    expect($switched['archive'][$colorAttrId] ?? null)->toBe('red');
+
+    // Switch back to Type A — Color should restore from archive, Size goes to archive
+    $switchBack = App::handle('PUT', '/api/nooks/' . $nookId . '/notes/' . $noteId, $headers, json_encode([
+        'title' => 'Test Note',
+        'content' => '',
+        'type_id' => $typeAId,
+    ]));
+    expect($switchBack['status'])->toBe(200);
+    $restored = json_decode($switchBack['body'], true)['note'];
+    expect($restored['attributes'][$colorAttrId] ?? null)->toBe('red');
+    expect($restored['archive'][$sizeAttrId] ?? null)->toBe(42);
+});
+
+it('type deletion is blocked when children exist', function (): void {
+    $userId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+    $headers = [
+        'X-Nook-User' => $userId,
+        'X-Nook-Groups' => 'paith/notes',
+    ];
+    App::handle('GET', '/api/me', $headers, '');
+
+    $nookId = json_decode(App::handle('POST', '/api/nooks', $headers, json_encode(['name' => 'Delete Test']))['body'], true)['nook']['id'];
+
+    $parentRes = App::handle('POST', '/api/nooks/' . $nookId . '/note-types', $headers, json_encode([
+        'key' => 'parent', 'label' => 'Parent',
+    ]));
+    $parentId = json_decode($parentRes['body'], true)['type']['id'];
+
+    $childRes = App::handle('POST', '/api/nooks/' . $nookId . '/note-types', $headers, json_encode([
+        'key' => 'child', 'label' => 'Child', 'parent_id' => $parentId,
+    ]));
+    $childId = json_decode($childRes['body'], true)['type']['id'];
+
+    // Cannot delete parent while child exists
+    $delParent = App::handle('DELETE', '/api/nooks/' . $nookId . '/note-types/' . $parentId, $headers, '');
+    expect($delParent['status'])->toBe(400);
+
+    // Can delete child
+    $delChild = App::handle('DELETE', '/api/nooks/' . $nookId . '/note-types/' . $childId, $headers, '');
+    expect($delChild['status'])->toBe(200);
+
+    // Now can delete parent
+    $delParent2 = App::handle('DELETE', '/api/nooks/' . $nookId . '/note-types/' . $parentId, $headers, '');
+    expect($delParent2['status'])->toBe(200);
+});
+
+it('default file and graph types are seeded for new nooks', function (): void {
+    $userId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+    $headers = [
+        'X-Nook-User' => $userId,
+        'X-Nook-Groups' => 'paith/notes',
+    ];
+    App::handle('GET', '/api/me', $headers, '');
+
+    $nookId = json_decode(App::handle('POST', '/api/nooks', $headers, json_encode(['name' => 'Seed Test']))['body'], true)['nook']['id'];
+
+    // List types — should include seeded File and Graph View types
+    $typesRes = App::handle('GET', '/api/nooks/' . $nookId . '/note-types', $headers, '');
+    $types = json_decode($typesRes['body'], true)['types'];
+    $keys = array_map(fn($t) => $t['key'], $types);
+    expect(in_array('file', $keys, true))->toBeTrue();
+    expect(in_array('graph', $keys, true))->toBeTrue();
+
+    // File type should have a file attribute
+    $fileType = null;
+    foreach ($types as $t) { if ($t['key'] === 'file') { $fileType = $t; break; } }
+    $fileAttrs = json_decode(App::handle('GET', '/api/nooks/' . $nookId . '/note-types/' . $fileType['id'] . '/attributes', $headers, '')['body'], true)['attributes'];
+    $fileKinds = array_map(fn($a) => $a['kind'], $fileAttrs);
+    expect(in_array('file', $fileKinds, true))->toBeTrue();
+
+    // Graph type should have a graph attribute
+    $graphType = null;
+    foreach ($types as $t) { if ($t['key'] === 'graph') { $graphType = $t; break; } }
+    $graphAttrs = json_decode(App::handle('GET', '/api/nooks/' . $nookId . '/note-types/' . $graphType['id'] . '/attributes', $headers, '')['body'], true)['attributes'];
+    $graphKinds = array_map(fn($a) => $a['kind'], $graphAttrs);
+    expect(in_array('graph', $graphKinds, true))->toBeTrue();
+});
