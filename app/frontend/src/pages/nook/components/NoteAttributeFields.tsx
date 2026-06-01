@@ -635,10 +635,14 @@ function ViewAttributeField(props: {
 		return types().find((t) => t.id === tid)?.label ?? tid;
 	};
 
+	// Show editor if not configured yet (regardless of edit/view mode)
+	const needsSetup = () => !config().type_id;
+	const showEditor = () => isEditing() || needsSetup();
+
 	return (
 		<div style={{ "margin-top": "8px" }}>
 			{/* Config — editable in edit mode, summary in view mode */}
-			<Show when={isEditing()} fallback={
+			<Show when={showEditor()} fallback={
 				<Show when={config().type_id || config().filters.length > 0}>
 					<div style={{
 						display: "flex", gap: "8px", "align-items": "center",
@@ -761,7 +765,7 @@ function ViewAttributeField(props: {
 						<ViewList notes={results()} onSelect={(id) => props.store.onNoteLinkClick(id)} />
 					)}
 				</Show>
-				<Show when={!viewLoading() && results().length === 0 && !isEditing()}>
+				<Show when={!viewLoading() && results().length === 0 && !needsSetup()}>
 					<div style={{ color: "var(--color-text-muted)", "font-size": "12px" }}>No matching notes.</div>
 				</Show>
 			</Show>
