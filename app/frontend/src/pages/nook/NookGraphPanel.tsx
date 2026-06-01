@@ -281,17 +281,7 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 
 	const labelFor = (id: string) => titleById().get(id) ?? id;
 
-	const noteTypeById = createMemo(() => {
-		const m = new Map<string, string>();
-		for (const l of links()) {
-			if (l.sourceNoteId.trim() !== "" && l.sourceNoteType)
-				m.set(l.sourceNoteId, l.sourceNoteType);
-			if (l.targetNoteId.trim() !== "" && l.targetNoteType)
-				m.set(l.targetNoteId, l.targetNoteType);
-		}
-		return m;
-	});
-	const noteTypeFor = (id: string) => noteTypeById().get(id) ?? "anything";
+	const noteTypeFor = (_id: string) => "anything";
 
 	const loadLinks = async () => {
 		if (nookId().trim() === "") return;

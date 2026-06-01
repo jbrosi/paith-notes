@@ -83,19 +83,6 @@ final class NoteLinksController
         }
         $strictTypeFilter = trim($request->queryParam('strict_type_filter')) === '1';
 
-        // Optional filter: exclude links where a non-start endpoint has one of these note types
-        // (e.g. "file"). The starting note is never excluded by this filter.
-        $excludeNoteTypes = [];
-        $excludeNoteTypesRaw = trim($request->queryParam('exclude_note_types'));
-        if ($excludeNoteTypesRaw !== '') {
-            $allowed = ['anything', 'file', 'graph'];
-            foreach (explode(',', $excludeNoteTypesRaw) as $nt) {
-                $nt = trim(strtolower($nt));
-                if (in_array($nt, $allowed, true)) {
-                    $excludeNoteTypes[] = $nt;
-                }
-            }
-        }
 
         // Optional search term: only surface links where at least one connected note (excl. start)
         // matches by title or content (trigram-compatible LIKE). Traversal is unaffected.
@@ -161,8 +148,8 @@ final class NoteLinksController
                 'select '
                 . 'l.id, l.predicate_id, l.source_note_id, l.target_note_id, l.start_date, l.end_date, l.former, l.created_at, l.updated_at, '
                 . 'p.key as predicate_key, p.forward_label, p.reverse_label, p.supports_start_date, p.supports_end_date, '
-                . 'ns.title as source_note_title, ns.type_id as source_type_id, ns.type as source_note_type, '
-                . 'nt.title as target_note_title, nt.type_id as target_type_id, nt.type as target_note_type, '
+                . 'ns.title as source_note_title, ns.type_id as source_type_id, '
+                . 'nt.title as target_note_title, nt.type_id as target_type_id, '
                 . 'am.actor as last_actor, am.user_id as last_user_id, '
                 . 'coalesce(nullif(lu.nickname, \'\'), concat(lu.first_name, \' \', lu.last_name)) as last_user_name '
                 . 'from global.note_links l '
@@ -232,17 +219,6 @@ final class NoteLinksController
                     }
                 }
 
-                $sourceNoteType = is_scalar($r['source_note_type'] ?? null) ? (string)$r['source_note_type'] : 'anything';
-                $targetNoteType = is_scalar($r['target_note_type'] ?? null) ? (string)$r['target_note_type'] : 'anything';
-
-                // Apply exclude_note_types filter (skip links where a non-start endpoint has excluded type)
-                if ($excludeNoteTypes !== []) {
-                    $srcExcluded = $sourceId !== $noteId && in_array($sourceNoteType, $excludeNoteTypes, true);
-                    $tgtExcluded = $targetId !== $noteId && in_array($targetNoteType, $excludeNoteTypes, true);
-                    if ($srcExcluded || $tgtExcluded) {
-                        continue;
-                    }
-                }
 
                 $former = self::decodeJsonObject($r['former'] ?? null);
                 $lastUserName = is_scalar($r['last_user_name'] ?? null) ? trim((string)$r['last_user_name']) : '';
@@ -259,11 +235,9 @@ final class NoteLinksController
                     'source_note_id' => $sourceId,
                     'source_note_title' => is_scalar($r['source_note_title'] ?? null) ? (string)$r['source_note_title'] : '',
                     'source_type_id' => $sourceTypeId,
-                    'source_note_type' => $sourceNoteType,
                     'target_note_id' => $targetId,
                     'target_note_title' => is_scalar($r['target_note_title'] ?? null) ? (string)$r['target_note_title'] : '',
                     'target_type_id' => $targetTypeId,
-                    'target_note_type' => $targetNoteType,
                     'start_date' => is_scalar($r['start_date'] ?? null) ? (string)$r['start_date'] : '',
                     'end_date' => is_scalar($r['end_date'] ?? null) ? (string)$r['end_date'] : '',
                     'former' => $former === [] ? (object)[] : $former,
