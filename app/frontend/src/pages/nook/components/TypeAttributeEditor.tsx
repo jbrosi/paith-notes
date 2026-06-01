@@ -37,6 +37,8 @@ export function TypeAttributeEditor(props: TypeAttributeEditorProps) {
 
 	const [adding, setAdding] = createSignal(false);
 
+	const indexableKinds = new Set(["text", "number", "date", "date_range", "select"]);
+
 	const onAddSave = async (
 		name: string,
 		kind: TypeAttributeKind,
@@ -48,7 +50,7 @@ export function TypeAttributeEditor(props: TypeAttributeEditorProps) {
 			{
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ name, kind, config }),
+				body: JSON.stringify({ name, kind, config, indexed: indexableKinds.has(kind) }),
 			},
 		);
 		if (!res.ok) {
@@ -125,7 +127,7 @@ export function TypeAttributeEditor(props: TypeAttributeEditorProps) {
 			{
 				method: "PUT",
 				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ name, kind, config, indexed: attr.indexed }),
+				body: JSON.stringify({ name, kind, config, indexed: indexableKinds.has(kind) }),
 			},
 		);
 		if (!res.ok) {
