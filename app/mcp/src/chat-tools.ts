@@ -37,7 +37,8 @@ export const TOOLS: Anthropic.Tool[] = [
         expected_version: { type: 'number', description: 'The version number from when you last read the note. Required to prevent overwriting concurrent edits.' },
         title:            { type: 'string', description: 'New title. Omit to keep existing title.' },
         content:          { type: 'string', description: 'Note content in markdown. To link to another note use [[note:<full_uuid>]] with the complete UUID (never shorten) — the title is resolved automatically. To embed a file note as an image use ![Note Title](note:<full_uuid>).' },
-        properties:       { type: 'object' },
+        type_id:          { type: 'string', description: 'Change the note type (triggers attribute archive/restore)' },
+        attributes:       { type: 'object', description: 'JSON attributes keyed by attribute UUID. Null values delete keys.' },
       },
       required: ['note_id', 'expected_version'],
     },
@@ -84,6 +85,17 @@ export const TOOLS: Anthropic.Tool[] = [
         type_id:     { type: 'string', description: 'UUID of the type to update' },
         label:       { type: 'string', description: 'New display name' },
         description: { type: 'string', description: 'New description' },
+      },
+      required: ['type_id'],
+    },
+  },
+  {
+    name: 'list_type_attributes',
+    description: 'List all attributes defined on a note type, including inherited attributes from ancestor types. Returns each attribute\'s id, name, kind (text/number/boolean/date/date_range/select/file/graph), config (display options, select options, etc.), and whether it\'s inherited. Use this to understand what structured data a type supports before creating or updating notes with attributes.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        type_id: { type: 'string', description: 'The note type ID' },
       },
       required: ['type_id'],
     },
@@ -336,6 +348,11 @@ export async function executeTool(
       return JSON.stringify({ types, hierarchy });
     }
 
+    case 'list_type_attributes': {
+      const typeId = String(input.type_id ?? '');
+      return JSON.stringify(await api('GET', `/api/nooks/${nookId}/note-types/${typeId}/attributes`));
+    }
+
     case 'create_note_type': {
       const body: Record<string, unknown> = {
         key:   String(input.key ?? ''),
@@ -348,7 +365,15 @@ export async function executeTool(
 
     case 'update_note_type': {
       const typeId = String(input.type_id ?? '');
-      const body: Record<string, unknown> = {};
+      // Fetch current type to get required fields (key, label)
+      const typesData = await api('GET', `/api/nooks/${nookId}/note-types`) as { types?: Array<Record<string, unknown>> };
+      const current = typesData?.types?.find(t => t.id === typeId);
+      const body: Record<string, unknown> = {
+        key: current?.key ?? '',
+        label: current?.label ?? '',
+        description: current?.description ?? '',
+        parent_id: current?.parent_id ?? '',
+      };
       if (input.label !== undefined)       body.label       = String(input.label);
       if (input.description !== undefined) body.description = String(input.description);
       return JSON.stringify(await api('PUT', `/api/nooks/${nookId}/note-types/${typeId}`, body));

@@ -50,6 +50,7 @@ const CONTEXT_CRITICAL_THRESHOLD = 0.9; // 90% — strongly encourage new chat
 // Tools that are always safe to auto-execute (read-only / non-destructive)
 const ALWAYS_AUTO_TOOLS = new Set([
   'list_note_types',
+  'list_type_attributes',
   'list_link_predicates',
   'search_notes',
   'explore_notes',
@@ -357,7 +358,7 @@ General rules:
 - When context usage is high and you need to search
 For simple, targeted lookups (one search + one note read), use search_notes/get_note directly — the search agent adds overhead for trivial queries.
 
-**Tool approval:** The following tools auto-execute without user approval: search_notes, explore_notes, get_note_mentions, list_note_types, list_link_predicates, and all memory_* tools (memory_search, memory_get, memory_create, memory_update). All other tools (get_note, create_note, update_note, delete_note, create_note_link, open_note, create_note_type, update_note_type, search_agent) require user confirmation.
+**Tool approval:** The following tools auto-execute without user approval: search_notes, explore_notes, get_note_mentions, list_note_types, list_type_attributes, list_link_predicates, and all memory_* tools (memory_search, memory_get, memory_create, memory_update). All other tools (get_note, create_note, update_note, delete_note, create_note_link, open_note, create_note_type, update_note_type, search_agent) require user confirmation.
 
 **Mermaid diagrams:** Both note content and your chat responses support mermaid diagrams via fenced code blocks (\`\`\`mermaid). Use them when visualizing relationships, flows, timelines, or architectures would help the user. The UI renders them as interactive SVGs.`,
     memoryNookId
@@ -370,10 +371,20 @@ At the start of each conversation, proactively search user memory with memory_se
 When you create or update a memory note, the system automatically links it to the current conversation — this builds a knowledge trail showing why each memory exists and which conversations contributed to it.`
       : '',
     `**Note type taxonomy:** You can help the user manage their note taxonomy. Use list_note_types to see the full hierarchy before suggesting or creating types. When creating a type, always tell the user where in the hierarchy it will appear (e.g. "Creating 'Employee' as a subtype of 'Person'"). You can update a type's label or description with update_note_type. Never create a type without showing the user what you're about to create and where it fits.`,
-    `**Graph view notes:** Graph views are notes with a "Graph View" type that has a graph attribute. The graph attribute stores the visualization config. To create one:
-1. Find the "Graph View" type and its graph attribute ID using list_note_types
-2. Use create_note with type_id set to the Graph View type and attributes containing the graph config keyed by the graph attribute UUID
-3. Graph config: { rootNoteId: "<uuid>", depth?: 2, layout?: "force"|"tree"|"radial", filterTypeIds?, filterPredicateIds?, hiddenNodeIds?, linkDistance?, chargeStrength?, nodeSize?, linkWidth? }`,
+    `**Type attributes:** Each type can have structured attributes (text, number, boolean, date, date_range, select, file, graph). Use list_type_attributes to see what a type supports — this returns attribute IDs, names, kinds, and config. When creating or updating notes, pass attribute values in the "attributes" field as { "<attribute_uuid>": value }. Attributes are inherited from parent types. Example workflow:
+1. list_note_types to find the type
+2. list_type_attributes to see its attributes and their UUIDs
+3. create_note with type_id and attributes: { "<rating_attr_id>": 5, "<author_attr_id>": "Le Guin" }
+
+Attribute kinds and value formats:
+- text: string value
+- number: numeric value
+- boolean: true/false
+- date: "YYYY-MM-DD" string
+- date_range: { "from": "YYYY-MM-DD", "to": "YYYY-MM-DD" }
+- select: string matching one of the configured options
+- file: managed by the file upload system (don't set directly)
+- graph: { rootNoteId: "<uuid>", depth?: 2, layout?: "force"|"tree"|"radial", ... }`,
     `**Conversation hygiene:** When you notice the user switching to a completely different topic, gently suggest starting a new chat — this keeps conversations focused and searchable. Before they do, offer to:
 - Save nook-specific outcomes/decisions as a note in the current nook (using create_note)
 - Save personal preferences or cross-nook context to memory (using memory_create/memory_update)

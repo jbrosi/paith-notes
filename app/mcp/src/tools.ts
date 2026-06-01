@@ -153,11 +153,24 @@ export function registerTools(server: McpServer, ctx: ApiContext): void {
 
   tool(server,
     'list_note_types',
-    'List note types (taxonomy) defined in a nook',
+    'List note types (taxonomy) defined in a nook. Each type has an id, key, label, parent_id, and attribute_order. Use list_type_attributes to see what attributes a type defines.',
     { nook_id: z.string() },
     async ({ nook_id }) => {
       requireNookRead(ctx.scopes, nook_id);
-      return json(await api(ctx, 'GET', `/api/nooks/${nook_id}/types`));
+      return json(await api(ctx, 'GET', `/api/nooks/${nook_id}/note-types`));
+    },
+  );
+
+  tool(server,
+    'list_type_attributes',
+    'List all attributes for a type, including inherited attributes from ancestor types. Returns id, name, kind, config (display options), indexed flag, and whether inherited. Use this to understand what structured data a type supports before creating or updating notes.',
+    {
+      nook_id: z.string(),
+      type_id: z.string().describe('The note type ID'),
+    },
+    async ({ nook_id, type_id }) => {
+      requireNookRead(ctx.scopes, nook_id);
+      return json(await api(ctx, 'GET', `/api/nooks/${nook_id}/note-types/${type_id}/attributes`));
     },
   );
 
@@ -176,7 +189,7 @@ export function registerTools(server: McpServer, ctx: ApiContext): void {
       if (search) params.set('search', search);
       if (cursor) params.set('cursor', cursor);
       const qs = params.toString() ? `?${params}` : '';
-      return json(await api(ctx, 'GET', `/api/nooks/${nook_id}/types/${type_id}/notes${qs}`));
+      return json(await api(ctx, 'GET', `/api/nooks/${nook_id}/note-types/${type_id}/notes${qs}`));
     },
   );
 
