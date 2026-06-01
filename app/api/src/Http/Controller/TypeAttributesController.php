@@ -248,8 +248,7 @@ final class TypeAttributesController
             )
             select ta.id, ta.type_id, ta.name, ta.kind, ta.config, ta.indexed, ta.created_at, ta.updated_at
             from global.type_attributes ta
-            join type_tree tt on ta.type_id = tt.id
-            order by ta.name'
+            join type_tree tt on ta.type_id = tt.id'
         );
         $stmt->bindValue(':type_id', $typeId);
         $stmt->bindValue(':nook_id', $nookId);
@@ -274,6 +273,31 @@ final class TypeAttributesController
                 'updated_at' => is_scalar($r['updated_at'] ?? null) ? (string)$r['updated_at'] : '',
             ];
         }
+
+        // Sort by attribute_order from the type, unordered attributes at end sorted by name
+        $orderStmt = $pdo->prepare('select attribute_order from global.note_types where id = :id and nook_id = :nook_id');
+        $orderStmt->execute([':id' => $typeId, ':nook_id' => $nookId]);
+        $orderRaw = $orderStmt->fetchColumn();
+        $order = [];
+        if (is_scalar($orderRaw)) {
+            $decoded = json_decode((string)$orderRaw, true);
+            if (is_array($decoded)) {
+                $order = array_values(array_filter($decoded, 'is_string'));
+            }
+        }
+
+        if ($order !== []) {
+            $posMap = array_flip($order);
+            usort($out, function (array $a, array $b) use ($posMap): int {
+                $pa = $posMap[$a['id']] ?? PHP_INT_MAX;
+                $pb = $posMap[$b['id']] ?? PHP_INT_MAX;
+                if ($pa !== $pb) return $pa <=> $pb;
+                return strcasecmp($a['name'], $b['name']);
+            });
+        } else {
+            usort($out, fn(array $a, array $b) => strcasecmp($a['name'], $b['name']));
+        }
+
         return $out;
     }
 

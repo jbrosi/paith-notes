@@ -1,6 +1,7 @@
 import { createResource, createSignal, For, Show } from "solid-js";
 import { apiFetch } from "../../../auth/keycloak";
 import { Button } from "../../../components/Button";
+import type { NookStore } from "../store";
 import {
 	type TypeAttribute,
 	type TypeAttributeKind,
@@ -12,6 +13,7 @@ import {
 export type TypeAttributeEditorProps = {
 	nookId: string;
 	typeId: string;
+	store: NookStore;
 };
 
 export function TypeAttributeEditor(props: TypeAttributeEditorProps) {
@@ -64,6 +66,44 @@ export function TypeAttributeEditor(props: TypeAttributeEditorProps) {
 		const res = await apiFetch(
 			`/api/nooks/${props.nookId}/note-types/${props.typeId}/attributes/${attr.id}`,
 			{ method: "DELETE" },
+		);
+		if (!res.ok) {
+			const text = await res.text();
+			setError(text);
+			return;
+		}
+		void refetch();
+	};
+
+	const onMove = async (attrId: string, direction: "up" | "down") => {
+		const list = attributes();
+		if (!list) return;
+		const ids = list.map((a) => a.id);
+		const idx = ids.indexOf(attrId);
+		if (idx < 0) return;
+		const swapIdx = direction === "up" ? idx - 1 : idx + 1;
+		if (swapIdx < 0 || swapIdx >= ids.length) return;
+		[ids[idx], ids[swapIdx]] = [ids[swapIdx], ids[idx]];
+
+		const type = props.store
+			.noteTypes()
+			.find((t) => t.id === props.typeId);
+		if (!type) return;
+
+		setError("");
+		const res = await apiFetch(
+			`/api/nooks/${props.nookId}/note-types/${props.typeId}`,
+			{
+				method: "PUT",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					key: type.key,
+					label: type.label,
+					description: type.description,
+					parent_id: type.parentId,
+					attribute_order: ids,
+				}),
+			},
 		);
 		if (!res.ok) {
 			const text = await res.text();
@@ -156,7 +196,7 @@ export function TypeAttributeEditor(props: TypeAttributeEditorProps) {
 			>
 				<div style={{ display: "grid", gap: "6px" }}>
 					<For each={attributes()}>
-						{(attr) => (
+						{(attr, index) => (
 							<Show
 								when={editingId() === attr.id}
 								fallback={
@@ -164,6 +204,8 @@ export function TypeAttributeEditor(props: TypeAttributeEditorProps) {
 										attr={attr}
 										onEdit={() => setEditingId(attr.id)}
 										onDelete={() => void onDelete(attr)}
+										onMoveUp={index() > 0 ? () => void onMove(attr.id, "up") : undefined}
+										onMoveDown={index() < (attributes()?.length ?? 0) - 1 ? () => void onMove(attr.id, "down") : undefined}
 									/>
 								}
 							>
@@ -187,19 +229,64 @@ function AttributeRow(props: {
 	attr: TypeAttribute;
 	onEdit: () => void;
 	onDelete: () => void;
+	onMoveUp?: () => void;
+	onMoveDown?: () => void;
 }) {
 	return (
 		<div
 			style={{
 				display: "flex",
 				"align-items": "center",
-				gap: "8px",
+				gap: "4px",
 				padding: "6px 8px",
 				border: "1px solid #eee",
 				"border-radius": "6px",
 				background: props.attr.inherited ? "#f8f8ff" : "#fff",
 			}}
 		>
+			<div
+				style={{
+					display: "flex",
+					"flex-direction": "column",
+					gap: "1px",
+					"margin-right": "4px",
+				}}
+			>
+				<button
+					type="button"
+					disabled={!props.onMoveUp}
+					onClick={() => props.onMoveUp?.()}
+					style={{
+						border: "none",
+						background: "none",
+						cursor: props.onMoveUp ? "pointer" : "default",
+						padding: "0",
+						"font-size": "10px",
+						"line-height": "1",
+						color: props.onMoveUp ? "#666" : "#ddd",
+					}}
+					title="Move up"
+				>
+					&#9650;
+				</button>
+				<button
+					type="button"
+					disabled={!props.onMoveDown}
+					onClick={() => props.onMoveDown?.()}
+					style={{
+						border: "none",
+						background: "none",
+						cursor: props.onMoveDown ? "pointer" : "default",
+						padding: "0",
+						"font-size": "10px",
+						"line-height": "1",
+						color: props.onMoveDown ? "#666" : "#ddd",
+					}}
+					title="Move down"
+				>
+					&#9660;
+				</button>
+			</div>
 			<span style={{ flex: 1, "font-size": "13px" }}>
 				<strong>{props.attr.name}</strong>
 				<span style={{ color: "#888", "margin-left": "6px" }}>

@@ -37,7 +37,7 @@ final class NoteTypesController
         $this->ensureDefaultGraphType($pdo, $nookId);
 
         $stmt = $pdo->prepare(
-            'select id, key, label, description, parent_id, created_at, updated_at '
+            'select id, key, label, description, parent_id, attribute_order, created_at, updated_at '
             . 'from global.note_types where nook_id = :nook_id order by label asc'
         );
         $stmt->execute([':nook_id' => $nookId]);
@@ -55,6 +55,7 @@ final class NoteTypesController
                 'label' => is_scalar($r['label'] ?? null) ? (string)$r['label'] : '',
                 'description' => is_scalar($r['description'] ?? null) ? (string)$r['description'] : '',
                 'parent_id' => is_scalar($r['parent_id'] ?? null) ? (string)$r['parent_id'] : '',
+                'attribute_order' => self::decodeJsonArray($r['attribute_order'] ?? null),
                 'created_at' => is_scalar($r['created_at'] ?? null) ? (string)$r['created_at'] : '',
                 'updated_at' => is_scalar($r['updated_at'] ?? null) ? (string)$r['updated_at'] : '',
             ];
@@ -141,6 +142,7 @@ final class NoteTypesController
                     'label' => $label,
                     'description' => $description,
                     'parent_id' => $parentId,
+                    'attribute_order' => [],
                     'created_at' => is_scalar($row['created_at'] ?? null) ? (string)$row['created_at'] : '',
                     'updated_at' => is_scalar($row['updated_at'] ?? null) ? (string)$row['updated_at'] : '',
                 ],
@@ -217,6 +219,9 @@ final class NoteTypesController
             }
         }
 
+        $attributeOrderRaw = $data['attribute_order'] ?? null;
+        $attributeOrder = is_array($attributeOrderRaw) ? array_values(array_filter($attributeOrderRaw, 'is_string')) : null;
+
         if ($key !== $existingKey) {
             $dupe = $pdo->prepare('select 1 from global.note_types where nook_id = :nook_id and key = :key and id != :id');
             $dupe->execute([':nook_id' => $nookId, ':key' => $key, ':id' => $typeId]);
@@ -225,17 +230,22 @@ final class NoteTypesController
             }
         }
 
-        $stmt = $pdo->prepare(
-            'update global.note_types set key = :key, label = :label, description = :description, parent_id = :parent_id, updated_at = now() '
-            . 'where id = :id and nook_id = :nook_id '
-            . 'returning description, created_at, updated_at'
-        );
+        $sql = 'update global.note_types set key = :key, label = :label, description = :description, parent_id = :parent_id';
+        if ($attributeOrder !== null) {
+            $sql .= ', attribute_order = :attribute_order::jsonb';
+        }
+        $sql .= ', updated_at = now() where id = :id and nook_id = :nook_id returning description, attribute_order, created_at, updated_at';
+
+        $stmt = $pdo->prepare($sql);
         $stmt->bindValue(':id', $typeId);
         $stmt->bindValue(':nook_id', $nookId);
         $stmt->bindValue(':key', $key);
         $stmt->bindValue(':label', $label);
         $stmt->bindValue(':description', $description);
         $stmt->bindValue(':parent_id', $parentId !== '' ? $parentId : null);
+        if ($attributeOrder !== null) {
+            $stmt->bindValue(':attribute_order', json_encode($attributeOrder));
+        }
         $stmt->execute();
 
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -251,6 +261,7 @@ final class NoteTypesController
                 'label' => $label,
                 'description' => is_scalar($row['description'] ?? null) ? (string)$row['description'] : $description,
                 'parent_id' => $parentId,
+                'attribute_order' => self::decodeJsonArray($row['attribute_order'] ?? null),
                 'created_at' => is_scalar($row['created_at'] ?? null) ? (string)$row['created_at'] : '',
                 'updated_at' => is_scalar($row['updated_at'] ?? null) ? (string)$row['updated_at'] : '',
             ],
@@ -641,6 +652,19 @@ final class NoteTypesController
             );
             $attrStmt->execute([':nook_id' => $nookId, ':type_id' => $typeId]);
         }
+    }
+
+    /** @return list<string> */
+    private static function decodeJsonArray(mixed $value): array
+    {
+        if (!is_scalar($value)) {
+            return [];
+        }
+        $decoded = json_decode((string)$value, true);
+        if (!is_array($decoded)) {
+            return [];
+        }
+        return array_values(array_filter($decoded, 'is_string'));
     }
 
     private static function isUuid(string $value): bool

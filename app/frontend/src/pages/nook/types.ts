@@ -155,6 +155,7 @@ const NoteTypeApiSchema = z
 		label: z.string(),
 		description: z.string().optional(),
 		parent_id: z.string().optional(),
+		attribute_order: z.array(z.string()).optional(),
 		created_at: z.string().optional(),
 		updated_at: z.string().optional(),
 	})
@@ -165,6 +166,7 @@ const NoteTypeApiSchema = z
 		label: t.label,
 		description: t.description ?? "",
 		parentId: t.parent_id ?? "",
+		attributeOrder: t.attribute_order ?? [],
 		createdAt: t.created_at,
 		updatedAt: t.updated_at,
 	}));
