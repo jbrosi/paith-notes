@@ -437,7 +437,7 @@ final class NoteTypesController
 
         $limitPlusOne = $limit + 1;
 
-        $selectCols = "select n.id, n.title, n.type_id, n.created_at, n.updated_at,
+        $selectCols = "select n.id, n.title, n.type_id, n.attributes, n.created_at, n.updated_at,
                     coalesce(ns.outgoing_mentions, 0) as outgoing_mentions_count,
                     coalesce(ns.incoming_mentions, 0) as incoming_mentions_count,
                     coalesce(ns.outgoing_links, 0) as outgoing_links_count,
@@ -551,6 +551,7 @@ final class NoteTypesController
                 'nook_id' => $nookId,
                 'title' => is_scalar($r['title'] ?? null) ? (string)$r['title'] : '',
                 'type_id' => is_scalar($r['type_id'] ?? null) ? (string)$r['type_id'] : '',
+                'attributes' => self::decodeJsonObject($r['attributes'] ?? null),
                 'created_at' => is_scalar($r['created_at'] ?? null) ? (string)$r['created_at'] : '',
                 'updated_at' => is_scalar($r['updated_at'] ?? null) ? (string)$r['updated_at'] : '',
                 'outgoing_mentions_count' => is_scalar($r['outgoing_mentions_count'] ?? null) ? (int)$r['outgoing_mentions_count'] : 0,
@@ -781,6 +782,14 @@ final class NoteTypesController
         }
 
         return ['where' => 'and ' . implode(' and ', $clauses)];
+    }
+
+    /** @return array<string, mixed> */
+    private static function decodeJsonObject(mixed $value): array
+    {
+        if (!is_scalar($value)) return [];
+        $decoded = json_decode((string)$value, true);
+        return is_array($decoded) ? $decoded : [];
     }
 
     /** @return list<string> */

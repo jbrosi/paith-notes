@@ -18,6 +18,7 @@ use Paith\Notes\Api\Http\Controller\InvitationsController;
 use Paith\Notes\Api\Http\Controller\NookStatsController;
 use Paith\Notes\Api\Http\Controller\AttributeFilesController;
 use Paith\Notes\Api\Http\Controller\NoteTypesController;
+use Paith\Notes\Api\Http\Controller\SavedViewsController;
 use Paith\Notes\Api\Http\Controller\TypeAttributesController;
 use Paith\Notes\Api\Http\Controller\NoteLinksController;
 use Paith\Notes\Api\Http\Controller\NooksController;
@@ -100,6 +101,11 @@ final class ApiRoutes
         $r->post('/nooks/{nookId}/note-types/{typeId}/attributes', [TypeAttributesController::class, 'create']);
         $r->add('PUT', '/nooks/{nookId}/note-types/{typeId}/attributes/{attributeId}', [TypeAttributesController::class, 'update']);
         $r->add('DELETE', '/nooks/{nookId}/note-types/{typeId}/attributes/{attributeId}', [TypeAttributesController::class, 'delete']);
+
+        $r->get('/nooks/{nookId}/saved-views', [SavedViewsController::class, 'list']);
+        $r->post('/nooks/{nookId}/saved-views', [SavedViewsController::class, 'create']);
+        $r->add('PUT', '/nooks/{nookId}/saved-views/{viewId}', [SavedViewsController::class, 'update']);
+        $r->add('DELETE', '/nooks/{nookId}/saved-views/{viewId}', [SavedViewsController::class, 'delete']);
 
         $r->get('/nooks/{nookId}/link-predicates', [LinkPredicatesController::class, 'list']);
         $r->post('/nooks/{nookId}/link-predicates', [LinkPredicatesController::class, 'create']);
