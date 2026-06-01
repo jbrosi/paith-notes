@@ -348,12 +348,29 @@ final class TypeAttributesController
         $idxName = 'idx_notes_attr_' . $short;
 
         if (!$indexed) {
-            // Drop index if it exists (use IF EXISTS so it's safe to call even if not present)
             $pdo->exec("drop index if exists global.{$idxName}");
+            $pdo->exec("drop index if exists global.{$idxName}_from");
+            $pdo->exec("drop index if exists global.{$idxName}_to");
             return;
         }
 
-        // Build the expression based on kind
+        // Drop any previous indexes for this attribute (kind may have changed)
+        $pdo->exec("drop index if exists global.{$idxName}");
+        $pdo->exec("drop index if exists global.{$idxName}_from");
+        $pdo->exec("drop index if exists global.{$idxName}_to");
+
+        // date_range: two indexes on from/to for overlap queries
+        if ($kind === 'date_range') {
+            $fromExpr = "(attributes->'{$attrId}'->>'from')::date";
+            $toExpr = "(attributes->'{$attrId}'->>'to')::date";
+            $fromWhere = "attributes->'{$attrId}'->>'from' IS NOT NULL";
+            $toWhere = "attributes->'{$attrId}'->>'to' IS NOT NULL";
+            $pdo->exec("create index {$idxName}_from on global.notes (nook_id, {$fromExpr}) where {$fromWhere}");
+            $pdo->exec("create index {$idxName}_to on global.notes (nook_id, {$toExpr}) where {$toWhere}");
+            return;
+        }
+
+        // Single expression index for other kinds
         $expr = match ($kind) {
             'number' => "global.safe_numeric(attributes->>'{$attrId}')",
             'date' => "(attributes->>'{$attrId}')::date",
@@ -363,16 +380,11 @@ final class TypeAttributesController
         };
 
         if ($expr === null) {
-            // Kinds like boolean, file, graph, date_range don't get a simple index
-            // date_range would need two indexes (from/to) — skip for now
             return;
         }
 
         $whereClause = "attributes->>'{$attrId}' IS NOT NULL";
-
-        // Drop old index first (kind may have changed), then create new one.
-        // nook_id is included as the primary query scope for all attribute searches.
-        $pdo->exec("drop index if exists global.{$idxName}");
+        // nook_id included as the primary query scope for all attribute searches.
         $pdo->exec("create index {$idxName} on global.notes (nook_id, {$expr}) where {$whereClause}");
     }
 
@@ -381,6 +393,8 @@ final class TypeAttributesController
         $short = str_replace('-', '', substr($attrId, 0, 12));
         $idxName = 'idx_notes_attr_' . $short;
         $pdo->exec("drop index if exists global.{$idxName}");
+        $pdo->exec("drop index if exists global.{$idxName}_from");
+        $pdo->exec("drop index if exists global.{$idxName}_to");
     }
 
     private function validateConfig(string $kind, array $config): void
