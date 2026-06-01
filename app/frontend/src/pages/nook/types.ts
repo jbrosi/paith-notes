@@ -198,6 +198,7 @@ export const TypeAttributeKinds = [
 	"select",
 	"file",
 	"graph",
+	"view",
 ] as const;
 export type TypeAttributeKind = (typeof TypeAttributeKinds)[number];
 

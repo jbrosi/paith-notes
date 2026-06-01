@@ -16,6 +16,7 @@ final class NoteTypesController
 {
     private const DEFAULT_FILE_TYPE_KEY = 'file';
     private const DEFAULT_GRAPH_TYPE_KEY = 'graph';
+    private const DEFAULT_VIEW_TYPE_KEY = 'view';
     private const TYPE_ID_ALL = 'all';
 
     public function list(Request $request, Context $context): Response
@@ -35,6 +36,7 @@ final class NoteTypesController
 
         $this->ensureDefaultFileType($pdo, $nookId);
         $this->ensureDefaultGraphType($pdo, $nookId);
+        $this->ensureDefaultViewType($pdo, $nookId);
 
         $stmt = $pdo->prepare(
             'select id, key, label, description, parent_id, attribute_order, created_at, updated_at '
@@ -803,6 +805,37 @@ final class NoteTypesController
             return [];
         }
         return array_values(array_filter($decoded, 'is_string'));
+    }
+
+    private function ensureDefaultViewType(PDO $pdo, string $nookId): void
+    {
+        $check = $pdo->prepare('select id from global.note_types where nook_id = :nook_id and key = :key');
+        $check->execute([':nook_id' => $nookId, ':key' => self::DEFAULT_VIEW_TYPE_KEY]);
+        if ($check->fetchColumn()) {
+            return;
+        }
+
+        $stmt = $pdo->prepare(
+            'insert into global.note_types (nook_id, key, label) '
+            . 'values (:nook_id, :key, :label) '
+            . 'returning id'
+        );
+        $stmt->execute([
+            ':nook_id' => $nookId,
+            ':key' => self::DEFAULT_VIEW_TYPE_KEY,
+            ':label' => 'View',
+        ]);
+        $typeIdRaw = $stmt->fetchColumn();
+        $typeId = is_scalar($typeIdRaw) ? (string)$typeIdRaw : '';
+
+        if ($typeId !== '') {
+            $attrStmt = $pdo->prepare(
+                "insert into global.type_attributes (nook_id, type_id, name, kind, config) "
+                . "values (:nook_id, :type_id, 'View', 'view', '{}'::jsonb) "
+                . "on conflict do nothing"
+            );
+            $attrStmt->execute([':nook_id' => $nookId, ':type_id' => $typeId]);
+        }
     }
 
     private static function isUuid(string $value): bool

@@ -147,7 +147,7 @@ final class GlobalSchema
                     nook_id uuid not null references global.nooks(id) on delete cascade,
                     type_id uuid not null references global.note_types(id) on delete cascade,
                     name text not null,
-                    kind text not null check (kind in ('text', 'number', 'boolean', 'date', 'date_range', 'select', 'file', 'graph')),
+                    kind text not null check (kind in ('text', 'number', 'boolean', 'date', 'date_range', 'select', 'file', 'graph', 'view')),
                     config jsonb not null default '{}'::jsonb,
                     indexed boolean not null default false,
                     created_at timestamptz not null default now(),
@@ -156,24 +156,20 @@ final class GlobalSchema
             ");
 
             $pdo->exec('create index if not exists type_attributes_nook_id_idx on global.type_attributes (nook_id)');
+
+            // Update kind constraint to include view
+            $pdo->exec("
+                do \$\$ begin
+                    alter table global.type_attributes drop constraint if exists type_attributes_kind_check;
+                    alter table global.type_attributes add constraint type_attributes_kind_check
+                        check (kind in ('text', 'number', 'boolean', 'date', 'date_range', 'select', 'file', 'graph', 'view'));
+                end \$\$;
+            ");
             $pdo->exec('create index if not exists type_attributes_type_id_idx on global.type_attributes (type_id)');
             $pdo->exec('create unique index if not exists type_attributes_type_name_uidx on global.type_attributes (type_id, name)');
 
-            // ─── Saved Views ─────────────────────────────────────────────────────────
-            $pdo->exec("
-                create table if not exists global.saved_views (
-                    id uuid primary key default gen_random_uuid(),
-                    nook_id uuid not null references global.nooks(id) on delete cascade,
-                    name text not null,
-                    type_id uuid null references global.note_types(id) on delete cascade,
-                    filters jsonb not null default '[]'::jsonb,
-                    sort jsonb not null default '{}'::jsonb,
-                    display text not null default 'list' check (display in ('list', 'cards', 'table')),
-                    created_at timestamptz not null default now(),
-                    updated_at timestamptz not null default now()
-                );
-            ");
-            $pdo->exec('create index if not exists saved_views_nook_id_idx on global.saved_views (nook_id)');
+            // Drop legacy saved_views table (views are now notes with a view attribute)
+            $pdo->exec('drop table if exists global.saved_views');
 
             // Add attributes + archive JSONB columns on notes
             $pdo->exec("alter table global.notes add column if not exists attributes jsonb not null default '{}'::jsonb");

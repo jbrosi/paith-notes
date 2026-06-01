@@ -10,7 +10,6 @@ import { NookNotesSearchDropdown } from "../../components/nav/NookNotesSearchDro
 import { NookTypeFilterDropdown } from "../../components/nav/NookTypeFilterDropdown";
 import { useNotePreview } from "./NookContext";
 import styles from "./NookDashboard.module.css";
-import { SavedViewsPanel } from "./components/SavedViewsPanel";
 import type { NookStore } from "./store";
 
 type NookStats = {
@@ -416,8 +415,6 @@ export function NookDashboard(props: NookDashboardProps) {
 					</>
 				)}
 			</Show>
-
-			<SavedViewsPanel store={props.store} />
 
 			{/* Tip */}
 			<div class={styles.tip}>
