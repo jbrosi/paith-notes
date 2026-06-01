@@ -191,7 +191,6 @@ final class TypeAttributesController
                 'name' => $name,
                 'kind' => $kind,
                 'config' => $config === [] ? (object)[] : $config,
-                'position' => $position,
                 'indexed' => $indexed,
                 'inherited' => false,
                 'created_at' => is_scalar($row['created_at'] ?? null) ? (string)$row['created_at'] : '',
