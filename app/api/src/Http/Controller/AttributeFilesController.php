@@ -112,14 +112,12 @@ final class AttributeFilesController
 
             $this->validateAndMoveFile($pdo, $noteId, $tempObjectKey, $finalObjectKey);
 
-            // Update filesize/checksum on note_files and note.attributes
-            $from = self::dataPath() . '/' . ltrim($tempObjectKey, '/');
-            $serverFilesize = @filesize($from);
+            // Read filesize/checksum from the final location (file was already moved)
+            $finalPath = self::dataPath() . '/' . ltrim($finalObjectKey, '/');
+            $serverFilesize = @filesize($finalPath);
             $serverFilesize = is_int($serverFilesize) ? max(0, $serverFilesize) : 0;
-            $serverChecksum = @hash_file('sha256', $from);
+            $serverChecksum = @hash_file('sha256', $finalPath);
             $serverChecksum = is_string($serverChecksum) ? trim($serverChecksum) : '';
-
-            // The file has already been moved by validateAndMoveFile, update the records
             $updFile = $pdo->prepare(
                 'update global.note_files set filesize = :filesize, checksum = :checksum, updated_at = now() '
                 . 'where note_id = :note_id and attribute_id = :attribute_id'

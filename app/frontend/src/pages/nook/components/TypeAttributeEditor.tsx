@@ -33,16 +33,20 @@ export function TypeAttributeEditor(props: TypeAttributeEditorProps) {
 		fetchAttributes,
 	);
 
-	const onAdd = async () => {
-		const name = window.prompt("Attribute name");
-		if (!name?.trim()) return;
+	const [adding, setAdding] = createSignal(false);
+
+	const onAddSave = async (
+		name: string,
+		kind: TypeAttributeKind,
+		config: Record<string, unknown>,
+	) => {
 		setError("");
 		const res = await apiFetch(
 			`/api/nooks/${props.nookId}/note-types/${props.typeId}/attributes`,
 			{
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ name: name.trim(), kind: "text" }),
+				body: JSON.stringify({ name, kind, config }),
 			},
 		);
 		if (!res.ok) {
@@ -50,6 +54,7 @@ export function TypeAttributeEditor(props: TypeAttributeEditorProps) {
 			setError(text);
 			return;
 		}
+		setAdding(false);
 		void refetch();
 	};
 
@@ -103,10 +108,30 @@ export function TypeAttributeEditor(props: TypeAttributeEditorProps) {
 				}}
 			>
 				<h3 style={{ margin: 0 }}>Attributes</h3>
-				<Button size="small" onClick={onAdd}>
-					+ Add
-				</Button>
+				<Show when={!adding()}>
+					<Button size="small" onClick={() => setAdding(true)}>
+						+ Add
+					</Button>
+				</Show>
 			</div>
+
+			<Show when={adding()}>
+				<AttributeEditRow
+					attr={{
+						id: "",
+						typeId: props.typeId,
+						name: "",
+						kind: "text",
+						config: {},
+						indexed: false,
+						inherited: false,
+						createdAt: undefined,
+						updatedAt: undefined,
+					}}
+					onSave={(name, kind, config) => void onAddSave(name, kind, config)}
+					onCancel={() => setAdding(false)}
+				/>
+			</Show>
 
 			<Show when={error() !== ""}>
 				<pre
