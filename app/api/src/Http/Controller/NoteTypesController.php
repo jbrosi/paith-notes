@@ -420,6 +420,10 @@ final class NoteTypesController
 
         $whereKind = '';
 
+        // Attribute filters: JSON array of {attribute_id, op, value}
+        $attrFilter = $this->buildAttributeFilterClause($request->queryParam('attribute_filters'), $searchBindings);
+        $whereAttrFilter = $attrFilter['where'];
+
         $unlinked = $request->queryParam('unlinked') === '1';
         $whereUnlinked = $unlinked
             ? 'and coalesce(ns.outgoing_links, 0) = 0 and coalesce(ns.incoming_links, 0) = 0
@@ -450,6 +454,7 @@ final class NoteTypesController
                 where n.nook_id = :nook_id ' . $whereCursor . '
                 ' . $whereSearch . '
                 ' . $whereKind . '
+                ' . $whereAttrFilter . '
                 ' . $whereUnlinked . '
                 ' . $orderByWithRank . '
                 limit :limit'
@@ -482,6 +487,7 @@ final class NoteTypesController
                 ' . $whereCursor . '
                 ' . $whereSearch . '
                 ' . $whereKind . '
+                ' . $whereAttrFilter . '
                 ' . $whereUnlinked . '
                 ' . $orderByWithRank . '
                 limit :limit'
@@ -506,6 +512,7 @@ final class NoteTypesController
                 where n.nook_id = :nook_id and n.type_id = :type_id ' . $whereCursor . '
                 ' . $whereSearch . '
                 ' . $whereKind . '
+                ' . $whereAttrFilter . '
                 ' . $whereUnlinked . '
                 ' . $orderByWithRank . '
                 limit :limit'
@@ -652,6 +659,128 @@ final class NoteTypesController
             );
             $attrStmt->execute([':nook_id' => $nookId, ':type_id' => $typeId]);
         }
+    }
+
+    /**
+     * Parse attribute_filters JSON and build WHERE clauses.
+     * @param array<string, string> &$bindings Merged into the caller's bindings
+     * @return array{where: string}
+     */
+    private function buildAttributeFilterClause(string $raw, array &$bindings): array
+    {
+        $raw = trim($raw);
+        if ($raw === '') {
+            return ['where' => ''];
+        }
+
+        $filters = json_decode($raw, true);
+        if (!is_array($filters) || $filters === []) {
+            return ['where' => ''];
+        }
+
+        $clauses = [];
+        $idx = 0;
+        foreach ($filters as $f) {
+            if (!is_array($f)) continue;
+            $attrId = trim((string)($f['attribute_id'] ?? ''));
+            $op = strtolower(trim((string)($f['op'] ?? '')));
+            $value = $f['value'] ?? null;
+
+            if ($attrId === '' || !self::isUuid($attrId)) continue;
+
+            $paramKey = ':af_' . $idx;
+            $jsonPath = "n.attributes->>'" . $attrId . "'";
+            $jsonPathObj = "n.attributes->'" . $attrId . "'";
+            $idx++;
+
+            switch ($op) {
+                case 'eq':
+                    $clauses[] = "{$jsonPath} = {$paramKey}";
+                    $bindings[$paramKey] = (string)$value;
+                    break;
+                case 'neq':
+                    $clauses[] = "({$jsonPath} IS NULL OR {$jsonPath} != {$paramKey})";
+                    $bindings[$paramKey] = (string)$value;
+                    break;
+                case 'gt':
+                    $clauses[] = "global.safe_numeric({$jsonPath}) > {$paramKey}::numeric";
+                    $bindings[$paramKey] = (string)$value;
+                    break;
+                case 'gte':
+                    $clauses[] = "global.safe_numeric({$jsonPath}) >= {$paramKey}::numeric";
+                    $bindings[$paramKey] = (string)$value;
+                    break;
+                case 'lt':
+                    $clauses[] = "global.safe_numeric({$jsonPath}) < {$paramKey}::numeric";
+                    $bindings[$paramKey] = (string)$value;
+                    break;
+                case 'lte':
+                    $clauses[] = "global.safe_numeric({$jsonPath}) <= {$paramKey}::numeric";
+                    $bindings[$paramKey] = (string)$value;
+                    break;
+                case 'date_gt':
+                    $clauses[] = "({$jsonPath})::date > {$paramKey}::date";
+                    $bindings[$paramKey] = (string)$value;
+                    break;
+                case 'date_gte':
+                    $clauses[] = "({$jsonPath})::date >= {$paramKey}::date";
+                    $bindings[$paramKey] = (string)$value;
+                    break;
+                case 'date_lt':
+                    $clauses[] = "({$jsonPath})::date < {$paramKey}::date";
+                    $bindings[$paramKey] = (string)$value;
+                    break;
+                case 'date_lte':
+                    $clauses[] = "({$jsonPath})::date <= {$paramKey}::date";
+                    $bindings[$paramKey] = (string)$value;
+                    break;
+                case 'contains':
+                    $clauses[] = "{$jsonPath} ILIKE {$paramKey}";
+                    $bindings[$paramKey] = '%' . str_replace(['%', '_'], ['\\%', '\\_'], (string)$value) . '%';
+                    break;
+                case 'starts_with':
+                    $clauses[] = "{$jsonPath} ILIKE {$paramKey}";
+                    $bindings[$paramKey] = str_replace(['%', '_'], ['\\%', '\\_'], (string)$value) . '%';
+                    break;
+                case 'is_null':
+                    $clauses[] = "{$jsonPath} IS NULL";
+                    break;
+                case 'is_not_null':
+                    $clauses[] = "{$jsonPath} IS NOT NULL";
+                    break;
+                case 'in':
+                    if (is_array($value) && $value !== []) {
+                        $inPlaceholders = [];
+                        foreach ($value as $vi => $vv) {
+                            $pk = $paramKey . '_' . $vi;
+                            $inPlaceholders[] = $pk;
+                            $bindings[$pk] = (string)$vv;
+                        }
+                        $clauses[] = "{$jsonPath} IN (" . implode(', ', $inPlaceholders) . ")";
+                    }
+                    break;
+                case 'overlaps':
+                    // value should be {from: "...", to: "..."}
+                    if (is_array($value)) {
+                        $from = (string)($value['from'] ?? '');
+                        $to = (string)($value['to'] ?? '');
+                        if ($from !== '' && $to !== '') {
+                            $pkFrom = $paramKey . '_from';
+                            $pkTo = $paramKey . '_to';
+                            $clauses[] = "({$jsonPathObj}->>'from')::date <= {$pkTo}::date AND ({$jsonPathObj}->>'to')::date >= {$pkFrom}::date";
+                            $bindings[$pkFrom] = $from;
+                            $bindings[$pkTo] = $to;
+                        }
+                    }
+                    break;
+            }
+        }
+
+        if ($clauses === []) {
+            return ['where' => ''];
+        }
+
+        return ['where' => 'and ' . implode(' and ', $clauses)];
     }
 
     /** @return list<string> */

@@ -176,17 +176,19 @@ export function registerTools(server: McpServer, ctx: ApiContext): void {
 
   tool(server,
     'search_notes_by_type',
-    'List or search notes filtered by a specific note type, with optional text search and pagination',
+    'List or search notes filtered by a specific note type, with optional text search, attribute filters, and pagination. Attribute filters are JSON: [{"attribute_id":"<uuid>","op":"gte","value":4}]. Operators: eq, neq, gt, gte, lt, lte (number), date_gt, date_gte, date_lt, date_lte (date), contains, starts_with (text), is_null, is_not_null, in (select), overlaps (date_range with {from,to}).',
     {
       nook_id: z.string(),
       type_id: z.string(),
       search: z.string().optional().describe('Text search query'),
+      attribute_filters: z.string().optional().describe('JSON array of attribute filters, e.g. [{"attribute_id":"<uuid>","op":"gte","value":4}]'),
       cursor: z.string().optional().describe('Pagination cursor from a previous response'),
     },
-    async ({ nook_id, type_id, search, cursor }) => {
+    async ({ nook_id, type_id, search, attribute_filters, cursor }) => {
       requireNookRead(ctx.scopes, nook_id);
       const params = new URLSearchParams();
       if (search) params.set('search', search);
+      if (attribute_filters) params.set('attribute_filters', attribute_filters);
       if (cursor) params.set('cursor', cursor);
       const qs = params.toString() ? `?${params}` : '';
       return json(await api(ctx, 'GET', `/api/nooks/${nook_id}/note-types/${type_id}/notes${qs}`));

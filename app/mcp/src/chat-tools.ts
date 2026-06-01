@@ -102,15 +102,16 @@ export const TOOLS: Anthropic.Tool[] = [
   },
   {
     name: 'search_notes',
-    description: 'Search notes by title or content. Use type_id to filter by note type, or "all" to search across all types. Always use this instead of listing all notes.',
+    description: 'Search notes by title, content, or attribute values. Use type_id to filter by note type, or "all" for all types. Use attribute_filters for structured queries like "rating >= 4" or "date between X and Y".',
     input_schema: {
       type: 'object',
       properties: {
-        q:           { type: 'string', description: 'Text search query (searches title and content). Multiple words are split and matched independently. Use double quotes for exact phrases: "meeting notes" project. Leave empty to list all notes.' },
-        type_id:     { type: 'string', description: 'Note type ID to filter by, or "all" for all types' },
-        search_mode: { type: 'string', enum: ['and', 'or'], description: 'How to combine multiple search words. "and" (default): all words must match. "or": any word can match.' },
-        sort:        { type: 'string', enum: ['newest', 'oldest', 'updated_newest', 'updated_oldest'], description: 'Sort order. Default: newest (created_at desc). Use updated_newest to find recently modified notes.' },
-        cursor:      { type: 'string', description: 'Pagination cursor from previous response' },
+        q:                  { type: 'string', description: 'Text search query (searches title and content). Leave empty to list all notes.' },
+        type_id:            { type: 'string', description: 'Note type ID to filter by, or "all" for all types' },
+        attribute_filters:  { type: 'string', description: 'JSON array of attribute filters. Each filter: {"attribute_id":"<uuid>","op":"<operator>","value":<value>}. Operators: eq, neq, gt, gte, lt, lte (number), date_gt/date_gte/date_lt/date_lte (date), contains/starts_with (text), is_null/is_not_null, in (select array), overlaps (date_range with {"from":"...","to":"..."}).' },
+        search_mode:        { type: 'string', enum: ['and', 'or'], description: 'How to combine multiple search words. Default: "and".' },
+        sort:               { type: 'string', enum: ['newest', 'oldest', 'updated_newest', 'updated_oldest'], description: 'Sort order. Default: newest.' },
+        cursor:             { type: 'string', description: 'Pagination cursor from previous response' },
       },
       required: [],
     },
@@ -389,6 +390,7 @@ export async function executeTool(
       const typeId = String(input.type_id ?? 'all');
       const params = new URLSearchParams();
       if (input.q) params.set('q', String(input.q));
+      if (input.attribute_filters) params.set('attribute_filters', String(input.attribute_filters));
       if (input.search_mode) params.set('search_mode', String(input.search_mode));
       if (input.sort) params.set('sort', String(input.sort));
       if (input.cursor) params.set('cursor', String(input.cursor));

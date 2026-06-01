@@ -1272,3 +1272,49 @@ it('indexed attributes create and drop expression indexes', function (): void {
     $stmt->execute([':name' => $idxName]);
     expect($stmt->fetchColumn())->toBe(false);
 });
+
+it('attribute filters work on notes list', function (): void {
+    $userId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa01';
+    $headers = [
+        'X-Nook-User' => $userId,
+        'X-Nook-Groups' => 'paith/notes',
+    ];
+    App::handle('GET', '/api/me', $headers, '');
+
+    $nookId = json_decode(App::handle('POST', '/api/nooks', $headers, json_encode(['name' => 'Filter Test']))['body'], true)['nook']['id'];
+
+    // Create type with a number attribute
+    $typeId = json_decode(App::handle('POST', '/api/nooks/' . $nookId . '/note-types', $headers, json_encode([
+        'key' => 'rated', 'label' => 'Rated',
+    ]))['body'], true)['type']['id'];
+
+    $attrId = json_decode(App::handle('POST', '/api/nooks/' . $nookId . '/note-types/' . $typeId . '/attributes', $headers, json_encode([
+        'name' => 'Score', 'kind' => 'number',
+    ]))['body'], true)['attribute']['id'];
+
+    // Create 3 notes with different scores
+    foreach ([['Low', 2], ['Mid', 5], ['High', 9]] as [$title, $score]) {
+        App::handle('POST', '/api/nooks/' . $nookId . '/notes', $headers, json_encode([
+            'title' => $title,
+            'content' => '',
+            'type_id' => $typeId,
+            'attributes' => [$attrId => $score],
+        ]));
+    }
+
+    // Filter: score >= 5
+    $filters = json_encode([['attribute_id' => $attrId, 'op' => 'gte', 'value' => 5]]);
+    $res = App::handle('GET', '/api/nooks/' . $nookId . '/note-types/' . $typeId . '/notes?attribute_filters=' . urlencode($filters), $headers, '');
+    expect($res['status'])->toBe(200);
+    $notes = json_decode($res['body'], true)['notes'] ?? [];
+    $titles = array_map(fn($n) => $n['title'], $notes);
+    sort($titles);
+    expect($titles)->toBe(['High', 'Mid']);
+
+    // Filter: score < 5
+    $filters2 = json_encode([['attribute_id' => $attrId, 'op' => 'lt', 'value' => 5]]);
+    $res2 = App::handle('GET', '/api/nooks/' . $nookId . '/note-types/' . $typeId . '/notes?attribute_filters=' . urlencode($filters2), $headers, '');
+    $notes2 = json_decode($res2['body'], true)['notes'] ?? [];
+    expect(count($notes2))->toBe(1);
+    expect($notes2[0]['title'])->toBe('Low');
+});
