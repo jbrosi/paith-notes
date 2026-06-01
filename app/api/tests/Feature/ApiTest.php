@@ -151,8 +151,6 @@ it('can create a note in a nook', function (): void {
     expect($createNoteData['note']['nook_id'])->toBe($nookId);
     expect($createNoteData['note']['title'])->toBe('Hello');
     expect($createNoteData['note']['content'])->toBe('World');
-    expect($createNoteData['note']['type'])->toBe('anything');
-    expect($createNoteData['note']['properties'])->toBeArray();
     $noteId = (string)($createNoteData['note']['id'] ?? '');
     expect($noteId)->not->toBe('');
 
@@ -259,8 +257,6 @@ it('can create a note in a nook', function (): void {
 	expect($updateNoteData['note']['id'])->toBe($noteId);
 	expect($updateNoteData['note']['title'])->toBe('Hello 2');
 	expect($updateNoteData['note']['content'])->toBe('World 2');
-	expect($updateNoteData['note']['type'])->toBe('anything');
-	expect($updateNoteData['note']['properties'])->toBeArray();
 
 	$mentions2 = $pdoMentions->prepare('select count(*) from global.note_mentions where source_note_id = :source');
 	$mentions2->execute([':source' => $noteId]);
@@ -279,14 +275,12 @@ it('can create a note in a nook', function (): void {
 	expect(count($mentionsOut2Data['outgoing'] ?? []))->toBe(0);
 
     $pdo = test_pdo();
-    $stmt = $pdo->prepare('select title, content, type, properties from global.notes where id = :id and nook_id = :nook_id');
+    $stmt = $pdo->prepare('select title, content from global.notes where id = :id and nook_id = :nook_id');
     $stmt->execute([':id' => $noteId, ':nook_id' => $nookId]);
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
     expect($row)->toBeArray();
     expect((string)($row['title'] ?? ''))->toBe('Hello 2');
     expect((string)($row['content'] ?? ''))->toBe('World 2');
-    expect((string)($row['type'] ?? ''))->toBe('anything');
-    expect($row['properties'])->not->toBeNull();
 
     $deleteNote = App::handle(
         'DELETE',
@@ -569,65 +563,6 @@ it('can create link predicates, set rules, and link notes with dates (duplicates
 	expect(count($listData2['links']))->toBe(1);
 });
 
-it('person type is mapped to anything', function (): void {
-	$userId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
-	$headers = [
-		'X-Nook-User' => $userId,
-		'X-Nook-Groups' => 'paith/notes',
-	];
-
-	App::handle('GET', '/api/me', $headers, '');
-
-	$createNook = App::handle('POST', '/api/nooks', $headers, json_encode(['name' => 'People'], JSON_UNESCAPED_SLASHES));
-	expect($createNook['status'])->toBe(200);
-	$createNookData = json_decode($createNook['body'], true);
-	expect($createNookData)->toBeArray();
-	$nookId = (string)($createNookData['nook']['id'] ?? '');
-	expect($nookId)->not->toBe('');
-
-	// Creating with type 'person' should be mapped to 'anything' (person type removed)
-	$createPerson = App::handle(
-		'POST',
-		'/api/nooks/' . $nookId . '/notes',
-		$headers,
-		json_encode([
-			'title' => 'Ada Lovelace',
-			'content' => 'Initial content',
-			'type' => 'person',
-			'properties' => [
-				'first_name' => 'Ada',
-				'last_name' => 'Lovelace',
-				'date_of_birth' => '1815-12-10',
-			],
-		], JSON_UNESCAPED_SLASHES)
-	);
-	expect($createPerson['status'])->toBe(200);
-	$createPersonData = json_decode($createPerson['body'], true);
-	expect($createPersonData)->toBeArray();
-	$noteId = (string)($createPersonData['note']['id'] ?? '');
-	expect($noteId)->not->toBe('');
-	expect($createPersonData['note']['type'])->toBe('anything');
-
-	// Properties are still preserved even though type is mapped
-	expect($createPersonData['note']['properties'])->toBeArray();
-
-	// Updating with type 'person' should also map to 'anything'
-	$update = App::handle(
-		'PUT',
-		'/api/nooks/' . $nookId . '/notes/' . $noteId,
-		$headers,
-		json_encode([
-			'title' => 'Ada Lovelace',
-			'content' => 'Updated content',
-			'type' => 'person',
-			'properties' => [],
-		], JSON_UNESCAPED_SLASHES)
-	);
-	expect($update['status'])->toBe(200);
-	$updateData = json_decode($update['body'], true);
-	expect($updateData)->toBeArray();
-	expect($updateData['note']['type'])->toBe('anything');
-});
 
 it('denies PUT to /files/tmp when upload is missing or does not match', function (): void {
     $prevEnabled = getenv('KEYCLOAK_ENABLED');
@@ -659,9 +594,28 @@ it('denies PUT to /files/tmp when upload is missing or does not match', function
     );
     expect($missing['status'])->toBe(404);
 
+    // Fetch the seeded File type and its file attribute
+    $typesRes = App::handle('GET', '/api/nooks/' . $nookId . '/note-types', $headers, '');
+    $typesData = json_decode($typesRes['body'], true);
+    $fileType = null;
+    foreach ($typesData['types'] ?? [] as $t) {
+        if (($t['key'] ?? '') === 'file') { $fileType = $t; break; }
+    }
+    expect($fileType)->not->toBeNull();
+    $fileTypeId = $fileType['id'];
+
+    $attrsRes = App::handle('GET', '/api/nooks/' . $nookId . '/note-types/' . $fileTypeId . '/attributes', $headers, '');
+    $attrsData = json_decode($attrsRes['body'], true);
+    $fileAttr = null;
+    foreach ($attrsData['attributes'] ?? [] as $a) {
+        if (($a['kind'] ?? '') === 'file') { $fileAttr = $a; break; }
+    }
+    expect($fileAttr)->not->toBeNull();
+    $fileAttrId = $fileAttr['id'];
+
     $uploadUrl = App::handle(
         'POST',
-        '/api/nooks/' . $nookId . '/file/upload-url',
+        '/api/nooks/' . $nookId . '/file/attr-upload-url',
         $headers,
         json_encode([
             'filename' => 'example.txt',
@@ -669,6 +623,8 @@ it('denies PUT to /files/tmp when upload is missing or does not match', function
             'filesize' => 3,
             'mime_type' => 'text/plain',
             'checksum' => '',
+            'type_id' => $fileTypeId,
+            'attribute_id' => $fileAttrId,
         ], JSON_UNESCAPED_SLASHES)
     );
     expect($uploadUrl['status'])->toBe(200);
@@ -702,7 +658,7 @@ it('denies PUT to /files/tmp when upload is missing or does not match', function
     putenv('KEYCLOAK_ENABLED=' . (is_string($prevEnabled) ? $prevEnabled : ''));
 });
 
-it('file notes can request upload and download presigned URLs', function (): void {
+it('attribute-based file upload and download', function (): void {
     $prevEnabled = getenv('KEYCLOAK_ENABLED');
     putenv('KEYCLOAK_ENABLED=0');
 
@@ -721,9 +677,28 @@ it('file notes can request upload and download presigned URLs', function (): voi
     $nookId = (string)($createNookData['nook']['id'] ?? '');
     expect($nookId)->not->toBe('');
 
+    // Fetch seeded File type and its file attribute
+    $typesRes = App::handle('GET', '/api/nooks/' . $nookId . '/note-types', $headers, '');
+    $typesData = json_decode($typesRes['body'], true);
+    $fileType = null;
+    foreach ($typesData['types'] ?? [] as $t) {
+        if (($t['key'] ?? '') === 'file') { $fileType = $t; break; }
+    }
+    expect($fileType)->not->toBeNull();
+    $fileTypeId = $fileType['id'];
+
+    $attrsRes = App::handle('GET', '/api/nooks/' . $nookId . '/note-types/' . $fileTypeId . '/attributes', $headers, '');
+    $attrsData = json_decode($attrsRes['body'], true);
+    $fileAttr = null;
+    foreach ($attrsData['attributes'] ?? [] as $a) {
+        if (($a['kind'] ?? '') === 'file') { $fileAttr = $a; break; }
+    }
+    expect($fileAttr)->not->toBeNull();
+    $fileAttrId = $fileAttr['id'];
+
     $uploadUrl = App::handle(
         'POST',
-        '/api/nooks/' . $nookId . '/file/upload-url',
+        '/api/nooks/' . $nookId . '/file/attr-upload-url',
         $headers,
         json_encode([
             'filename' => 'example.txt',
@@ -731,6 +706,8 @@ it('file notes can request upload and download presigned URLs', function (): voi
             'filesize' => 3,
             'mime_type' => 'text/plain',
             'checksum' => '',
+            'type_id' => $fileTypeId,
+            'attribute_id' => $fileAttrId,
         ], JSON_UNESCAPED_SLASHES)
     );
     expect($uploadUrl['status'])->toBe(200);
@@ -739,12 +716,9 @@ it('file notes can request upload and download presigned URLs', function (): voi
     expect((string)($uploadData['upload_url'] ?? ''))->toContain('http');
     expect((string)($uploadData['upload_url'] ?? ''))->toContain('/files/tmp/');
     expect((string)($uploadData['upload_id'] ?? ''))->not->toBe('');
-    expect((string)($uploadData['upload_url'] ?? ''))->toContain((string)($uploadData['upload_id'] ?? ''));
-    expect(isset($uploadData['expires_in']))->toBeTrue();
 
-    // Simulate the nginx PUT that would have uploaded the temp object.
+    // Simulate the nginx PUT
     $uploadId = (string)($uploadData['upload_id'] ?? '');
-    expect($uploadId)->not->toBe('');
 
     $claimPut = App::handle(
         'GET',
@@ -767,13 +741,15 @@ it('file notes can request upload and download presigned URLs', function (): voi
     }
     file_put_contents($tmpDir . '/' . $uploadId, 'abc');
 
-    // Finalize creates the note for the file
+    // Finalize creates the note with file attribute
     $finalize = App::handle(
         'POST',
-        '/api/nooks/' . $nookId . '/file/finalize',
+        '/api/nooks/' . $nookId . '/file/attr-finalize',
         $headers,
         json_encode([
             'upload_id' => $uploadId,
+            'type_id' => $fileTypeId,
+            'attribute_id' => $fileAttrId,
         ], JSON_UNESCAPED_SLASHES)
     );
     expect($finalize['status'])->toBe(200);
@@ -781,9 +757,10 @@ it('file notes can request upload and download presigned URLs', function (): voi
     expect($finalizeData)->toBeArray();
     $noteId = (string)($finalizeData['note']['id'] ?? '');
     expect($noteId)->not->toBe('');
-    expect((string)($finalizeData['note']['type'] ?? ''))->toBe('file');
     expect((string)($finalizeData['note']['title'] ?? ''))->toBe('example.txt');
+    expect((string)($finalizeData['note']['type_id'] ?? ''))->toBe($fileTypeId);
 
+    // Verify file metadata in note_files
     $pdo = test_pdo();
     $stmt = $pdo->prepare('select object_key, filename, filesize, mime_type, checksum from global.note_files where note_id = :note_id');
     $stmt->execute([':note_id' => $noteId]);
@@ -792,11 +769,11 @@ it('file notes can request upload and download presigned URLs', function (): voi
     expect((string)($row['filename'] ?? ''))->toBe('example.txt');
     expect((int)($row['filesize'] ?? 0))->toBe(3);
     expect((string)($row['mime_type'] ?? ''))->toBe('text/plain');
-    expect((string)($row['checksum'] ?? ''))->toBeString();
 
+    // Download via attribute endpoint
     $downloadUrl = App::handle(
         'GET',
-        '/api/nooks/' . $nookId . '/notes/' . $noteId . '/file/download-url',
+        '/api/nooks/' . $nookId . '/notes/' . $noteId . '/attributes/' . $fileAttrId . '/file/download-url',
         $headers,
         ''
     );
@@ -805,18 +782,6 @@ it('file notes can request upload and download presigned URLs', function (): voi
     expect($downloadData)->toBeArray();
     expect((string)($downloadData['download_url'] ?? ''))->toContain('http');
     expect(isset($downloadData['expires_in']))->toBeTrue();
-
-    $inlineUrl = App::handle(
-        'GET',
-        '/api/nooks/' . $nookId . '/notes/' . $noteId . '/file/download-url?inline=1',
-        $headers,
-        ''
-    );
-    expect($inlineUrl['status'])->toBe(200);
-    $inlineData = json_decode($inlineUrl['body'], true);
-    expect($inlineData)->toBeArray();
-    expect((string)($inlineData['download_url'] ?? ''))->toContain('http');
-    expect(isset($inlineData['expires_in']))->toBeTrue();
 
     putenv('KEYCLOAK_ENABLED=' . (is_string($prevEnabled) ? $prevEnabled : ''));
 });

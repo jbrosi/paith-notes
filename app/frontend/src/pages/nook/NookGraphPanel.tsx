@@ -20,8 +20,8 @@ import {
 	type NoteLink,
 	NoteLinksListResponseSchema,
 	NoteResponseSchema,
-	TypeAttributesListResponseSchema,
 	serializeGraphProperties,
+	TypeAttributesListResponseSchema,
 } from "./types";
 
 export type NookGraphPanelProps = {
@@ -191,7 +191,8 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 			);
 			if (attrRes.ok) {
 				const attrJson = await attrRes.json();
-				const attrs = TypeAttributesListResponseSchema.parse(attrJson).attributes;
+				const attrs =
+					TypeAttributesListResponseSchema.parse(attrJson).attributes;
 				const graphAttr = attrs.find((a) => a.kind === "graph");
 				if (graphAttr) graphAttrId = graphAttr.id;
 			}

@@ -1,14 +1,14 @@
 import { createResource, createSignal, For, Show } from "solid-js";
 import { apiFetch } from "../../../auth/keycloak";
+import { NookEmbeddedGraph } from "../NookEmbeddedGraph";
+import type { NookStore } from "../store";
 import {
-	TypeAttributesListResponseSchema,
-	type TypeAttribute,
 	type GraphViewProperties,
 	parseGraphProperties,
 	serializeGraphProperties,
+	type TypeAttribute,
+	TypeAttributesListResponseSchema,
 } from "../types";
-import { NookEmbeddedGraph } from "../NookEmbeddedGraph";
-import type { NookStore } from "../store";
 
 export function NoteAttributeFields(props: { store: NookStore }) {
 	const fetchAttributes = async () => {
@@ -37,8 +37,7 @@ export function NoteAttributeFields(props: { store: NookStore }) {
 
 	const simpleAttrs = () =>
 		attributes()?.filter((a) => a.kind !== "file" && a.kind !== "graph") ?? [];
-	const fileAttrs = () =>
-		attributes()?.filter((a) => a.kind === "file") ?? [];
+	const fileAttrs = () => attributes()?.filter((a) => a.kind === "file") ?? [];
 	const graphAttrs = () =>
 		attributes()?.filter((a) => a.kind === "graph") ?? [];
 
@@ -68,7 +67,11 @@ export function NoteAttributeFields(props: { store: NookStore }) {
 						{(attr) => (
 							<FileAttributeField
 								attr={attr}
-								value={noteAttributes()[attr.id] as Record<string, unknown> | undefined}
+								value={
+									noteAttributes()[attr.id] as
+										| Record<string, unknown>
+										| undefined
+								}
 								store={props.store}
 							/>
 						)}
@@ -79,7 +82,9 @@ export function NoteAttributeFields(props: { store: NookStore }) {
 				{(attr) => (
 					<GraphAttributeField
 						attr={attr}
-						value={noteAttributes()[attr.id] as Record<string, unknown> | undefined}
+						value={
+							noteAttributes()[attr.id] as Record<string, unknown> | undefined
+						}
 						onChange={(v) => setAttr(attr.id, v)}
 						store={props.store}
 					/>
@@ -96,7 +101,8 @@ function AttributeField(props: {
 	disabled: boolean;
 }) {
 	const strVal = () => String(props.value ?? "");
-	const numVal = () => (typeof props.value === "number" ? props.value : Number(props.value) || 0);
+	const numVal = () =>
+		typeof props.value === "number" ? props.value : Number(props.value) || 0;
 
 	const labelStyle = {
 		"font-size": "12px",
@@ -336,12 +342,20 @@ function FileAttributeField(props: {
 
 	return (
 		<div>
-			<div style={{ "font-size": "12px", color: "#666", "margin-bottom": "4px" }}>
+			<div
+				style={{ "font-size": "12px", color: "#666", "margin-bottom": "4px" }}
+			>
 				{props.attr.name}
 			</div>
 
 			<Show when={error() !== ""}>
-				<div style={{ color: "#b00020", "font-size": "12px", "margin-bottom": "4px" }}>
+				<div
+					style={{
+						color: "#b00020",
+						"font-size": "12px",
+						"margin-bottom": "4px",
+					}}
+				>
 					{error()}
 				</div>
 			</Show>
@@ -366,11 +380,19 @@ function FileAttributeField(props: {
 					</span>
 				</Show>
 				<Show when={uploading()}>
-					<span style={{ "font-size": "12px", color: "#888" }}>Uploading...</span>
+					<span style={{ "font-size": "12px", color: "#888" }}>
+						Uploading...
+					</span>
 				</Show>
 			</div>
 
-			<Show when={hasFile() && (displayMode() === "preview" || displayMode() === "") && isImage()}>
+			<Show
+				when={
+					hasFile() &&
+					(displayMode() === "preview" || displayMode() === "") &&
+					isImage()
+				}
+			>
 				<img
 					src={inlineUrl()}
 					alt={filename()}
@@ -383,7 +405,13 @@ function FileAttributeField(props: {
 					}}
 				/>
 			</Show>
-			<Show when={hasFile() && displayMode() === "preview" && contentType() === "application/pdf"}>
+			<Show
+				when={
+					hasFile() &&
+					displayMode() === "preview" &&
+					contentType() === "application/pdf"
+				}
+			>
 				<iframe
 					src={inlineUrl()}
 					title={filename()}

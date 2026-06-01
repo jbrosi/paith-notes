@@ -452,8 +452,9 @@ export function createNookStore(nookId: () => string) {
 		if (!d) return null;
 
 		// Find the first file attribute with an image content_type
-		const attrs = (d as unknown as { attributes?: Record<string, unknown> })
-			.attributes ?? {};
+		const attrs =
+			(d as unknown as { attributes?: Record<string, unknown> }).attributes ??
+			{};
 		let fileAttrId = "";
 		for (const [attrId, val] of Object.entries(attrs)) {
 			if (typeof val === "object" && val !== null) {
@@ -541,7 +542,9 @@ export function createNookStore(nookId: () => string) {
 				(v) =>
 					typeof v === "object" &&
 					v !== null &&
-					String((v as Record<string, unknown>).content_type ?? "").startsWith("image/"),
+					String((v as Record<string, unknown>).content_type ?? "").startsWith(
+						"image/",
+					),
 			);
 			setMentionCanEmbedImage(ok);
 		})();
@@ -678,21 +681,18 @@ export function createNookStore(nookId: () => string) {
 				: "";
 
 			// Init upload
-			const res = await apiFetch(
-				`/api/nooks/${nook}/file/attr-upload-url`,
-				{
-					method: "POST",
-					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({
-						filename,
-						extension: ext,
-						filesize: file.size,
-						mime_type: file.type,
-						type_id: fileType.id,
-						attribute_id: fileAttrId,
-					}),
-				},
-			);
+			const res = await apiFetch(`/api/nooks/${nook}/file/attr-upload-url`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					filename,
+					extension: ext,
+					filesize: file.size,
+					mime_type: file.type,
+					type_id: fileType.id,
+					attribute_id: fileAttrId,
+				}),
+			});
 			if (!res.ok) throw new Error("Failed to get upload URL");
 			const initData = (await res.json()) as {
 				upload_url: string;
@@ -708,18 +708,15 @@ export function createNookStore(nookId: () => string) {
 			if (!putRes.ok) throw new Error("Upload failed");
 
 			// Finalize and create note
-			const finRes = await apiFetch(
-				`/api/nooks/${nook}/file/attr-finalize`,
-				{
-					method: "POST",
-					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({
-						upload_id: initData.upload_id,
-						type_id: fileType.id,
-						attribute_id: fileAttrId,
-					}),
-				},
-			);
+			const finRes = await apiFetch(`/api/nooks/${nook}/file/attr-finalize`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					upload_id: initData.upload_id,
+					type_id: fileType.id,
+					attribute_id: fileAttrId,
+				}),
+			});
 			if (!finRes.ok) throw new Error("Finalize failed");
 
 			const finJson = await finRes.json();
@@ -1126,8 +1123,6 @@ export function createNookStore(nookId: () => string) {
 		void loadNotes({ reset: true });
 	});
 
-
-
 	const uploadFile = async (_file: File) => {};
 
 	const quickUploadFile = async (file: File) => {
@@ -1138,7 +1133,9 @@ export function createNookStore(nookId: () => string) {
 		const types = noteTypes();
 		const fileType = types.find((t) => t.key === "file");
 		if (!fileType) {
-			setError("No file type found — create a type with a file attribute first");
+			setError(
+				"No file type found — create a type with a file attribute first",
+			);
 			return;
 		}
 
@@ -1149,7 +1146,8 @@ export function createNookStore(nookId: () => string) {
 			);
 			if (attrRes.ok) {
 				const attrJson = await attrRes.json();
-				const attrs = TypeAttributesListResponseSchema.parse(attrJson).attributes;
+				const attrs =
+					TypeAttributesListResponseSchema.parse(attrJson).attributes;
 				const fileAttr = attrs.find((a) => a.kind === "file");
 				if (fileAttr) fileAttrId = fileAttr.id;
 			}
@@ -1197,18 +1195,15 @@ export function createNookStore(nookId: () => string) {
 			if (!putRes.ok) throw new Error("Upload failed");
 
 			// Step 3: finalize and create note
-			const finRes = await apiFetch(
-				`/api/nooks/${nook}/file/attr-finalize`,
-				{
-					method: "POST",
-					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({
-						upload_id: initData.upload_id,
-						type_id: fileType.id,
-						attribute_id: fileAttrId,
-					}),
-				},
-			);
+			const finRes = await apiFetch(`/api/nooks/${nook}/file/attr-finalize`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					upload_id: initData.upload_id,
+					type_id: fileType.id,
+					attribute_id: fileAttrId,
+				}),
+			});
 			if (!finRes.ok) throw new Error("Finalize failed");
 
 			const finJson = await finRes.json();

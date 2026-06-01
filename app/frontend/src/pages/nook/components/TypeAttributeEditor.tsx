@@ -1,12 +1,12 @@
-import { createSignal, createResource, For, Show } from "solid-js";
-import { Button } from "../../../components/Button";
+import { createResource, createSignal, For, Show } from "solid-js";
 import { apiFetch } from "../../../auth/keycloak";
+import { Button } from "../../../components/Button";
 import {
-	TypeAttributeKinds,
-	TypeAttributesListResponseSchema,
-	TypeAttributeResponseSchema,
 	type TypeAttribute,
 	type TypeAttributeKind,
+	TypeAttributeKinds,
+	TypeAttributeResponseSchema,
+	TypeAttributesListResponseSchema,
 } from "../types";
 
 export type TypeAttributeEditorProps = {
@@ -281,9 +281,7 @@ function AttributeEditRow(props: {
 				/>
 				<select
 					value={kind()}
-					onChange={(e) =>
-						setKind(e.currentTarget.value as TypeAttributeKind)
-					}
+					onChange={(e) => setKind(e.currentTarget.value as TypeAttributeKind)}
 					style={{ padding: "4px 6px" }}
 				>
 					<For each={[...TypeAttributeKinds]}>

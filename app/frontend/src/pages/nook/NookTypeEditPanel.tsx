@@ -145,10 +145,7 @@ export function NookTypeEditPanel(props: NookTypeEditPanelProps) {
 					</div>
 				</div>
 
-				<TypeAttributeEditor
-					nookId={store().nookId()}
-					typeId={props.typeId}
-				/>
+				<TypeAttributeEditor nookId={store().nookId()} typeId={props.typeId} />
 			</Show>
 		</div>
 	);
