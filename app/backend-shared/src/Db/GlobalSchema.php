@@ -720,7 +720,7 @@ final class GlobalSchema
 
             // Add history_id to all audited tables
             // Tables with uuid primary key that get full audit tracking.
-            $auditedTables = ['notes', 'note_types', 'note_links', 'note_cross_links', 'link_predicates', 'nooks', 'note_files', 'nook_invitations', 'users'];
+            $auditedTables = ['notes', 'note_types', 'type_attributes', 'note_links', 'note_cross_links', 'link_predicates', 'nooks', 'note_files', 'nook_invitations', 'users'];
 
             // nook_members: add uuid id column so it can be audited
             $pdo->exec("alter table global.nook_members add column if not exists id uuid default gen_random_uuid()");
