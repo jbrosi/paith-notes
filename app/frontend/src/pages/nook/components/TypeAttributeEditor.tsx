@@ -9,6 +9,7 @@ import {
 	TypeAttributeResponseSchema,
 	TypeAttributesListResponseSchema,
 } from "../types";
+import { AttributeKindConfig, type KindConfigState } from "./attributes/AttributeKindConfig";
 
 export type TypeAttributeEditorProps = {
 	nookId: string;
@@ -246,48 +247,13 @@ function AttributeRow(props: {
 				background: props.attr.inherited ? "var(--color-bg-secondary)" : "var(--color-bg)",
 			}}
 		>
-			<div
-				style={{
-					display: "flex",
-					"flex-direction": "column",
-					gap: "1px",
-					"margin-right": "4px",
-				}}
-			>
-				<button
-					type="button"
-					disabled={!props.onMoveUp}
-					onClick={() => props.onMoveUp?.()}
-					style={{
-						border: "none",
-						background: "none",
-						cursor: props.onMoveUp ? "pointer" : "default",
-						padding: "0",
-						"font-size": "10px",
-						"line-height": "1",
-						color: props.onMoveUp ? "var(--color-text-secondary)" : "var(--color-border-light)",
-					}}
-					title="Move up"
-				>
-					&#9650;
-				</button>
-				<button
-					type="button"
-					disabled={!props.onMoveDown}
-					onClick={() => props.onMoveDown?.()}
-					style={{
-						border: "none",
-						background: "none",
-						cursor: props.onMoveDown ? "pointer" : "default",
-						padding: "0",
-						"font-size": "10px",
-						"line-height": "1",
-						color: props.onMoveDown ? "var(--color-text-secondary)" : "var(--color-border-light)",
-					}}
-					title="Move down"
-				>
-					&#9660;
-				</button>
+			<div style={{ display: "flex", "flex-direction": "column", gap: "1px", "margin-right": "4px" }}>
+				<button type="button" disabled={!props.onMoveUp} onClick={() => props.onMoveUp?.()}
+					style={{ border: "none", background: "none", cursor: props.onMoveUp ? "pointer" : "default", padding: "0", "font-size": "10px", "line-height": "1", color: props.onMoveUp ? "var(--color-text-secondary)" : "var(--color-border-light)" }}
+					title="Move up">&#9650;</button>
+				<button type="button" disabled={!props.onMoveDown} onClick={() => props.onMoveDown?.()}
+					style={{ border: "none", background: "none", cursor: props.onMoveDown ? "pointer" : "default", padding: "0", "font-size": "10px", "line-height": "1", color: props.onMoveDown ? "var(--color-text-secondary)" : "var(--color-border-light)" }}
+					title="Move down">&#9660;</button>
 			</div>
 			<span style={{ flex: 1, "font-size": "13px" }}>
 				<strong>{props.attr.name}</strong>
@@ -296,24 +262,14 @@ function AttributeRow(props: {
 					{props.attr.config.display ? ` · ${props.attr.config.display}` : ""}
 				</span>
 				<Show when={props.attr.inherited}>
-					<span
-						style={{
-							color: "var(--color-text-faint)",
-							"margin-left": "6px",
-							"font-size": "11px",
-						}}
-					>
+					<span style={{ color: "var(--color-text-faint)", "margin-left": "6px", "font-size": "11px" }}>
 						(inherited)
 					</span>
 				</Show>
 			</span>
 			<Show when={!props.attr.inherited}>
-				<Button size="small" variant="secondary" onClick={props.onEdit}>
-					Edit
-				</Button>
-				<Button size="small" variant="secondary" onClick={props.onDelete}>
-					Del
-				</Button>
+				<Button size="small" variant="secondary" onClick={props.onEdit}>Edit</Button>
+				<Button size="small" variant="secondary" onClick={props.onDelete}>Del</Button>
 			</Show>
 		</div>
 	);
@@ -321,78 +277,12 @@ function AttributeRow(props: {
 
 function AttributeEditRow(props: {
 	attr: TypeAttribute;
-	onSave: (
-		name: string,
-		kind: TypeAttributeKind,
-		config: Record<string, unknown>,
-	) => void;
+	onSave: (name: string, kind: TypeAttributeKind, config: Record<string, unknown>) => void;
 	onCancel: () => void;
 }) {
 	const [name, setName] = createSignal(props.attr.name);
 	const [kind, setKind] = createSignal<TypeAttributeKind>(props.attr.kind);
-	const [options, setOptions] = createSignal(
-		Array.isArray(props.attr.config.options)
-			? (props.attr.config.options as string[]).join(", ")
-			: "",
-	);
-	const [display, setDisplay] = createSignal(
-		(props.attr.config.display as string) ?? "",
-	);
-	const [max, setMax] = createSignal(
-		String(props.attr.config.max ?? ""),
-	);
-	const [lnDirection, setLnDirection] = createSignal(
-		String(props.attr.config.direction ?? "both"),
-	);
-	const [lnIncludeMentions, setLnIncludeMentions] = createSignal(
-		props.attr.config.include_mentions !== false,
-	);
-	const [historyLimit, setHistoryLimit] = createSignal(
-		String(props.attr.config.limit ?? "5"),
-	);
-	const [tocMaxDepth, setTocMaxDepth] = createSignal(
-		String(props.attr.config.max_depth ?? "3"),
-	);
-	const [mdShowVersion, setMdShowVersion] = createSignal(props.attr.config.show_version !== false);
-	const [mdShowCreated, setMdShowCreated] = createSignal(props.attr.config.show_created !== false);
-	const [mdShowUpdated, setMdShowUpdated] = createSignal(props.attr.config.show_updated !== false);
-	const [mdShowViews, setMdShowViews] = createSignal(props.attr.config.show_views !== false);
-	const [contentMode, setContentMode] = createSignal(
-		String(props.attr.config.mode ?? "markdown"),
-	);
-
-	const buildConfig = (): Record<string, unknown> => {
-		const c: Record<string, unknown> = {};
-		if (kind() === "select" || kind() === "multi_select") {
-			c.options = options()
-				.split(",")
-				.map((s) => s.trim())
-				.filter(Boolean);
-		}
-		if (display()) c.display = display();
-		if (kind() === "number" && max()) c.max = Number(max());
-		if (kind() === "linked_notes") {
-			c.direction = lnDirection();
-			c.include_mentions = lnIncludeMentions();
-			if (display()) c.display = display();
-		}
-		if (kind() === "history") {
-			c.limit = Number(historyLimit()) || 5;
-		}
-		if (kind() === "toc") {
-			c.max_depth = Number(tocMaxDepth()) || 3;
-		}
-		if (kind() === "content") {
-			c.mode = contentMode();
-		}
-		if (kind() === "metadata") {
-			c.show_version = mdShowVersion();
-			c.show_created = mdShowCreated();
-			c.show_updated = mdShowUpdated();
-			c.show_views = mdShowViews();
-		}
-		return c;
-	};
+	let configState: KindConfigState | null = null;
 
 	return (
 		<div
@@ -423,152 +313,16 @@ function AttributeEditRow(props: {
 				</select>
 			</div>
 
-			<Show when={kind() === "select" || kind() === "multi_select"}>
-				<input
-					value={options()}
-					onInput={(e) => setOptions(e.currentTarget.value)}
-					placeholder="Options (comma-separated)"
-					style={{ padding: "4px 6px" }}
-				/>
-			</Show>
-
-			<Show when={kind() === "text"}>
-				<select
-					value={display()}
-					onChange={(e) => setDisplay(e.currentTarget.value)}
-					style={{ padding: "4px 6px" }}
-				>
-					<option value="">Single line (default)</option>
-					<option value="paragraph">Paragraph</option>
-				</select>
-			</Show>
-
-			<Show when={kind() === "number"}>
-				<div style={{ display: "flex", gap: "6px", "align-items": "center" }}>
-					<select
-						value={display()}
-						onChange={(e) => setDisplay(e.currentTarget.value)}
-						style={{ padding: "4px 6px" }}
-					>
-						<option value="">Plain number (default)</option>
-						<option value="rating">Rating</option>
-					</select>
-					<Show when={display() === "rating"}>
-						<input
-							type="number"
-							value={max()}
-							onInput={(e) => setMax(e.currentTarget.value)}
-							placeholder="Max (e.g. 5)"
-							style={{ width: "80px", padding: "4px 6px" }}
-						/>
-					</Show>
-				</div>
-			</Show>
-
-			<Show when={kind() === "file"}>
-				<select
-					value={display()}
-					onChange={(e) => setDisplay(e.currentTarget.value)}
-					style={{ padding: "4px 6px" }}
-				>
-					<option value="">Download (default)</option>
-					<option value="preview">Preview</option>
-					<option value="player">Player</option>
-				</select>
-			</Show>
-
-			<Show when={kind() === "content"}>
-				<select
-					value={contentMode()}
-					onChange={(e) => setContentMode(e.currentTarget.value)}
-					style={{ padding: "4px 6px", "font-size": "12px" }}
-				>
-					<option value="markdown">Markdown (default)</option>
-					<option value="plain">Plain text</option>
-					<option value="code">Code</option>
-					<option value="hidden">Hidden (no content body)</option>
-				</select>
-			</Show>
-
-			<Show when={kind() === "linked_notes"}>
-				<div style={{ display: "flex", gap: "6px", "align-items": "center" }}>
-					<select
-						value={lnDirection()}
-						onChange={(e) => setLnDirection(e.currentTarget.value)}
-						style={{ padding: "4px 6px", "font-size": "12px" }}
-					>
-						<option value="outgoing">Outgoing (references from this note)</option>
-						<option value="incoming">Incoming (references to this note)</option>
-						<option value="both">Both directions</option>
-					</select>
-					<label style={{ display: "flex", "align-items": "center", gap: "4px", "font-size": "12px" }}>
-						<input
-							type="checkbox"
-							checked={lnIncludeMentions()}
-							onChange={(e) => setLnIncludeMentions(e.currentTarget.checked)}
-						/>
-						Include mentions
-					</label>
-				</div>
-			</Show>
-
-			<Show when={kind() === "history"}>
-				<div style={{ display: "flex", gap: "6px", "align-items": "center" }}>
-					<label style={{ "font-size": "12px" }}>Show last</label>
-					<input
-						type="number"
-						value={historyLimit()}
-						onInput={(e) => setHistoryLimit(e.currentTarget.value)}
-						min="0"
-						max="50"
-						style={{ width: "60px", padding: "4px 6px", "font-size": "12px" }}
-					/>
-					<span style={{ "font-size": "12px" }}>entries (0 = version info only)</span>
-				</div>
-			</Show>
-
-			<Show when={kind() === "metadata"}>
-				<div style={{ display: "flex", gap: "8px", "flex-wrap": "wrap", "font-size": "12px" }}>
-					<label style={{ display: "flex", "align-items": "center", gap: "3px" }}>
-						<input type="checkbox" checked={mdShowVersion()} onChange={(e) => setMdShowVersion(e.currentTarget.checked)} /> Version
-					</label>
-					<label style={{ display: "flex", "align-items": "center", gap: "3px" }}>
-						<input type="checkbox" checked={mdShowCreated()} onChange={(e) => setMdShowCreated(e.currentTarget.checked)} /> Created
-					</label>
-					<label style={{ display: "flex", "align-items": "center", gap: "3px" }}>
-						<input type="checkbox" checked={mdShowUpdated()} onChange={(e) => setMdShowUpdated(e.currentTarget.checked)} /> Last edited
-					</label>
-					<label style={{ display: "flex", "align-items": "center", gap: "3px" }}>
-						<input type="checkbox" checked={mdShowViews()} onChange={(e) => setMdShowViews(e.currentTarget.checked)} /> View count
-					</label>
-				</div>
-			</Show>
-
-			<Show when={kind() === "toc"}>
-				<div style={{ display: "flex", gap: "6px", "align-items": "center" }}>
-					<label style={{ "font-size": "12px" }}>Max heading depth</label>
-					<select
-						value={tocMaxDepth()}
-						onChange={(e) => setTocMaxDepth(e.currentTarget.value)}
-						style={{ padding: "4px 6px", "font-size": "12px" }}
-					>
-						<option value="1">h1 only</option>
-						<option value="2">h1–h2</option>
-						<option value="3">h1–h3</option>
-						<option value="4">h1–h4</option>
-						<option value="5">h1–h5</option>
-						<option value="6">All levels</option>
-					</select>
-					<span style={{ "font-size": "11px", color: "var(--color-text-muted)" }}>
-						(can be overridden per note)
-					</span>
-				</div>
-			</Show>
+			<AttributeKindConfig
+				kind={kind()}
+				config={props.attr.config}
+				ref={(s) => { configState = s; }}
+			/>
 
 			<div style={{ display: "flex", gap: "6px" }}>
 				<Button
 					size="small"
-					onClick={() => props.onSave(name(), kind(), buildConfig())}
+					onClick={() => props.onSave(name(), kind(), configState?.buildConfig() ?? {})}
 				>
 					Save
 				</Button>
