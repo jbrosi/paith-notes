@@ -196,7 +196,6 @@ export function createNookStore(nookId: () => string) {
 							} else {
 								void loadNoteDetail(changedId);
 								void loadMentions();
-								void loadHistory();
 							}
 						}
 						break;
@@ -924,7 +923,6 @@ export function createNookStore(nookId: () => string) {
 		await loadNotes({ reset: true });
 		if (id === "") return;
 		await loadMentions();
-		void loadHistory();
 		void loadNoteDetail(id);
 	};
 
@@ -976,7 +974,6 @@ export function createNookStore(nookId: () => string) {
 		setMentionTargetId("");
 		setMentionEmbedImage(false);
 		void loadMentions();
-		void loadHistory();
 		void loadNoteDetail(note.id);
 	};
 

@@ -1,4 +1,4 @@
-import { createMemo, For, Show } from "solid-js";
+import { createEffect, createMemo, For, Show } from "solid-js";
 import type { NookStore } from "../../store";
 import type { TypeAttribute } from "../../types";
 
@@ -24,6 +24,13 @@ export function HistoryAttributeField(props: {
 	attr: TypeAttribute;
 	store: NookStore;
 }) {
+	// Load history when this component mounts / note changes
+	createEffect(() => {
+		if (props.store.selectedId()) {
+			void props.store.loadHistory();
+		}
+	});
+
 	const limit = () => {
 		const v = Number(props.attr.config.limit ?? 5);
 		return Math.max(0, v);
