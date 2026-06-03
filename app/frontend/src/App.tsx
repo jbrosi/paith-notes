@@ -132,6 +132,7 @@ function AppContent(props: RouteSectionProps) {
 							currentNoteId={store()?.selectedId() || undefined}
 							currentNoteTitle={store()?.title() || undefined}
 							currentNoteType={undefined}
+							currentPath={window.location.pathname}
 							onClose={() => ui.toggleChatPanel()}
 							onNavigateToNote={(id) => {
 								void store()?.onNoteLinkClick(id);

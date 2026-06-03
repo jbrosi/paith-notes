@@ -322,6 +322,7 @@ function buildSystemPrompt(
   memoryNookId?: string | null,
   nookInstructions?: InstructionNote[],
   memoryNotes?: InstructionNote[],
+  contextPath?: string,
 ): string {
   const nookDisplay = nookName ? `"${nookName}" (${nookId})` : `"${nookId}"`;
   const roleInfo = nookRole ? ` The user's role in this nook is "${nookRole}".` : '';
@@ -418,6 +419,10 @@ The more context has been used, the more you should encourage this. After saving
     );
   }
 
+  if (contextPath) {
+    parts.push(`The user is currently viewing: ${contextPath}`);
+  }
+
   return parts.join('\n\n');
 }
 
@@ -433,6 +438,7 @@ async function streamConversation(
   nookId: string,
   contextNote?: { id: string; title: string; type?: string },
   memoryNookId?: string | null,
+  contextPath?: string,
 ): Promise<void> {
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -454,7 +460,7 @@ async function streamConversation(
     nookRole = found?.role ?? '';
   }
 
-  const baseSystemPrompt = buildSystemPrompt(nookId, nookName, nookRole, contextNote, memoryNookId, nookInstructions, memoryNotes);
+  const baseSystemPrompt = buildSystemPrompt(nookId, nookName, nookRole, contextNote, memoryNookId, nookInstructions, memoryNotes, contextPath);
   let systemPrompt = baseSystemPrompt;
   const contextLimit = MODEL_CONTEXT_LIMITS[model] ?? DEFAULT_CONTEXT_LIMIT;
 
@@ -690,7 +696,7 @@ export function createChatRouter(apiBase: string): Router {
     }
 
     const nook_id = validateNookId(String(req.params.nookId));
-    const { message, model, conversation_id, context_note_id, context_note_title, context_note_type } = req.body as Record<string, unknown>;
+    const { message, model, conversation_id, context_note_id, context_note_title, context_note_type, context_path } = req.body as Record<string, unknown>;
 
     if (typeof message !== 'string' || message.trim() === '') {
       res.status(400).json({ error: 'message is required' });
@@ -739,7 +745,8 @@ export function createChatRouter(apiBase: string): Router {
       sseHeaders(res);
       sse(res, 'conversation', { conversation_id: convId });
 
-      await streamConversation(res, history, resolvedModel, convId, cookieHeader, apiBase, nook_id, contextNote, memoryNookId);
+      const ctxPath = typeof context_path === 'string' ? context_path : undefined;
+      await streamConversation(res, history, resolvedModel, convId, cookieHeader, apiBase, nook_id, contextNote, memoryNookId, ctxPath);
     } catch (err) {
       if (!res.headersSent) {
         res.status(500).json({ error: err instanceof Error ? err.message : 'unknown error' });

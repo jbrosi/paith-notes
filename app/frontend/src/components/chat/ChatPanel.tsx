@@ -34,6 +34,8 @@ type Props = {
 	currentNoteId?: string;
 	currentNoteTitle?: string;
 	currentNoteType?: string;
+	/** Current browser path — gives AI context about what view the user is on */
+	currentPath?: string;
 	onClose: () => void;
 	onNavigateToNote?: (noteId: string) => void;
 	notePreview?: NotePreviewController;
@@ -441,6 +443,7 @@ export function ChatPanel(props: Props) {
 						context_note_id: props.currentNoteId ?? undefined,
 						context_note_title: props.currentNoteTitle ?? undefined,
 						context_note_type: props.currentNoteType ?? undefined,
+						context_path: props.currentPath ?? undefined,
 					}),
 					signal: abortCtrl.signal,
 				},
