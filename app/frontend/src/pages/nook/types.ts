@@ -219,9 +219,11 @@ const NoteTypeApiSchema = z
 export const NoteTypesListResponseSchema = z
 	.object({
 		types: z.array(NoteTypeApiSchema),
+		version: z.number().int().optional(),
 	})
 	.transform((r) => ({
 		types: r.types,
+		version: r.version ?? 0,
 	}));
 
 export const NoteTypeResponseSchema = z

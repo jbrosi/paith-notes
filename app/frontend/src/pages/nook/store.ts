@@ -168,9 +168,13 @@ export function createNookStore(nookId: () => string) {
 					case "connected":
 						wsUserId = String(msg.user_id ?? "");
 						break;
-					case "types_changed":
-						void loadNoteTypes();
+					case "types_changed": {
+						const v = typeof msg.version === "number" ? msg.version : 0;
+						if (v === 0 || v > typesVersion) {
+							void loadNoteTypes();
+						}
 						break;
+					}
 					case "note_changed": {
 						const changedId = String(msg.id ?? "");
 						void loadNotes({ reset: true });
@@ -308,6 +312,8 @@ export function createNookStore(nookId: () => string) {
 		createdAt: note.createdAt,
 	});
 
+	let typesVersion = 0;
+
 	const loadNoteTypes = async () => {
 		if (nookId() === "") return;
 		try {
@@ -326,6 +332,7 @@ export function createNookStore(nookId: () => string) {
 			const json = await res.json();
 			const body = NoteTypesListResponseSchema.parse(json);
 			setNoteTypes(body.types);
+			typesVersion = body.version;
 		} catch (e) {
 			setNoteTypes([]);
 			setError(String(e));

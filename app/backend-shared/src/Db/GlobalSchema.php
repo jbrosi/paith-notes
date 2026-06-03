@@ -916,7 +916,8 @@ final class GlobalSchema
                         'nook_id', coalesce(NEW.nook_id, OLD.nook_id),
                         'event',   TG_ARGV[0],
                         'table',   TG_TABLE_NAME,
-                        'id',      coalesce(NEW.id, OLD.id)
+                        'id',      coalesce(NEW.id, OLD.id),
+                        'version', coalesce(NEW.history_id, OLD.history_id, 0)
                     )::text);
                     return coalesce(NEW, OLD);
                 end;

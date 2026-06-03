@@ -94,7 +94,17 @@ final class NoteTypesController
         }
         unset($t);
 
-        return JsonResponse::ok(['types' => $types]);
+        // Types version: max audit_meta id for type-related changes in this nook.
+        // Used by frontend to skip redundant reloads when WS event carries
+        // the same version it already has.
+        $versionStmt = $pdo->prepare(
+            "select coalesce(max(id), 0) from global.audit_meta "
+            . "where nook_id = :nook_id and table_name in ('note_types', 'type_attributes')"
+        );
+        $versionStmt->execute([':nook_id' => $nookId]);
+        $typesVersion = (int)$versionStmt->fetchColumn();
+
+        return JsonResponse::ok(['types' => $types, 'version' => $typesVersion]);
     }
 
     public function create(Request $request, Context $context): Response
