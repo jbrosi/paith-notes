@@ -32,7 +32,7 @@ export function NoteAttributeFields(props: {
 		props.store.setNoteAttribute?.(attrId, value);
 	};
 
-	const nonInlineKinds = new Set(["file", "graph", "view", "linked_notes"]);
+	const nonInlineKinds = new Set(["file", "graph", "view", "linked_notes", "history"]);
 	const simpleAttrs = () =>
 		attributes()?.filter((a) => !nonInlineKinds.has(a.kind)) ?? [];
 	const fileAttrs = () => attributes()?.filter((a) => a.kind === "file") ?? [];
@@ -42,6 +42,8 @@ export function NoteAttributeFields(props: {
 		attributes()?.filter((a) => a.kind === "view") ?? [];
 	const linkedNotesAttrs = () =>
 		attributes()?.filter((a) => a.kind === "linked_notes") ?? [];
+	const historyAttrs = () =>
+		attributes()?.filter((a) => a.kind === "history") ?? [];
 
 	return (
 		<>
@@ -103,6 +105,14 @@ export function NoteAttributeFields(props: {
 			<For each={linkedNotesAttrs()}>
 				{(attr) => (
 					<LinkedNotesAttributeField
+						attr={attr}
+						store={props.store}
+					/>
+				)}
+			</For>
+			<For each={historyAttrs()}>
+				{(attr) => (
+					<HistoryAttributeField
 						attr={attr}
 						store={props.store}
 					/>
@@ -1047,4 +1057,145 @@ function LinkedNotesAttributeField(props: {
 			</div>
 		</Show>
 	);
+}
+
+// ─── History Attribute ──────────────────────────────────────────────────────
+
+function HistoryAttributeField(props: {
+	attr: TypeAttribute;
+	store: NookStore;
+}) {
+	const limit = () => {
+		const v = Number(props.attr.config.limit ?? 5);
+		return v > 0 ? v : 5;
+	};
+
+	const entries = createMemo(() =>
+		props.store.noteHistory().slice(0, limit()),
+	);
+
+	const nookId = () => props.store.nookId();
+	const noteId = () => props.store.selectedId();
+	const historyHref = () => {
+		const nook = nookId();
+		const note = noteId();
+		if (!nook || !note) return "";
+		return `/nooks/${encodeURIComponent(nook)}/notes/${encodeURIComponent(note)}/history`;
+	};
+
+	return (
+		<Show when={entries().length > 0}>
+			<div style={{ "margin-top": "8px" }}>
+				<div
+					style={{
+						"font-size": "0.7rem",
+						"font-weight": "600",
+						color: "var(--color-text-secondary)",
+						"margin-bottom": "4px",
+						"text-transform": "uppercase",
+						"letter-spacing": "0.03em",
+					}}
+				>
+					{props.attr.name}
+				</div>
+				<For each={entries()}>
+					{(entry) => {
+						const isLink = entry.type === "link";
+						const isFile = entry.type === "file";
+						const actionLabel = isLink
+							? entry.action === "INSERT" ? "linked" : entry.action === "DELETE" ? "unlinked" : "updated link"
+							: isFile
+								? entry.action === "INSERT" ? "uploaded" : entry.action === "UPDATE" ? "re-uploaded" : "removed file"
+								: entry.action === "INSERT" ? "created" : entry.action === "UPDATE" ? "edited" : entry.action === "DELETE" ? "deleted" : entry.action;
+						const versionHref = () => {
+							if (entry.type !== "note" || !entry.version) return "";
+							const nook = nookId();
+							const note = noteId();
+							if (!nook || !note) return "";
+							return `/nooks/${encodeURIComponent(nook)}/notes/${encodeURIComponent(note)}/v/${entry.version}`;
+						};
+						return (
+							<div
+								style={{
+									display: "flex",
+									"align-items": "baseline",
+									gap: "4px",
+									"font-size": "0.75rem",
+									"margin-bottom": "3px",
+									"flex-wrap": "wrap",
+								}}
+							>
+								<span style={{ "font-weight": "500", color: "var(--color-text-secondary)" }}>
+									{entry.userName || "Unknown"}
+								</span>
+								<span>{actionLabel}</span>
+								<Show when={entry.type === "note" && entry.version && versionHref()}>
+									<a
+										href={versionHref()}
+										style={{
+											padding: "1px 6px",
+											"border-radius": "999px",
+											background: "var(--color-bg-tertiary, #f3f4f6)",
+											"font-size": "0.65rem",
+											"font-weight": "500",
+											color: "var(--color-text-muted)",
+											"text-decoration": "none",
+										}}
+									>
+										v{entry.version}
+									</a>
+								</Show>
+								<Show when={isFile && entry.filename}>
+									<span style={{ "font-size": "0.65rem", color: "var(--color-text-muted)" }}>
+										{entry.filename}
+									</span>
+								</Show>
+								<span
+									style={{
+										"font-size": "0.65rem",
+										color: "var(--color-text-muted)",
+										"margin-left": "auto",
+									}}
+								>
+									{formatTimeAgo(entry.createdAt)}
+								</span>
+							</div>
+						);
+					}}
+				</For>
+				<Show when={props.store.noteHistory().length > limit()}>
+					<a
+						href={historyHref()}
+						style={{
+							"font-size": "0.7rem",
+							color: "var(--link-color, #0066cc)",
+							"text-decoration": "none",
+							"margin-top": "4px",
+							display: "inline-block",
+						}}
+					>
+						Show full history
+					</a>
+				</Show>
+			</div>
+		</Show>
+	);
+}
+
+function formatTimeAgo(iso: string): string {
+	try {
+		const d = new Date(iso);
+		const now = new Date();
+		const diffMs = now.getTime() - d.getTime();
+		const diffMin = Math.floor(diffMs / 60000);
+		if (diffMin < 1) return "just now";
+		if (diffMin < 60) return `${diffMin}m ago`;
+		const diffH = Math.floor(diffMin / 60);
+		if (diffH < 24) return `${diffH}h ago`;
+		const diffD = Math.floor(diffH / 24);
+		if (diffD < 7) return `${diffD}d ago`;
+		return d.toLocaleDateString();
+	} catch {
+		return iso;
+	}
 }

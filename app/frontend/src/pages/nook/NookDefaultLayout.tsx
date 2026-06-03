@@ -9,7 +9,6 @@ import {
 import { createNotePreview } from "../../components/NotePreview";
 import { attachSwipe } from "../../ui/swipe";
 import { MOBILE_PANELS, type MobilePanel, useUi } from "../../ui/UiContext";
-import { NoteHistory } from "./components/NoteHistory";
 import { NotePreviewProvider } from "./NookContext";
 import { NookDashboard } from "./NookDashboard";
 import styles from "./NookDefaultLayout.module.css";
@@ -27,7 +26,6 @@ export type NookDefaultLayoutProps = {
 
 const PANEL_LABELS: Record<MobilePanel, string> = {
 	content: "Note",
-	history: "History",
 	graph: "Graph",
 	markdown: "Markdown",
 };
@@ -130,17 +128,12 @@ export function NookDefaultLayout(props: NookDefaultLayoutProps) {
 					class={styles.layout}
 					data-active-panel={ui.activePanel()}
 				>
-					{/* Main scrollable area: content + history together on desktop */}
+					{/* Main scrollable area */}
 					<div class={styles.mainScroll}>
 						<div class={styles.mainScrollInner}>
 							<div class={styles.panelContent}>
 								<NookMainPanel store={props.store} />
 							</div>
-							<Show when={props.store.selectedId() !== ""}>
-								<div class={styles.panelHistory}>
-									<NoteHistory store={props.store} />
-								</div>
-							</Show>
 						</div>
 					</div>
 

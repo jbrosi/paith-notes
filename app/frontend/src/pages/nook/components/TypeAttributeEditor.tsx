@@ -347,6 +347,9 @@ function AttributeEditRow(props: {
 	const [lnIncludeMentions, setLnIncludeMentions] = createSignal(
 		props.attr.config.include_mentions !== false,
 	);
+	const [historyLimit, setHistoryLimit] = createSignal(
+		String(props.attr.config.limit ?? "5"),
+	);
 
 	const buildConfig = (): Record<string, unknown> => {
 		const c: Record<string, unknown> = {};
@@ -362,6 +365,9 @@ function AttributeEditRow(props: {
 			c.direction = lnDirection();
 			c.include_mentions = lnIncludeMentions();
 			if (display()) c.display = display();
+		}
+		if (kind() === "history") {
+			c.limit = Number(historyLimit()) || 5;
 		}
 		return c;
 	};
@@ -468,6 +474,21 @@ function AttributeEditRow(props: {
 						/>
 						Include mentions
 					</label>
+				</div>
+			</Show>
+
+			<Show when={kind() === "history"}>
+				<div style={{ display: "flex", gap: "6px", "align-items": "center" }}>
+					<label style={{ "font-size": "12px" }}>Show last</label>
+					<input
+						type="number"
+						value={historyLimit()}
+						onInput={(e) => setHistoryLimit(e.currentTarget.value)}
+						min="1"
+						max="50"
+						style={{ width: "60px", padding: "4px 6px", "font-size": "12px" }}
+					/>
+					<span style={{ "font-size": "12px" }}>entries</span>
 				</div>
 			</Show>
 

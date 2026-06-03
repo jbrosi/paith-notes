@@ -1061,7 +1061,6 @@ export function Nav() {
 												{(
 													[
 														["content", "Note"],
-														["history", "History"],
 														["graph", "Graph"],
 														["markdown", "Markdown Source"],
 													] as const

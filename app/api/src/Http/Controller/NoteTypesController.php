@@ -748,6 +748,17 @@ final class NoteTypesController
                     'display' => 'list',
                 ]),
             ]);
+
+            // Seed "History" — recent changes
+            $pdo->prepare(
+                "insert into global.type_attributes (nook_id, type_id, name, kind, config) "
+                . "values (:nook_id, :type_id, 'History', 'history', :config::jsonb) "
+                . "on conflict do nothing"
+            )->execute([
+                ':nook_id' => $nookId,
+                ':type_id' => $typeId,
+                ':config' => json_encode(['limit' => 5]),
+            ]);
         }
 
         return $typeId;

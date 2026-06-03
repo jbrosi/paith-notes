@@ -204,6 +204,7 @@ export const TypeAttributeKinds = [
 	"graph",
 	"view",
 	"linked_notes",
+	"history",
 ] as const;
 export type TypeAttributeKind = (typeof TypeAttributeKinds)[number];
 
