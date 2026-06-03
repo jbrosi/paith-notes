@@ -66,12 +66,8 @@ export function NoteAttributeFields(props: {
 						{(attr) => (
 							<FileAttributeField
 								attr={attr}
-								value={
-									noteAttributes()[attr.id] as
-										| Record<string, unknown>
-										| undefined
-								}
 								store={props.store}
+								readonly={props.readonly}
 							/>
 						)}
 					</For>
@@ -297,18 +293,19 @@ function AttributeField(props: {
 
 function FileAttributeField(props: {
 	attr: TypeAttribute;
-	value: Record<string, unknown> | undefined;
 	store: NookStore;
+	readonly?: boolean;
 }) {
 	const [uploading, setUploading] = createSignal(false);
 	const [error, setError] = createSignal("");
 
-	const filename = () => String(props.value?.filename ?? "");
-	const contentType = () => String(props.value?.content_type ?? "");
-	const size = () => Number(props.value?.size ?? 0);
-	const storageKey = () => String(props.value?.storage_key ?? "");
+	const fileData = () => props.store.noteFiles?.()[props.attr.id];
+	const filename = () => fileData()?.filename ?? "";
+	const contentType = () => fileData()?.mime_type ?? "";
+	const size = () => fileData()?.filesize ?? 0;
+	const objectKey = () => fileData()?.object_key ?? "";
 
-	const hasFile = () => filename() !== "" && storageKey() !== "";
+	const hasFile = () => filename() !== "" && objectKey() !== "";
 	const isImage = () => contentType().startsWith("image/");
 	const displayMode = () => (props.attr.config.display as string) ?? "download";
 
@@ -385,14 +382,14 @@ function FileAttributeField(props: {
 	};
 
 	const inlineUrl = () => {
-		const nookId = props.store.nookId();
-		const noteId = props.store.selectedId();
-		if (!nookId || !noteId || !hasFile()) return "";
-		const ext = String(props.value?.extension ?? "");
-		const key = storageKey();
+		if (!hasFile()) return "";
+		const ext = fileData()?.extension ?? "";
+		const key = objectKey();
 		if (!key) return "";
 		return `/files/${key}${ext ? `.${ext}` : ""}?inline=1`;
 	};
+
+	const isEditable = () => !props.readonly && props.store.mode() === "edit";
 
 	return (
 		<div>
@@ -415,10 +412,10 @@ function FileAttributeField(props: {
 			</Show>
 
 			<div style={{ display: "flex", gap: "8px", "align-items": "center" }}>
-				<Show when={!hasFile() || props.store.mode() === "edit"}>
+				<Show when={!hasFile() || isEditable()}>
 					<input
 						type="file"
-						disabled={uploading() || props.store.mode() !== "edit"}
+						disabled={uploading() || !isEditable()}
 						onChange={(e) => {
 							const f = e.currentTarget.files?.[0];
 							if (f) void onUpload(f);

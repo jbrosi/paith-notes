@@ -241,6 +241,30 @@ final class NotesController
             $note['section'] = $sectionContent;
         }
 
+        // Include file metadata from note_files
+        $nfStmt = $pdo->prepare(
+            'select attribute_id, filename, extension, filesize, mime_type, checksum, file_version, object_key '
+            . 'from global.note_files where note_id = :note_id'
+        );
+        $nfStmt->execute([':note_id' => $noteId]);
+        $nfRows = $nfStmt->fetchAll(PDO::FETCH_ASSOC);
+        $files = [];
+        foreach ($nfRows as $nf) {
+            if (!is_array($nf)) continue;
+            $attrId = Row::str($nf, 'attribute_id');
+            if ($attrId === '') continue;
+            $files[$attrId] = [
+                'filename' => Row::str($nf, 'filename'),
+                'extension' => Row::str($nf, 'extension'),
+                'filesize' => Row::int($nf, 'filesize'),
+                'mime_type' => Row::str($nf, 'mime_type'),
+                'checksum' => Row::str($nf, 'checksum'),
+                'file_version' => Row::int($nf, 'file_version'),
+                'object_key' => Row::str($nf, 'object_key'),
+            ];
+        }
+        $note['files'] = $files === [] ? (object)[] : $files;
+
         // Include TOC (headings) for this note
         $hStmt = $pdo->prepare(
             'select level, text, position from global.note_headings where note_id = :note_id and nook_id = :nook_id order by position asc'

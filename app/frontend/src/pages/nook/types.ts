@@ -79,6 +79,18 @@ const NoteHeadingSchema = z.object({
 
 export type NoteHeading = z.infer<typeof NoteHeadingSchema>;
 
+const NoteFileSchema = z.object({
+	filename: z.string(),
+	extension: z.string(),
+	filesize: z.number().int(),
+	mime_type: z.string(),
+	checksum: z.string(),
+	file_version: z.number().int(),
+	object_key: z.string(),
+});
+
+export type NoteFile = z.infer<typeof NoteFileSchema>;
+
 const NoteDetailApiSchema = z
 	.object({
 		id: z.string(),
@@ -90,6 +102,7 @@ const NoteDetailApiSchema = z
 		version: z.number().int().optional(),
 		view_count: z.number().int().optional(),
 		headings: z.array(NoteHeadingSchema).optional(),
+		files: z.record(z.string(), NoteFileSchema).optional(),
 		created_at: z.string().optional(),
 	})
 	.transform((n) => ({
@@ -101,6 +114,7 @@ const NoteDetailApiSchema = z
 		archive: n.archive ?? {},
 		version: n.version ?? 0,
 		viewCount: n.view_count ?? 0,
+		files: n.files ?? {},
 		headings: n.headings ?? [],
 		createdAt: n.created_at,
 	}));

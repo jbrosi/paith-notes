@@ -236,6 +236,11 @@ final class GlobalSchema
             $pdo->exec('alter table global.note_files add column if not exists attribute_id uuid null');
             $pdo->exec('create index if not exists note_files_note_attr_idx on global.note_files (note_id, attribute_id)');
 
+            // File versioning
+            $pdo->exec('alter table global.note_files add column if not exists file_version int not null default 1');
+            $pdo->exec('alter table global.note_files add column if not exists uploaded_by uuid null');
+            $pdo->exec('alter table global.note_files add column if not exists nook_id uuid null');
+
             // ─── Note Headings (extracted from markdown on save) ────────────────
             $pdo->exec("
                 create table if not exists global.note_headings (

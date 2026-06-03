@@ -9,6 +9,7 @@ import type {
 	HeadingMatch,
 	Mention,
 	Note,
+	NoteFile,
 	NoteHeading,
 	NoteHistoryEntry,
 	NoteSummary,
@@ -130,6 +131,7 @@ export function createNookStore(nookId: () => string) {
 	const [noteVersion, setNoteVersion] = createSignal<number>(0);
 	const [viewCount, setViewCount] = createSignal<number>(0);
 	const [noteHeadings, setNoteHeadings] = createSignal<NoteHeading[]>([]);
+	const [noteFiles, setNoteFiles] = createSignal<Record<string, NoteFile>>({});
 	const [headingMatches, setHeadingMatches] = createSignal<HeadingMatch[]>([]);
 	const [remoteVersion, setRemoteVersion] = createSignal<number>(0);
 	const [remoteNoteChanged, setRemoteNoteChanged] = createSignal<boolean>(false);
@@ -525,44 +527,28 @@ export function createNookStore(nookId: () => string) {
 		const d = await loadNoteDetail(id);
 		if (!d) return null;
 
-		// Find the first file attribute with an image content_type
-		const attrs =
-			(d as unknown as { attributes?: Record<string, unknown> }).attributes ??
-			{};
-		let fileAttrId = "";
-		for (const [attrId, val] of Object.entries(attrs)) {
-			if (typeof val === "object" && val !== null) {
-				const ct = String((val as Record<string, unknown>).content_type ?? "");
+		// Find the first file with an image content_type from note.files
+		const files = d.files ?? {};
+		let imageFile: { object_key: string; extension: string } | null = null;
+		for (const f of Object.values(files)) {
+			if (typeof f === "object" && f !== null && "mime_type" in f) {
+				const ct = String((f as Record<string, unknown>).mime_type ?? "");
 				if (ct.startsWith("image/")) {
-					fileAttrId = attrId;
+					imageFile = {
+						object_key: String((f as Record<string, unknown>).object_key ?? ""),
+						extension: String((f as Record<string, unknown>).extension ?? ""),
+					};
 					break;
 				}
 			}
 		}
-		if (!fileAttrId) {
-			// Fallback: try legacy download endpoint for old file notes
-			try {
-				const res = await apiFetch(
-					`/api/nooks/${nook}/notes/${id}/file/download-url?inline=1`,
-				);
-				if (!res.ok) return null;
-				const json = (await res.json()) as { download_url?: string };
-				const url = json?.download_url ?? "";
-				if (url) embeddedImageCache.set(id, url);
-				return url || null;
-			} catch {
-				return null;
-			}
+		if (!imageFile || !imageFile.object_key) {
+			return null;
 		}
 
 		try {
-			const res = await apiFetch(
-				`/api/nooks/${nook}/notes/${id}/attributes/${fileAttrId}/file/download-url?inline=1`,
-			);
-			if (!res.ok) return null;
-			const json = (await res.json()) as { download_url?: string };
-			const url = json?.download_url ?? "";
-			if (url === "") return null;
+			const ext = imageFile.extension;
+			const url = `/files/${imageFile.object_key}${ext ? `.${ext}` : ""}?inline=1`;
 			embeddedImageCache.set(id, url);
 			return url;
 		} catch {
@@ -611,12 +597,12 @@ export function createNookStore(nookId: () => string) {
 				setMentionCanEmbedImage(false);
 				return;
 			}
-			const attrs = d.attributes ?? {};
-			const ok = Object.values(attrs).some(
-				(v) =>
-					typeof v === "object" &&
-					v !== null &&
-					String((v as Record<string, unknown>).content_type ?? "").startsWith(
+			const files = d.files ?? {};
+			const ok = Object.values(files).some(
+				(f) =>
+					typeof f === "object" &&
+					f !== null &&
+					String((f as Record<string, unknown>).mime_type ?? "").startsWith(
 						"image/",
 					),
 			);
@@ -967,6 +953,7 @@ export function createNookStore(nookId: () => string) {
 		setNoteVersion(note.version ?? 0);
 		setViewCount(note.viewCount ?? 0);
 		setNoteHeadings(note.headings ?? []);
+		setNoteFiles(note.files ?? {});
 		setError("");
 		setMentionTargetId("");
 		setMentionEmbedImage(false);
@@ -1349,6 +1336,7 @@ export function createNookStore(nookId: () => string) {
 		refreshCurrentNote,
 		loadMentions,
 		noteHeadings,
+		noteFiles,
 		headingMatches,
 		noteHistory,
 		loadHistory,

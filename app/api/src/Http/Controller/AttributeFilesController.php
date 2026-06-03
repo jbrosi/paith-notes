@@ -49,7 +49,6 @@ final class AttributeFilesController
         $data = $request->jsonBody();
         $file = $this->parseFileMetadata($data);
 
-        $objectKey = sprintf('notes/%s/files/%s/%s', $nookId, $noteId, $attributeId);
         $uploadId = $this->generateUuid($pdo);
         $tempObjectKey = 'tmp/' . $uploadId;
         $url = $this->filePublicUrlForRequest($request, $tempObjectKey);
@@ -57,14 +56,19 @@ final class AttributeFilesController
         try {
             $pdo->beginTransaction();
 
-            // Upsert note_files entry for this attribute
-            $this->upsertNoteFile($pdo, $noteId, $attributeId, $objectKey, $file);
+            // Upsert note_files entry — bumps file_version on re-upload
+            $fileVersion = $this->upsertNoteFile($pdo, $noteId, $attributeId, '', $file, $nookId, $userId);
+            $objectKey = sprintf('notes/%s/files/%s/%s/v%d', $nookId, $noteId, $attributeId, $fileVersion);
+
+            // Update object_key now that we know the version
+            $pdo->prepare('update global.note_files set object_key = :key where note_id = :note_id')
+                ->execute([':key' => $objectKey, ':note_id' => $noteId]);
 
             // Create upload record
             $this->createUpload($pdo, $uploadId, $noteId, $userId, $tempObjectKey, $objectKey, $sessionId, $nookId, $file);
 
-            // Update note.attributes with file metadata
-            $this->updateNoteFileAttribute($pdo, $noteId, $nookId, $attributeId, $file, $objectKey);
+            // Set note attribute to just the file_version
+            $this->updateNoteFileAttribute($pdo, $noteId, $nookId, $attributeId, $fileVersion);
 
             $pdo->commit();
         } catch (Throwable $e) {
@@ -112,25 +116,21 @@ final class AttributeFilesController
 
             $this->validateAndMoveFile($pdo, $noteId, $tempObjectKey, $finalObjectKey);
 
-            // Read filesize/checksum from the final location (file was already moved)
+            // Update filesize/checksum from the final file on disk
             $finalPath = self::dataPath() . '/' . ltrim($finalObjectKey, '/');
             $serverFilesize = @filesize($finalPath);
             $serverFilesize = is_int($serverFilesize) ? max(0, $serverFilesize) : 0;
             $serverChecksum = @hash_file('sha256', $finalPath);
             $serverChecksum = is_string($serverChecksum) ? trim($serverChecksum) : '';
-            $updFile = $pdo->prepare(
+            $pdo->prepare(
                 'update global.note_files set filesize = :filesize, checksum = :checksum, updated_at = now() '
                 . 'where note_id = :note_id and attribute_id = :attribute_id'
-            );
-            $updFile->execute([
+            )->execute([
                 ':filesize' => $serverFilesize,
                 ':checksum' => $serverChecksum,
                 ':note_id' => $noteId,
                 ':attribute_id' => $attributeId,
             ]);
-
-            // Update note.attributes with final filesize/checksum
-            $this->patchNoteFileAttributeFinalize($pdo, $noteId, $nookId, $attributeId, $serverFilesize, $serverChecksum);
 
             $upd = $pdo->prepare('update global.file_uploads set finalized_at = now() where id = :id and finalized_at is null');
             $upd->execute([':id' => $uploadId]);
@@ -337,7 +337,7 @@ final class AttributeFilesController
                 $title = $filename;
             }
 
-            // Pre-generate note ID so we can set storage_key in the INSERT.
+            // Pre-generate note ID so we can build the path before INSERT.
             // INSERT first (validates UUID uniqueness), then move the file.
             $genId = $pdo->query('select gen_random_uuid()::text')->fetchColumn();
             $noteId = is_string($genId) ? trim($genId) : '';
@@ -345,18 +345,9 @@ final class AttributeFilesController
                 throw new HttpError('failed to generate note id', 500);
             }
 
-            $objectKey = sprintf('notes/%s/files/%s/%s', $nookId, $noteId, $attributeId);
-
-            $fileAttrValue = [
-                'storage_key' => $objectKey,
-                'filename' => $filename,
-                'extension' => $extension,
-                'content_type' => $mimeType,
-                'size' => $serverFilesize,
-                'checksum' => $serverChecksum,
-            ];
-
-            $attributes = [$attributeId => $fileAttrValue];
+            $fileVersion = 1;
+            $objectKey = sprintf('notes/%s/files/%s/%s/v%d', $nookId, $noteId, $attributeId, $fileVersion);
+            $attributes = [$attributeId => ['file_version' => $fileVersion]];
 
             // Create the note first — if UUID collides, this fails safely
             // before we touch any files on disk.
@@ -394,16 +385,10 @@ final class AttributeFilesController
             }
 
             // Insert note_files record
-            $upsert = $pdo->prepare(
-                "insert into global.note_files (note_id, attribute_id, object_key, filename, extension, filesize, mime_type, checksum, updated_at) "
-                . "values (:note_id, :attribute_id, :object_key, :filename, :extension, :filesize, :mime_type, :checksum, now()) "
-                . "on conflict (note_id) do update set "
-                . "    attribute_id = excluded.attribute_id, object_key = excluded.object_key, "
-                . "    filename = excluded.filename, extension = excluded.extension, "
-                . "    filesize = excluded.filesize, mime_type = excluded.mime_type, "
-                . "    checksum = excluded.checksum, updated_at = now()"
-            );
-            $upsert->execute([
+            $pdo->prepare(
+                "insert into global.note_files (note_id, attribute_id, object_key, filename, extension, filesize, mime_type, checksum, file_version, uploaded_by, nook_id, updated_at) "
+                . "values (:note_id, :attribute_id, :object_key, :filename, :extension, :filesize, :mime_type, :checksum, :file_version, :uploaded_by, :nook_id, now())"
+            )->execute([
                 ':note_id' => $noteId,
                 ':attribute_id' => $attributeId,
                 ':object_key' => $objectKey,
@@ -412,6 +397,9 @@ final class AttributeFilesController
                 ':filesize' => $serverFilesize,
                 ':mime_type' => $mimeType,
                 ':checksum' => $serverChecksum,
+                ':file_version' => $fileVersion,
+                ':uploaded_by' => $userId,
+                ':nook_id' => $nookId,
             ]);
 
             // Mark upload finalized
@@ -509,16 +497,23 @@ final class AttributeFilesController
         }
     }
 
-    private function upsertNoteFile(PDO $pdo, string $noteId, string $attributeId, string $objectKey, array $file): void
+    /**
+     * Upsert note_files row, bumping file_version on re-upload.
+     * Returns the new file_version.
+     */
+    private function upsertNoteFile(PDO $pdo, string $noteId, string $attributeId, string $objectKey, array $file, string $nookId, string $userId): int
     {
         $stmt = $pdo->prepare(
-            "insert into global.note_files (note_id, attribute_id, object_key, filename, extension, filesize, mime_type, checksum, updated_at) "
-            . "values (:note_id, :attribute_id, :object_key, :filename, :extension, :filesize, :mime_type, :checksum, now()) "
+            "insert into global.note_files (note_id, attribute_id, object_key, filename, extension, filesize, mime_type, checksum, file_version, uploaded_by, nook_id, updated_at) "
+            . "values (:note_id, :attribute_id, :object_key, :filename, :extension, :filesize, :mime_type, :checksum, 1, :uploaded_by, :nook_id, now()) "
             . "on conflict (note_id) do update set "
             . "    attribute_id = excluded.attribute_id, object_key = excluded.object_key, "
             . "    filename = excluded.filename, extension = excluded.extension, "
             . "    filesize = excluded.filesize, mime_type = excluded.mime_type, "
-            . "    checksum = excluded.checksum, updated_at = now()"
+            . "    checksum = excluded.checksum, uploaded_by = excluded.uploaded_by, "
+            . "    file_version = global.note_files.file_version + 1, "
+            . "    updated_at = now() "
+            . "returning file_version"
         );
         $stmt->execute([
             ':note_id' => $noteId,
@@ -529,7 +524,11 @@ final class AttributeFilesController
             ':filesize' => $file['filesize'],
             ':mime_type' => $file['mime_type'],
             ':checksum' => $file['checksum'],
+            ':uploaded_by' => $userId,
+            ':nook_id' => $nookId,
         ]);
+        $ver = $stmt->fetchColumn();
+        return is_scalar($ver) ? (int)$ver : 1;
     }
 
     private function createUpload(PDO $pdo, string $uploadId, string $noteId, string $userId, string $tempObjectKey, string $finalObjectKey, string $sessionId, string $nookId, array $file): void
@@ -554,16 +553,12 @@ final class AttributeFilesController
         ]);
     }
 
-    private function updateNoteFileAttribute(PDO $pdo, string $noteId, string $nookId, string $attributeId, array $file, string $objectKey): void
+    /**
+     * Set the note attribute to just the file_version pointer.
+     */
+    private function updateNoteFileAttribute(PDO $pdo, string $noteId, string $nookId, string $attributeId, int $fileVersion): void
     {
-        $attrValue = [
-            'storage_key' => $objectKey,
-            'filename' => $file['filename'],
-            'extension' => $file['extension'],
-            'content_type' => $file['mime_type'],
-            'size' => $file['filesize'],
-            'checksum' => $file['checksum'],
-        ];
+        $attrValue = ['file_version' => $fileVersion];
 
         $stmt = $pdo->prepare(
             "update global.notes set attributes = jsonb_set(coalesce(attributes, '{}'), :path::text[], :value::jsonb), updated_at = now() "
@@ -572,31 +567,6 @@ final class AttributeFilesController
         $stmt->execute([
             ':path' => '{' . $attributeId . '}',
             ':value' => json_encode($attrValue),
-            ':id' => $noteId,
-            ':nook_id' => $nookId,
-        ]);
-    }
-
-    private function patchNoteFileAttributeFinalize(PDO $pdo, string $noteId, string $nookId, string $attributeId, int $filesize, string $checksum): void
-    {
-        // Read current attribute value, patch filesize and checksum
-        $stmt = $pdo->prepare("select attributes->:attr_id from global.notes where id = :id and nook_id = :nook_id");
-        $stmt->execute([':attr_id' => $attributeId, ':id' => $noteId, ':nook_id' => $nookId]);
-        $raw = $stmt->fetchColumn();
-        $val = is_scalar($raw) ? json_decode((string)$raw, true) : [];
-        if (!is_array($val)) {
-            $val = [];
-        }
-        $val['size'] = $filesize;
-        $val['checksum'] = $checksum;
-
-        $upd = $pdo->prepare(
-            "update global.notes set attributes = jsonb_set(coalesce(attributes, '{}'), :path::text[], :value::jsonb), updated_at = now() "
-            . "where id = :id and nook_id = :nook_id"
-        );
-        $upd->execute([
-            ':path' => '{' . $attributeId . '}',
-            ':value' => json_encode($val),
             ':id' => $noteId,
             ':nook_id' => $nookId,
         ]);
