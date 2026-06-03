@@ -205,6 +205,7 @@ export const TypeAttributeKinds = [
 	"view",
 	"linked_notes",
 	"history",
+	"toc",
 ] as const;
 export type TypeAttributeKind = (typeof TypeAttributeKinds)[number];
 

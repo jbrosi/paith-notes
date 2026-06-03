@@ -350,6 +350,9 @@ function AttributeEditRow(props: {
 	const [historyLimit, setHistoryLimit] = createSignal(
 		String(props.attr.config.limit ?? "5"),
 	);
+	const [tocMaxDepth, setTocMaxDepth] = createSignal(
+		String(props.attr.config.max_depth ?? "3"),
+	);
 
 	const buildConfig = (): Record<string, unknown> => {
 		const c: Record<string, unknown> = {};
@@ -368,6 +371,9 @@ function AttributeEditRow(props: {
 		}
 		if (kind() === "history") {
 			c.limit = Number(historyLimit()) || 5;
+		}
+		if (kind() === "toc") {
+			c.max_depth = Number(tocMaxDepth()) || 3;
 		}
 		return c;
 	};
@@ -484,11 +490,32 @@ function AttributeEditRow(props: {
 						type="number"
 						value={historyLimit()}
 						onInput={(e) => setHistoryLimit(e.currentTarget.value)}
-						min="1"
+						min="0"
 						max="50"
 						style={{ width: "60px", padding: "4px 6px", "font-size": "12px" }}
 					/>
-					<span style={{ "font-size": "12px" }}>entries</span>
+					<span style={{ "font-size": "12px" }}>entries (0 = version info only)</span>
+				</div>
+			</Show>
+
+			<Show when={kind() === "toc"}>
+				<div style={{ display: "flex", gap: "6px", "align-items": "center" }}>
+					<label style={{ "font-size": "12px" }}>Max heading depth</label>
+					<select
+						value={tocMaxDepth()}
+						onChange={(e) => setTocMaxDepth(e.currentTarget.value)}
+						style={{ padding: "4px 6px", "font-size": "12px" }}
+					>
+						<option value="1">h1 only</option>
+						<option value="2">h1–h2</option>
+						<option value="3">h1–h3</option>
+						<option value="4">h1–h4</option>
+						<option value="5">h1–h5</option>
+						<option value="6">All levels</option>
+					</select>
+					<span style={{ "font-size": "11px", color: "var(--color-text-muted)" }}>
+						(can be overridden per note)
+					</span>
 				</div>
 			</Show>
 

@@ -749,6 +749,17 @@ final class NoteTypesController
                 ]),
             ]);
 
+            // Seed "Table of Contents"
+            $pdo->prepare(
+                "insert into global.type_attributes (nook_id, type_id, name, kind, config) "
+                . "values (:nook_id, :type_id, 'Table of Contents', 'toc', :config::jsonb) "
+                . "on conflict do nothing"
+            )->execute([
+                ':nook_id' => $nookId,
+                ':type_id' => $typeId,
+                ':config' => json_encode(['max_depth' => 3]),
+            ]);
+
             // Seed "History" — recent changes
             $pdo->prepare(
                 "insert into global.type_attributes (nook_id, type_id, name, kind, config) "

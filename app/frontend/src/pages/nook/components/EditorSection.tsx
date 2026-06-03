@@ -1,4 +1,4 @@
-import { createSignal, For, Show } from "solid-js";
+import { createSignal, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 import { MarkdownView } from "../../../components/MarkdownView";
 import { MentionDropdown } from "../../../components/MentionDropdown";
@@ -121,9 +121,6 @@ export function EditorSection(props: { store: NookStore }) {
 					</>
 				}
 			>
-				<Show when={props.store.noteHeadings().length > 0}>
-					<TableOfContents headings={props.store.noteHeadings()} />
-				</Show>
 				<MarkdownView
 					content={props.store.content()}
 					resolveEmbeddedImageSrc={(id) =>
@@ -135,94 +132,3 @@ export function EditorSection(props: { store: NookStore }) {
 	);
 }
 
-function TableOfContents(props: {
-	headings: Array<{ level: number; text: string; position: number }>;
-}) {
-	const [open, setOpen] = createSignal(false);
-	const minLevel = () =>
-		Math.min(...props.headings.map((h) => h.level));
-
-	const scrollToHeading = (text: string) => {
-		// Find the rendered heading element by matching text content
-		const container = document.querySelector("[data-note-content]") ?? document.body;
-		const headingEls = container.querySelectorAll("h1, h2, h3, h4, h5, h6");
-		for (const el of headingEls) {
-			if (el.textContent?.trim() === text) {
-				el.scrollIntoView({ behavior: "smooth", block: "start" });
-				return;
-			}
-		}
-	};
-
-	return (
-		<div
-			style={{
-				"margin-bottom": "12px",
-				border: "1px solid var(--color-border-light, #e5e7eb)",
-				"border-radius": "6px",
-				"font-size": "0.8rem",
-				overflow: "hidden",
-			}}
-		>
-			<button
-				type="button"
-				onClick={() => setOpen(!open())}
-				style={{
-					width: "100%",
-					padding: "6px 10px",
-					border: "none",
-					background: "var(--color-bg-secondary, #f9fafb)",
-					cursor: "pointer",
-					display: "flex",
-					"align-items": "center",
-					gap: "4px",
-					"font-size": "0.7rem",
-					"font-weight": "600",
-					color: "var(--color-text-secondary, #6b7280)",
-				}}
-			>
-				<span style={{ "font-size": "0.6rem" }}>{open() ? "▼" : "▶"}</span>
-				Table of contents
-				<span
-					style={{
-						"margin-left": "auto",
-						"font-weight": "400",
-						color: "var(--color-text-muted)",
-					}}
-				>
-					{props.headings.length}
-				</span>
-			</button>
-			<Show when={open()}>
-				<div style={{ padding: "4px 0" }}>
-					<For each={props.headings}>
-						{(h) => (
-							<button
-								type="button"
-								onClick={() => scrollToHeading(h.text)}
-								style={{
-									display: "block",
-									width: "100%",
-									padding: "3px 10px",
-									"padding-left": `${10 + (h.level - minLevel()) * 14}px`,
-									border: "none",
-									background: "none",
-									"text-align": "left",
-									cursor: "pointer",
-									"font-size": "0.75rem",
-									color: "var(--color-text-secondary)",
-									"white-space": "nowrap",
-									overflow: "hidden",
-									"text-overflow": "ellipsis",
-								}}
-								title={h.text}
-							>
-								{h.text}
-							</button>
-						)}
-					</For>
-				</div>
-			</Show>
-		</div>
-	);
-}
