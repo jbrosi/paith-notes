@@ -6,8 +6,10 @@ import {
 	resolveTypeIdForTerm,
 } from "../../noteSearch";
 import type {
+	HeadingMatch,
 	Mention,
 	Note,
+	NoteHeading,
 	NoteHistoryEntry,
 	NoteSummary,
 	NoteType,
@@ -127,6 +129,8 @@ export function createNookStore(nookId: () => string) {
 	const [incomingMentions, setIncomingMentions] = createSignal<Mention[]>([]);
 	const [noteVersion, setNoteVersion] = createSignal<number>(0);
 	const [viewCount, setViewCount] = createSignal<number>(0);
+	const [noteHeadings, setNoteHeadings] = createSignal<NoteHeading[]>([]);
+	const [headingMatches, setHeadingMatches] = createSignal<HeadingMatch[]>([]);
 	const [remoteVersion, setRemoteVersion] = createSignal<number>(0);
 	const [remoteNoteChanged, setRemoteNoteChanged] = createSignal<boolean>(false);
 	const [noteViewers, setNoteViewers] = createSignal<
@@ -900,6 +904,7 @@ export function createNookStore(nookId: () => string) {
 			cacheTitles(fetched.map((n) => ({ id: n.id, title: n.title })));
 			setNotes(rankNotesByQuery(nextNotes, q));
 			setNotesNextCursor(body.nextCursor);
+			if (reset) setHeadingMatches(body.headingMatches);
 		} catch (e) {
 			if (e instanceof DOMException && e.name === "AbortError") return;
 			if (version !== loadNotesVersion) return;
@@ -952,6 +957,7 @@ export function createNookStore(nookId: () => string) {
 		setTitleIsManual(true);
 		setNoteVersion(note.version ?? 0);
 		setViewCount(note.viewCount ?? 0);
+		setNoteHeadings(note.headings ?? []);
 		setError("");
 		setMentionTargetId("");
 		setMentionEmbedImage(false);
@@ -1333,6 +1339,8 @@ export function createNookStore(nookId: () => string) {
 		loadMoreNotes,
 		refreshCurrentNote,
 		loadMentions,
+		noteHeadings,
+		headingMatches,
 		noteHistory,
 		loadHistory,
 		selectedVersion,

@@ -71,6 +71,14 @@ const NoteSummaryApiSchema = z
 		createdAt: n.created_at,
 	}));
 
+const NoteHeadingSchema = z.object({
+	level: z.number().int(),
+	text: z.string(),
+	position: z.number().int(),
+});
+
+export type NoteHeading = z.infer<typeof NoteHeadingSchema>;
+
 const NoteDetailApiSchema = z
 	.object({
 		id: z.string(),
@@ -81,6 +89,7 @@ const NoteDetailApiSchema = z
 		archive: z.record(z.string(), z.unknown()).optional(),
 		version: z.number().int().optional(),
 		view_count: z.number().int().optional(),
+		headings: z.array(NoteHeadingSchema).optional(),
 		created_at: z.string().optional(),
 	})
 	.transform((n) => ({
@@ -92,6 +101,7 @@ const NoteDetailApiSchema = z
 		archive: n.archive ?? {},
 		version: n.version ?? 0,
 		viewCount: n.view_count ?? 0,
+		headings: n.headings ?? [],
 		createdAt: n.created_at,
 	}));
 
@@ -103,14 +113,34 @@ export const NotesListResponseSchema = z
 		notes: r.notes,
 	}));
 
+const HeadingMatchSchema = z
+	.object({
+		note_id: z.string(),
+		note_title: z.string(),
+		level: z.number().int(),
+		text: z.string(),
+		position: z.number().int(),
+	})
+	.transform((h) => ({
+		noteId: h.note_id,
+		noteTitle: h.note_title,
+		level: h.level,
+		text: h.text,
+		position: h.position,
+	}));
+
+export type HeadingMatch = z.infer<typeof HeadingMatchSchema>;
+
 export const NoteTypeNotesResponseSchema = z
 	.object({
 		notes: z.array(NoteSummaryApiSchema),
 		next_cursor: z.string().optional(),
+		heading_matches: z.array(HeadingMatchSchema).optional(),
 	})
 	.transform((r) => ({
 		notes: r.notes,
 		nextCursor: r.next_cursor ?? "",
+		headingMatches: r.heading_matches ?? [],
 	}));
 
 export const NoteResponseSchema = z

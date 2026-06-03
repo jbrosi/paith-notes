@@ -277,6 +277,51 @@ export function NookNotesSearchDropdown(props: NookNotesSearchDropdownProps) {
 								</button>
 							)}
 						</For>
+						<Show when={query().trim() !== "" && (store()?.headingMatches()?.length ?? 0) > 0}>
+							<div
+								style={{
+									padding: "4px 12px 2px",
+									"font-size": "0.65rem",
+									"font-weight": "600",
+									color: "var(--color-text-muted)",
+									"text-transform": "uppercase",
+									"letter-spacing": "0.05em",
+									"border-top": "1px solid var(--color-border-light, #eee)",
+									"margin-top": "2px",
+								}}
+							>
+								Heading matches
+							</div>
+							<For each={store()?.headingMatches() ?? []}>
+								{(h) => (
+									<button
+										type="button"
+										class={styles["dropdown-item"]}
+										onMouseDown={(e) => e.preventDefault()}
+										onClick={() => selectNote(h.noteId)}
+										style={{ "padding-left": `${12 + (h.level - 1) * 8}px` }}
+									>
+										<span
+											style={{
+												display: "flex",
+												"flex-direction": "column",
+												gap: "1px",
+											}}
+										>
+											<span>{h.text}</span>
+											<span
+												style={{
+													"font-size": "0.65rem",
+													color: "var(--color-text-muted)",
+												}}
+											>
+												{h.noteTitle}
+											</span>
+										</span>
+									</button>
+								)}
+							</For>
+						</Show>
 					</div>
 					{/* Create note options */}
 					<div class={styles.dropdownFooter}>
