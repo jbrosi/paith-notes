@@ -14,7 +14,7 @@ use Throwable;
 
 final class TypeAttributesController
 {
-    private const VALID_KINDS = ['text', 'number', 'boolean', 'date', 'date_range', 'select', 'file', 'graph', 'view', 'linked_notes', 'history', 'toc'];
+    private const VALID_KINDS = ['text', 'number', 'boolean', 'date', 'date_range', 'select', 'multi_select', 'url', 'file', 'graph', 'view', 'linked_notes', 'history', 'toc', 'metadata'];
 
     /**
      * List all attributes for a type, including inherited attributes from ancestors.

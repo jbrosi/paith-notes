@@ -353,10 +353,14 @@ function AttributeEditRow(props: {
 	const [tocMaxDepth, setTocMaxDepth] = createSignal(
 		String(props.attr.config.max_depth ?? "3"),
 	);
+	const [mdShowVersion, setMdShowVersion] = createSignal(props.attr.config.show_version !== false);
+	const [mdShowCreated, setMdShowCreated] = createSignal(props.attr.config.show_created !== false);
+	const [mdShowUpdated, setMdShowUpdated] = createSignal(props.attr.config.show_updated !== false);
+	const [mdShowViews, setMdShowViews] = createSignal(props.attr.config.show_views !== false);
 
 	const buildConfig = (): Record<string, unknown> => {
 		const c: Record<string, unknown> = {};
-		if (kind() === "select") {
+		if (kind() === "select" || kind() === "multi_select") {
 			c.options = options()
 				.split(",")
 				.map((s) => s.trim())
@@ -374,6 +378,12 @@ function AttributeEditRow(props: {
 		}
 		if (kind() === "toc") {
 			c.max_depth = Number(tocMaxDepth()) || 3;
+		}
+		if (kind() === "metadata") {
+			c.show_version = mdShowVersion();
+			c.show_created = mdShowCreated();
+			c.show_updated = mdShowUpdated();
+			c.show_views = mdShowViews();
 		}
 		return c;
 	};
@@ -407,7 +417,7 @@ function AttributeEditRow(props: {
 				</select>
 			</div>
 
-			<Show when={kind() === "select"}>
+			<Show when={kind() === "select" || kind() === "multi_select"}>
 				<input
 					value={options()}
 					onInput={(e) => setOptions(e.currentTarget.value)}
@@ -495,6 +505,23 @@ function AttributeEditRow(props: {
 						style={{ width: "60px", padding: "4px 6px", "font-size": "12px" }}
 					/>
 					<span style={{ "font-size": "12px" }}>entries (0 = version info only)</span>
+				</div>
+			</Show>
+
+			<Show when={kind() === "metadata"}>
+				<div style={{ display: "flex", gap: "8px", "flex-wrap": "wrap", "font-size": "12px" }}>
+					<label style={{ display: "flex", "align-items": "center", gap: "3px" }}>
+						<input type="checkbox" checked={mdShowVersion()} onChange={(e) => setMdShowVersion(e.currentTarget.checked)} /> Version
+					</label>
+					<label style={{ display: "flex", "align-items": "center", gap: "3px" }}>
+						<input type="checkbox" checked={mdShowCreated()} onChange={(e) => setMdShowCreated(e.currentTarget.checked)} /> Created
+					</label>
+					<label style={{ display: "flex", "align-items": "center", gap: "3px" }}>
+						<input type="checkbox" checked={mdShowUpdated()} onChange={(e) => setMdShowUpdated(e.currentTarget.checked)} /> Last edited
+					</label>
+					<label style={{ display: "flex", "align-items": "center", gap: "3px" }}>
+						<input type="checkbox" checked={mdShowViews()} onChange={(e) => setMdShowViews(e.currentTarget.checked)} /> View count
+					</label>
 				</div>
 			</Show>
 

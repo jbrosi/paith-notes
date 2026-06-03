@@ -749,6 +749,22 @@ final class NoteTypesController
                 ]),
             ]);
 
+            // Seed "Info" — note metadata
+            $pdo->prepare(
+                "insert into global.type_attributes (nook_id, type_id, name, kind, config) "
+                . "values (:nook_id, :type_id, 'Info', 'metadata', :config::jsonb) "
+                . "on conflict do nothing"
+            )->execute([
+                ':nook_id' => $nookId,
+                ':type_id' => $typeId,
+                ':config' => json_encode([
+                    'show_version' => true,
+                    'show_created' => true,
+                    'show_updated' => true,
+                    'show_views' => true,
+                ]),
+            ]);
+
             // Seed "Table of Contents"
             $pdo->prepare(
                 "insert into global.type_attributes (nook_id, type_id, name, kind, config) "

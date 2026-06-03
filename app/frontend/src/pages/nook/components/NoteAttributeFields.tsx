@@ -32,7 +32,7 @@ export function NoteAttributeFields(props: {
 		props.store.setNoteAttribute?.(attrId, value);
 	};
 
-	const nonInlineKinds = new Set(["file", "graph", "view", "linked_notes", "history", "toc"]);
+	const nonInlineKinds = new Set(["file", "graph", "view", "linked_notes", "history", "toc", "metadata"]);
 	const simpleAttrs = () =>
 		attributes()?.filter((a) => !nonInlineKinds.has(a.kind)) ?? [];
 	const fileAttrs = () => attributes()?.filter((a) => a.kind === "file") ?? [];
@@ -46,6 +46,8 @@ export function NoteAttributeFields(props: {
 		attributes()?.filter((a) => a.kind === "history") ?? [];
 	const tocAttrs = () =>
 		attributes()?.filter((a) => a.kind === "toc") ?? [];
+	const metadataAttrs = () =>
+		attributes()?.filter((a) => a.kind === "metadata") ?? [];
 
 	return (
 		<>
@@ -107,6 +109,14 @@ export function NoteAttributeFields(props: {
 			<For each={linkedNotesAttrs()}>
 				{(attr) => (
 					<LinkedNotesAttributeField
+						attr={attr}
+						store={props.store}
+					/>
+				)}
+			</For>
+			<For each={metadataAttrs()}>
+				{(attr) => (
+					<MetadataAttributeField
 						attr={attr}
 						store={props.store}
 					/>
@@ -316,6 +326,114 @@ function AttributeField(props: {
 				</label>
 			);
 		}
+
+		case "multi_select": {
+			const options = Array.isArray(props.attr.config.options)
+				? (props.attr.config.options as string[])
+				: [];
+			const selected = () => {
+				if (Array.isArray(props.value)) return props.value as string[];
+				return [];
+			};
+			const toggle = (opt: string) => {
+				const cur = selected();
+				if (cur.includes(opt)) {
+					props.onChange(cur.filter((v) => v !== opt));
+				} else {
+					props.onChange([...cur, opt]);
+				}
+			};
+			return (
+				<div>
+					<div style={labelStyle}>{props.attr.name}</div>
+					<Show
+						when={!props.disabled}
+						fallback={
+							<div style={{ display: "flex", gap: "4px", "flex-wrap": "wrap" }}>
+								<For each={selected()}>
+									{(v) => (
+										<span
+											style={{
+												padding: "2px 8px",
+												"border-radius": "999px",
+												background: "var(--color-primary-bg, #eff6ff)",
+												border: "1px solid var(--color-primary-border, #bae6fd)",
+												"font-size": "0.7rem",
+												color: "var(--color-primary, #3b82f6)",
+											}}
+										>
+											{v}
+										</span>
+									)}
+								</For>
+								<Show when={selected().length === 0}>
+									<span style={{ "font-size": "0.75rem", color: "var(--color-text-muted)" }}>(none)</span>
+								</Show>
+							</div>
+						}
+					>
+						<div style={{ display: "flex", gap: "4px", "flex-wrap": "wrap" }}>
+							<For each={options}>
+								{(opt) => {
+									const isSelected = () => selected().includes(opt);
+									return (
+										<button
+											type="button"
+											onClick={() => toggle(opt)}
+											style={{
+												padding: "2px 8px",
+												"border-radius": "999px",
+												border: "1px solid",
+												"border-color": isSelected() ? "var(--color-primary-border, #bae6fd)" : "var(--color-border-light, #e5e7eb)",
+												background: isSelected() ? "var(--color-primary-bg, #eff6ff)" : "transparent",
+												"font-size": "0.7rem",
+												color: isSelected() ? "var(--color-primary, #3b82f6)" : "var(--color-text-secondary)",
+												cursor: "pointer",
+											}}
+										>
+											{opt}
+										</button>
+									);
+								}}
+							</For>
+						</div>
+					</Show>
+				</div>
+			);
+		}
+
+		case "url":
+			return (
+				<div>
+					<div style={labelStyle}>{props.attr.name}</div>
+					<Show
+						when={!props.disabled}
+						fallback={
+							<Show
+								when={strVal()}
+								fallback={<span style={{ "font-size": "0.75rem", color: "var(--color-text-muted)" }}>(none)</span>}
+							>
+								<a
+									href={strVal()}
+									target="_blank"
+									rel="noopener noreferrer"
+									style={{ "font-size": "0.8rem", color: "var(--link-color, #0066cc)", "word-break": "break-all" }}
+								>
+									{strVal()}
+								</a>
+							</Show>
+						}
+					>
+						<input
+							type="url"
+							value={strVal()}
+							onInput={(e) => props.onChange(e.currentTarget.value)}
+							placeholder="https://..."
+							style={inputStyle}
+						/>
+					</Show>
+				</div>
+			);
 
 		default:
 			return null;
@@ -1064,6 +1182,81 @@ function LinkedNotesAttributeField(props: {
 						)}
 					</For>
 				</div>
+			</div>
+		</Show>
+	);
+}
+
+// ─── Metadata Attribute ──────────────────────────────────────────────────────
+
+function MetadataAttributeField(props: {
+	attr: TypeAttribute;
+	store: NookStore;
+}) {
+	const config = () => {
+		const c = props.attr.config;
+		return {
+			showVersion: c.show_version !== false,
+			showCreated: c.show_created !== false,
+			showUpdated: c.show_updated !== false,
+			showViews: c.show_views !== false,
+		};
+	};
+
+	const history = () => props.store.noteHistory();
+	const createdEntry = () => {
+		const h = history();
+		for (let i = h.length - 1; i >= 0; i--) {
+			if (h[i].action === "INSERT" && h[i].type === "note") return h[i];
+		}
+		return undefined;
+	};
+	const lastEditEntry = () => history().find((h) => h.action === "UPDATE" && h.type === "note");
+
+	const hasAny = () => {
+		const cfg = config();
+		return (
+			(cfg.showVersion && props.store.noteVersion() > 0) ||
+			(cfg.showViews && props.store.viewCount() > 0) ||
+			(cfg.showCreated && createdEntry()) ||
+			(cfg.showUpdated && lastEditEntry())
+		);
+	};
+
+	return (
+		<Show when={hasAny()}>
+			<div
+				style={{
+					display: "flex",
+					"flex-wrap": "wrap",
+					gap: "8px 16px",
+					padding: "6px 0",
+					"font-size": "0.7rem",
+					color: "var(--color-text-muted)",
+					"border-top": "1px solid var(--color-border-light)",
+					"margin-top": "8px",
+				}}
+			>
+				<Show when={config().showVersion && props.store.noteVersion() > 0}>
+					<span>v{props.store.noteVersion()}</span>
+				</Show>
+				<Show when={config().showViews && props.store.viewCount() > 0}>
+					<span>{props.store.viewCount()} views</span>
+				</Show>
+				<Show when={config().showCreated && createdEntry()}>
+					{(entry) => (
+						<span>
+							Created by {entry().userName || "Unknown"} {formatTimeAgo(entry().createdAt)}
+						</span>
+					)}
+				</Show>
+				<Show when={config().showUpdated && lastEditEntry()}>
+					{(entry) => (
+						<span>
+							Edited by {entry().userName || "Unknown"} {formatTimeAgo(entry().createdAt)}
+						</span>
+					)}
+				</Show>
 			</div>
 		</Show>
 	);

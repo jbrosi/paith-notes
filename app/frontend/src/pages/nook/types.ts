@@ -203,9 +203,12 @@ export const TypeAttributeKinds = [
 	"file",
 	"graph",
 	"view",
+	"multi_select",
+	"url",
 	"linked_notes",
 	"history",
 	"toc",
+	"metadata",
 ] as const;
 export type TypeAttributeKind = (typeof TypeAttributeKinds)[number];
 
