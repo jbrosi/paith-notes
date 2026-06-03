@@ -102,7 +102,7 @@ export const TOOLS: Anthropic.Tool[] = [
   },
   {
     name: 'get_note_history',
-    description: 'Get the edit history of a note — who changed it, when, and at which version. Returns a list of history entries with version numbers, action (INSERT/UPDATE), user, and timestamp. Use this to understand how a note evolved over time, or to find a specific version to inspect.',
+    description: 'Get the edit history of a note — who changed it, when, and at which version. Returns a list of history entries with version numbers, action (INSERT/UPDATE), user, and timestamp. Use this to understand how a note evolved over time, or to find a specific version to inspect. To link to a version: /nooks/{nookId}/notes/{noteId}/v/{version}. To link to a diff: /nooks/{nookId}/notes/{noteId}/compare/{fromVersion} (or /compare/{from}/{to}).',
     input_schema: {
       type: 'object',
       properties: {
@@ -114,7 +114,7 @@ export const TOOLS: Anthropic.Tool[] = [
   },
   {
     name: 'get_note_version',
-    description: 'Get a specific historical version of a note by version number. Returns the full note snapshot (title, content, attributes) as it was at that version. Use after get_note_history to inspect a particular version.',
+    description: 'Get a specific historical version of a note by version number. Returns the full note snapshot (title, content, attributes) as it was at that version. Use after get_note_history to inspect a particular version. To link users to this version: /nooks/{nookId}/notes/{noteId}/v/{version}',
     input_schema: {
       type: 'object',
       properties: {
@@ -127,7 +127,7 @@ export const TOOLS: Anthropic.Tool[] = [
   },
   {
     name: 'compare_note_versions',
-    description: 'Compare two versions of a note. Returns a unified diff of the content, plus metadata (title, type, attributes) for both versions. If "to_version" is omitted, compares against the current version.',
+    description: 'Compare two versions of a note. Returns a unified diff of the content, plus metadata (title, type, attributes) for both versions. If "to_version" is omitted, compares against the current version. To link users to a diff view, use: /nooks/{nookId}/notes/{noteId}/compare/{fromVersion} or /nooks/{nookId}/notes/{noteId}/compare/{fromVersion}/{toVersion}',
     input_schema: {
       type: 'object',
       properties: {
