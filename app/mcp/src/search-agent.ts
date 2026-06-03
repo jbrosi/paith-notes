@@ -8,6 +8,8 @@ const ALLOWED_TOOLS = new Set([
   'search_notes',
   'explore_notes',
   'get_note',
+  'get_note_summary',
+  'get_note_section',
   'get_note_mentions',
   'list_note_types',
   'list_link_predicates',

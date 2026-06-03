@@ -207,24 +207,117 @@ final class NotesController
         $attributes = self::decodeJsonObject($r['attributes'] ?? null);
         $archive = self::decodeJsonObject($r['archive'] ?? null);
 
+        $content = is_scalar($r['content'] ?? null) ? (string)$r['content'] : '';
+
+        // Optional: extract a single section starting at a character offset.
+        // Returns content from that position to the next heading of same or higher level.
+        $sectionAt = trim($request->queryParam('section_at'));
+        $sectionContent = null;
+        if ($sectionAt !== '' && ctype_digit($sectionAt)) {
+            $pos = (int)$sectionAt;
+            $sectionContent = self::extractSection($content, $pos);
+        }
+
         // Total view count for this note
         $vcStmt = $pdo->prepare('select coalesce(sum(count), 0) from global.note_views where note_id = :note_id');
         $vcStmt->execute([':note_id' => $noteId]);
         $vcCol = $vcStmt->fetchColumn();
         $viewCount = is_scalar($vcCol) ? (int)$vcCol : 0;
 
+        $note = [
+            'id' => is_scalar($r['id'] ?? null) ? (string)$r['id'] : '',
+            'nook_id' => $nookId,
+            'title' => is_scalar($r['title'] ?? null) ? (string)$r['title'] : '',
+            'content' => $content,
+            'type_id' => is_scalar($r['type_id'] ?? null) ? (string)$r['type_id'] : '',
+            'attributes' => $attributes === [] ? (object)[] : $attributes,
+            'archive' => $archive === [] ? (object)[] : $archive,
+            'version' => Row::int($r, 'version'),
+            'view_count' => $viewCount,
+            'created_at' => Row::str($r, 'created_at'),
+        ];
+
+        if ($sectionContent !== null) {
+            $note['section'] = $sectionContent;
+        }
+
+        // Include TOC (headings) for this note
+        $hStmt = $pdo->prepare(
+            'select level, text, position from global.note_headings where note_id = :note_id and nook_id = :nook_id order by position asc'
+        );
+        $hStmt->execute([':note_id' => $noteId, ':nook_id' => $nookId]);
+        $hRows = $hStmt->fetchAll(PDO::FETCH_ASSOC);
+        $headings = [];
+        foreach ($hRows as $hr) {
+            if (!is_array($hr)) continue;
+            $headings[] = [
+                'level' => (int)($hr['level'] ?? 0),
+                'text' => (string)($hr['text'] ?? ''),
+                'position' => (int)($hr['position'] ?? 0),
+            ];
+        }
+        $note['headings'] = $headings;
+
+        return JsonResponse::ok(['note' => $note]);
+    }
+
+    /**
+     * GET /nooks/{nookId}/notes/{noteId}/summary
+     * Lightweight note metadata: title, type, attributes, headings — no content.
+     * Designed for AI agents to understand note structure without loading full content.
+     */
+    public function summary(Request $request, Context $context): Response
+    {
+        $pdo = $context->pdo();
+        $user = $context->user();
+
+        $nookId = trim($request->routeParam('nookId'));
+        if ($nookId === '' || !self::isUuid($nookId)) {
+            throw new HttpError('nookId must be a UUID', 400);
+        }
+
+        $noteId = trim($request->routeParam('noteId'));
+        if ($noteId === '' || !self::isUuid($noteId)) {
+            throw new HttpError('noteId must be a UUID', 400);
+        }
+
+        $this->requireMember($pdo, $user, $nookId);
+
+        $stmt = $pdo->prepare(
+            'select id, title, type_id, attributes, version, created_at, updated_at '
+            . 'from global.notes where nook_id = :nook_id and id = :id'
+        );
+        $stmt->execute([':nook_id' => $nookId, ':id' => $noteId]);
+        $r = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!is_array($r)) {
+            throw new HttpError('note not found', 404);
+        }
+
+        $hStmt = $pdo->prepare(
+            'select level, text, position from global.note_headings where note_id = :note_id and nook_id = :nook_id order by position asc'
+        );
+        $hStmt->execute([':note_id' => $noteId, ':nook_id' => $nookId]);
+        $headings = [];
+        foreach ($hStmt->fetchAll(PDO::FETCH_ASSOC) as $hr) {
+            if (!is_array($hr)) continue;
+            $headings[] = [
+                'level' => (int)($hr['level'] ?? 0),
+                'text' => (string)($hr['text'] ?? ''),
+                'position' => (int)($hr['position'] ?? 0),
+            ];
+        }
+
         return JsonResponse::ok([
-            'note' => [
-                'id' => is_scalar($r['id'] ?? null) ? (string)$r['id'] : '',
+            'summary' => [
+                'id' => Row::str($r, 'id'),
                 'nook_id' => $nookId,
-                'title' => is_scalar($r['title'] ?? null) ? (string)$r['title'] : '',
-                'content' => is_scalar($r['content'] ?? null) ? (string)$r['content'] : '',
-                'type_id' => is_scalar($r['type_id'] ?? null) ? (string)$r['type_id'] : '',
-                'attributes' => $attributes === [] ? (object)[] : $attributes,
-                'archive' => $archive === [] ? (object)[] : $archive,
+                'title' => Row::str($r, 'title'),
+                'type_id' => Row::str($r, 'type_id'),
+                'attributes' => self::decodeJsonObject($r['attributes'] ?? null),
                 'version' => Row::int($r, 'version'),
-                'view_count' => $viewCount,
+                'headings' => $headings,
                 'created_at' => Row::str($r, 'created_at'),
+                'updated_at' => Row::str($r, 'updated_at'),
             ],
         ]);
     }
@@ -956,5 +1049,48 @@ final class NotesController
             return '{}';
         }
         return (string)json_encode($value, JSON_UNESCAPED_SLASHES);
+    }
+
+    /**
+     * Extract a section from markdown starting at a character offset.
+     * Returns content from that position to the next heading of the same
+     * or higher level (fewer #'s), or end of content.
+     */
+    private static function extractSection(string $content, int $position): string
+    {
+        if ($position < 0 || $position >= strlen($content)) {
+            return '';
+        }
+
+        $section = substr($content, $position);
+        $lines = explode("\n", $section);
+        if ($lines === []) {
+            return '';
+        }
+
+        // Determine the level of the heading at the start position
+        $startLevel = 7; // default: capture everything
+        $firstLine = ltrim($lines[0]);
+        if (preg_match('/^(#{1,6})\s/', $firstLine, $m)) {
+            $startLevel = strlen($m[1]);
+        }
+
+        // Find the end: next heading with same or higher level (lower number)
+        $result = [$lines[0]];
+        $inCodeBlock = false;
+        for ($i = 1; $i < count($lines); $i++) {
+            $trimmed = ltrim($lines[$i]);
+            if (str_starts_with($trimmed, '```') || str_starts_with($trimmed, '~~~')) {
+                $inCodeBlock = !$inCodeBlock;
+            }
+            if (!$inCodeBlock && preg_match('/^(#{1,6})\s/', $trimmed, $m)) {
+                if (strlen($m[1]) <= $startLevel) {
+                    break;
+                }
+            }
+            $result[] = $lines[$i];
+        }
+
+        return implode("\n", $result);
     }
 }

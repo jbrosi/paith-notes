@@ -247,7 +247,7 @@ final class GlobalSchema
                     position int not null default 0
                 )
             ");
-            $pdo->exec('create index if not exists note_headings_note_id_idx on global.note_headings (note_id)');
+            $pdo->exec('create index if not exists note_headings_note_nook_idx on global.note_headings (note_id, nook_id)');
             $pdo->exec('create index if not exists note_headings_nook_id_idx on global.note_headings (nook_id)');
             $pdo->exec("create index if not exists note_headings_text_trgm_idx on global.note_headings using gin (text gin_trgm_ops)");
 

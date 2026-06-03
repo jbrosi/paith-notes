@@ -16,8 +16,8 @@ final class HeadingsService
      */
     public function syncHeadings(PDO $pdo, string $nookId, string $noteId, string $markdown): void
     {
-        $pdo->prepare('delete from global.note_headings where note_id = :note_id')
-            ->execute([':note_id' => $noteId]);
+        $pdo->prepare('delete from global.note_headings where note_id = :note_id and nook_id = :nook_id')
+            ->execute([':note_id' => $noteId, ':nook_id' => $nookId]);
 
         $headings = self::extractHeadings($markdown);
         if ($headings === []) {

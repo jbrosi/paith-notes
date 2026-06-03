@@ -618,9 +618,53 @@ final class NoteTypesController
             }
         }
 
+        // Search headings when there's a query (separate result set)
+        $headingMatches = [];
+        if ($q !== '' && $cursor === '') {
+            $headingTerms = \Paith\Notes\Shared\Search\SearchQueryParser::splitTerms($q);
+            if ($headingTerms !== []) {
+                $hClauses = [];
+                $hBindings = [];
+                foreach ($headingTerms as $i => $term) {
+                    $hp = ':hq' . $i;
+                    $hClauses[] = "lower(h.text) like {$hp}";
+                    $hBindings[$hp] = '%' . $term . '%';
+                }
+                $hWhere = implode(' and ', $hClauses);
+
+                $hStmt = $pdo->prepare(
+                    "select h.note_id, h.level, h.text, h.position, n.title as note_title
+                     from global.note_headings h
+                     join global.notes n on n.id = h.note_id
+                     where h.nook_id = :nook_id and {$hWhere}
+                     order by similarity(lower(h.text), :hq_full) desc
+                     limit 10"
+                );
+                $hStmt->bindValue(':nook_id', $nookId);
+                $hStmt->bindValue(':hq_full', $q);
+                foreach ($hBindings as $param => $val) {
+                    $hStmt->bindValue($param, $val);
+                }
+                $hStmt->execute();
+                $hRows = $hStmt->fetchAll(PDO::FETCH_ASSOC);
+
+                foreach ($hRows as $hr) {
+                    if (!is_array($hr)) continue;
+                    $headingMatches[] = [
+                        'note_id' => Row::str($hr, 'note_id'),
+                        'note_title' => Row::str($hr, 'note_title'),
+                        'level' => Row::int($hr, 'level'),
+                        'text' => Row::str($hr, 'text'),
+                        'position' => Row::int($hr, 'position'),
+                    ];
+                }
+            }
+        }
+
         return JsonResponse::ok([
             'notes' => $notes,
             'next_cursor' => $nextCursor,
+            'heading_matches' => $headingMatches,
         ]);
     }
 

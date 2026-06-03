@@ -101,8 +101,33 @@ export const TOOLS: Anthropic.Tool[] = [
     },
   },
   {
+    name: 'get_note_summary',
+    description: 'Get lightweight note metadata: title, type, attributes, and table of contents (headings) — without loading the full content. Use this to understand a note\'s structure before deciding which section to read. Much cheaper than get_note for long notes.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        note_id: { type: 'string' },
+        nook_id: { type: 'string', description: 'The nook ID. Defaults to current nook if omitted.' },
+      },
+      required: ['note_id'],
+    },
+  },
+  {
+    name: 'get_note_section',
+    description: 'Read a specific section of a note by character position. Use after get_note_summary or search_notes heading_matches to read just the relevant section instead of the full note. Returns the section content from the heading at the given position to the next heading of the same or higher level.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        note_id: { type: 'string' },
+        nook_id: { type: 'string', description: 'The nook ID. Defaults to current nook if omitted.' },
+        position: { type: 'number', description: 'Character offset of the section heading (from headings or heading_matches)' },
+      },
+      required: ['note_id', 'position'],
+    },
+  },
+  {
     name: 'search_notes',
-    description: 'Search notes by title, content, or attribute values. Use type_id to filter by note type, or "all" for all types. Use attribute_filters for structured queries like "rating >= 4" or "date between X and Y".',
+    description: 'Search notes by title, content, or attribute values. Use type_id to filter by note type, or "all" for all types. Use attribute_filters for structured queries like "rating >= 4" or "date between X and Y". When a search query is provided, results also include heading_matches — headings (h1-h6) extracted from notes that match the query, with note_id, note_title, level, text, and position (character offset for jump-to-section).',
     input_schema: {
       type: 'object',
       properties: {
@@ -130,7 +155,7 @@ export const TOOLS: Anthropic.Tool[] = [
   },
   {
     name: 'search_all_nooks',
-    description: 'Search notes across ALL nooks the user has access to. Only use this when the user explicitly asks to search globally, or when a local search_notes returned no results and you want to ask the user if they\'d like to search more broadly. Prefer search_notes (local to current nook) first.',
+    description: 'Search notes across ALL nooks the user has access to. Only use this when the user explicitly asks to search globally, or when a local search_notes returned no results and you want to ask the user if they\'d like to search more broadly. Prefer search_notes (local to current nook) first. Also returns heading_matches for headings matching the query.',
     input_schema: {
       type: 'object',
       properties: {
@@ -385,6 +410,17 @@ export async function executeTool(
 
     case 'list_link_predicates':
       return JSON.stringify(await api('GET', `/api/nooks/${nookId}/link-predicates`));
+
+    case 'get_note_summary': {
+      const targetNook = String(input.nook_id || nookId);
+      return JSON.stringify(await api('GET', `/api/nooks/${targetNook}/notes/${noteId}/summary`));
+    }
+
+    case 'get_note_section': {
+      const targetNook = String(input.nook_id || nookId);
+      const pos = Number(input.position ?? 0);
+      return JSON.stringify(await api('GET', `/api/nooks/${targetNook}/notes/${noteId}?section_at=${pos}`));
+    }
 
     case 'search_notes': {
       const typeId = String(input.type_id ?? 'all');

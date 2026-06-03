@@ -84,6 +84,52 @@ final class SearchController
             ];
         }
 
-        return JsonResponse::ok(['notes' => $notes]);
+        // Heading matches across accessible nooks
+        $headingMatches = [];
+        $headingTerms = SearchQueryParser::splitTerms($q);
+        if ($headingTerms !== []) {
+            $hClauses = [];
+            $hBindings = [];
+            foreach ($headingTerms as $i => $term) {
+                $hp = ':hq' . $i;
+                $hClauses[] = "lower(h.text) like {$hp}";
+                $hBindings[$hp] = '%' . $term . '%';
+            }
+            $hWhere = implode(' and ', $hClauses);
+
+            $hStmt = $pdo->prepare(
+                "select h.note_id, h.nook_id, h.level, h.text, h.position,
+                        n.title as note_title, nk.name as nook_name
+                 from global.note_headings h
+                 join global.notes n on n.id = h.note_id
+                 join global.nooks nk on nk.id = h.nook_id
+                 join global.nook_members nm on nm.nook_id = h.nook_id and nm.user_id = :h_user_id
+                 where {$hWhere}
+                 order by similarity(lower(h.text), :hq_full) desc
+                 limit 10"
+            );
+            $hStmt->bindValue(':h_user_id', $userId);
+            $hStmt->bindValue(':hq_full', $q);
+            foreach ($hBindings as $param => $val) {
+                $hStmt->bindValue($param, $val);
+            }
+            $hStmt->execute();
+            $hRows = $hStmt->fetchAll(PDO::FETCH_ASSOC);
+
+            foreach ($hRows as $hr) {
+                if (!is_array($hr)) continue;
+                $headingMatches[] = [
+                    'note_id' => Row::str($hr, 'note_id'),
+                    'nook_id' => Row::str($hr, 'nook_id'),
+                    'nook_name' => Row::str($hr, 'nook_name'),
+                    'note_title' => Row::str($hr, 'note_title'),
+                    'level' => Row::int($hr, 'level'),
+                    'text' => Row::str($hr, 'text'),
+                    'position' => Row::int($hr, 'position'),
+                ];
+            }
+        }
+
+        return JsonResponse::ok(['notes' => $notes, 'heading_matches' => $headingMatches]);
     }
 }

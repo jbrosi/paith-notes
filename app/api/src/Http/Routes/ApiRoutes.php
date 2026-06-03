@@ -113,6 +113,7 @@ final class ApiRoutes
         $r->post('/nooks/{nookId}/notes', [NotesController::class, 'create']);
         $r->add('PUT', '/nooks/{nookId}/notes/{noteId}', [NotesController::class, 'update']);
         $r->add('DELETE', '/nooks/{nookId}/notes/{noteId}', [NotesController::class, 'delete']);
+        $r->get('/nooks/{nookId}/notes/{noteId}/summary', [NotesController::class, 'summary']);
         $r->get('/nooks/{nookId}/notes/{noteId}/mentions', [NotesController::class, 'mentions']);
         $r->get('/nooks/{nookId}/notes/{noteId}/presence', [NotesController::class, 'presence']);
         $r->get('/nooks/{nookId}/notes/{noteId}/history', [NotesController::class, 'history']);
