@@ -337,7 +337,8 @@ final class AttributeFilesController
                 $title = $filename;
             }
 
-            // Pre-generate note ID so we can build storage_key before INSERT
+            // Pre-generate note ID so we can set storage_key in the INSERT.
+            // INSERT first (validates UUID uniqueness), then move the file.
             $genId = $pdo->query('select gen_random_uuid()::text')->fetchColumn();
             $noteId = is_string($genId) ? trim($genId) : '';
             if ($noteId === '') {
@@ -345,18 +346,6 @@ final class AttributeFilesController
             }
 
             $objectKey = sprintf('notes/%s/files/%s/%s', $nookId, $noteId, $attributeId);
-
-            // Move file to final location before INSERT (so storage_key is set from the start)
-            $to = self::dataPath() . '/' . ltrim($objectKey, '/');
-            $dir = dirname($to);
-            if (!is_dir($dir)) {
-                if (!mkdir($dir, 0777, true) && !is_dir($dir)) {
-                    throw new HttpError('failed to create final dir', 500);
-                }
-            }
-            if (!rename($from, $to)) {
-                throw new HttpError('failed to finalize upload', 500);
-            }
 
             $fileAttrValue = [
                 'storage_key' => $objectKey,
@@ -369,7 +358,8 @@ final class AttributeFilesController
 
             $attributes = [$attributeId => $fileAttrValue];
 
-            // Create the note with full attributes (no follow-up UPDATE needed)
+            // Create the note first — if UUID collides, this fails safely
+            // before we touch any files on disk.
             $noteStmt = $pdo->prepare(
                 "insert into global.notes (id, nook_id, created_by, title, content, type_id, attributes) "
                 . "values (:id, :nook_id, :created_by, :title, '', :type_id, :attributes::jsonb) "
@@ -390,6 +380,18 @@ final class AttributeFilesController
             }
 
             $createdAt = is_scalar($noteRow['created_at'] ?? null) ? (string)$noteRow['created_at'] : '';
+
+            // Move file to final location (safe — note ID is confirmed unique)
+            $to = self::dataPath() . '/' . ltrim($objectKey, '/');
+            $dir = dirname($to);
+            if (!is_dir($dir)) {
+                if (!mkdir($dir, 0777, true) && !is_dir($dir)) {
+                    throw new HttpError('failed to create final dir', 500);
+                }
+            }
+            if (!rename($from, $to)) {
+                throw new HttpError('failed to finalize upload', 500);
+            }
 
             // Insert note_files record
             $upsert = $pdo->prepare(
