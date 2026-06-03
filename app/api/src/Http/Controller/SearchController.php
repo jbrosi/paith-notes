@@ -95,7 +95,7 @@ final class SearchController
                 $hClauses[] = "lower(h.text) like {$hp}";
                 $hBindings[$hp] = '%' . $term . '%';
             }
-            $hWhere = implode(' and ', $hClauses);
+            $hWhere = implode(' or ', $hClauses);
 
             $hStmt = $pdo->prepare(
                 "select h.note_id, h.nook_id, h.level, h.text, h.position,

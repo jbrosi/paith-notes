@@ -631,7 +631,8 @@ final class NoteTypesController
                     $hClauses[] = "lower(h.text) like {$hp}";
                     $hBindings[$hp] = '%' . $term . '%';
                 }
-                $hWhere = implode(' and ', $hClauses);
+                $hGlue = $searchMode === 'or' ? ' or ' : ' and ';
+                $hWhere = implode($hGlue, $hClauses);
 
                 $hStmt = $pdo->prepare(
                     "select h.note_id, h.level, h.text, h.position, n.title as note_title
