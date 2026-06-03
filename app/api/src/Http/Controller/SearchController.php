@@ -33,7 +33,12 @@ final class SearchController
         $limitRaw = $request->queryParam('limit');
         $limit = min(50, max(1, $limitRaw !== '' ? (int)$limitRaw : 20));
 
-        $search = SearchQueryParser::buildSearchClause($q, 'and', 'lower(n.title)', 'lower(n.content)', '');
+        $searchMode = strtolower(trim($request->queryParam('search_mode')));
+        if (!in_array($searchMode, ['and', 'or'], true)) {
+            $searchMode = 'and';
+        }
+
+        $search = SearchQueryParser::buildSearchClause($q, $searchMode, 'lower(n.title)', 'lower(n.content)', '');
         if ($search['where'] === '') {
             return JsonResponse::ok(['notes' => []]);
         }
@@ -95,7 +100,8 @@ final class SearchController
                 $hClauses[] = "lower(h.text) like {$hp}";
                 $hBindings[$hp] = '%' . $term . '%';
             }
-            $hWhere = implode(' or ', $hClauses);
+            $hGlue = $searchMode === 'or' ? ' or ' : ' and ';
+            $hWhere = implode($hGlue, $hClauses);
 
             $hStmt = $pdo->prepare(
                 "select h.note_id, h.nook_id, h.level, h.text, h.position,

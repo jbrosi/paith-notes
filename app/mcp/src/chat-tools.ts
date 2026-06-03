@@ -160,6 +160,7 @@ export const TOOLS: Anthropic.Tool[] = [
       type: 'object',
       properties: {
         q: { type: 'string', description: 'Text search query (searches title and content across all accessible nooks)' },
+        search_mode: { type: 'string', enum: ['and', 'or'], description: 'How to combine multiple search words. Default: "and".' },
       },
       required: ['q'],
     },
@@ -440,8 +441,11 @@ export async function executeTool(
     }
 
     case 'search_all_nooks': {
-      const q = String(input.q ?? '');
-      return JSON.stringify(await api('GET', `/api/search?q=${encodeURIComponent(q)}&limit=20`));
+      const params = new URLSearchParams();
+      params.set('q', String(input.q ?? ''));
+      params.set('limit', '20');
+      if (input.search_mode) params.set('search_mode', String(input.search_mode));
+      return JSON.stringify(await api('GET', `/api/search?${params}`));
     }
 
     case 'open_note':
