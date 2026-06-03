@@ -811,7 +811,7 @@ final class NotesController
              left join global.users u on u.id = am.user_id
              where r.note_id = :note_id
                and am.nook_id in (select nook_id from global.nook_members where user_id = :user_id)
-             order by r.meta_id desc
+             order by am.version desc, r.meta_id desc
              limit 10"
         );
         $stmt->execute([
