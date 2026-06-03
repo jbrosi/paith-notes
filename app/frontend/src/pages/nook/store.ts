@@ -261,6 +261,8 @@ export function createNookStore(nookId: () => string) {
 		createdAt: string;
 		title: string;
 		content: string;
+		typeId: string;
+		attributes: Record<string, unknown>;
 	} | null>(null);
 
 	const resolveTypeIdForTermInStore = (termRaw: string) =>
@@ -703,7 +705,12 @@ export function createNookStore(nookId: () => string) {
 					actor: string;
 					user_name: string;
 					created_at: string;
-					note: { title: string; content: string };
+					note: {
+						title: string;
+						content: string;
+						type_id?: string;
+						attributes?: Record<string, unknown>;
+					};
 				};
 			};
 			const s = json?.snapshot;
@@ -718,6 +725,8 @@ export function createNookStore(nookId: () => string) {
 				createdAt: s.created_at,
 				title: s.note.title,
 				content: s.note.content,
+				typeId: s.note.type_id ?? "",
+				attributes: s.note.attributes ?? {},
 			});
 		} catch {
 			// best-effort

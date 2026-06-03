@@ -862,6 +862,11 @@ final class NotesController
                     'title' => Row::str($data, 'title'),
                     'content' => Row::str($data, 'content'),
                     'type_id' => Row::str($data, 'type_id'),
+                    'attributes' => is_array($data['attributes'] ?? null)
+                        ? $data['attributes']
+                        : (is_string($data['attributes'] ?? null)
+                            ? (json_decode($data['attributes'], true) ?? [])
+                            : []),
                 ],
             ],
         ]);
