@@ -38,7 +38,7 @@ final class ActivityController
         }
 
         $stmt = $pdo->prepare(
-            "select am.id, am.version, am.action, am.table_name, am.table_id, am.nook_id, am.user_id, am.actor, am.created_at,
+            "select am.id, am.version, am.action, am.table_name, am.entity_id, am.nook_id, am.user_id, am.actor, am.created_at,
                     u.first_name, u.last_name, u.nickname,
                     n.title as note_title,
                     ad.data->>'source_note_id' as link_source_id,
@@ -48,7 +48,7 @@ final class ActivityController
                     (select forward_label from global.link_predicates where id = (ad.data->>'predicate_id')::uuid) as link_forward_label
              from global.audit_meta am
              left join global.users u on u.id = am.user_id
-             left join global.notes n on n.id = am.table_id and am.table_name = 'notes'
+             left join global.notes n on n.id = am.entity_id and am.table_name = 'notes'
              left join global.audit_data ad on ad.meta_id = am.id and am.table_name in ('note_links', 'note_cross_links')
              where {$whereClause}
              order by am.id desc
@@ -103,7 +103,7 @@ final class ActivityController
         }
 
         $stmt = $pdo->prepare(
-            "select am.id, am.version, am.action, am.table_name, am.table_id, am.nook_id, am.created_at,
+            "select am.id, am.version, am.action, am.table_name, am.entity_id, am.nook_id, am.created_at,
                     am.user_id, am.actor,
                     u.first_name, u.last_name, u.nickname,
                     n.title as note_title,
@@ -114,7 +114,7 @@ final class ActivityController
                     (select forward_label from global.link_predicates where id = (ad.data->>'predicate_id')::uuid) as link_forward_label
              from global.audit_meta am
              left join global.users u on u.id = am.user_id
-             left join global.notes n on n.id = am.table_id and am.table_name = 'notes'
+             left join global.notes n on n.id = am.entity_id and am.table_name = 'notes'
              left join global.audit_data ad on ad.meta_id = am.id and am.table_name in ('note_links', 'note_cross_links')
              where {$whereClause}
              order by am.id desc
@@ -149,7 +149,7 @@ final class ActivityController
                 'action' => Row::str($r, 'action'),
                 'actor' => Row::str($r, 'actor', 'user'),
                 'table_name' => Row::str($r, 'table_name'),
-                'table_id' => Row::str($r, 'table_id'),
+                'table_id' => Row::str($r, 'entity_id'),
                 'nook_id' => Row::str($r, 'nook_id'),
                 'user_id' => Row::str($r, 'user_id'),
                 'user_name' => trim(Row::str($r, 'nickname') !== '' ? Row::str($r, 'nickname') : (Row::str($r, 'first_name') . ' ' . Row::str($r, 'last_name'))),

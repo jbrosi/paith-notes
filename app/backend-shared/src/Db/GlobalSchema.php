@@ -712,7 +712,7 @@ final class GlobalSchema
                     prev_id bigint null,
                     nook_id uuid null,
                     table_name text not null,
-                    table_id uuid not null,
+                    entity_id uuid not null,
                     action global.audit_action not null,
                     user_id uuid not null,
                     trx_id bigint not null default txid_current(),
@@ -722,12 +722,20 @@ final class GlobalSchema
 
             $pdo->exec('alter table global.audit_meta add column if not exists nook_id uuid null');
             $pdo->exec("alter table global.audit_meta add column if not exists actor text not null default 'user'");
-
             $pdo->exec('alter table global.audit_meta add column if not exists version int not null default 1');
 
-            $pdo->exec('create index if not exists audit_meta_table_id_idx on global.audit_meta (table_name, table_id, id desc)');
+            // Rename table_id → entity_id
+            $pdo->exec("do \$\$ begin
+                if exists (select 1 from information_schema.columns where table_schema = 'global' and table_name = 'audit_meta' and column_name = 'table_id') then
+                    alter table global.audit_meta rename column table_id to entity_id;
+                end if;
+            end \$\$");
+
+            $pdo->exec('drop index if exists global.audit_meta_table_id_idx');
             $pdo->exec('drop index if exists global.audit_meta_table_version_idx');
-            $pdo->exec('create index if not exists audit_meta_table_id_version_idx on global.audit_meta (table_name, table_id, version)');
+            $pdo->exec('drop index if exists global.audit_meta_table_id_version_idx');
+            $pdo->exec('create index if not exists audit_meta_entity_idx on global.audit_meta (table_name, entity_id, id desc)');
+            $pdo->exec('create index if not exists audit_meta_entity_version_idx on global.audit_meta (table_name, entity_id, version)');
             $pdo->exec('create index if not exists audit_meta_user_id_idx on global.audit_meta (user_id, id desc)');
             $pdo->exec('create index if not exists audit_meta_created_at_idx on global.audit_meta (created_at desc)');
             $pdo->exec('create index if not exists audit_meta_nook_id_idx on global.audit_meta (nook_id, id desc)');
@@ -800,7 +808,7 @@ final class GlobalSchema
                     v_prev_id bigint;
                     v_meta_id bigint;
                     v_nook_id uuid;
-                    v_table_id uuid;
+                    v_entity_id uuid;
                     v_version int;
                     v_row jsonb;
                 begin
@@ -833,18 +841,18 @@ final class GlobalSchema
 
                     -- Extract table_id (the uuid identifying this row)
                     if TG_TABLE_NAME = 'note_files' then
-                        v_table_id := (v_row ->> 'note_id')::uuid;
+                        v_entity_id := (v_row ->> 'note_id')::uuid;
                     elsif TG_TABLE_NAME = 'link_predicate_rules' then
-                        v_table_id := (v_row ->> 'uuid_id')::uuid;
+                        v_entity_id := (v_row ->> 'uuid_id')::uuid;
                     else
-                        v_table_id := (v_row ->> 'id')::uuid;
+                        v_entity_id := (v_row ->> 'id')::uuid;
                     end if;
 
                     -- Extract nook_id
                     if TG_TABLE_NAME = 'nooks' then
                         v_nook_id := (v_row ->> 'id')::uuid;
                     elsif TG_TABLE_NAME = 'note_files' then
-                        select nook_id into v_nook_id from global.notes where id = v_table_id;
+                        select nook_id into v_nook_id from global.notes where id = v_entity_id;
                     elsif TG_TABLE_NAME = 'link_predicate_rules' then
                         select nook_id into v_nook_id from global.link_predicates where id = (v_row ->> 'predicate_id')::uuid;
                     elsif TG_TABLE_NAME = 'note_cross_links' then
@@ -862,12 +870,12 @@ final class GlobalSchema
                         v_version := OLD.version + 1;
                     end if;
 
-                    insert into global.audit_meta (prev_id, nook_id, table_name, table_id, action, user_id, actor, version)
+                    insert into global.audit_meta (prev_id, nook_id, table_name, entity_id, action, user_id, actor, version)
                     values (
                         v_prev_id,
                         v_nook_id,
                         TG_TABLE_NAME,
-                        v_table_id,
+                        v_entity_id,
                         TG_OP::global.audit_action,
                         v_user_id,
                         v_actor,
@@ -883,7 +891,7 @@ final class GlobalSchema
 
                     -- Populate audit_meta_refs for note-related changes
                     if TG_TABLE_NAME = 'notes' then
-                        insert into global.audit_meta_refs (meta_id, note_id) values (v_meta_id, v_table_id);
+                        insert into global.audit_meta_refs (meta_id, note_id) values (v_meta_id, v_entity_id);
                     elsif TG_TABLE_NAME = 'note_links' then
                         insert into global.audit_meta_refs (meta_id, note_id)
                         values (v_meta_id, (v_row ->> 'source_note_id')::uuid);

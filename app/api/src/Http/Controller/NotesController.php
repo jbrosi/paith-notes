@@ -839,13 +839,13 @@ final class NotesController
                  left join global.users u on u.id = am.user_id
                  where am.version = :version
                    and am.table_name = :table_name
-                   and am.table_id = :table_id
+                   and am.entity_id = :entity_id
                    and am.nook_id = :nook_id'
             );
             $stmt->execute([
                 ':version' => $version,
                 ':table_name' => 'notes',
-                ':table_id' => $noteId,
+                ':entity_id' => $noteId,
                 ':nook_id' => $nookId,
             ]);
         } elseif (ctype_digit($historyId)) {
@@ -858,13 +858,13 @@ final class NotesController
                  left join global.users u on u.id = am.user_id
                  where am.id = :history_id
                    and am.table_name = :table_name
-                   and am.table_id = :table_id
+                   and am.entity_id = :entity_id
                    and am.nook_id = :nook_id'
             );
             $stmt->execute([
                 ':history_id' => (int)$historyId,
                 ':table_name' => 'notes',
-                ':table_id' => $noteId,
+                ':entity_id' => $noteId,
                 ':nook_id' => $nookId,
             ]);
         } else {
@@ -993,7 +993,7 @@ final class NotesController
         $stmt = $pdo->prepare(
             'select ad.data from global.audit_meta am '
             . 'join global.audit_data ad on ad.meta_id = am.id '
-            . 'where am.version = :version and am.table_name = :table and am.table_id = :note_id and am.nook_id = :nook_id'
+            . 'where am.version = :version and am.table_name = :table and am.entity_id = :note_id and am.nook_id = :nook_id'
         );
         $stmt->execute([
             ':version' => $version,
