@@ -193,7 +193,7 @@ export function NookMainPanel(props: NookMainPanelProps) {
 							</div>
 						</div>
 					</Show>
-					<Show when={store().noteHasUpdate() && !conflict()}>
+					<Show when={(store().noteHasUpdate() || store().remoteNoteChanged()) && !conflict()}>
 						<div
 							style={{
 								padding: "8px 12px",
@@ -207,14 +207,25 @@ export function NookMainPanel(props: NookMainPanelProps) {
 								"justify-content": "space-between",
 							}}
 						>
-							<span>This note has been updated.</span>
-							<Button
-								variant="secondary"
-								size="small"
-								onClick={() => store().refreshCurrentNote()}
-							>
-								Reload
-							</Button>
+							<span>This note has been updated by someone else.</span>
+							<div style={{ display: "flex", gap: "4px" }}>
+								<Button
+									variant="secondary"
+									size="small"
+									onClick={() => store().refreshCurrentNote()}
+								>
+									Reload
+								</Button>
+								<Show when={store().remoteNoteChanged()}>
+									<Button
+										variant="secondary"
+										size="small"
+										onClick={() => store().dismissRemoteNoteChanged()}
+									>
+										Dismiss
+									</Button>
+								</Show>
+							</div>
 						</div>
 					</Show>
 					<Show when={store().noteViewers().length > 0}>

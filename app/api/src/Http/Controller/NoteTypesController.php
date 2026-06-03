@@ -60,8 +60,39 @@ final class NoteTypesController
                 'attribute_order' => self::decodeJsonArray($r['attribute_order'] ?? null),
                 'created_at' => is_scalar($r['created_at'] ?? null) ? (string)$r['created_at'] : '',
                 'updated_at' => is_scalar($r['updated_at'] ?? null) ? (string)$r['updated_at'] : '',
+                'attributes' => [],
             ];
         }
+
+        // Bulk-load own attributes per type (frontend resolves inheritance via parent_id)
+        $attrStmt = $pdo->prepare(
+            'select id, type_id, name, kind, config, indexed, created_at, updated_at '
+            . 'from global.type_attributes where nook_id = :nook_id order by name asc'
+        );
+        $attrStmt->execute([':nook_id' => $nookId]);
+        $attrRows = $attrStmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $attrsByType = [];
+        foreach ($attrRows as $a) {
+            if (!is_array($a)) continue;
+            $tid = is_scalar($a['type_id'] ?? null) ? (string)$a['type_id'] : '';
+            $config = self::decodeJsonObject($a['config'] ?? null);
+            $attrsByType[$tid][] = [
+                'id' => is_scalar($a['id'] ?? null) ? (string)$a['id'] : '',
+                'type_id' => $tid,
+                'name' => is_scalar($a['name'] ?? null) ? (string)$a['name'] : '',
+                'kind' => is_scalar($a['kind'] ?? null) ? (string)$a['kind'] : '',
+                'config' => $config === [] ? (object)[] : $config,
+                'indexed' => (bool)($a['indexed'] ?? false),
+                'created_at' => is_scalar($a['created_at'] ?? null) ? (string)$a['created_at'] : '',
+                'updated_at' => is_scalar($a['updated_at'] ?? null) ? (string)$a['updated_at'] : '',
+            ];
+        }
+
+        foreach ($types as &$t) {
+            $t['attributes'] = $attrsByType[$t['id']] ?? [];
+        }
+        unset($t);
 
         return JsonResponse::ok(['types' => $types]);
     }

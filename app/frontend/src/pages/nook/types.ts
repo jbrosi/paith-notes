@@ -147,46 +147,6 @@ export const MentionsResponseSchema = z
 		incoming: r.incoming,
 	}));
 
-const NoteTypeApiSchema = z
-	.object({
-		id: z.string(),
-		nook_id: z.string(),
-		key: z.string(),
-		label: z.string(),
-		description: z.string().optional(),
-		parent_id: z.string().optional(),
-		attribute_order: z.array(z.string()).optional(),
-		created_at: z.string().optional(),
-		updated_at: z.string().optional(),
-	})
-	.transform((t) => ({
-		id: t.id,
-		nookId: t.nook_id,
-		key: t.key,
-		label: t.label,
-		description: t.description ?? "",
-		parentId: t.parent_id ?? "",
-		attributeOrder: t.attribute_order ?? [],
-		createdAt: t.created_at,
-		updatedAt: t.updated_at,
-	}));
-
-export const NoteTypesListResponseSchema = z
-	.object({
-		types: z.array(NoteTypeApiSchema),
-	})
-	.transform((r) => ({
-		types: r.types,
-	}));
-
-export const NoteTypeResponseSchema = z
-	.object({
-		type: NoteTypeApiSchema,
-	})
-	.transform((r) => ({
-		type: r.type,
-	}));
-
 // ─── Type Attributes ────────────────────────────────────────────────────────
 
 export const TypeAttributeKinds = [
@@ -227,6 +187,50 @@ const TypeAttributeApiSchema = z
 	}));
 
 export type TypeAttribute = z.infer<typeof TypeAttributeApiSchema>;
+
+// ─── Note Types ─────────────────────────────────────────────────────────────
+
+const NoteTypeApiSchema = z
+	.object({
+		id: z.string(),
+		nook_id: z.string(),
+		key: z.string(),
+		label: z.string(),
+		description: z.string().optional(),
+		parent_id: z.string().optional(),
+		attribute_order: z.array(z.string()).optional(),
+		attributes: z.array(TypeAttributeApiSchema).optional(),
+		created_at: z.string().optional(),
+		updated_at: z.string().optional(),
+	})
+	.transform((t) => ({
+		id: t.id,
+		nookId: t.nook_id,
+		key: t.key,
+		label: t.label,
+		description: t.description ?? "",
+		parentId: t.parent_id ?? "",
+		attributeOrder: t.attribute_order ?? [],
+		attributes: t.attributes ?? [],
+		createdAt: t.created_at,
+		updatedAt: t.updated_at,
+	}));
+
+export const NoteTypesListResponseSchema = z
+	.object({
+		types: z.array(NoteTypeApiSchema),
+	})
+	.transform((r) => ({
+		types: r.types,
+	}));
+
+export const NoteTypeResponseSchema = z
+	.object({
+		type: NoteTypeApiSchema,
+	})
+	.transform((r) => ({
+		type: r.type,
+	}));
 
 export const TypeAttributesListResponseSchema = z
 	.object({

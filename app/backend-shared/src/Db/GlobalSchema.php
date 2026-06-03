@@ -905,6 +905,44 @@ final class GlobalSchema
                     end \$\$;
                 ");
             }
+            // ── Nook real-time event triggers (pg_notify) ──────────────────────
+            // A single reusable function that fires pg_notify('nook_events', ...)
+            // with the nook_id, event name (passed as trigger arg), table, and row id.
+            $pdo->exec("
+                create or replace function global.notify_nook_event()
+                    returns trigger language plpgsql as \$fn\$
+                begin
+                    perform pg_notify('nook_events', json_build_object(
+                        'nook_id', coalesce(NEW.nook_id, OLD.nook_id),
+                        'event',   TG_ARGV[0],
+                        'table',   TG_TABLE_NAME,
+                        'id',      coalesce(NEW.id, OLD.id)
+                    )::text);
+                    return coalesce(NEW, OLD);
+                end;
+                \$fn\$;
+            ");
+
+            $nookEventTriggers = [
+                ['notes',           'note_changed',  'notify_notes_nook_event'],
+                ['note_types',      'types_changed',  'notify_note_types_nook_event'],
+                ['type_attributes', 'types_changed',  'notify_type_attrs_nook_event'],
+                ['note_links',      'links_changed',  'notify_note_links_nook_event'],
+            ];
+            foreach ($nookEventTriggers as [$table, $event, $triggerName]) {
+                $pdo->exec("
+                    do \$\$ begin
+                        if not exists (
+                            select 1 from pg_trigger where tgname = '{$triggerName}'
+                            and tgrelid = 'global.{$table}'::regclass
+                        ) then
+                            create trigger {$triggerName}
+                                after insert or update or delete on global.{$table}
+                                for each row execute function global.notify_nook_event('{$event}');
+                        end if;
+                    end \$\$;
+                ");
+            }
         } finally {
             $pdo->exec("select pg_advisory_unlock(hashtext('paith_notes_global_schema_ensure'))");
         }

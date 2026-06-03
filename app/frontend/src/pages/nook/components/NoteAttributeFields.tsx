@@ -1,4 +1,4 @@
-import { createResource, createSignal, For, Show } from "solid-js";
+import { createMemo, createSignal, For, Show } from "solid-js";
 import { apiFetch } from "../../../auth/keycloak";
 import { NookEmbeddedGraph } from "../NookEmbeddedGraph";
 import type { NookStore } from "../store";
@@ -7,26 +7,14 @@ import {
 	parseGraphProperties,
 	serializeGraphProperties,
 	type TypeAttribute,
-	TypeAttributesListResponseSchema,
 } from "../types";
 
 export function NoteAttributeFields(props: { store: NookStore }) {
-	const fetchAttributes = async () => {
-		const nookId = props.store.nookId();
+	const attributes = createMemo(() => {
 		const typeId = props.store.typeId();
-		if (!nookId || !typeId) return [];
-		const res = await apiFetch(
-			`/api/nooks/${nookId}/note-types/${typeId}/attributes`,
-		);
-		if (!res.ok) return [];
-		const json = await res.json();
-		return TypeAttributesListResponseSchema.parse(json).attributes;
-	};
-
-	const [attributes] = createResource(
-		() => `${props.store.nookId()}|${props.store.typeId()}`,
-		fetchAttributes,
-	);
+		if (!typeId) return [];
+		return props.store.resolveTypeAttributes(typeId);
+	});
 
 	const noteAttributes = () =>
 		(props.store.noteAttributes?.() ?? {}) as Record<string, unknown>;
@@ -559,17 +547,12 @@ function ViewAttributeField(props: {
 		props.store.setIsDirty(true);
 	};
 
-	const loadTypeAttrs = async (typeId: string) => {
+	const loadTypeAttrs = (typeId: string) => {
 		if (!typeId) { setTypeAttrsForEditor([]); setResultAttrs([]); return; }
-		const res = await apiFetch(
-			`/api/nooks/${props.store.nookId()}/note-types/${typeId}/attributes`,
-		);
-		if (res.ok) {
-			const json = await res.json();
-			const attrs = TypeAttributesListResponseSchema.parse(json).attributes;
-			setTypeAttrsForEditor(attrs.filter((a) => !["file", "graph", "view"].includes(a.kind)));
-			setResultAttrs(attrs.filter((a) => !["file", "graph", "view"].includes(a.kind)));
-		}
+		const attrs = props.store.resolveTypeAttributes(typeId);
+		const filtered = attrs.filter((a) => !["file", "graph", "view"].includes(a.kind));
+		setTypeAttrsForEditor(filtered);
+		setResultAttrs(filtered);
 	};
 
 	const executeView = async () => {
