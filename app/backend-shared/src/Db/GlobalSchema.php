@@ -726,6 +726,7 @@ final class GlobalSchema
             $pdo->exec('alter table global.audit_meta add column if not exists version int not null default 1');
 
             $pdo->exec('create index if not exists audit_meta_table_id_idx on global.audit_meta (table_name, table_id, id desc)');
+            $pdo->exec('create index if not exists audit_meta_table_version_idx on global.audit_meta (table_name, table_id, version)');
             $pdo->exec('create index if not exists audit_meta_user_id_idx on global.audit_meta (user_id, id desc)');
             $pdo->exec('create index if not exists audit_meta_created_at_idx on global.audit_meta (created_at desc)');
             $pdo->exec('create index if not exists audit_meta_nook_id_idx on global.audit_meta (nook_id, id desc)');
