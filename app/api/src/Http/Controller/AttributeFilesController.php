@@ -337,9 +337,29 @@ final class AttributeFilesController
                 $title = $filename;
             }
 
-            // Build file attribute value
+            // Pre-generate note ID so we can build storage_key before INSERT
+            $genId = $pdo->query('select gen_random_uuid()::text')->fetchColumn();
+            $noteId = is_string($genId) ? trim($genId) : '';
+            if ($noteId === '') {
+                throw new HttpError('failed to generate note id', 500);
+            }
+
+            $objectKey = sprintf('notes/%s/files/%s/%s', $nookId, $noteId, $attributeId);
+
+            // Move file to final location before INSERT (so storage_key is set from the start)
+            $to = self::dataPath() . '/' . ltrim($objectKey, '/');
+            $dir = dirname($to);
+            if (!is_dir($dir)) {
+                if (!mkdir($dir, 0777, true) && !is_dir($dir)) {
+                    throw new HttpError('failed to create final dir', 500);
+                }
+            }
+            if (!rename($from, $to)) {
+                throw new HttpError('failed to finalize upload', 500);
+            }
+
             $fileAttrValue = [
-                'storage_key' => '', // will be set after note creation
+                'storage_key' => $objectKey,
                 'filename' => $filename,
                 'extension' => $extension,
                 'content_type' => $mimeType,
@@ -349,13 +369,14 @@ final class AttributeFilesController
 
             $attributes = [$attributeId => $fileAttrValue];
 
-            // Create the note
+            // Create the note with full attributes (no follow-up UPDATE needed)
             $noteStmt = $pdo->prepare(
-                "insert into global.notes (nook_id, created_by, title, content, type_id, attributes) "
-                . "values (:nook_id, :created_by, :title, '', :type_id, :attributes::jsonb) "
-                . "returning id, created_at"
+                "insert into global.notes (id, nook_id, created_by, title, content, type_id, attributes) "
+                . "values (:id, :nook_id, :created_by, :title, '', :type_id, :attributes::jsonb) "
+                . "returning created_at"
             );
             $noteStmt->execute([
+                ':id' => $noteId,
                 ':nook_id' => $nookId,
                 ':created_by' => $userId,
                 ':title' => $title,
@@ -368,34 +389,7 @@ final class AttributeFilesController
                 throw new HttpError('failed to create note', 500);
             }
 
-            $noteId = is_scalar($noteRow['id'] ?? null) ? (string)$noteRow['id'] : '';
             $createdAt = is_scalar($noteRow['created_at'] ?? null) ? (string)$noteRow['created_at'] : '';
-            if ($noteId === '') {
-                throw new HttpError('failed to create note', 500);
-            }
-
-            // Move file to final location
-            $objectKey = sprintf('notes/%s/files/%s/%s', $nookId, $noteId, $attributeId);
-            $to = self::dataPath() . '/' . ltrim($objectKey, '/');
-            $dir = dirname($to);
-            if (!is_dir($dir)) {
-                if (!mkdir($dir, 0777, true) && !is_dir($dir)) {
-                    throw new HttpError('failed to create final dir', 500);
-                }
-            }
-            if (!rename($from, $to)) {
-                throw new HttpError('failed to finalize upload', 500);
-            }
-
-            // Update storage_key in note.attributes
-            $fileAttrValue['storage_key'] = $objectKey;
-            $attributes[$attributeId] = $fileAttrValue;
-            $pdo->prepare('update global.notes set attributes = :attributes::jsonb where id = :id and nook_id = :nook_id')
-                ->execute([
-                    ':attributes' => json_encode($attributes),
-                    ':id' => $noteId,
-                    ':nook_id' => $nookId,
-                ]);
 
             // Insert note_files record
             $upsert = $pdo->prepare(
