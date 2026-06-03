@@ -9,6 +9,7 @@ use Paith\Notes\Api\Http\HttpError;
 use Paith\Notes\Api\Http\JsonResponse;
 use Paith\Notes\Api\Http\Request;
 use Paith\Notes\Api\Http\Response;
+use Paith\Notes\Shared\Db\Row;
 use PDO;
 use Throwable;
 
