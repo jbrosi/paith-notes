@@ -130,6 +130,9 @@ export function createNookStore(nookId: () => string) {
 	const [incomingMentions, setIncomingMentions] = createSignal<Mention[]>([]);
 	const [noteVersion, setNoteVersion] = createSignal<number>(0);
 	const [viewCount, setViewCount] = createSignal<number>(0);
+	const [noteCreatedAt, setNoteCreatedAt] = createSignal<string>("");
+	const [noteUpdatedAt, setNoteUpdatedAt] = createSignal<string>("");
+	const [noteCreatedByName, setNoteCreatedByName] = createSignal<string>("");
 	const [noteHeadings, setNoteHeadings] = createSignal<NoteHeading[]>([]);
 	const [noteFiles, setNoteFiles] = createSignal<Record<string, NoteFile>>({});
 	const [headingMatches, setHeadingMatches] = createSignal<HeadingMatch[]>([]);
@@ -952,6 +955,9 @@ export function createNookStore(nookId: () => string) {
 		setTitleIsManual(true);
 		setNoteVersion(note.version ?? 0);
 		setViewCount(note.viewCount ?? 0);
+		setNoteCreatedAt(note.createdAt ?? "");
+		setNoteUpdatedAt(note.updatedAt ?? "");
+		setNoteCreatedByName(note.createdByName ?? "");
 		setNoteHeadings(note.headings ?? []);
 		setNoteFiles(note.files ?? {});
 		setError("");
@@ -1349,6 +1355,9 @@ export function createNookStore(nookId: () => string) {
 		viewVersion,
 		noteVersion,
 		viewCount,
+		noteCreatedAt,
+		noteUpdatedAt,
+		noteCreatedByName,
 		noteHasUpdate: () => remoteVersion() > 0 && remoteVersion() > noteVersion(),
 		remoteNoteChanged,
 		dismissRemoteNoteChanged: () => setRemoteNoteChanged(false),

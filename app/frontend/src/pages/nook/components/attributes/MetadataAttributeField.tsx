@@ -17,17 +17,13 @@ export function MetadataAttributeField(props: {
 		};
 	};
 
-	const history = () => props.store.noteHistory();
-	const createdEntry = () => history()[history().length - 1];
-	const lastEditEntry = () => history().length > 1 ? history()[0] : undefined;
-
 	const hasAny = () => {
 		const cfg = config();
 		return (
 			(cfg.showVersion && props.store.noteVersion() > 0) ||
 			(cfg.showViews && props.store.viewCount() > 0) ||
-			(cfg.showCreated && createdEntry()) ||
-			(cfg.showUpdated && lastEditEntry())
+			(cfg.showCreated && props.store.noteCreatedAt()) ||
+			(cfg.showUpdated && props.store.noteUpdatedAt())
 		);
 	};
 
@@ -51,19 +47,16 @@ export function MetadataAttributeField(props: {
 				<Show when={config().showViews && props.store.viewCount() > 0}>
 					<span>{props.store.viewCount()} views</span>
 				</Show>
-				<Show when={config().showCreated && createdEntry()}>
-					{(entry) => (
-						<span>
-							Created by {entry().userName || "Unknown"} {formatTimeAgo(entry().createdAt)}
-						</span>
-					)}
+				<Show when={config().showCreated && props.store.noteCreatedAt()}>
+					<span>
+						Created{props.store.noteCreatedByName() ? ` by ${props.store.noteCreatedByName()}` : ""}{" "}
+						{formatTimeAgo(props.store.noteCreatedAt())}
+					</span>
 				</Show>
-				<Show when={config().showUpdated && lastEditEntry()}>
-					{(entry) => (
-						<span>
-							Edited by {entry().userName || "Unknown"} {formatTimeAgo(entry().createdAt)}
-						</span>
-					)}
+				<Show when={config().showUpdated && props.store.noteUpdatedAt() && props.store.noteUpdatedAt() !== props.store.noteCreatedAt()}>
+					<span>
+						Edited {formatTimeAgo(props.store.noteUpdatedAt())}
+					</span>
 				</Show>
 			</div>
 		</Show>

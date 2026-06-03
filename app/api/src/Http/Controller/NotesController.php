@@ -196,8 +196,12 @@ final class NotesController
         $this->requireMember($pdo, $user, $nookId);
 
         $stmt = $pdo->prepare(
-            'select id, title, content, type_id, attributes, archive, version, created_at, updated_at '
-            . 'from global.notes where nook_id = :nook_id and id = :id'
+            'select n.id, n.title, n.content, n.type_id, n.attributes, n.archive, n.version, '
+            . 'n.created_at, n.updated_at, '
+            . 'coalesce(nullif(cu.nickname, \'\'), trim(cu.first_name || \' \' || cu.last_name)) as created_by_name '
+            . 'from global.notes n '
+            . 'left join global.users cu on cu.id = n.created_by '
+            . 'where n.nook_id = :nook_id and n.id = :id'
         );
         $stmt->execute([':nook_id' => $nookId, ':id' => $noteId]);
         $r = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -237,6 +241,7 @@ final class NotesController
             'view_count' => $viewCount,
             'created_at' => Row::str($r, 'created_at'),
             'updated_at' => Row::str($r, 'updated_at'),
+            'created_by_name' => Row::str($r, 'created_by_name'),
         ];
 
         if ($sectionContent !== null) {
