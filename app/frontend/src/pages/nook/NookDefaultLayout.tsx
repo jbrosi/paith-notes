@@ -14,7 +14,6 @@ import { NotePreviewProvider } from "./NookContext";
 import { NookDashboard } from "./NookDashboard";
 import styles from "./NookDefaultLayout.module.css";
 import { NookGraphPanel } from "./NookGraphPanel";
-import { NookLinksAndMentionsPanel } from "./NookLinksAndMentionsPanel";
 import { NookMainPanel } from "./NookMainPanel";
 import { NookMarkdownView } from "./NookMarkdownView";
 import type { NookStore } from "./store";
@@ -28,7 +27,6 @@ export type NookDefaultLayoutProps = {
 
 const PANEL_LABELS: Record<MobilePanel, string> = {
 	content: "Note",
-	links: "Links",
 	history: "History",
 	graph: "Graph",
 	markdown: "Markdown",
@@ -132,14 +130,11 @@ export function NookDefaultLayout(props: NookDefaultLayoutProps) {
 					class={styles.layout}
 					data-active-panel={ui.activePanel()}
 				>
-					{/* Main scrollable area: content + links + history together on desktop */}
+					{/* Main scrollable area: content + history together on desktop */}
 					<div class={styles.mainScroll}>
 						<div class={styles.mainScrollInner}>
 							<div class={styles.panelContent}>
 								<NookMainPanel store={props.store} />
-							</div>
-							<div class={styles.panelLinks}>
-								<NookLinksAndMentionsPanel store={props.store} />
 							</div>
 							<Show when={props.store.selectedId() !== ""}>
 								<div class={styles.panelHistory}>

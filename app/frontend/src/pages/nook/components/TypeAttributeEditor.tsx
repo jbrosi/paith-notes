@@ -341,6 +341,12 @@ function AttributeEditRow(props: {
 	const [max, setMax] = createSignal(
 		String(props.attr.config.max ?? ""),
 	);
+	const [lnDirection, setLnDirection] = createSignal(
+		String(props.attr.config.direction ?? "both"),
+	);
+	const [lnIncludeMentions, setLnIncludeMentions] = createSignal(
+		props.attr.config.include_mentions !== false,
+	);
 
 	const buildConfig = (): Record<string, unknown> => {
 		const c: Record<string, unknown> = {};
@@ -352,6 +358,11 @@ function AttributeEditRow(props: {
 		}
 		if (display()) c.display = display();
 		if (kind() === "number" && max()) c.max = Number(max());
+		if (kind() === "linked_notes") {
+			c.direction = lnDirection();
+			c.include_mentions = lnIncludeMentions();
+			if (display()) c.display = display();
+		}
 		return c;
 	};
 
@@ -436,6 +447,28 @@ function AttributeEditRow(props: {
 					<option value="preview">Preview</option>
 					<option value="player">Player</option>
 				</select>
+			</Show>
+
+			<Show when={kind() === "linked_notes"}>
+				<div style={{ display: "flex", gap: "6px", "align-items": "center" }}>
+					<select
+						value={lnDirection()}
+						onChange={(e) => setLnDirection(e.currentTarget.value)}
+						style={{ padding: "4px 6px", "font-size": "12px" }}
+					>
+						<option value="outgoing">Outgoing (references from this note)</option>
+						<option value="incoming">Incoming (references to this note)</option>
+						<option value="both">Both directions</option>
+					</select>
+					<label style={{ display: "flex", "align-items": "center", gap: "4px", "font-size": "12px" }}>
+						<input
+							type="checkbox"
+							checked={lnIncludeMentions()}
+							onChange={(e) => setLnIncludeMentions(e.currentTarget.checked)}
+						/>
+						Include mentions
+					</label>
+				</div>
 			</Show>
 
 			<div style={{ display: "flex", gap: "6px" }}>

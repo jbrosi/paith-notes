@@ -15,6 +15,7 @@ use Throwable;
 
 final class NoteTypesController
 {
+    private const DEFAULT_BASE_TYPE_KEY = 'base';
     private const DEFAULT_FILE_TYPE_KEY = 'file';
     private const DEFAULT_GRAPH_TYPE_KEY = 'graph';
     private const DEFAULT_VIEW_TYPE_KEY = 'view';
@@ -35,9 +36,10 @@ final class NoteTypesController
 
         $this->requireMember($pdo, $user, $nookId);
 
-        $this->ensureDefaultFileType($pdo, $nookId);
-        $this->ensureDefaultGraphType($pdo, $nookId);
-        $this->ensureDefaultViewType($pdo, $nookId);
+        $baseTypeId = $this->ensureDefaultBaseType($pdo, $nookId);
+        $this->ensureDefaultFileType($pdo, $nookId, $baseTypeId);
+        $this->ensureDefaultGraphType($pdo, $nookId, $baseTypeId);
+        $this->ensureDefaultViewType($pdo, $nookId, $baseTypeId);
 
         $stmt = $pdo->prepare(
             'select id, key, label, description, parent_id, attribute_order, created_at, updated_at '
@@ -689,7 +691,69 @@ final class NoteTypesController
         return $row;
     }
 
-    private function ensureDefaultFileType(PDO $pdo, string $nookId): void
+    /**
+     * Ensure the base type exists. All other types inherit from it.
+     * Returns the base type ID.
+     */
+    private function ensureDefaultBaseType(PDO $pdo, string $nookId): string
+    {
+        $check = $pdo->prepare('select id from global.note_types where nook_id = :nook_id and key = :key');
+        $check->execute([':nook_id' => $nookId, ':key' => self::DEFAULT_BASE_TYPE_KEY]);
+        $existing = $check->fetchColumn();
+        if ($existing) {
+            return (string)$existing;
+        }
+
+        $stmt = $pdo->prepare(
+            'insert into global.note_types (nook_id, key, label, description) '
+            . 'values (:nook_id, :key, :label, :description) '
+            . 'returning id'
+        );
+        $stmt->execute([
+            ':nook_id' => $nookId,
+            ':key' => self::DEFAULT_BASE_TYPE_KEY,
+            ':label' => 'Note',
+            ':description' => 'Base type — all other types inherit its attributes',
+        ]);
+        $typeIdRaw = $stmt->fetchColumn();
+        $typeId = is_scalar($typeIdRaw) ? (string)$typeIdRaw : '';
+
+        if ($typeId !== '') {
+            // Seed "References" — outgoing links and mentions
+            $pdo->prepare(
+                "insert into global.type_attributes (nook_id, type_id, name, kind, config) "
+                . "values (:nook_id, :type_id, 'References', 'linked_notes', :config::jsonb) "
+                . "on conflict do nothing"
+            )->execute([
+                ':nook_id' => $nookId,
+                ':type_id' => $typeId,
+                ':config' => json_encode([
+                    'direction' => 'outgoing',
+                    'include_mentions' => true,
+                    'display' => 'list',
+                ]),
+            ]);
+
+            // Seed "Referenced By" — incoming links and mentions
+            $pdo->prepare(
+                "insert into global.type_attributes (nook_id, type_id, name, kind, config) "
+                . "values (:nook_id, :type_id, 'Referenced By', 'linked_notes', :config::jsonb) "
+                . "on conflict do nothing"
+            )->execute([
+                ':nook_id' => $nookId,
+                ':type_id' => $typeId,
+                ':config' => json_encode([
+                    'direction' => 'incoming',
+                    'include_mentions' => true,
+                    'display' => 'list',
+                ]),
+            ]);
+        }
+
+        return $typeId;
+    }
+
+    private function ensureDefaultFileType(PDO $pdo, string $nookId, string $baseTypeId): void
     {
         $check = $pdo->prepare('select id from global.note_types where nook_id = :nook_id and key = :key');
         $check->execute([':nook_id' => $nookId, ':key' => self::DEFAULT_FILE_TYPE_KEY]);
@@ -698,14 +762,15 @@ final class NoteTypesController
         }
 
         $stmt = $pdo->prepare(
-            'insert into global.note_types (nook_id, key, label) '
-            . 'values (:nook_id, :key, :label) '
+            'insert into global.note_types (nook_id, key, label, parent_id) '
+            . 'values (:nook_id, :key, :label, :parent_id) '
             . 'returning id'
         );
         $stmt->execute([
             ':nook_id' => $nookId,
             ':key' => self::DEFAULT_FILE_TYPE_KEY,
             ':label' => 'File',
+            ':parent_id' => $baseTypeId !== '' ? $baseTypeId : null,
         ]);
         $typeIdRaw = $stmt->fetchColumn();
         $typeId = is_scalar($typeIdRaw) ? (string)$typeIdRaw : '';
@@ -720,7 +785,7 @@ final class NoteTypesController
         }
     }
 
-    private function ensureDefaultGraphType(PDO $pdo, string $nookId): void
+    private function ensureDefaultGraphType(PDO $pdo, string $nookId, string $baseTypeId): void
     {
         $check = $pdo->prepare('select id from global.note_types where nook_id = :nook_id and key = :key');
         $check->execute([':nook_id' => $nookId, ':key' => self::DEFAULT_GRAPH_TYPE_KEY]);
@@ -729,14 +794,15 @@ final class NoteTypesController
         }
 
         $stmt = $pdo->prepare(
-            'insert into global.note_types (nook_id, key, label) '
-            . 'values (:nook_id, :key, :label) '
+            'insert into global.note_types (nook_id, key, label, parent_id) '
+            . 'values (:nook_id, :key, :label, :parent_id) '
             . 'returning id'
         );
         $stmt->execute([
             ':nook_id' => $nookId,
             ':key' => self::DEFAULT_GRAPH_TYPE_KEY,
             ':label' => 'Graph View',
+            ':parent_id' => $baseTypeId !== '' ? $baseTypeId : null,
         ]);
         $typeIdRaw = $stmt->fetchColumn();
         $typeId = is_scalar($typeIdRaw) ? (string)$typeIdRaw : '';
@@ -894,7 +960,7 @@ final class NoteTypesController
         return array_values(array_filter($decoded, 'is_string'));
     }
 
-    private function ensureDefaultViewType(PDO $pdo, string $nookId): void
+    private function ensureDefaultViewType(PDO $pdo, string $nookId, string $baseTypeId): void
     {
         $check = $pdo->prepare('select id from global.note_types where nook_id = :nook_id and key = :key');
         $check->execute([':nook_id' => $nookId, ':key' => self::DEFAULT_VIEW_TYPE_KEY]);
@@ -903,14 +969,15 @@ final class NoteTypesController
         }
 
         $stmt = $pdo->prepare(
-            'insert into global.note_types (nook_id, key, label) '
-            . 'values (:nook_id, :key, :label) '
+            'insert into global.note_types (nook_id, key, label, parent_id) '
+            . 'values (:nook_id, :key, :label, :parent_id) '
             . 'returning id'
         );
         $stmt->execute([
             ':nook_id' => $nookId,
             ':key' => self::DEFAULT_VIEW_TYPE_KEY,
             ':label' => 'View',
+            ':parent_id' => $baseTypeId !== '' ? $baseTypeId : null,
         ]);
         $typeIdRaw = $stmt->fetchColumn();
         $typeId = is_scalar($typeIdRaw) ? (string)$typeIdRaw : '';

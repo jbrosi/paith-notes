@@ -32,13 +32,16 @@ export function NoteAttributeFields(props: {
 		props.store.setNoteAttribute?.(attrId, value);
 	};
 
+	const nonInlineKinds = new Set(["file", "graph", "view", "linked_notes"]);
 	const simpleAttrs = () =>
-		attributes()?.filter((a) => !["file", "graph", "view"].includes(a.kind)) ?? [];
+		attributes()?.filter((a) => !nonInlineKinds.has(a.kind)) ?? [];
 	const fileAttrs = () => attributes()?.filter((a) => a.kind === "file") ?? [];
 	const graphAttrs = () =>
 		attributes()?.filter((a) => a.kind === "graph") ?? [];
 	const viewAttrs = () =>
 		attributes()?.filter((a) => a.kind === "view") ?? [];
+	const linkedNotesAttrs = () =>
+		attributes()?.filter((a) => a.kind === "linked_notes") ?? [];
 
 	return (
 		<>
@@ -93,6 +96,14 @@ export function NoteAttributeFields(props: {
 							noteAttributes()[attr.id] as Record<string, unknown> | undefined
 						}
 						onChange={(v) => setAttr(attr.id, v)}
+						store={props.store}
+					/>
+				)}
+			</For>
+			<For each={linkedNotesAttrs()}>
+				{(attr) => (
+					<LinkedNotesAttributeField
+						attr={attr}
 						store={props.store}
 					/>
 				)}
@@ -845,4 +856,116 @@ function fmtVal(val: unknown, attr: TypeAttribute): string {
 		return "★".repeat(n) + "☆".repeat(Math.max(0, max - n));
 	}
 	return String(val);
+}
+
+// ─── Linked Notes Attribute ─────────────────────────────────────────────────
+
+type LinkedNoteItem = {
+	noteId: string;
+	noteTitle: string;
+	nookId?: string;
+	typeId?: string;
+	predicateLabel?: string;
+};
+
+function LinkedNotesAttributeField(props: {
+	attr: TypeAttribute;
+	store: NookStore;
+}) {
+	const config = () => {
+		const c = props.attr.config;
+		return {
+			direction: String(c.direction ?? "both") as "outgoing" | "incoming" | "both",
+			includeMentions: c.include_mentions !== false,
+			filterTypeIds: Array.isArray(c.filter_type_ids) ? (c.filter_type_ids as string[]) : [],
+			filterPredicateIds: Array.isArray(c.filter_predicate_ids) ? (c.filter_predicate_ids as string[]) : [],
+			sort: String(c.sort ?? "title") as "title" | "created" | "updated",
+			display: String(c.display ?? "list"),
+		};
+	};
+
+	const items = createMemo((): LinkedNoteItem[] => {
+		const cfg = config();
+		const noteId = props.store.selectedId();
+		if (!noteId) return [];
+
+		const result: LinkedNoteItem[] = [];
+		const seen = new Set<string>();
+
+		const addItem = (item: LinkedNoteItem) => {
+			if (seen.has(item.noteId) || item.noteId === noteId) return;
+			if (cfg.filterTypeIds.length > 0 && item.typeId && !cfg.filterTypeIds.includes(item.typeId)) return;
+			seen.add(item.noteId);
+			result.push(item);
+		};
+
+		// Mentions
+		if (cfg.includeMentions) {
+			if (cfg.direction === "outgoing" || cfg.direction === "both") {
+				for (const m of props.store.outgoingMentions()) {
+					addItem({ noteId: m.noteId, noteTitle: m.noteTitle, nookId: m.nookId });
+				}
+			}
+			if (cfg.direction === "incoming" || cfg.direction === "both") {
+				for (const m of props.store.incomingMentions()) {
+					addItem({ noteId: m.noteId, noteTitle: m.noteTitle, nookId: m.nookId });
+				}
+			}
+		}
+
+		// Sort
+		if (cfg.sort === "title") {
+			result.sort((a, b) => a.noteTitle.localeCompare(b.noteTitle));
+		}
+
+		return result;
+	});
+
+	return (
+		<Show when={items().length > 0}>
+			<div style={{ "margin-top": "8px" }}>
+				<div
+					style={{
+						"font-size": "0.7rem",
+						"font-weight": "600",
+						color: "var(--color-text-secondary)",
+						"margin-bottom": "4px",
+						"text-transform": "uppercase",
+						"letter-spacing": "0.03em",
+					}}
+				>
+					{props.attr.name}
+				</div>
+				<div style={{ display: "grid", gap: "2px" }}>
+					<For each={items()}>
+						{(item) => (
+							<button
+								type="button"
+								onClick={() => props.store.onNoteLinkClick(item.noteId, item.nookId)}
+								style={{
+									display: "block",
+									width: "100%",
+									padding: "4px 8px",
+									border: "1px solid var(--color-border-light, #e5e7eb)",
+									"border-radius": "4px",
+									background: "none",
+									"text-align": "left",
+									cursor: "pointer",
+									"font-size": "0.8rem",
+									color: "var(--link-color, #0066cc)",
+								}}
+							>
+								{item.noteTitle || "(untitled)"}
+								<Show when={item.predicateLabel}>
+									<span style={{ color: "var(--color-text-muted)", "margin-left": "6px", "font-size": "0.7rem" }}>
+										{item.predicateLabel}
+									</span>
+								</Show>
+							</button>
+						)}
+					</For>
+				</div>
+			</div>
+		</Show>
+	);
 }

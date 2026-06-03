@@ -1061,7 +1061,6 @@ export function Nav() {
 												{(
 													[
 														["content", "Note"],
-														["links", "Links & Mentions"],
 														["history", "History"],
 														["graph", "Graph"],
 														["markdown", "Markdown Source"],

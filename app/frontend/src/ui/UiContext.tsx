@@ -8,14 +8,12 @@ import {
 
 export type MobilePanel =
 	| "content"
-	| "links"
 	| "history"
 	| "graph"
 	| "markdown";
 
 export const MOBILE_PANELS: MobilePanel[] = [
 	"content",
-	"links",
 	"history",
 	"graph",
 	"markdown",
@@ -92,7 +90,7 @@ export function UiProvider(props: { children: JSX.Element }) {
 		}
 		try {
 			const v = window.localStorage.getItem(ACTIVE_PANEL_STORAGE_KEY);
-			if (v === "content" || v === "links" || v === "graph" || v === "markdown")
+			if (v === "content" || v === "history" || v === "graph" || v === "markdown")
 				setActivePanelSignal(v);
 		} catch {
 			// ignore
