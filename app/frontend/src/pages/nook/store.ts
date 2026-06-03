@@ -366,7 +366,7 @@ export function createNookStore(nookId: () => string) {
 			}
 			const json = await res.json();
 			const body = NoteTypeResponseSchema.parse(json);
-			setNoteTypes([body.type, ...noteTypes()]);
+			await loadNoteTypes();
 			return body.type;
 		} catch (e) {
 			setError(String(e));
@@ -404,11 +404,7 @@ export function createNookStore(nookId: () => string) {
 					`Failed to rename type: ${res.status} ${res.statusText}`,
 				);
 			}
-			const json = await res.json();
-			const body = NoteTypeResponseSchema.parse(json);
-			setNoteTypes(
-				noteTypes().map((t) => (t.id === body.type.id ? body.type : t)),
-			);
+			await loadNoteTypes();
 		} catch (e) {
 			setError(String(e));
 		} finally {
@@ -455,9 +451,7 @@ export function createNookStore(nookId: () => string) {
 			}
 			const json = await res.json();
 			const body = NoteTypeResponseSchema.parse(json);
-			setNoteTypes(
-				noteTypes().map((t) => (t.id === body.type.id ? body.type : t)),
-			);
+			await loadNoteTypes();
 			return body.type;
 		} catch (e) {
 			setError(String(e));
@@ -481,7 +475,7 @@ export function createNookStore(nookId: () => string) {
 					`Failed to delete type: ${res.status} ${res.statusText}`,
 				);
 			}
-			setNoteTypes(noteTypes().filter((t) => t.id !== type.id));
+			await loadNoteTypes();
 			if (selectedTypeIds().has(type.id)) {
 				const next = new Set(selectedTypeIds());
 				next.delete(type.id);
