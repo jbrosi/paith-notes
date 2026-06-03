@@ -12,7 +12,6 @@ import { Button } from "../../components/Button";
 import { MarkdownView } from "../../components/MarkdownView";
 import { useUi } from "../../ui/UiContext";
 import notesStyles from "../Notes.module.css";
-import { EditorSection } from "./components/EditorSection";
 import { NoteAttributeFields } from "./components/NoteAttributeFields";
 import { TitleSection } from "./components/TitleSection";
 import { NookToolbar } from "./NookToolbar";
@@ -307,7 +306,6 @@ export function NookMainPanel(props: NookMainPanelProps) {
 
 					<TitleSection store={store()} />
 					<NoteAttributeFields store={store()} />
-					<EditorSection store={store()} />
 				</div>
 			</Show>
 		</>

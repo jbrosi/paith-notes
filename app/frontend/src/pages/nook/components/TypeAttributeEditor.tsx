@@ -357,6 +357,9 @@ function AttributeEditRow(props: {
 	const [mdShowCreated, setMdShowCreated] = createSignal(props.attr.config.show_created !== false);
 	const [mdShowUpdated, setMdShowUpdated] = createSignal(props.attr.config.show_updated !== false);
 	const [mdShowViews, setMdShowViews] = createSignal(props.attr.config.show_views !== false);
+	const [contentMode, setContentMode] = createSignal(
+		String(props.attr.config.mode ?? "markdown"),
+	);
 
 	const buildConfig = (): Record<string, unknown> => {
 		const c: Record<string, unknown> = {};
@@ -378,6 +381,9 @@ function AttributeEditRow(props: {
 		}
 		if (kind() === "toc") {
 			c.max_depth = Number(tocMaxDepth()) || 3;
+		}
+		if (kind() === "content") {
+			c.mode = contentMode();
 		}
 		if (kind() === "metadata") {
 			c.show_version = mdShowVersion();
@@ -468,6 +474,19 @@ function AttributeEditRow(props: {
 					<option value="">Download (default)</option>
 					<option value="preview">Preview</option>
 					<option value="player">Player</option>
+				</select>
+			</Show>
+
+			<Show when={kind() === "content"}>
+				<select
+					value={contentMode()}
+					onChange={(e) => setContentMode(e.currentTarget.value)}
+					style={{ padding: "4px 6px", "font-size": "12px" }}
+				>
+					<option value="markdown">Markdown (default)</option>
+					<option value="plain">Plain text</option>
+					<option value="code">Code</option>
+					<option value="hidden">Hidden (no content body)</option>
 				</select>
 			</Show>
 

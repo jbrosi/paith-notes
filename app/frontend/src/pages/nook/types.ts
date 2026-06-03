@@ -213,6 +213,7 @@ export const TypeAttributeKinds = [
 	"history",
 	"toc",
 	"metadata",
+	"content",
 ] as const;
 export type TypeAttributeKind = (typeof TypeAttributeKinds)[number];
 
