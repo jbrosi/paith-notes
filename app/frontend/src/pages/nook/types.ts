@@ -104,6 +104,7 @@ const NoteDetailApiSchema = z
 		headings: z.array(NoteHeadingSchema).optional(),
 		files: z.record(z.string(), NoteFileSchema).optional(),
 		created_at: z.string().optional(),
+		updated_at: z.string().optional(),
 	})
 	.transform((n) => ({
 		id: n.id,
@@ -115,6 +116,7 @@ const NoteDetailApiSchema = z
 		version: n.version ?? 0,
 		viewCount: n.view_count ?? 0,
 		files: n.files ?? {},
+		updatedAt: n.updated_at ?? "",
 		headings: n.headings ?? [],
 		createdAt: n.created_at,
 	}));

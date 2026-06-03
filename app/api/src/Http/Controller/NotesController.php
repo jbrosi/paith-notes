@@ -196,7 +196,7 @@ final class NotesController
         $this->requireMember($pdo, $user, $nookId);
 
         $stmt = $pdo->prepare(
-            'select id, title, content, type_id, attributes, archive, version, created_at '
+            'select id, title, content, type_id, attributes, archive, version, created_at, updated_at '
             . 'from global.notes where nook_id = :nook_id and id = :id'
         );
         $stmt->execute([':nook_id' => $nookId, ':id' => $noteId]);
@@ -236,6 +236,7 @@ final class NotesController
             'version' => Row::int($r, 'version'),
             'view_count' => $viewCount,
             'created_at' => Row::str($r, 'created_at'),
+            'updated_at' => Row::str($r, 'updated_at'),
         ];
 
         if ($sectionContent !== null) {
