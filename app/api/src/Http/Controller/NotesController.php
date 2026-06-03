@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Paith\Notes\Api\Http\Controller;
 
+use Paith\Notes\Api\Http\Service\HeadingsService;
 use Paith\Notes\Api\Http\Service\MentionsService;
 use Paith\Notes\Api\Http\Context;
 use Paith\Notes\Api\Http\HttpError;
@@ -17,10 +18,12 @@ use Throwable;
 final class NotesController
 {
     private MentionsService $mentions;
+    private HeadingsService $headings;
 
     public function __construct()
     {
         $this->mentions = new MentionsService();
+        $this->headings = new HeadingsService();
     }
 
     public function list(Request $request, Context $context): Response
@@ -296,6 +299,7 @@ final class NotesController
             if ($noteId !== '') {
                 $userId = is_scalar($user['id'] ?? null) ? (string)$user['id'] : '';
                 $this->mentions->syncMentions($pdo, $nookId, $noteId, $content, $userId);
+                $this->headings->syncHeadings($pdo, $nookId, $noteId, $content);
             }
 
             $pdo->commit();
@@ -503,7 +507,8 @@ final class NotesController
             }
 
             $userId = is_scalar($user['id'] ?? null) ? (string)$user['id'] : '';
-                $this->mentions->syncMentions($pdo, $nookId, $noteId, $content, $userId);
+            $this->mentions->syncMentions($pdo, $nookId, $noteId, $content, $userId);
+            $this->headings->syncHeadings($pdo, $nookId, $noteId, $content);
 
             $pdo->commit();
 
