@@ -1,4 +1,4 @@
-import { createMemo, createSignal, For, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import { apiFetch } from "../../../auth/keycloak";
 import { NookEmbeddedGraph } from "../NookEmbeddedGraph";
 import type { NookStore } from "../store";
@@ -872,6 +872,17 @@ function LinkedNotesAttributeField(props: {
 	attr: TypeAttribute;
 	store: NookStore;
 }) {
+	const [links, setLinks] = createSignal<
+		Array<{
+			noteId: string;
+			noteTitle: string;
+			typeId: string;
+			predicateId: string;
+			predicateLabel: string;
+			direction: "outgoing" | "incoming";
+		}>
+	>([]);
+
 	const config = () => {
 		const c = props.attr.config;
 		return {
@@ -883,6 +894,62 @@ function LinkedNotesAttributeField(props: {
 			display: String(c.display ?? "list"),
 		};
 	};
+
+	// Fetch links when note changes
+	createEffect(() => {
+		const nookId = props.store.nookId();
+		const noteId = props.store.selectedId();
+		if (!nookId || !noteId) {
+			setLinks([]);
+			return;
+		}
+		void (async () => {
+			try {
+				const res = await apiFetch(
+					`/api/nooks/${nookId}/notes/${noteId}/links?direction=both&depth=1`,
+				);
+				if (!res.ok) return;
+				const body = (await res.json()) as {
+					links?: Array<{
+						source_note_id: string;
+						source_note_title?: string;
+						source_type_id?: string;
+						target_note_id: string;
+						target_note_title?: string;
+						target_type_id?: string;
+						forward_label?: string;
+						reverse_label?: string;
+						predicate_id?: string;
+					}>;
+				};
+				const result: typeof links extends () => infer T ? T : never = [];
+				for (const l of body.links ?? []) {
+					if (l.source_note_id === noteId) {
+						result.push({
+							noteId: l.target_note_id,
+							noteTitle: l.target_note_title ?? "",
+							typeId: l.target_type_id ?? "",
+							predicateId: l.predicate_id ?? "",
+							predicateLabel: l.forward_label ?? "",
+							direction: "outgoing",
+						});
+					} else {
+						result.push({
+							noteId: l.source_note_id,
+							noteTitle: l.source_note_title ?? "",
+							typeId: l.source_type_id ?? "",
+							predicateId: l.predicate_id ?? "",
+							predicateLabel: l.reverse_label ?? "",
+							direction: "incoming",
+						});
+					}
+				}
+				setLinks(result);
+			} catch {
+				setLinks([]);
+			}
+		})();
+	});
 
 	const items = createMemo((): LinkedNoteItem[] => {
 		const cfg = config();
@@ -898,6 +965,18 @@ function LinkedNotesAttributeField(props: {
 			seen.add(item.noteId);
 			result.push(item);
 		};
+
+		// Links (from API)
+		for (const l of links()) {
+			if (cfg.direction !== "both" && l.direction !== cfg.direction) continue;
+			if (cfg.filterPredicateIds.length > 0 && !cfg.filterPredicateIds.includes(l.predicateId)) continue;
+			addItem({
+				noteId: l.noteId,
+				noteTitle: l.noteTitle,
+				typeId: l.typeId,
+				predicateLabel: l.predicateLabel,
+			});
+		}
 
 		// Mentions
 		if (cfg.includeMentions) {
