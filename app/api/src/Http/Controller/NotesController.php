@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Paith\Notes\Api\Http\Controller;
 
+use Paith\Notes\Api\Http\Service\DiffService;
 use Paith\Notes\Api\Http\Service\HeadingsService;
 use Paith\Notes\Api\Http\Service\MentionsService;
 use Paith\Notes\Api\Http\Context;
@@ -894,6 +895,124 @@ final class NotesController
                 ],
             ],
         ]);
+    }
+
+    /**
+     * GET /nooks/{nookId}/notes/{noteId}/diff?from={version}&to={version}
+     * Compare two versions of a note. Returns unified diff of content + both versions' metadata.
+     * If "to" is omitted, compares against the current version.
+     */
+    public function diff(Request $request, Context $context): Response
+    {
+        $pdo = $context->pdo();
+        $user = $context->user();
+
+        $nookId = trim($request->routeParam('nookId'));
+        if ($nookId === '' || !self::isUuid($nookId)) {
+            throw new HttpError('nookId must be a UUID', 400);
+        }
+
+        $noteId = trim($request->routeParam('noteId'));
+        if ($noteId === '' || !self::isUuid($noteId)) {
+            throw new HttpError('noteId must be a UUID', 400);
+        }
+
+        $this->requireMember($pdo, $user, $nookId);
+
+        $fromVersion = trim($request->queryParam('from'));
+        $toVersion = trim($request->queryParam('to'));
+
+        if ($fromVersion === '' || !ctype_digit($fromVersion)) {
+            throw new HttpError('from version is required (numeric)', 400);
+        }
+
+        // Load "from" snapshot
+        $fromData = $this->loadVersionSnapshot($pdo, $nookId, $noteId, (int)$fromVersion);
+        if ($fromData === null) {
+            throw new HttpError('from version not found', 404);
+        }
+
+        // Load "to" snapshot — either a specific version or current
+        if ($toVersion !== '' && ctype_digit($toVersion)) {
+            $toData = $this->loadVersionSnapshot($pdo, $nookId, $noteId, (int)$toVersion);
+            if ($toData === null) {
+                throw new HttpError('to version not found', 404);
+            }
+        } else {
+            // Use current note content
+            $stmt = $pdo->prepare(
+                'select title, content, type_id, attributes, version from global.notes where id = :id and nook_id = :nook_id'
+            );
+            $stmt->execute([':id' => $noteId, ':nook_id' => $nookId]);
+            $cur = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!is_array($cur)) {
+                throw new HttpError('note not found', 404);
+            }
+            $toData = [
+                'version' => Row::int($cur, 'version'),
+                'title' => Row::str($cur, 'title'),
+                'content' => Row::str($cur, 'content'),
+                'type_id' => Row::str($cur, 'type_id'),
+                'attributes' => self::decodeJsonObject($cur['attributes'] ?? null),
+            ];
+        }
+
+        $diff = DiffService::unifiedDiff($fromData['content'], $toData['content']);
+
+        return JsonResponse::ok([
+            'from' => [
+                'version' => $fromData['version'],
+                'title' => $fromData['title'],
+                'type_id' => $fromData['type_id'],
+                'attributes' => $fromData['attributes'],
+            ],
+            'to' => [
+                'version' => $toData['version'],
+                'title' => $toData['title'],
+                'type_id' => $toData['type_id'],
+                'attributes' => $toData['attributes'],
+            ],
+            'content_diff' => $diff['diff'],
+            'hunks' => $diff['hunks'],
+            'stats' => $diff['stats'],
+        ]);
+    }
+
+    /**
+     * Load a note's content at a specific version from the audit trail.
+     * @return array{version: int, title: string, content: string, type_id: string, attributes: array}|null
+     */
+    private function loadVersionSnapshot(PDO $pdo, string $nookId, string $noteId, int $version): ?array
+    {
+        $stmt = $pdo->prepare(
+            'select ad.data from global.audit_meta am '
+            . 'join global.audit_data ad on ad.meta_id = am.id '
+            . 'where am.version = :version and am.table_name = :table and am.table_id = :note_id and am.nook_id = :nook_id'
+        );
+        $stmt->execute([
+            ':version' => $version,
+            ':table' => 'notes',
+            ':note_id' => $noteId,
+            ':nook_id' => $nookId,
+        ]);
+        $raw = $stmt->fetchColumn();
+        if (!is_scalar($raw)) return null;
+
+        $data = json_decode((string)$raw, true);
+        if (!is_array($data)) return null;
+
+        $attrs = $data['attributes'] ?? null;
+        if (is_string($attrs)) {
+            $attrs = json_decode($attrs, true);
+        }
+
+        return [
+            'version' => $version,
+            'title' => is_scalar($data['title'] ?? null) ? (string)$data['title'] : '',
+            'content' => is_scalar($data['content'] ?? null) ? (string)$data['content'] : '',
+            'type_id' => is_scalar($data['type_id'] ?? null) ? (string)$data['type_id'] : '',
+            'attributes' => is_array($attrs) ? $attrs : [],
+        ];
     }
 
     public function history(Request $request, Context $context): Response

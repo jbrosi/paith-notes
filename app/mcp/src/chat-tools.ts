@@ -126,6 +126,20 @@ export const TOOLS: Anthropic.Tool[] = [
     },
   },
   {
+    name: 'compare_note_versions',
+    description: 'Compare two versions of a note. Returns a unified diff of the content, plus metadata (title, type, attributes) for both versions. If "to_version" is omitted, compares against the current version.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        note_id: { type: 'string' },
+        nook_id: { type: 'string', description: 'The nook ID. Defaults to current nook if omitted.' },
+        from_version: { type: 'number', description: 'The older version number to compare from' },
+        to_version: { type: 'number', description: 'The newer version number to compare to. Omit to compare against current.' },
+      },
+      required: ['note_id', 'from_version'],
+    },
+  },
+  {
     name: 'get_note_summary',
     description: 'Get lightweight note metadata: title, type, attributes, and table of contents (headings) — without loading the full content. Use this to understand a note\'s structure before deciding which section to read. Much cheaper than get_note for long notes.',
     input_schema: {
@@ -446,6 +460,14 @@ export async function executeTool(
       const targetNook = String(input.nook_id || nookId);
       const ver = Number(input.version ?? 1);
       return JSON.stringify(await api('GET', `/api/nooks/${targetNook}/notes/${noteId}/history/v${ver}`));
+    }
+
+    case 'compare_note_versions': {
+      const targetNook = String(input.nook_id || nookId);
+      const params = new URLSearchParams();
+      params.set('from', String(input.from_version ?? 1));
+      if (input.to_version) params.set('to', String(input.to_version));
+      return JSON.stringify(await api('GET', `/api/nooks/${targetNook}/notes/${noteId}/diff?${params}`));
     }
 
     case 'get_note_summary': {

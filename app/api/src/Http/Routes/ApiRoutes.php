@@ -117,6 +117,7 @@ final class ApiRoutes
         $r->get('/nooks/{nookId}/notes/{noteId}/mentions', [NotesController::class, 'mentions']);
         $r->get('/nooks/{nookId}/notes/{noteId}/presence', [NotesController::class, 'presence']);
         $r->get('/nooks/{nookId}/notes/{noteId}/history', [NotesController::class, 'history']);
+        $r->get('/nooks/{nookId}/notes/{noteId}/diff', [NotesController::class, 'diff']);
         $r->get('/nooks/{nookId}/notes/{noteId}/history/{historyId}', [NotesController::class, 'historySnapshot']);
 
         $r->get('/nooks/{nookId}/notes/{noteId}/links', [NoteLinksController::class, 'list']);

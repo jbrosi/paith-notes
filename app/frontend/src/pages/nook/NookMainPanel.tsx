@@ -120,21 +120,39 @@ export function NookMainPanel(props: NookMainPanelProps) {
 									(read-only)
 								</span>
 							</div>
-							<Button
-								variant="secondary"
-								size="small"
-								onClick={() => {
-									const nook = store().nookId();
-									const noteId = store().selectedId();
-									if (nook && noteId) {
-										navigate(
-											`/nooks/${encodeURIComponent(nook)}/notes/${encodeURIComponent(noteId)}`,
-										);
-									}
-								}}
-							>
-								Back to current
-							</Button>
+							<div style={{ display: "flex", gap: "4px" }}>
+								<Button
+									variant="secondary"
+									size="small"
+									onClick={() => {
+										const nook = store().nookId();
+										const noteId = store().selectedId();
+										if (nook && noteId) {
+											navigate(
+												`/nooks/${encodeURIComponent(nook)}/notes/${encodeURIComponent(noteId)}`,
+											);
+										}
+									}}
+								>
+									Back to current
+								</Button>
+								<Button
+									variant="secondary"
+									size="small"
+									onClick={() => {
+										const nook = store().nookId();
+										const noteId = store().selectedId();
+										const ver = snapshot()?.version;
+										if (nook && noteId && ver) {
+											navigate(
+												`/nooks/${encodeURIComponent(nook)}/notes/${encodeURIComponent(noteId)}/compare/${ver}`,
+											);
+										}
+									}}
+								>
+									Compare with current
+								</Button>
+							</div>
 						</div>
 						<h1
 							style={{

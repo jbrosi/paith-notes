@@ -18,6 +18,7 @@ import { useNook } from "./nook/NookContext";
 import { NookDefaultLayout } from "./nook/NookDefaultLayout";
 import { NookGraphPanel } from "./nook/NookGraphPanel";
 import { NookLinksPanel } from "./nook/NookLinksPanel";
+import { NookComparePage } from "./nook/NookComparePage";
 import { NookNoteHistoryPage } from "./nook/NookNoteHistoryPage";
 import {
 	applyNookSeeds,
@@ -149,7 +150,7 @@ export default function Nook() {
 
 	const selectedNoteIdFromPath = createMemo(() => {
 		const m = normalizedSubPath().match(
-			/^notes\/([^/]+?)(?:\/v\/\d+|\/history)?$/,
+			/^notes\/([^/]+?)(?:\/v\/\d+|\/history|\/compare\/\d+(?:\/\d+)?)?$/,
 		);
 		return m?.[1] ? String(m[1]) : "";
 	});
@@ -162,6 +163,15 @@ export default function Nook() {
 	const showNoteHistory = createMemo(() =>
 		/^notes\/[^/]+\/history$/.test(normalizedSubPath()),
 	);
+
+	const compareVersions = createMemo(() => {
+		const m = normalizedSubPath().match(/^notes\/[^/]+\/compare\/(\d+)(?:\/(\d+))?$/);
+		if (!m) return null;
+		return {
+			from: Number(m[1]),
+			to: m[2] ? Number(m[2]) : undefined,
+		};
+	});
 
 	// URL → store: URL is the single source of truth for which note is selected.
 	// The store never drives navigation — only follows the URL.
@@ -269,8 +279,11 @@ export default function Nook() {
 												when={showTypesSettings()}
 												fallback={
 													<Show
-														when={showNoteHistory()}
+														when={compareVersions()}
 														fallback={
+															<Show
+																when={showNoteHistory()}
+																fallback={
 															<Show
 																when={isGraphFullscreen()}
 																fallback={
@@ -295,7 +308,17 @@ export default function Nook() {
 															</Show>
 														}
 													>
-														<NookNoteHistoryPage store={store} />
+																<NookNoteHistoryPage store={store} />
+															</Show>
+														}
+													>
+														{(cv) => (
+															<NookComparePage
+																store={store}
+																fromVersion={cv().from}
+																toVersion={cv().to}
+															/>
+														)}
 													</Show>
 												}
 											>
