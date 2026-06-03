@@ -101,6 +101,31 @@ export const TOOLS: Anthropic.Tool[] = [
     },
   },
   {
+    name: 'get_note_history',
+    description: 'Get the edit history of a note — who changed it, when, and at which version. Returns a list of history entries with version numbers, action (INSERT/UPDATE), user, and timestamp. Use this to understand how a note evolved over time, or to find a specific version to inspect.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        note_id: { type: 'string' },
+        nook_id: { type: 'string', description: 'The nook ID. Defaults to current nook if omitted.' },
+      },
+      required: ['note_id'],
+    },
+  },
+  {
+    name: 'get_note_version',
+    description: 'Get a specific historical version of a note by version number. Returns the full note snapshot (title, content, attributes) as it was at that version. Use after get_note_history to inspect a particular version.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        note_id: { type: 'string' },
+        nook_id: { type: 'string', description: 'The nook ID. Defaults to current nook if omitted.' },
+        version: { type: 'number', description: 'The version number to retrieve (from get_note_history)' },
+      },
+      required: ['note_id', 'version'],
+    },
+  },
+  {
     name: 'get_note_summary',
     description: 'Get lightweight note metadata: title, type, attributes, and table of contents (headings) — without loading the full content. Use this to understand a note\'s structure before deciding which section to read. Much cheaper than get_note for long notes.',
     input_schema: {
@@ -411,6 +436,17 @@ export async function executeTool(
 
     case 'list_link_predicates':
       return JSON.stringify(await api('GET', `/api/nooks/${nookId}/link-predicates`));
+
+    case 'get_note_history': {
+      const targetNook = String(input.nook_id || nookId);
+      return JSON.stringify(await api('GET', `/api/nooks/${targetNook}/notes/${noteId}/history`));
+    }
+
+    case 'get_note_version': {
+      const targetNook = String(input.nook_id || nookId);
+      const ver = Number(input.version ?? 1);
+      return JSON.stringify(await api('GET', `/api/nooks/${targetNook}/notes/${noteId}/history/v${ver}`));
+    }
 
     case 'get_note_summary': {
       const targetNook = String(input.nook_id || nookId);
