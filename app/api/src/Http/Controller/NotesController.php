@@ -811,7 +811,6 @@ final class NotesController
              left join global.users u on u.id = am.user_id
              where r.note_id = :note_id
                and am.nook_id in (select nook_id from global.nook_members where user_id = :user_id)
-               and am.table_name in ('notes', 'note_links', 'note_cross_links')
              order by am.version desc, r.meta_id desc
              limit 10"
         );
@@ -831,12 +830,15 @@ final class NotesController
             }
             $tableName = Row::str($r, 'table_name', 'notes');
             $isLink = $tableName === 'note_links' || $tableName === 'note_cross_links';
+            $isFile = $tableName === 'note_files';
+
+            $type = $isLink ? 'link' : ($isFile ? 'file' : 'note');
             $entry = [
                 'id' => Row::int($r, 'id'),
                 'version' => Row::int($r, 'version'),
                 'action' => Row::str($r, 'action'),
                 'actor' => Row::str($r, 'actor', 'user'),
-                'type' => $isLink ? 'link' : 'note',
+                'type' => $type,
                 'user_id' => Row::str($r, 'user_id'),
                 'user_name' => trim(Row::str($r, 'nickname') !== '' ? Row::str($r, 'nickname') : (Row::str($r, 'first_name') . ' ' . Row::str($r, 'last_name'))),
                 'created_at' => Row::str($r, 'created_at'),
@@ -853,6 +855,21 @@ final class NotesController
                 $linkLabel = Row::nullStr($r, 'link_label');
                 if ($linkLabel !== null) {
                     $entry['link_label'] = $linkLabel;
+                }
+            }
+            if ($isFile) {
+                // Extract file metadata from audit_data for display
+                $metaId = Row::int($r, 'id');
+                $dataStmt = $pdo->prepare('select data from global.audit_data where meta_id = :meta_id');
+                $dataStmt->execute([':meta_id' => $metaId]);
+                $dataRow = $dataStmt->fetch(PDO::FETCH_ASSOC);
+                if (is_array($dataRow) && is_scalar($dataRow['data'] ?? null)) {
+                    $fileData = json_decode((string)$dataRow['data'], true);
+                    if (is_array($fileData)) {
+                        $entry['filename'] = is_scalar($fileData['filename'] ?? null) ? (string)$fileData['filename'] : '';
+                        $entry['filesize'] = is_numeric($fileData['filesize'] ?? null) ? (int)$fileData['filesize'] : 0;
+                        $entry['mime_type'] = is_scalar($fileData['mime_type'] ?? null) ? (string)$fileData['mime_type'] : '';
+                    }
                 }
             }
             $history[] = $entry;

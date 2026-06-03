@@ -25,6 +25,10 @@ export type ActivityEntryData = {
 	linkTargetId?: string;
 	/** For note entries: version number */
 	version?: number;
+	/** For file entries: original filename */
+	filename?: string;
+	/** For file entries: file size in bytes */
+	filesize?: number;
 	createdAt: string;
 };
 
@@ -46,10 +50,24 @@ function actionLabel(action: string, type: string): string {
 		if (action === "DELETE") return "unlinked";
 		return "updated link";
 	}
+	if (type === "file") {
+		if (action === "INSERT") return "uploaded";
+		if (action === "UPDATE") return "re-uploaded";
+		if (action === "DELETE") return "removed file";
+		return "updated file";
+	}
 	if (action === "INSERT") return "created";
 	if (action === "UPDATE") return "edited";
 	if (action === "DELETE") return "deleted";
 	return action.toLowerCase();
+}
+
+function formatFilesize(bytes: number): string {
+	if (bytes <= 0) return "";
+	const units = ["B", "KB", "MB", "GB"];
+	const i = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+	const val = bytes / 1024 ** i;
+	return `${val < 10 ? val.toFixed(1) : Math.round(val)} ${units[i]}`;
 }
 
 function NoteLinkEl(props: {
@@ -187,6 +205,21 @@ export function ActivityEntryRow(props: Props) {
 				>
 					v{e().version}
 				</button>
+			</Show>
+
+			{/* File entry: filename + size */}
+			<Show when={e().type === "file" && e().filename}>
+				<span
+					style={{
+						"font-size": "0.65rem",
+						color: "var(--color-text-muted)",
+					}}
+				>
+					{e().filename}
+					<Show when={(e().filesize ?? 0) > 0}>
+						{" "}({formatFilesize(e().filesize!)})
+					</Show>
+				</span>
 			</Show>
 
 			{/* Note entry with title (for nook-wide note edits) */}
