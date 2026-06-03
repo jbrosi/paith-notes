@@ -719,33 +719,30 @@ final class NoteTypesController
         $typeId = is_scalar($typeIdRaw) ? (string)$typeIdRaw : '';
 
         if ($typeId !== '') {
-            // Seed "References" — outgoing links and mentions
+            // Seed "Links" — outgoing predicate-based links
             $pdo->prepare(
                 "insert into global.type_attributes (nook_id, type_id, name, kind, config) "
-                . "values (:nook_id, :type_id, 'References', 'linked_notes', :config::jsonb) "
+                . "values (:nook_id, :type_id, 'Links', 'linked_notes', :config::jsonb) "
                 . "on conflict do nothing"
             )->execute([
                 ':nook_id' => $nookId,
                 ':type_id' => $typeId,
                 ':config' => json_encode([
-                    'direction' => 'outgoing',
-                    'include_mentions' => true,
+                    'direction' => 'both',
                     'display' => 'list',
                 ]),
             ]);
 
-            // Seed "Referenced By" — incoming links and mentions
+            // Seed "Mentions" — inline [[note:...]] references (both directions)
             $pdo->prepare(
                 "insert into global.type_attributes (nook_id, type_id, name, kind, config) "
-                . "values (:nook_id, :type_id, 'Referenced By', 'linked_notes', :config::jsonb) "
+                . "values (:nook_id, :type_id, 'Mentions', 'mentions', :config::jsonb) "
                 . "on conflict do nothing"
             )->execute([
                 ':nook_id' => $nookId,
                 ':type_id' => $typeId,
                 ':config' => json_encode([
-                    'direction' => 'incoming',
-                    'include_mentions' => true,
-                    'display' => 'list',
+                    'direction' => 'both',
                 ]),
             ]);
 

@@ -210,6 +210,7 @@ export const TypeAttributeKinds = [
 	"multi_select",
 	"url",
 	"linked_notes",
+	"mentions",
 	"history",
 	"toc",
 	"metadata",

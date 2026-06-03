@@ -147,7 +147,7 @@ final class GlobalSchema
                     nook_id uuid not null references global.nooks(id) on delete cascade,
                     type_id uuid not null references global.note_types(id) on delete cascade,
                     name text not null,
-                    kind text not null check (kind in ('text', 'number', 'boolean', 'date', 'date_range', 'select', 'multi_select', 'url', 'file', 'graph', 'view', 'linked_notes', 'history', 'toc', 'metadata', 'content')),
+                    kind text not null check (kind in ('text', 'number', 'boolean', 'date', 'date_range', 'select', 'multi_select', 'url', 'file', 'graph', 'view', 'linked_notes', 'mentions', 'history', 'toc', 'metadata', 'content')),
                     config jsonb not null default '{}'::jsonb,
                     indexed boolean not null default false,
                     created_at timestamptz not null default now(),
@@ -162,7 +162,7 @@ final class GlobalSchema
                 do \$\$ begin
                     alter table global.type_attributes drop constraint if exists type_attributes_kind_check;
                     alter table global.type_attributes add constraint type_attributes_kind_check
-                        check (kind in ('text', 'number', 'boolean', 'date', 'date_range', 'select', 'multi_select', 'url', 'file', 'graph', 'view', 'linked_notes', 'history', 'toc', 'metadata', 'content'));
+                        check (kind in ('text', 'number', 'boolean', 'date', 'date_range', 'select', 'multi_select', 'url', 'file', 'graph', 'view', 'linked_notes', 'mentions', 'history', 'toc', 'metadata', 'content'));
                 end \$\$;
             ");
             $pdo->exec('create index if not exists type_attributes_type_id_idx on global.type_attributes (type_id)');

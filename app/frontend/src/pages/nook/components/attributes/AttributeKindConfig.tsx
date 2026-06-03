@@ -25,12 +25,9 @@ export function AttributeKindConfig(props: {
 	);
 	const [max, setMax] = createSignal(String(props.config.max ?? ""));
 
-	// ── Linked notes ────────────────────────────────────────────────────
+	// ── Linked notes / mentions ──────────────────────────────────────────
 	const [lnDirection, setLnDirection] = createSignal(
 		String(props.config.direction ?? "both"),
-	);
-	const [lnIncludeMentions, setLnIncludeMentions] = createSignal(
-		props.config.include_mentions !== false,
 	);
 
 	// ── History ─────────────────────────────────────────────────────────
@@ -63,9 +60,8 @@ export function AttributeKindConfig(props: {
 		}
 		if (display()) c.display = display();
 		if (k === "number" && max()) c.max = Number(max());
-		if (k === "linked_notes") {
+		if (k === "linked_notes" || k === "mentions") {
 			c.direction = lnDirection();
-			c.include_mentions = lnIncludeMentions();
 		}
 		if (k === "history") c.limit = Number(historyLimit()) || 5;
 		if (k === "toc") c.max_depth = Number(tocMaxDepth()) || 3;
@@ -132,19 +128,12 @@ export function AttributeKindConfig(props: {
 				</select>
 			</Show>
 
-			<Show when={props.kind === "linked_notes"}>
-				<div style={{ display: "flex", gap: "6px", "align-items": "center" }}>
-					<select value={lnDirection()} onChange={(e) => setLnDirection(e.currentTarget.value)} style={s}>
-						<option value="outgoing">Outgoing (references from this note)</option>
-						<option value="incoming">Incoming (references to this note)</option>
-						<option value="both">Both directions</option>
-					</select>
-					<label style={{ display: "flex", "align-items": "center", gap: "4px", "font-size": "12px" }}>
-						<input type="checkbox" checked={lnIncludeMentions()}
-							onChange={(e) => setLnIncludeMentions(e.currentTarget.checked)} />
-						Include mentions
-					</label>
-				</div>
+			<Show when={props.kind === "linked_notes" || props.kind === "mentions"}>
+				<select value={lnDirection()} onChange={(e) => setLnDirection(e.currentTarget.value)} style={s}>
+					<option value="outgoing">Outgoing (from this note)</option>
+					<option value="incoming">Incoming (to this note)</option>
+					<option value="both">Both directions</option>
+				</select>
 			</Show>
 
 			<Show when={props.kind === "history"}>

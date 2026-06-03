@@ -7,6 +7,7 @@ import { FileAttributeField } from "./attributes/FileAttributeField";
 import { GraphAttributeField } from "./attributes/GraphAttributeField";
 import { HistoryAttributeField } from "./attributes/HistoryAttributeField";
 import { LinkedNotesAttributeField } from "./attributes/LinkedNotesAttributeField";
+import { MentionsAttributeField } from "./attributes/MentionsAttributeField";
 import { MetadataAttributeField } from "./attributes/MetadataAttributeField";
 import { TocAttributeField } from "./attributes/TocAttributeField";
 import { ViewAttributeField } from "./attributes/ViewAttributeField";
@@ -121,6 +122,8 @@ export function NoteAttributeFields(props: {
 						);
 					case "linked_notes":
 						return <LinkedNotesAttributeField attr={attr} store={props.store} />;
+					case "mentions":
+						return <MentionsAttributeField attr={attr} store={props.store} />;
 					case "metadata":
 						return <MetadataAttributeField attr={attr} store={props.store} />;
 					case "toc":

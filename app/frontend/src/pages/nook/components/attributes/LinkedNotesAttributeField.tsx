@@ -30,7 +30,6 @@ export function LinkedNotesAttributeField(props: {
 		const c = props.attr.config;
 		return {
 			direction: String(c.direction ?? "both") as "outgoing" | "incoming" | "both",
-			includeMentions: c.include_mentions !== false,
 			filterTypeIds: Array.isArray(c.filter_type_ids) ? (c.filter_type_ids as string[]) : [],
 			filterPredicateIds: Array.isArray(c.filter_predicate_ids) ? (c.filter_predicate_ids as string[]) : [],
 			sort: String(c.sort ?? "title") as "title" | "created" | "updated",
@@ -119,20 +118,6 @@ export function LinkedNotesAttributeField(props: {
 				typeId: l.typeId,
 				predicateLabel: l.predicateLabel,
 			});
-		}
-
-		// Mentions
-		if (cfg.includeMentions) {
-			if (cfg.direction === "outgoing" || cfg.direction === "both") {
-				for (const m of props.store.outgoingMentions()) {
-					addItem({ noteId: m.noteId, noteTitle: m.noteTitle, nookId: m.nookId });
-				}
-			}
-			if (cfg.direction === "incoming" || cfg.direction === "both") {
-				for (const m of props.store.incomingMentions()) {
-					addItem({ noteId: m.noteId, noteTitle: m.noteTitle, nookId: m.nookId });
-				}
-			}
 		}
 
 		// Sort
