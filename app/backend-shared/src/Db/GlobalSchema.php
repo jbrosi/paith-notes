@@ -709,6 +709,7 @@ final class GlobalSchema
             $pdo->exec('create index if not exists audit_meta_user_id_idx on global.audit_meta (user_id, id desc)');
             $pdo->exec('create index if not exists audit_meta_created_at_idx on global.audit_meta (created_at desc)');
             $pdo->exec('create index if not exists audit_meta_nook_id_idx on global.audit_meta (nook_id, id desc)');
+            $pdo->exec('create index if not exists audit_meta_nook_table_idx on global.audit_meta (nook_id, table_name, id desc)');
 
             // Data table: holds the full row snapshot. Can be pruned for older entries.
             $pdo->exec("
