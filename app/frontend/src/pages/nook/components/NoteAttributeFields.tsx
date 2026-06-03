@@ -1067,12 +1067,14 @@ function HistoryAttributeField(props: {
 }) {
 	const limit = () => {
 		const v = Number(props.attr.config.limit ?? 5);
-		return v > 0 ? v : 5;
+		return Math.max(0, v);
 	};
 
-	const entries = createMemo(() =>
-		props.store.noteHistory().slice(0, limit()),
-	);
+	const entries = createMemo(() => {
+		const l = limit();
+		if (l === 0) return [];
+		return props.store.noteHistory().slice(0, l);
+	});
 
 	const nookId = () => props.store.nookId();
 	const noteId = () => props.store.selectedId();
@@ -1083,8 +1085,19 @@ function HistoryAttributeField(props: {
 		return `/nooks/${encodeURIComponent(nook)}/notes/${encodeURIComponent(note)}/history`;
 	};
 
+	const currentVersionLabel = createMemo(() => {
+		const v = props.store.noteVersion();
+		if (!v) return "";
+		// Find the latest history entry to get the author
+		const latest = props.store.noteHistory()[0];
+		if (latest) {
+			return `v${v} — ${latest.userName || "Unknown"}, ${formatTimeAgo(latest.createdAt)}`;
+		}
+		return `v${v}`;
+	});
+
 	return (
-		<Show when={entries().length > 0}>
+		<Show when={entries().length > 0 || (limit() === 0 && currentVersionLabel())}>
 			<div style={{ "margin-top": "8px" }}>
 				<div
 					style={{
@@ -1094,9 +1107,22 @@ function HistoryAttributeField(props: {
 						"margin-bottom": "4px",
 						"text-transform": "uppercase",
 						"letter-spacing": "0.03em",
+						display: "flex",
+						"align-items": "center",
+						gap: "6px",
 					}}
 				>
 					{props.attr.name}
+					<Show when={limit() === 0 && currentVersionLabel()}>
+						<span style={{
+							"font-weight": "400",
+							"text-transform": "none",
+							"letter-spacing": "normal",
+							color: "var(--color-text-muted)",
+						}}>
+							{currentVersionLabel()}
+						</span>
+					</Show>
 				</div>
 				<For each={entries()}>
 					{(entry) => {
@@ -1163,7 +1189,7 @@ function HistoryAttributeField(props: {
 						);
 					}}
 				</For>
-				<Show when={props.store.noteHistory().length > limit()}>
+				<Show when={props.store.noteHistory().length > limit() && historyHref()}>
 					<a
 						href={historyHref()}
 						style={{
