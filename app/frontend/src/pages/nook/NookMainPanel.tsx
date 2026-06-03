@@ -146,64 +146,12 @@ export function NookMainPanel(props: NookMainPanelProps) {
 						>
 							{snapshot()?.title || "(untitled)"}
 						</h1>
-						<Show when={snapshot()?.typeId}>
-							{(tid) => {
-								const typeName = () =>
-									store().noteTypes().find((t) => t.id === tid())?.label ?? "";
-								return (
-									<Show when={typeName()}>
-										<div
-											style={{
-												"font-size": "0.7rem",
-												color: "var(--color-text-muted)",
-												"margin-bottom": "0.5rem",
-											}}
-										>
-											Type: {typeName()}
-										</div>
-									</Show>
-								);
-							}}
-						</Show>
-						<Show when={Object.keys(snapshot()?.attributes ?? {}).length > 0}>
-							<div
-								style={{
-									display: "grid",
-									gap: "4px",
-									padding: "8px 0",
-									"border-top": "1px solid var(--color-border-light)",
-									"margin-bottom": "8px",
-									"font-size": "0.8rem",
-									color: "var(--color-text-secondary)",
-								}}
-							>
-								<For each={Object.entries(snapshot()?.attributes ?? {})}>
-									{([key, val]) => {
-										const attr = () => {
-											const tid = snapshot()?.typeId ?? "";
-											if (!tid) return undefined;
-											return store()
-												.resolveTypeAttributes(tid)
-												.find((a) => a.id === key);
-										};
-										return (
-											<Show when={attr() && val != null && val !== ""}>
-												<div>
-													<span style={{ "font-weight": "500" }}>
-														{attr()?.name ?? key}:
-													</span>{" "}
-													<span style={{ color: "var(--color-text-muted)" }}>
-														{typeof val === "object" && val !== null
-															? JSON.stringify(val)
-															: String(val)}
-													</span>
-												</div>
-											</Show>
-										);
-									}}
-								</For>
-							</div>
-						</Show>
+						<NoteAttributeFields
+							store={store()}
+							typeIdOverride={snapshot()?.typeId}
+							valuesOverride={snapshot()?.attributes}
+							readonly
+						/>
 						<MarkdownView
 							content={snapshot()?.content ?? ""}
 							resolveEmbeddedImageSrc={(id) =>

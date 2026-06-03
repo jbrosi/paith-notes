@@ -9,17 +9,26 @@ import {
 	type TypeAttribute,
 } from "../types";
 
-export function NoteAttributeFields(props: { store: NookStore }) {
+export function NoteAttributeFields(props: {
+	store: NookStore;
+	/** Override type ID (e.g. for snapshot view) */
+	typeIdOverride?: string;
+	/** Override attribute values (e.g. for snapshot view) */
+	valuesOverride?: Record<string, unknown>;
+	/** Force read-only mode */
+	readonly?: boolean;
+}) {
 	const attributes = createMemo(() => {
-		const typeId = props.store.typeId();
+		const typeId = props.typeIdOverride ?? props.store.typeId();
 		if (!typeId) return [];
 		return props.store.resolveTypeAttributes(typeId);
 	});
 
 	const noteAttributes = () =>
-		(props.store.noteAttributes?.() ?? {}) as Record<string, unknown>;
+		(props.valuesOverride ?? props.store.noteAttributes?.() ?? {}) as Record<string, unknown>;
 
 	const setAttr = (attrId: string, value: unknown) => {
+		if (props.readonly) return;
 		props.store.setNoteAttribute?.(attrId, value);
 	};
 
