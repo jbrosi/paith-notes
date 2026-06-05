@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Paith\Notes\Api\Http\Controller;
 
+use Paith\Notes\Api\Http\Service\AttributeValidator;
 use Paith\Notes\Api\Http\Service\DiffService;
 use Paith\Notes\Api\Http\Service\HeadingsService;
 use Paith\Notes\Api\Http\Service\MentionsService;
@@ -394,6 +395,11 @@ final class NotesController
             }
         }
 
+        // Validate attribute values against type schema
+        if ($attributes !== [] && $typeId !== '') {
+            AttributeValidator::validateNoteAttributesForType($pdo, $nookId, $typeId, $attributes);
+        }
+
         try {
             $pdo->beginTransaction();
 
@@ -555,6 +561,12 @@ final class NotesController
             if (!$typeCheck->fetchColumn()) {
                 throw new HttpError('type not found', 404);
             }
+        }
+
+        // Validate incoming attribute values against type schema
+        $effectiveTypeId = is_string($typeId) ? $typeId : $existingTypeId;
+        if (is_array($incomingAttributes) && $effectiveTypeId !== '') {
+            AttributeValidator::validateNoteAttributesForType($pdo, $nookId, $effectiveTypeId, $incomingAttributes);
         }
 
         // Type switch: bidirectional archive/attributes swap

@@ -91,7 +91,7 @@ export const TOOLS: Anthropic.Tool[] = [
   },
   {
     name: 'list_type_attributes',
-    description: 'List all attributes defined on a note type, including inherited attributes from ancestor types. Returns each attribute\'s id, name, kind (text/number/boolean/date/date_range/select/file/graph), config (display options, select options, etc.), and whether it\'s inherited. Use this to understand what structured data a type supports before creating or updating notes with attributes.',
+    description: 'List all attributes defined on a note type, including inherited attributes from ancestor types. Returns each attribute\'s id, name, kind, config (display options, select options, etc.), inherited flag, and overridden flag. Hidden inherited attributes are excluded. Use this to understand what structured data a type supports before creating or updating notes with attributes.',
     input_schema: {
       type: 'object',
       properties: {

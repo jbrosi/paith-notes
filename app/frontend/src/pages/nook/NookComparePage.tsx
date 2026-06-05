@@ -1,8 +1,10 @@
 import { useNavigate } from "@solidjs/router";
-import { createResource, createSignal, For, Show } from "solid-js";
+import { createMemo, createResource, createSignal, For, Show } from "solid-js";
 import { apiFetch } from "../../auth/keycloak";
 import { Button } from "../../components/Button";
 import type { NookStore } from "./store";
+import type { TypeAttribute } from "./types";
+import { AttributeDiff } from "./components/attributes/AttributeDiff";
 
 type DiffResult = {
 	content_diff: string;
@@ -137,6 +139,15 @@ export function NookComparePage(props: Props) {
 							</span>
 						</div>
 
+						{/* Attribute changes */}
+						<AttributeChanges
+							store={props.store}
+							fromTypeId={d().from.type_id}
+							toTypeId={d().to.type_id}
+							fromAttrs={d().from.attributes}
+							toAttrs={d().to.attributes}
+						/>
+
 						{/* Title change */}
 						<Show when={d().from.title !== d().to.title}>
 							<div
@@ -215,5 +226,82 @@ export function NookComparePage(props: Props) {
 				)}
 			</Show>
 		</div>
+	);
+}
+
+/** Data-bearing kinds that have note-level values worth diffing */
+const DIFFABLE_KINDS = new Set([
+	"text", "number", "boolean", "date", "date_range",
+	"select", "multi_select", "url", "graph",
+]);
+
+function valuesEqual(a: unknown, b: unknown): boolean {
+	if (a === b) return true;
+	if (a == null && b == null) return true;
+	if (a == null || b == null) return false;
+	if (typeof a !== typeof b) return false;
+	if (typeof a === "object") return JSON.stringify(a) === JSON.stringify(b);
+	return false;
+}
+
+function AttributeChanges(props: {
+	store: NookStore;
+	fromTypeId: string;
+	toTypeId: string;
+	fromAttrs: Record<string, unknown>;
+	toAttrs: Record<string, unknown>;
+}) {
+	// Resolve attributes from the "to" type (current), falling back to "from" type
+	const resolvedAttrs = createMemo((): TypeAttribute[] => {
+		const typeId = props.toTypeId || props.fromTypeId;
+		if (!typeId) return [];
+		return props.store.resolveTypeAttributes(typeId);
+	});
+
+	const changedAttrs = createMemo(() => {
+		const attrs = resolvedAttrs();
+		const result: Array<{ attr: TypeAttribute; oldVal: unknown; newVal: unknown }> = [];
+
+		// Collect all attribute IDs from both sides
+		const allIds = new Set([
+			...Object.keys(props.fromAttrs ?? {}),
+			...Object.keys(props.toAttrs ?? {}),
+		]);
+
+		for (const id of allIds) {
+			const attr = attrs.find((a) => a.id === id);
+			if (!attr || !DIFFABLE_KINDS.has(attr.kind)) continue;
+
+			const oldVal = props.fromAttrs?.[id];
+			const newVal = props.toAttrs?.[id];
+			if (!valuesEqual(oldVal, newVal)) {
+				result.push({ attr, oldVal, newVal });
+			}
+		}
+
+		return result;
+	});
+
+	return (
+		<Show when={changedAttrs().length > 0}>
+			<div style={{
+				padding: "8px 12px",
+				"margin-bottom": "12px",
+				"border-radius": "6px",
+				border: "1px solid var(--color-border-light)",
+			}}>
+				<div style={{
+					"font-size": "0.75rem",
+					"font-weight": "600",
+					color: "var(--color-text-muted)",
+					"margin-bottom": "4px",
+				}}>
+					Attribute changes
+				</div>
+				<For each={changedAttrs()}>
+					{(c) => <AttributeDiff attr={c.attr} oldValue={c.oldVal} newValue={c.newVal} />}
+				</For>
+			</div>
+		</Show>
 	);
 }
