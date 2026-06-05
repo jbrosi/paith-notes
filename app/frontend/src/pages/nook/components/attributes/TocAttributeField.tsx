@@ -5,6 +5,7 @@ import type { TypeAttribute } from "../../types";
 export function TocAttributeField(props: {
 	attr: TypeAttribute;
 	store: NookStore;
+	fullscreen?: boolean;
 }) {
 	const typeMaxDepth = () => Number(props.attr.config.max_depth ?? 6);
 

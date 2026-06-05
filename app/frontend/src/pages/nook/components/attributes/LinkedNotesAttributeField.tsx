@@ -2,6 +2,7 @@ import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import { apiFetch } from "../../../../auth/keycloak";
 import type { NookStore } from "../../store";
 import type { TypeAttribute } from "../../types";
+import { FullscreenButton } from "./FullscreenButton";
 
 export type LinkedNoteItem = {
 	noteId: string;
@@ -14,6 +15,7 @@ export type LinkedNoteItem = {
 export function LinkedNotesAttributeField(props: {
 	attr: TypeAttribute;
 	store: NookStore;
+	fullscreen?: boolean;
 }) {
 	const [links, setLinks] = createSignal<
 		Array<{
@@ -139,9 +141,15 @@ export function LinkedNotesAttributeField(props: {
 						"margin-bottom": "4px",
 						"text-transform": "uppercase",
 						"letter-spacing": "0.03em",
+						display: "flex",
+						"align-items": "center",
+						gap: "6px",
 					}}
 				>
 					{props.attr.name}
+					<Show when={!props.fullscreen}>
+						<FullscreenButton attr={props.attr} store={props.store} />
+					</Show>
 				</div>
 				<div style={{ display: "grid", gap: "2px" }}>
 					<For each={items()}>

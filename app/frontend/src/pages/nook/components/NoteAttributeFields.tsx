@@ -9,6 +9,7 @@ import { HistoryAttributeField } from "./attributes/HistoryAttributeField";
 import { LinkedNotesAttributeField } from "./attributes/LinkedNotesAttributeField";
 import { MentionsAttributeField } from "./attributes/MentionsAttributeField";
 import { MetadataAttributeField } from "./attributes/MetadataAttributeField";
+import { SourceAttributeField } from "./attributes/SourceAttributeField";
 import { TocAttributeField } from "./attributes/TocAttributeField";
 import { ViewAttributeField } from "./attributes/ViewAttributeField";
 
@@ -23,11 +24,39 @@ export function NoteAttributeFields(props: {
 	typeIdOverride?: string;
 	valuesOverride?: Record<string, unknown>;
 	readonly?: boolean;
+	/** When set, only render attributes assigned to this panel key */
+	panelFilter?: string;
 }) {
 	const attributes = createMemo(() => {
 		const typeId = props.typeIdOverride ?? props.store.typeId();
 		if (!typeId) return [];
-		return props.store.resolveTypeAttributes(typeId);
+		const allAttrs = props.store.resolveTypeAttributes(typeId);
+
+		// If no panel filter, show all attributes (backwards compat)
+		if (!props.panelFilter) return allAttrs;
+
+		// Filter to only attributes in the specified panel
+		const panels = props.store.resolveTypeLayout(typeId);
+		const panel = panels.find((p) => p.key === props.panelFilter);
+		if (!panel) return [];
+
+		// Preserve panel attribute ordering
+		const attrMap = new Map(allAttrs.map((a) => [a.id, a]));
+		const ordered: TypeAttribute[] = [];
+		for (const id of panel.attributes) {
+			const attr = attrMap.get(id);
+			if (attr) ordered.push(attr);
+		}
+
+		// If this is the main panel, also include unassigned attributes
+		if (panel.position === "main") {
+			const allAssigned = new Set(panels.flatMap((p) => p.attributes));
+			for (const attr of allAttrs) {
+				if (!allAssigned.has(attr.id)) ordered.push(attr);
+			}
+		}
+
+		return ordered;
 	});
 
 	const noteAttributes = () =>
@@ -130,6 +159,8 @@ export function NoteAttributeFields(props: {
 						return <TocAttributeField attr={attr} store={props.store} />;
 					case "history":
 						return <HistoryAttributeField attr={attr} store={props.store} />;
+					case "source":
+						return <SourceAttributeField attr={attr} store={props.store} />;
 					default:
 						return null;
 				}

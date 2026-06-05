@@ -7,12 +7,14 @@ import {
 	serializeGraphProperties,
 	type TypeAttribute,
 } from "../../types";
+import { FullscreenButton } from "./FullscreenButton";
 
 export function GraphAttributeField(props: {
 	attr: TypeAttribute;
 	value: Record<string, unknown> | undefined;
 	onChange: (v: unknown) => void;
 	store: NookStore;
+	fullscreen?: boolean;
 }) {
 	const graphProps = (): GraphViewProperties | null => {
 		if (!props.value) return null;
@@ -32,12 +34,19 @@ export function GraphAttributeField(props: {
 	return (
 		<Show when={graphProps()}>
 			{(gp) => (
-				<NookEmbeddedGraph
-					store={props.store}
-					graphProps={gp()}
-					onConfigChange={handleConfigChange}
-					onSave={handleSave}
-				/>
+				<div>
+					<Show when={!props.fullscreen}>
+						<div style={{ display: "flex", "justify-content": "flex-end", padding: "4px 0" }}>
+							<FullscreenButton attr={props.attr} store={props.store} />
+						</div>
+					</Show>
+					<NookEmbeddedGraph
+						store={props.store}
+						graphProps={gp()}
+						onConfigChange={handleConfigChange}
+						onSave={handleSave}
+					/>
+				</div>
 			)}
 		</Show>
 	);

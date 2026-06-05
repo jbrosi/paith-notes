@@ -1,6 +1,7 @@
 import {
 	createEffect,
 	createMemo,
+	createSignal,
 	For,
 	onCleanup,
 	onMount,
@@ -8,26 +9,19 @@ import {
 } from "solid-js";
 import { createNotePreview } from "../../components/NotePreview";
 import { attachSwipe } from "../../ui/swipe";
-import { MOBILE_PANELS, type MobilePanel, useUi } from "../../ui/UiContext";
+import { useUi } from "../../ui/UiContext";
 import { NotePreviewProvider } from "./NookContext";
 import { NookDashboard } from "./NookDashboard";
 import styles from "./NookDefaultLayout.module.css";
-import { NookGraphPanel } from "./NookGraphPanel";
 import { NookMainPanel } from "./NookMainPanel";
-import { NookMarkdownView } from "./NookMarkdownView";
 import type { NookStore } from "./store";
+import type { Panel } from "./types";
+import { NoteAttributeFields } from "./components/NoteAttributeFields";
 
 export type NookDefaultLayoutProps = {
 	nookId: string;
 	store: NookStore;
-	showGraph: boolean;
 	onSettings?: () => void;
-};
-
-const PANEL_LABELS: Record<MobilePanel, string> = {
-	content: "Note",
-	graph: "Graph",
-	markdown: "Markdown",
 };
 
 export function NookDefaultLayout(props: NookDefaultLayoutProps) {
@@ -46,14 +40,60 @@ export function NookDefaultLayout(props: NookDefaultLayoutProps) {
 		ui.setMode("edit");
 	};
 
-	// Switch to content panel when a different note is selected (mobile)
+	// Resolve panels from the current note's type layout
+	const resolvedPanels = createMemo((): Panel[] => {
+		const typeId = props.store.typeId();
+		if (!typeId) return [{ key: "main", position: "main", attributes: [] }];
+		return props.store.resolveTypeLayout(typeId);
+	});
+
+	const mainPanel = createMemo(() =>
+		resolvedPanels().find((p) => p.position === "main") ?? { key: "main", position: "main" as const, attributes: [] },
+	);
+
+	const rightPanels = createMemo(() =>
+		resolvedPanels()
+			.filter((p) => p.position === "side-right")
+			.sort((a, b) => (a.order ?? 0) - (b.order ?? 0)),
+	);
+
+	const leftPanels = createMemo(() =>
+		resolvedPanels()
+			.filter((p) => p.position === "side-left")
+			.sort((a, b) => (a.order ?? 0) - (b.order ?? 0)),
+	);
+
+	const sidePanels = createMemo(() =>
+		resolvedPanels()
+			.filter((p) => p.position !== "main")
+			.sort((a, b) => (a.order ?? 0) - (b.order ?? 0)),
+	);
+
+	// Show sidebars only when panels exist and toggle is on
+	const showRightSidebar = createMemo(() =>
+		ui.sidebarRightOpen() && rightPanels().length > 0,
+	);
+	const showLeftSidebar = createMemo(() =>
+		ui.sidebarLeftOpen() && leftPanels().length > 0,
+	);
+
+	const [activeSideTab, setActiveSideTab] = createSignal("");
+
+	// Update mobile panels when resolved panels change
+	createEffect(() => {
+		const panels = resolvedPanels();
+		ui.setMobilePanels(panels.map((p) => p.key));
+	});
+
+	// Switch to main panel when a different note is selected (mobile)
 	let prevSelectedId = "";
 	createEffect(() => {
 		const id = props.store.selectedId();
+		const main = mainPanel();
 		if (id !== "" && id !== prevSelectedId) {
 			prevSelectedId = id;
-			if (ui.activePanel() !== "content") {
-				ui.setActivePanel("content");
+			if (ui.activePanel() !== main.key) {
+				ui.setActivePanel(main.key);
 			}
 		}
 		if (id === "") {
@@ -87,6 +127,16 @@ export function NookDefaultLayout(props: NookDefaultLayoutProps) {
 			mq.removeEventListener("change", onChange);
 			cleanup?.();
 		});
+	});
+
+	const panelLabel = (panel: Panel) => panel.label || panel.key;
+
+	// Remove stale activeSideTab — ensure valid across left+right
+	createEffect(() => {
+		const all = sidePanels();
+		if (all.length > 0 && !all.some((p) => p.key === activeSideTab())) {
+			setActiveSideTab(all[0].key);
+		}
 	});
 
 	return (
@@ -126,53 +176,133 @@ export function NookDefaultLayout(props: NookDefaultLayoutProps) {
 				<div
 					ref={layoutEl}
 					class={styles.layout}
-					data-active-panel={ui.activePanel()}
 				>
-					{/* Main scrollable area */}
-					<div class={styles.mainScroll}>
+					{/* Desktop: left sidebar */}
+					<Show when={showLeftSidebar()}>
+						<SidebarContainer
+							panels={leftPanels()}
+							activeSideTab={activeSideTab}
+							setActiveSideTab={setActiveSideTab}
+							store={props.store}
+							panelLabel={panelLabel}
+						/>
+					</Show>
+
+					{/* Main scrollable area — hidden on mobile when another panel is active */}
+					<div
+						class={styles.mainScroll}
+						classList={{ [styles.mobileHidden]: ui.activePanel() !== mainPanel().key }}
+					>
 						<div class={styles.mainScrollInner}>
 							<div class={styles.panelContent}>
-								<NookMainPanel store={props.store} />
+								<NookMainPanel store={props.store} panelFilter={mainPanel().key} />
 							</div>
 						</div>
 					</div>
 
-					{/* Graph panel — render if desktop toggle is on OR mobile panel is active */}
-					<Show when={props.showGraph || ui.activePanel() === "graph"}>
-						<div class={styles.panelGraph}>
-							<NookGraphPanel
-								store={props.store}
-								onClose={() => {
-									ui.toggleGraphPanel();
-									ui.setActivePanel("content");
-								}}
-							/>
-						</div>
+					{/* Desktop: right sidebar */}
+					<Show when={showRightSidebar()}>
+						<SidebarContainer
+							panels={rightPanels()}
+							activeSideTab={activeSideTab}
+							setActiveSideTab={setActiveSideTab}
+							store={props.store}
+							panelLabel={panelLabel}
+						/>
 					</Show>
 
-					{/* Markdown source panel — mobile only */}
-					<div class={styles.panelMarkdown}>
-						<NookMarkdownView store={props.store} />
-					</div>
+					{/* Mobile: side panels as swipeable views (shown/hidden via classList) */}
+					<For each={sidePanels()}>
+						{(panel) => (
+							<div
+								class={styles.mobilePanel}
+								classList={{ [styles.mobilePanelActive]: ui.activePanel() === panel.key }}
+							>
+								<div style={{ padding: "8px 0" }}>
+									<h3 style={{ margin: "0 0 8px", "font-size": "14px", color: "var(--color-text-secondary)" }}>
+										{panelLabel(panel)}
+									</h3>
+									<NoteAttributeFields
+										store={props.store}
+										panelFilter={panel.key}
+									/>
+								</div>
+							</div>
+						)}
+					</For>
 				</div>
 
 				{/* Panel indicator dots — mobile only (CSS hides on desktop) */}
 				<div class={styles.panelIndicator}>
-					<For each={MOBILE_PANELS}>
-						{(panel) => (
-							<button
-								type="button"
-								class={`${styles.dot} ${ui.activePanel() === panel ? styles.dotActive : ""}`}
-								onClick={() => ui.setActivePanel(panel)}
-								title={PANEL_LABELS[panel]}
-							/>
-						)}
+					<For each={ui.mobilePanels()}>
+						{(panelKey) => {
+							const panel = () => resolvedPanels().find((p) => p.key === panelKey);
+							return (
+								<button
+									type="button"
+									class={`${styles.dot} ${ui.activePanel() === panelKey ? styles.dotActive : ""}`}
+									onClick={() => ui.setActivePanel(panelKey)}
+									title={panel()?.label || panelKey}
+								/>
+							);
+						}}
 					</For>
-					<span class={styles.dotLabel}>{PANEL_LABELS[ui.activePanel()]}</span>
+					<span class={styles.dotLabel}>
+						{(() => {
+							const panel = resolvedPanels().find((p) => p.key === ui.activePanel());
+							return panel?.label || ui.activePanel();
+						})()}
+					</span>
 				</div>
 			</Show>
 
 			<notePreview.PreviewPopover />
 		</NotePreviewProvider>
+	);
+}
+
+/** Reusable sidebar container with tabs (used for both left and right sidebars). */
+function SidebarContainer(props: {
+	panels: Panel[];
+	activeSideTab: () => string;
+	setActiveSideTab: (key: string) => void;
+	store: NookStore;
+	panelLabel: (panel: Panel) => string;
+}) {
+	return (
+		<div class={styles.sidePanel}>
+			<Show when={props.panels.length > 1}>
+				<div class={styles.sidePanelTabs}>
+					<For each={props.panels}>
+						{(panel) => (
+							<button
+								type="button"
+								class={`${styles.sidePanelTab} ${props.activeSideTab() === panel.key ? styles.sidePanelTabActive : ""}`}
+								onClick={() => props.setActiveSideTab(panel.key)}
+							>
+								{props.panelLabel(panel)}
+							</button>
+						)}
+					</For>
+				</div>
+			</Show>
+			<Show when={props.panels.length === 1}>
+				<div class={styles.sidePanelHeader}>
+					{props.panelLabel(props.panels[0])}
+				</div>
+			</Show>
+			<div class={styles.sidePanelBody}>
+				<For each={props.panels}>
+					{(panel) => (
+						<div style={{ display: props.activeSideTab() === panel.key ? undefined : "none" }}>
+							<NoteAttributeFields
+								store={props.store}
+								panelFilter={panel.key}
+							/>
+						</div>
+					)}
+				</For>
+			</div>
+		</div>
 	);
 }

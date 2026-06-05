@@ -6,6 +6,7 @@ import {
 	resolveTypeIdForTerm,
 } from "../../noteSearch";
 import type {
+	AttributeLayout,
 	HeadingMatch,
 	Mention,
 	Note,
@@ -14,6 +15,7 @@ import type {
 	NoteHistoryEntry,
 	NoteSummary,
 	NoteType,
+	Panel,
 } from "./types";
 import {
 	MentionsResponseSchema,
@@ -746,6 +748,53 @@ export function createNookStore(nookId: () => string) {
 		return attrs;
 	};
 
+	/** Resolve the panel layout for a type, merging inherited layouts from ancestors. */
+	const resolveTypeLayout = (typeId: string): Panel[] => {
+		const types = noteTypes();
+		const typeMap = new Map(types.map((t) => [t.id, t]));
+
+		// Collect layout chain from current type up to root
+		const chain: AttributeLayout[] = [];
+		const seen = new Set<string>();
+		let cur = typeId;
+		while (cur && !seen.has(cur)) {
+			seen.add(cur);
+			const t = typeMap.get(cur);
+			if (!t) break;
+			chain.push(t.attributeLayout);
+			cur = t.parentId;
+		}
+
+		// Merge from root down (parent first, child overrides)
+		const merged = new Map<string, Panel>();
+		for (let i = chain.length - 1; i >= 0; i--) {
+			const layout = chain[i];
+			if (!layout) continue;
+			for (const panel of layout.panels) {
+				if (merged.has(panel.key)) {
+					// Shallow merge: child fields override parent
+					merged.set(panel.key, { ...merged.get(panel.key)!, ...panel });
+				} else {
+					merged.set(panel.key, { ...panel });
+				}
+			}
+		}
+
+		// Filter hidden, collect result
+		const panels: Panel[] = [];
+		for (const p of merged.values()) {
+			if (p.hidden) continue;
+			panels.push(p);
+		}
+
+		// If no panels defined, return a default main panel
+		if (panels.length === 0) {
+			return [{ key: "main", position: "main", attributes: [] }];
+		}
+
+		return panels;
+	};
+
 	const findFileTypeAndAttr = (): { typeId: string; attrId: string } => {
 		const types = noteTypes();
 		const fileType = types.find((t) => t.key === "file");
@@ -1050,6 +1099,19 @@ export function createNookStore(nookId: () => string) {
 		if (titleForSave === "") {
 			setError("Title is required");
 			return;
+		}
+
+		// Validate attribute values before saving
+		const currentTypeId = typeId();
+		if (currentTypeId) {
+			const attrs = resolveTypeAttributes(currentTypeId);
+			const vals = noteAttributes();
+			const { validateNoteAttributes } = await import("./attributeValidation");
+			const errors = validateNoteAttributes(attrs, vals);
+			if (errors.length > 0) {
+				setError(errors.join("; "));
+				return;
+			}
 		}
 
 		setLoading(true);
@@ -1390,6 +1452,7 @@ export function createNookStore(nookId: () => string) {
 		quickUploadFile,
 		downloadFile,
 		resolveTypeAttributes,
+		resolveTypeLayout,
 		createNoteType,
 		renameNoteType,
 		updateNoteType,

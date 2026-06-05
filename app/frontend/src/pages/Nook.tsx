@@ -16,7 +16,7 @@ import { useUi } from "../ui/UiContext";
 import { NookActivityFeed } from "./nook/NookActivityFeed";
 import { useNook } from "./nook/NookContext";
 import { NookDefaultLayout } from "./nook/NookDefaultLayout";
-import { NookGraphPanel } from "./nook/NookGraphPanel";
+import { NookFullscreenAttr } from "./nook/NookFullscreenAttr";
 import { NookLinksPanel } from "./nook/NookLinksPanel";
 import { NookComparePage } from "./nook/NookComparePage";
 import { NookNoteHistoryPage } from "./nook/NookNoteHistoryPage";
@@ -139,18 +139,16 @@ export default function Nook() {
 	);
 	const showSettings = createMemo(() => normalizedSubPath() === "settings");
 
-	const fullscreenGraphNoteId = createMemo(() => {
-		const m = normalizedSubPath().match(/^graph\/([^/]+)$/);
-		return m?.[1] ? String(m[1]) : "";
+	/** Fullscreen attribute view: /notes/:noteId/attr/:attrKey */
+	const fullscreenAttr = createMemo(() => {
+		const m = normalizedSubPath().match(/^notes\/([^/]+)\/attr\/([^/]+)$/);
+		if (!m) return null;
+		return { noteId: String(m[1]), attrKey: String(m[2]) };
 	});
-
-	const isGraphFullscreen = createMemo(
-		() => fullscreenGraphNoteId().trim() !== "",
-	);
 
 	const selectedNoteIdFromPath = createMemo(() => {
 		const m = normalizedSubPath().match(
-			/^notes\/([^/]+?)(?:\/v\/\d+|\/history|\/compare\/\d+(?:\/\d+)?)?$/,
+			/^notes\/([^/]+?)(?:\/attr\/[^/]+|\/v\/\d+|\/history|\/compare\/\d+(?:\/\d+)?)?$/,
 		);
 		return m?.[1] ? String(m[1]) : "";
 	});
@@ -176,9 +174,8 @@ export default function Nook() {
 	// URL → store: URL is the single source of truth for which note is selected.
 	// The store never drives navigation — only follows the URL.
 	createEffect(() => {
-		const id = (
-			isGraphFullscreen() ? fullscreenGraphNoteId() : selectedNoteIdFromPath()
-		).trim();
+		const fa = fullscreenAttr();
+		const id = (fa ? fa.noteId : selectedNoteIdFromPath()).trim();
 
 		if (id === "") {
 			if (untrack(() => store.selectedId()) !== "") {
@@ -285,12 +282,11 @@ export default function Nook() {
 																when={showNoteHistory()}
 																fallback={
 															<Show
-																when={isGraphFullscreen()}
+																when={fullscreenAttr()}
 																fallback={
 																	<NookDefaultLayout
 																		nookId={nookId()}
 																		store={store}
-																		showGraph={ui.graphPanelOpen()}
 																		onSettings={() =>
 																			navigate(
 																				`/nooks/${encodeURIComponent(nookId())}/settings`,
@@ -299,12 +295,12 @@ export default function Nook() {
 																	/>
 																}
 															>
-																<div style={{ width: "100%" }}>
-																	<NookGraphPanel
+																{(fa) => (
+																	<NookFullscreenAttr
 																		store={store}
-																		fullscreen={true}
+																		attrKey={fa().attrKey}
 																	/>
-																</div>
+																)}
 															</Show>
 														}
 													>

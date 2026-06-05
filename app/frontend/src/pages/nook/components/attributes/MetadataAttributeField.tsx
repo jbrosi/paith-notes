@@ -6,6 +6,7 @@ import { formatTimeAgo } from "./HistoryAttributeField";
 export function MetadataAttributeField(props: {
 	attr: TypeAttribute;
 	store: NookStore;
+	fullscreen?: boolean;
 }) {
 	const config = () => {
 		const c = props.attr.config;

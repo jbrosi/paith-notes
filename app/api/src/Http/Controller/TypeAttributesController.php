@@ -9,12 +9,13 @@ use Paith\Notes\Api\Http\HttpError;
 use Paith\Notes\Api\Http\JsonResponse;
 use Paith\Notes\Api\Http\Request;
 use Paith\Notes\Api\Http\Response;
+use Paith\Notes\Api\Http\Service\AttributeValidator;
 use PDO;
 use Throwable;
 
 final class TypeAttributesController
 {
-    private const VALID_KINDS = ['text', 'number', 'boolean', 'date', 'date_range', 'select', 'multi_select', 'url', 'file', 'graph', 'view', 'linked_notes', 'mentions', 'history', 'toc', 'metadata', 'content'];
+    private const VALID_KINDS = ['text', 'number', 'boolean', 'date', 'date_range', 'select', 'multi_select', 'url', 'file', 'graph', 'view', 'linked_notes', 'mentions', 'history', 'toc', 'metadata', 'content', 'source'];
 
     /**
      * List all attributes for a type, including inherited attributes from ancestors.
@@ -62,6 +63,10 @@ final class TypeAttributesController
 
         $indexed = isset($data['indexed']) && $data['indexed'] === true;
 
+        // Key: user-provided or auto-slugified from name
+        $keyRaw = $data['key'] ?? null;
+        $key = is_string($keyRaw) && trim($keyRaw) !== '' ? self::slugify($keyRaw) : self::slugify($name);
+
         // Validate name uniqueness within resolved attribute set (own + inherited)
         $existing = $this->resolveInheritedAttributes($pdo, $nookId, $typeId);
         foreach ($existing as $attr) {
@@ -77,13 +82,14 @@ final class TypeAttributesController
             $pdo->beginTransaction();
 
             $stmt = $pdo->prepare(
-                'insert into global.type_attributes (nook_id, type_id, name, kind, config, indexed) '
-                . 'values (:nook_id, :type_id, :name, :kind, :config::jsonb, :indexed) '
+                'insert into global.type_attributes (nook_id, type_id, name, key, kind, config, indexed) '
+                . 'values (:nook_id, :type_id, :name, :key, :kind, :config::jsonb, :indexed) '
                 . 'returning id, created_at, updated_at'
             );
             $stmt->bindValue(':nook_id', $nookId);
             $stmt->bindValue(':type_id', $typeId);
             $stmt->bindValue(':name', $name);
+            $stmt->bindValue(':key', $key);
             $stmt->bindValue(':kind', $kind);
             $stmt->bindValue(':config', json_encode($config));
             $stmt->bindValue(':indexed', $indexed, PDO::PARAM_BOOL);
@@ -106,6 +112,7 @@ final class TypeAttributesController
                     'id' => $id,
                     'type_id' => $typeId,
                     'name' => $name,
+                    'key' => $key,
                     'kind' => $kind,
                     'config' => $config === [] ? (object)[] : $config,
                     'indexed' => $indexed,
@@ -157,6 +164,9 @@ final class TypeAttributesController
 
         $indexed = isset($data['indexed']) && $data['indexed'] === true;
 
+        $keyRaw = $data['key'] ?? null;
+        $key = is_string($keyRaw) && trim($keyRaw) !== '' ? self::slugify($keyRaw) : null;
+
         // Validate name uniqueness (excluding self)
         $existing = $this->resolveInheritedAttributes($pdo, $nookId, $typeId);
         foreach ($existing as $attr) {
@@ -167,12 +177,16 @@ final class TypeAttributesController
 
         $this->checkDescendantNameConflict($pdo, $nookId, $typeId, $name, $attrId);
 
-        $stmt = $pdo->prepare(
-            'update global.type_attributes set name = :name, kind = :kind, config = :config::jsonb, '
-            . 'indexed = :indexed, updated_at = now() '
+        $sql = 'update global.type_attributes set name = :name, kind = :kind, config = :config::jsonb, '
+            . 'indexed = :indexed';
+        if ($key !== null) {
+            $sql .= ', key = :key';
+        }
+        $sql .= ', updated_at = now() '
             . 'where id = :id and type_id = :type_id and nook_id = :nook_id '
-            . 'returning created_at, updated_at'
-        );
+            . 'returning key, created_at, updated_at';
+
+        $stmt = $pdo->prepare($sql);
         $stmt->bindValue(':id', $attrId);
         $stmt->bindValue(':nook_id', $nookId);
         $stmt->bindValue(':type_id', $typeId);
@@ -180,12 +194,17 @@ final class TypeAttributesController
         $stmt->bindValue(':kind', $kind);
         $stmt->bindValue(':config', json_encode($config));
         $stmt->bindValue(':indexed', $indexed, PDO::PARAM_BOOL);
+        if ($key !== null) {
+            $stmt->bindValue(':key', $key);
+        }
         $stmt->execute();
 
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
         if (!is_array($row)) {
             throw new HttpError('attribute not found', 404);
         }
+
+        $resolvedKey = is_scalar($row['key'] ?? null) ? (string)$row['key'] : ($key ?? '');
 
         // Index lifecycle: re-sync (kind or indexed flag may have changed)
         $this->syncAttributeIndex($pdo, $attrId, $kind, $indexed);
@@ -195,6 +214,7 @@ final class TypeAttributesController
                 'id' => $attrId,
                 'type_id' => $typeId,
                 'name' => $name,
+                'key' => $resolvedKey,
                 'kind' => $kind,
                 'config' => $config === [] ? (object)[] : $config,
                 'indexed' => $indexed,
@@ -242,6 +262,8 @@ final class TypeAttributesController
 
     /**
      * Resolve all attributes visible to a type: own + inherited from ancestors.
+     * Applies config_overrides (shallow merge) and filters hidden attributes.
+     * Resolves attribute_layout with inheritance (null = inherit parent layout).
      * @return array<int, array<string, mixed>>
      */
     private function resolveInheritedAttributes(PDO $pdo, string $nookId, string $typeId): array
@@ -254,7 +276,7 @@ final class TypeAttributesController
                 join type_tree tt on t.id = tt.id
                 where t.parent_id is not null
             )
-            select ta.id, ta.type_id, ta.name, ta.kind, ta.config, ta.indexed, ta.created_at, ta.updated_at
+            select ta.id, ta.type_id, ta.name, ta.key, ta.kind, ta.config, ta.indexed, ta.created_at, ta.updated_at
             from global.type_attributes ta
             join type_tree tt on ta.type_id = tt.id'
         );
@@ -262,37 +284,61 @@ final class TypeAttributesController
         $stmt->bindValue(':nook_id', $nookId);
         $stmt->execute();
 
+        // Load config_overrides for this type
+        $overridesStmt = $pdo->prepare('select config_overrides from global.note_types where id = :id and nook_id = :nook_id');
+        $overridesStmt->execute([':id' => $typeId, ':nook_id' => $nookId]);
+        $overridesRaw = $overridesStmt->fetchColumn();
+        $overrides = [];
+        if (is_scalar($overridesRaw)) {
+            $decoded = json_decode((string)$overridesRaw, true);
+            if (is_array($decoded)) {
+                $overrides = $decoded;
+            }
+        }
+
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
         $out = [];
         foreach ($rows as $r) {
             if (!is_array($r)) {
                 continue;
             }
+            $attrId = is_scalar($r['id'] ?? null) ? (string)$r['id'] : '';
+            $inherited = (string)($r['type_id'] ?? '') !== $typeId;
             $config = self::decodeJsonObject($r['config'] ?? null);
+
+            // Apply config overrides for inherited attributes
+            $overridden = false;
+            if ($inherited && isset($overrides[$attrId]) && is_array($overrides[$attrId])) {
+                $attrOverride = $overrides[$attrId];
+
+                // "hidden": true means this type hides the inherited attribute
+                if (!empty($attrOverride['hidden'])) {
+                    continue;
+                }
+
+                // Shallow merge: override keys win
+                $config = array_merge($config, $attrOverride);
+                $overridden = true;
+            }
+
             $out[] = [
-                'id' => is_scalar($r['id'] ?? null) ? (string)$r['id'] : '',
+                'id' => $attrId,
                 'type_id' => is_scalar($r['type_id'] ?? null) ? (string)$r['type_id'] : '',
                 'name' => is_scalar($r['name'] ?? null) ? (string)$r['name'] : '',
+                'key' => is_scalar($r['key'] ?? null) ? (string)$r['key'] : '',
                 'kind' => is_scalar($r['kind'] ?? null) ? (string)$r['kind'] : '',
                 'config' => $config === [] ? (object)[] : $config,
                 'indexed' => (bool)($r['indexed'] ?? false),
-                'inherited' => (string)($r['type_id'] ?? '') !== $typeId,
+                'inherited' => $inherited,
+                'overridden' => $overridden,
                 'created_at' => is_scalar($r['created_at'] ?? null) ? (string)$r['created_at'] : '',
                 'updated_at' => is_scalar($r['updated_at'] ?? null) ? (string)$r['updated_at'] : '',
             ];
         }
 
-        // Sort by attribute_order from the type, unordered attributes at end sorted by name
-        $orderStmt = $pdo->prepare('select attribute_order from global.note_types where id = :id and nook_id = :nook_id');
-        $orderStmt->execute([':id' => $typeId, ':nook_id' => $nookId]);
-        $orderRaw = $orderStmt->fetchColumn();
-        $order = [];
-        if (is_scalar($orderRaw)) {
-            $decoded = json_decode((string)$orderRaw, true);
-            if (is_array($decoded)) {
-                $order = array_values(array_filter($decoded, 'is_string'));
-            }
-        }
+        // Resolve attribute layout (panel-based ordering) with inheritance
+        $layout = $this->resolveAttributeLayout($pdo, $nookId, $typeId);
+        $order = $this->flattenLayoutOrder($layout);
 
         if ($order !== []) {
             $posMap = array_flip($order);
@@ -307,6 +353,105 @@ final class TypeAttributesController
         }
 
         return $out;
+    }
+
+    /**
+     * Resolve attribute layout for a type with inheritance.
+     * Walks parent chain, merges panels by key (child overrides parent).
+     * @return array{panels: list<array{key: string, position: string, attributes: list<string>}>}
+     */
+    private function resolveAttributeLayout(PDO $pdo, string $nookId, string $typeId): array
+    {
+        $stmt = $pdo->prepare(
+            'select attribute_layout, parent_id from global.note_types where id = :id and nook_id = :nook_id'
+        );
+        $stmt->execute([':id' => $typeId, ':nook_id' => $nookId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!is_array($row)) {
+            return ['panels' => []];
+        }
+
+        $ownLayout = null;
+        if (is_scalar($row['attribute_layout'] ?? null)) {
+            $decoded = json_decode((string)$row['attribute_layout'], true);
+            if (is_array($decoded) && isset($decoded['panels']) && is_array($decoded['panels'])) {
+                $ownLayout = $decoded;
+            }
+        }
+
+        $parentId = is_scalar($row['parent_id'] ?? null) ? (string)$row['parent_id'] : '';
+
+        // No parent — own layout is final
+        if ($parentId === '') {
+            return $ownLayout ?? ['panels' => []];
+        }
+
+        // Get parent's resolved layout (recursive)
+        $parentLayout = $this->resolveAttributeLayout($pdo, $nookId, $parentId);
+
+        // No own layout — inherit parent
+        if ($ownLayout === null) {
+            return $parentLayout;
+        }
+
+        // Merge: child panels override parent panels by key
+        $merged = [];
+        foreach ($parentLayout['panels'] ?? [] as $p) {
+            if (is_array($p) && is_string($p['key'] ?? null)) {
+                $merged[$p['key']] = $p;
+            }
+        }
+        foreach ($ownLayout['panels'] ?? [] as $p) {
+            if (!is_array($p) || !is_string($p['key'] ?? null)) continue;
+            $key = $p['key'];
+            if (isset($merged[$key])) {
+                // Shallow merge: child fields override parent fields
+                $merged[$key] = array_merge($merged[$key], $p);
+            } else {
+                $merged[$key] = $p;
+            }
+        }
+
+        // Filter out hidden panels
+        $panels = [];
+        foreach ($merged as $p) {
+            if (!empty($p['hidden'])) continue;
+            $panels[] = $p;
+        }
+
+        return ['panels' => array_values($panels)];
+    }
+
+    /**
+     * Flatten a resolved layout into a single ordered list of attribute IDs.
+     * Main panel first, then side panels in order.
+     * @return string[]
+     */
+    private function flattenLayoutOrder(array $layout): array
+    {
+        $panels = $layout['panels'] ?? [];
+        if (!is_array($panels) || $panels === []) {
+            return [];
+        }
+
+        $order = [];
+        // Main panel first
+        foreach ($panels as $p) {
+            if (is_array($p) && ($p['position'] ?? '') === 'main') {
+                foreach ($p['attributes'] ?? [] as $id) {
+                    if (is_string($id)) $order[] = $id;
+                }
+            }
+        }
+        // Then side panels
+        foreach ($panels as $p) {
+            if (is_array($p) && ($p['position'] ?? '') !== 'main') {
+                foreach ($p['attributes'] ?? [] as $id) {
+                    if (is_string($id)) $order[] = $id;
+                }
+            }
+        }
+        return $order;
     }
 
     /**
@@ -399,12 +544,7 @@ final class TypeAttributesController
 
     private function validateConfig(string $kind, array $config): void
     {
-        if ($kind === 'select') {
-            $options = $config['options'] ?? null;
-            if (!is_array($options) || $options === []) {
-                throw new HttpError('select kind requires a non-empty "options" array in config', 400);
-            }
-        }
+        AttributeValidator::validateConfig($kind, $config);
     }
 
     private function requireType(PDO $pdo, string $nookId, string $typeId): void
@@ -473,6 +613,13 @@ final class TypeAttributesController
         }
         /** @var array<string, mixed> $decoded */
         return $decoded;
+    }
+
+    private static function slugify(string $value): string
+    {
+        $slug = strtolower(trim($value));
+        $slug = (string)preg_replace('/[^a-z0-9]+/', '-', $slug);
+        return trim($slug, '-');
     }
 
     private static function isUuid(string $value): bool

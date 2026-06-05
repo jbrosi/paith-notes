@@ -153,7 +153,7 @@ export function registerTools(server: McpServer, ctx: ApiContext): void {
 
   tool(server,
     'list_note_types',
-    'List note types (taxonomy) defined in a nook. Each type has an id, key, label, parent_id, and attribute_order. Use list_type_attributes to see what attributes a type defines.',
+    'List note types (taxonomy) defined in a nook. Each type has an id, key, label, parent_id, and attribute_layout (panel-based layout). Use list_type_attributes to see what attributes a type defines.',
     { nook_id: z.string() },
     async ({ nook_id }) => {
       requireNookRead(ctx.scopes, nook_id);
@@ -163,7 +163,7 @@ export function registerTools(server: McpServer, ctx: ApiContext): void {
 
   tool(server,
     'list_type_attributes',
-    'List all attributes for a type, including inherited attributes from ancestor types. Returns id, name, kind, config (display options), indexed flag, and whether inherited. Use this to understand what structured data a type supports before creating or updating notes.',
+    'List all attributes for a type, including inherited attributes from ancestor types. Returns id, name, kind, config (display options), indexed flag, inherited flag, and overridden flag. Hidden inherited attributes are excluded. Use this to understand what structured data a type supports before creating or updating notes.',
     {
       nook_id: z.string(),
       type_id: z.string().describe('The note type ID'),

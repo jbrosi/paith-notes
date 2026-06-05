@@ -20,6 +20,8 @@ import { UnsavedChangesDialog } from "./UnsavedChangesDialog";
 
 export type NookMainPanelProps = {
 	store: NookStore;
+	/** When set, only render attributes assigned to this panel key */
+	panelFilter?: string;
 };
 
 export function NookMainPanel(props: NookMainPanelProps) {
@@ -168,6 +170,7 @@ export function NookMainPanel(props: NookMainPanelProps) {
 							typeIdOverride={snapshot()?.typeId}
 							valuesOverride={snapshot()?.attributes}
 							readonly
+							panelFilter={props.panelFilter}
 						/>
 						<MarkdownView
 							content={snapshot()?.content ?? ""}
@@ -305,7 +308,7 @@ export function NookMainPanel(props: NookMainPanelProps) {
 					</div>
 
 					<TitleSection store={store()} />
-					<NoteAttributeFields store={store()} />
+					<NoteAttributeFields store={store()} panelFilter={props.panelFilter} />
 				</div>
 			</Show>
 		</>

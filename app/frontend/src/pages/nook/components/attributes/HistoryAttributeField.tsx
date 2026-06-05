@@ -1,6 +1,7 @@
 import { createEffect, createMemo, For, Show } from "solid-js";
 import type { NookStore } from "../../store";
 import type { TypeAttribute } from "../../types";
+import { FullscreenButton } from "./FullscreenButton";
 
 export function formatTimeAgo(iso: string): string {
 	try {
@@ -23,6 +24,7 @@ export function formatTimeAgo(iso: string): string {
 export function HistoryAttributeField(props: {
 	attr: TypeAttribute;
 	store: NookStore;
+	fullscreen?: boolean;
 }) {
 	// Load history when this component mounts / note changes
 	createEffect(() => {
@@ -79,6 +81,9 @@ export function HistoryAttributeField(props: {
 					}}
 				>
 					{props.attr.name}
+					<Show when={!props.fullscreen}>
+						<FullscreenButton attr={props.attr} store={props.store} />
+					</Show>
 					<Show when={limit() === 0 && currentVersionLabel()}>
 						<span style={{
 							"font-weight": "400",

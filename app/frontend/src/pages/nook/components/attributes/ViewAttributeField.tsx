@@ -2,6 +2,7 @@ import { createSignal, For, Show } from "solid-js";
 import { apiFetch } from "../../../../auth/keycloak";
 import type { NookStore } from "../../store";
 import type { TypeAttribute } from "../../types";
+import { FullscreenButton } from "./FullscreenButton";
 
 type ViewConfig = {
 	type_id: string;
@@ -20,6 +21,7 @@ export function ViewAttributeField(props: {
 	value: Record<string, unknown> | undefined;
 	onChange: (v: unknown) => void;
 	store: NookStore;
+	fullscreen?: boolean;
 }) {
 	const [results, setResults] = createSignal<ViewNote[]>([]);
 	const [resultAttrs, setResultAttrs] = createSignal<TypeAttribute[]>([]);
@@ -117,6 +119,11 @@ export function ViewAttributeField(props: {
 
 	return (
 		<div style={{ "margin-top": "8px" }}>
+			<Show when={!props.fullscreen}>
+				<div style={{ display: "flex", "justify-content": "flex-end", padding: "0 0 4px" }}>
+					<FullscreenButton attr={props.attr} store={props.store} />
+				</div>
+			</Show>
 			{/* Config — editable in edit mode, summary in view mode */}
 			<Show when={showEditor()} fallback={
 				<Show when={config().type_id || config().filters.length > 0}>

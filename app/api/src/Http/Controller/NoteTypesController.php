@@ -42,7 +42,7 @@ final class NoteTypesController
         $this->ensureDefaultViewType($pdo, $nookId, $baseTypeId);
 
         $stmt = $pdo->prepare(
-            'select id, key, label, description, parent_id, attribute_order, created_at, updated_at '
+            'select id, key, label, description, parent_id, attribute_layout, config_overrides, created_at, updated_at '
             . 'from global.note_types where nook_id = :nook_id order by label asc'
         );
         $stmt->execute([':nook_id' => $nookId]);
@@ -60,7 +60,8 @@ final class NoteTypesController
                 'label' => is_scalar($r['label'] ?? null) ? (string)$r['label'] : '',
                 'description' => is_scalar($r['description'] ?? null) ? (string)$r['description'] : '',
                 'parent_id' => is_scalar($r['parent_id'] ?? null) ? (string)$r['parent_id'] : '',
-                'attribute_order' => self::decodeJsonArray($r['attribute_order'] ?? null),
+                'attribute_layout' => self::decodeJsonObject($r['attribute_layout'] ?? null) ?: null,
+                'config_overrides' => self::decodeJsonObject($r['config_overrides'] ?? null) ?: (object)[],
                 'created_at' => is_scalar($r['created_at'] ?? null) ? (string)$r['created_at'] : '',
                 'updated_at' => is_scalar($r['updated_at'] ?? null) ? (string)$r['updated_at'] : '',
                 'attributes' => [],
@@ -69,7 +70,7 @@ final class NoteTypesController
 
         // Bulk-load own attributes per type (frontend resolves inheritance via parent_id)
         $attrStmt = $pdo->prepare(
-            'select id, type_id, name, kind, config, indexed, created_at, updated_at '
+            'select id, type_id, name, key, kind, config, indexed, created_at, updated_at '
             . 'from global.type_attributes where nook_id = :nook_id order by name asc'
         );
         $attrStmt->execute([':nook_id' => $nookId]);
@@ -84,6 +85,7 @@ final class NoteTypesController
                 'id' => is_scalar($a['id'] ?? null) ? (string)$a['id'] : '',
                 'type_id' => $tid,
                 'name' => is_scalar($a['name'] ?? null) ? (string)$a['name'] : '',
+                'key' => is_scalar($a['key'] ?? null) ? (string)$a['key'] : '',
                 'kind' => is_scalar($a['kind'] ?? null) ? (string)$a['kind'] : '',
                 'config' => $config === [] ? (object)[] : $config,
                 'indexed' => (bool)($a['indexed'] ?? false),
@@ -188,7 +190,8 @@ final class NoteTypesController
                     'label' => $label,
                     'description' => $description,
                     'parent_id' => $parentId,
-                    'attribute_order' => [],
+                    'attribute_layout' => null,
+                    'config_overrides' => (object)[],
                     'created_at' => is_scalar($row['created_at'] ?? null) ? (string)$row['created_at'] : '',
                     'updated_at' => is_scalar($row['updated_at'] ?? null) ? (string)$row['updated_at'] : '',
                 ],
@@ -265,8 +268,14 @@ final class NoteTypesController
             }
         }
 
-        $attributeOrderRaw = $data['attribute_order'] ?? null;
-        $attributeOrder = is_array($attributeOrderRaw) ? array_values(array_filter($attributeOrderRaw, 'is_string')) : null;
+        $attributeLayoutRaw = $data['attribute_layout'] ?? null;
+        $attributeLayout = is_array($attributeLayoutRaw) ? $attributeLayoutRaw : null;
+        if ($attributeLayout !== null) {
+            self::validateAttributeLayout($attributeLayout);
+        }
+
+        $configOverridesRaw = $data['config_overrides'] ?? null;
+        $configOverrides = is_array($configOverridesRaw) ? $configOverridesRaw : null;
 
         if ($key !== $existingKey) {
             $dupe = $pdo->prepare('select 1 from global.note_types where nook_id = :nook_id and key = :key and id != :id');
@@ -277,10 +286,13 @@ final class NoteTypesController
         }
 
         $sql = 'update global.note_types set key = :key, label = :label, description = :description, parent_id = :parent_id';
-        if ($attributeOrder !== null) {
-            $sql .= ', attribute_order = :attribute_order::jsonb';
+        if ($attributeLayout !== null) {
+            $sql .= ', attribute_layout = :attribute_layout::jsonb';
         }
-        $sql .= ', updated_at = now() where id = :id and nook_id = :nook_id returning description, attribute_order, created_at, updated_at';
+        if ($configOverrides !== null) {
+            $sql .= ', config_overrides = :config_overrides::jsonb';
+        }
+        $sql .= ', updated_at = now() where id = :id and nook_id = :nook_id returning description, attribute_layout, config_overrides, created_at, updated_at';
 
         $stmt = $pdo->prepare($sql);
         $stmt->bindValue(':id', $typeId);
@@ -289,8 +301,11 @@ final class NoteTypesController
         $stmt->bindValue(':label', $label);
         $stmt->bindValue(':description', $description);
         $stmt->bindValue(':parent_id', $parentId !== '' ? $parentId : null);
-        if ($attributeOrder !== null) {
-            $stmt->bindValue(':attribute_order', json_encode($attributeOrder));
+        if ($attributeLayout !== null) {
+            $stmt->bindValue(':attribute_layout', json_encode($attributeLayout));
+        }
+        if ($configOverrides !== null) {
+            $stmt->bindValue(':config_overrides', json_encode($configOverrides));
         }
         $stmt->execute();
 
@@ -307,7 +322,8 @@ final class NoteTypesController
                 'label' => $label,
                 'description' => is_scalar($row['description'] ?? null) ? (string)$row['description'] : $description,
                 'parent_id' => $parentId,
-                'attribute_order' => self::decodeJsonArray($row['attribute_order'] ?? null),
+                'attribute_layout' => self::decodeJsonObject($row['attribute_layout'] ?? null) ?: null,
+                'config_overrides' => self::decodeJsonObject($row['config_overrides'] ?? null) ?: (object)[],
                 'created_at' => is_scalar($row['created_at'] ?? null) ? (string)$row['created_at'] : '',
                 'updated_at' => is_scalar($row['updated_at'] ?? null) ? (string)$row['updated_at'] : '',
             ],
@@ -719,81 +735,28 @@ final class NoteTypesController
         $typeId = is_scalar($typeIdRaw) ? (string)$typeIdRaw : '';
 
         if ($typeId !== '') {
-            // Seed "Links" — outgoing predicate-based links
-            $pdo->prepare(
-                "insert into global.type_attributes (nook_id, type_id, name, kind, config) "
-                . "values (:nook_id, :type_id, 'Links', 'linked_notes', :config::jsonb) "
-                . "on conflict do nothing"
-            )->execute([
-                ':nook_id' => $nookId,
-                ':type_id' => $typeId,
-                ':config' => json_encode([
-                    'direction' => 'both',
-                    'display' => 'list',
-                ]),
-            ]);
+            $seedAttr = function (string $name, string $key, string $kind, array $config) use ($pdo, $nookId, $typeId): void {
+                $pdo->prepare(
+                    "insert into global.type_attributes (nook_id, type_id, name, key, kind, config) "
+                    . "values (:nook_id, :type_id, :name, :key, :kind, :config::jsonb) "
+                    . "on conflict do nothing"
+                )->execute([
+                    ':nook_id' => $nookId,
+                    ':type_id' => $typeId,
+                    ':name' => $name,
+                    ':key' => $key,
+                    ':kind' => $kind,
+                    ':config' => json_encode($config ?: (object)[]),
+                ]);
+            };
 
-            // Seed "Mentions" — inline [[note:...]] references (both directions)
-            $pdo->prepare(
-                "insert into global.type_attributes (nook_id, type_id, name, kind, config) "
-                . "values (:nook_id, :type_id, 'Mentions', 'mentions', :config::jsonb) "
-                . "on conflict do nothing"
-            )->execute([
-                ':nook_id' => $nookId,
-                ':type_id' => $typeId,
-                ':config' => json_encode([
-                    'direction' => 'both',
-                ]),
-            ]);
-
-            // Seed "Content" — note body rendering
-            $pdo->prepare(
-                "insert into global.type_attributes (nook_id, type_id, name, kind, config) "
-                . "values (:nook_id, :type_id, 'Content', 'content', :config::jsonb) "
-                . "on conflict do nothing"
-            )->execute([
-                ':nook_id' => $nookId,
-                ':type_id' => $typeId,
-                ':config' => json_encode(['mode' => 'markdown']),
-            ]);
-
-            // Seed "Info" — note metadata
-            $pdo->prepare(
-                "insert into global.type_attributes (nook_id, type_id, name, kind, config) "
-                . "values (:nook_id, :type_id, 'Info', 'metadata', :config::jsonb) "
-                . "on conflict do nothing"
-            )->execute([
-                ':nook_id' => $nookId,
-                ':type_id' => $typeId,
-                ':config' => json_encode([
-                    'show_version' => true,
-                    'show_created' => true,
-                    'show_updated' => true,
-                    'show_views' => true,
-                ]),
-            ]);
-
-            // Seed "Table of Contents"
-            $pdo->prepare(
-                "insert into global.type_attributes (nook_id, type_id, name, kind, config) "
-                . "values (:nook_id, :type_id, 'Table of Contents', 'toc', :config::jsonb) "
-                . "on conflict do nothing"
-            )->execute([
-                ':nook_id' => $nookId,
-                ':type_id' => $typeId,
-                ':config' => json_encode(['max_depth' => 3]),
-            ]);
-
-            // Seed "History" — recent changes
-            $pdo->prepare(
-                "insert into global.type_attributes (nook_id, type_id, name, kind, config) "
-                . "values (:nook_id, :type_id, 'History', 'history', :config::jsonb) "
-                . "on conflict do nothing"
-            )->execute([
-                ':nook_id' => $nookId,
-                ':type_id' => $typeId,
-                ':config' => json_encode(['limit' => 5]),
-            ]);
+            $seedAttr('Links', 'links', 'linked_notes', ['direction' => 'both', 'display' => 'list']);
+            $seedAttr('Mentions', 'mentions', 'mentions', ['direction' => 'both']);
+            $seedAttr('Content', 'content', 'content', ['mode' => 'markdown']);
+            $seedAttr('Info', 'info', 'metadata', ['show_version' => true, 'show_created' => true, 'show_updated' => true, 'show_views' => true]);
+            $seedAttr('Table of Contents', 'toc', 'toc', ['max_depth' => 3]);
+            $seedAttr('History', 'history', 'history', ['limit' => 5]);
+            $seedAttr('Source', 'source', 'source', []);
         }
 
         return $typeId;
@@ -993,19 +956,6 @@ final class NoteTypesController
         return is_array($decoded) ? $decoded : [];
     }
 
-    /** @return list<string> */
-    private static function decodeJsonArray(mixed $value): array
-    {
-        if (!is_scalar($value)) {
-            return [];
-        }
-        $decoded = json_decode((string)$value, true);
-        if (!is_array($decoded)) {
-            return [];
-        }
-        return array_values(array_filter($decoded, 'is_string'));
-    }
-
     private function ensureDefaultViewType(PDO $pdo, string $nookId, string $baseTypeId): void
     {
         $check = $pdo->prepare('select id from global.note_types where nook_id = :nook_id and key = :key');
@@ -1035,6 +985,61 @@ final class NoteTypesController
                 . "on conflict do nothing"
             );
             $attrStmt->execute([':nook_id' => $nookId, ':type_id' => $typeId]);
+        }
+    }
+
+    private static function validateAttributeLayout(array $layout): void
+    {
+        $panels = $layout['panels'] ?? null;
+        if (!is_array($panels)) {
+            throw new HttpError('attribute_layout.panels must be an array', 400);
+        }
+
+        $validPositions = ['main', 'side-right', 'side-left'];
+        $seenKeys = [];
+        $seenAttrIds = [];
+        $mainCount = 0;
+
+        foreach ($panels as $panel) {
+            if (!is_array($panel)) {
+                throw new HttpError('each panel must be an object', 400);
+            }
+
+            $key = $panel['key'] ?? null;
+            if (!is_string($key) || trim($key) === '') {
+                throw new HttpError('panel.key is required', 400);
+            }
+            if (isset($seenKeys[$key])) {
+                throw new HttpError('duplicate panel key: ' . $key, 400);
+            }
+            $seenKeys[$key] = true;
+
+            $position = $panel['position'] ?? null;
+            if (!is_string($position) || !in_array($position, $validPositions, true)) {
+                throw new HttpError('panel.position must be one of: ' . implode(', ', $validPositions), 400);
+            }
+
+            if ($position === 'main') {
+                $mainCount++;
+            }
+
+            $attrs = $panel['attributes'] ?? [];
+            if (!is_array($attrs)) {
+                throw new HttpError('panel.attributes must be an array', 400);
+            }
+            foreach ($attrs as $attrId) {
+                if (!is_string($attrId)) {
+                    throw new HttpError('panel.attributes entries must be strings', 400);
+                }
+                if (isset($seenAttrIds[$attrId])) {
+                    throw new HttpError('attribute appears in multiple panels: ' . $attrId, 400);
+                }
+                $seenAttrIds[$attrId] = true;
+            }
+        }
+
+        if ($mainCount > 1) {
+            throw new HttpError('only one panel may have position "main"', 400);
         }
     }
 

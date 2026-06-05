@@ -11,6 +11,7 @@ type MentionItem = {
 export function MentionsAttributeField(props: {
 	attr: TypeAttribute;
 	store: NookStore;
+	fullscreen?: boolean;
 }) {
 	const direction = () =>
 		String(props.attr.config.direction ?? "both") as "outgoing" | "incoming" | "both";

@@ -136,9 +136,20 @@ final class GlobalSchema
             $pdo->exec('create index if not exists note_types_nook_id_idx on global.note_types (nook_id)');
             $pdo->exec('create index if not exists note_types_parent_id_idx on global.note_types (parent_id)');
 
-            // Add card_attributes and attribute_order to note_types
-            $pdo->exec("alter table global.note_types add column if not exists card_attributes jsonb not null default '[]'::jsonb");
-            $pdo->exec("alter table global.note_types add column if not exists attribute_order jsonb not null default '[]'::jsonb");
+            // Drop legacy card_attributes column (unused)
+            $pdo->exec("alter table global.note_types drop column if exists card_attributes");
+
+            // attribute_layout: panel-based layout for attributes
+            // Format: { "panels": [ { "key": "main", "position": "main", "attributes": ["uuid", ...] }, ... ] }
+            $pdo->exec("alter table global.note_types add column if not exists attribute_layout jsonb");
+
+            // Drop legacy attribute_order column (replaced by attribute_layout)
+            $pdo->exec("alter table global.note_types drop column if exists attribute_order");
+
+            // Config overrides: sub-types can override inherited attribute config
+            // Format: { "<attr_id>": { ...config overrides... } }
+            // Special key "hidden": true hides the inherited attribute from this type
+            $pdo->exec("alter table global.note_types add column if not exists config_overrides jsonb not null default '{}'::jsonb");
 
             // ─── Type Attributes ────────────────────────────────────────────────────────
             $pdo->exec("
@@ -157,12 +168,21 @@ final class GlobalSchema
 
             $pdo->exec('create index if not exists type_attributes_nook_id_idx on global.type_attributes (nook_id)');
 
-            // Update kind constraint to include view
+            // Add key (slug) column to type_attributes — URL-safe identifier
+            $pdo->exec("alter table global.type_attributes add column if not exists key text");
+            // Backfill: generate key from name for existing rows that have no key
+            $pdo->exec("update global.type_attributes set key = lower(regexp_replace(name, '[^a-zA-Z0-9]+', '-', 'g')) where key is null or key = ''");
+            $pdo->exec("alter table global.type_attributes alter column key set not null");
+            $pdo->exec("alter table global.type_attributes alter column key set default ''");
+            $pdo->exec('drop index if exists global.type_attributes_type_key_uidx');
+            $pdo->exec('create unique index if not exists type_attributes_type_key_uidx on global.type_attributes (type_id, key)');
+
+            // Update kind constraint to include all kinds
             $pdo->exec("
                 do \$\$ begin
                     alter table global.type_attributes drop constraint if exists type_attributes_kind_check;
                     alter table global.type_attributes add constraint type_attributes_kind_check
-                        check (kind in ('text', 'number', 'boolean', 'date', 'date_range', 'select', 'multi_select', 'url', 'file', 'graph', 'view', 'linked_notes', 'mentions', 'history', 'toc', 'metadata', 'content'));
+                        check (kind in ('text', 'number', 'boolean', 'date', 'date_range', 'select', 'multi_select', 'url', 'file', 'graph', 'view', 'linked_notes', 'mentions', 'history', 'toc', 'metadata', 'content', 'source'));
                 end \$\$;
             ");
             $pdo->exec('create index if not exists type_attributes_type_id_idx on global.type_attributes (type_id)');

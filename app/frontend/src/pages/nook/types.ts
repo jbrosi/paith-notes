@@ -215,6 +215,7 @@ export const TypeAttributeKinds = [
 	"toc",
 	"metadata",
 	"content",
+	"source",
 ] as const;
 export type TypeAttributeKind = (typeof TypeAttributeKinds)[number];
 
@@ -223,10 +224,12 @@ const TypeAttributeApiSchema = z
 		id: z.string(),
 		type_id: z.string(),
 		name: z.string(),
+		key: z.string().optional(),
 		kind: z.string(),
 		config: z.record(z.string(), z.unknown()).optional(),
 		indexed: z.boolean().optional(),
 		inherited: z.boolean().optional(),
+		overridden: z.boolean().optional(),
 		created_at: z.string().optional(),
 		updated_at: z.string().optional(),
 	})
@@ -234,15 +237,43 @@ const TypeAttributeApiSchema = z
 		id: a.id,
 		typeId: a.type_id,
 		name: a.name,
+		key: a.key ?? "",
 		kind: a.kind as TypeAttributeKind,
 		config: (a.config ?? {}) as Record<string, unknown>,
 		indexed: a.indexed ?? false,
 		inherited: a.inherited ?? false,
+		overridden: a.overridden ?? false,
 		createdAt: a.created_at,
 		updatedAt: a.updated_at,
 	}));
 
 export type TypeAttribute = z.infer<typeof TypeAttributeApiSchema>;
+
+// ─── Panels & Layout ────────────────────────────────────────────────────────
+
+export const PanelPositions = ["main", "side-right", "side-left"] as const;
+export type PanelPosition = (typeof PanelPositions)[number];
+
+const PanelSchema = z.object({
+	key: z.string(),
+	label: z.string().optional(),
+	position: z.enum(PanelPositions),
+	collapsible: z.boolean().optional(),
+	hidden: z.boolean().optional(),
+	order: z.number().int().optional(),
+	attributes: z.array(z.string()),
+});
+
+export type Panel = z.infer<typeof PanelSchema>;
+
+const AttributeLayoutSchema = z
+	.object({
+		panels: z.array(PanelSchema),
+	})
+	.nullable()
+	.optional();
+
+export type AttributeLayout = { panels: Panel[] } | null;
 
 // ─── Note Types ─────────────────────────────────────────────────────────────
 
@@ -254,7 +285,8 @@ const NoteTypeApiSchema = z
 		label: z.string(),
 		description: z.string().optional(),
 		parent_id: z.string().optional(),
-		attribute_order: z.array(z.string()).optional(),
+		attribute_layout: AttributeLayoutSchema.optional(),
+		config_overrides: z.record(z.string(), z.unknown()).optional(),
 		attributes: z.array(TypeAttributeApiSchema).optional(),
 		created_at: z.string().optional(),
 		updated_at: z.string().optional(),
@@ -266,7 +298,8 @@ const NoteTypeApiSchema = z
 		label: t.label,
 		description: t.description ?? "",
 		parentId: t.parent_id ?? "",
-		attributeOrder: t.attribute_order ?? [],
+		attributeLayout: (t.attribute_layout ?? null) as AttributeLayout,
+		configOverrides: (t.config_overrides ?? {}) as Record<string, Record<string, unknown>>,
 		attributes: t.attributes ?? [],
 		createdAt: t.created_at,
 		updatedAt: t.updated_at,

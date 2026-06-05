@@ -14,6 +14,7 @@ import type { TypeAttribute } from "../../types";
 export function ContentAttributeField(props: {
 	attr: TypeAttribute;
 	store: NookStore;
+	fullscreen?: boolean;
 }) {
 	const mode = () => (props.attr.config.mode as string) ?? "markdown";
 
