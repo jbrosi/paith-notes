@@ -54,18 +54,27 @@ type Props = {
 	notePreview?: NotePreviewController;
 };
 
-async function fetchConversations(
-	nookId: string,
-): Promise<ConversationSummary[]> {
-	const res = await fetch(
-		`/api/conversations?nook_id=${encodeURIComponent(nookId)}`,
-		{
-			credentials: "include",
-		},
-	);
+async function fetchConversations(): Promise<ConversationSummary[]> {
+	const res = await fetch("/api/conversations", { credentials: "include" });
 	if (!res.ok) return [];
 	const data = (await res.json()) as { conversations?: ConversationSummary[] };
 	return data.conversations ?? [];
+}
+
+async function deleteConversation(conversationId: string): Promise<boolean> {
+	const res = await fetch(
+		`/api/conversations/${encodeURIComponent(conversationId)}`,
+		{ method: "DELETE", credentials: "include" },
+	);
+	return res.ok;
+}
+
+async function deleteAllConversations(): Promise<boolean> {
+	const res = await fetch("/api/conversations", {
+		method: "DELETE",
+		credentials: "include",
+	});
+	return res.ok;
 }
 
 async function fetchMessages(
@@ -141,9 +150,42 @@ export function ChatPanel(props: Props) {
 	// ── list view state ──────────────────────────────────────
 	const [convRefetch, setConvRefetch] = createSignal(0);
 	const [conversations] = createResource(
-		() => ({ nookId: props.chatNookId, rev: convRefetch() }),
-		({ nookId }) => fetchConversations(nookId),
+		() => convRefetch(),
+		() => fetchConversations(),
 	);
+
+	const onDeleteConv = async (conv: ConversationSummary, e: MouseEvent) => {
+		e.stopPropagation();
+		if (
+			!window.confirm(
+				`Delete "${conv.title || "Untitled"}"? This cannot be undone.`,
+			)
+		) {
+			return;
+		}
+		const ok = await deleteConversation(conv.id);
+		if (ok) setConvRefetch((n) => n + 1);
+	};
+
+	const onDeleteAll = async () => {
+		const count = (conversations() ?? []).length;
+		if (count === 0) return;
+		if (
+			!window.confirm(
+				`Delete all ${count} conversation${count === 1 ? "" : "s"}? This cannot be undone.`,
+			)
+		) {
+			return;
+		}
+		const ok = await deleteAllConversations();
+		if (ok) setConvRefetch((n) => n + 1);
+	};
+
+	const onExport = () => {
+		// Triggers a download via the browser; the endpoint serves a zip with
+		// attachment Content-Disposition.
+		window.location.href = "/api/me/conversations/export";
+	};
 
 	// ── chat view state ──────────────────────────────────────
 	const [view, setView] = createSignal<"list" | "chat">("list");
@@ -751,22 +793,53 @@ export function ChatPanel(props: Props) {
 								<p class={styles.listEmpty}>No past conversations yet.</p>
 							}
 						>
-							<div class={styles.listSectionTitle}>Recent</div>
+							<div class={styles.listHeader}>
+								<span class={styles.listSectionTitle}>Recent</span>
+								<div class={styles.listHeaderActions}>
+									<button
+										type="button"
+										class={styles.listAction}
+										onClick={onExport}
+										title="Download all conversations as a zip"
+									>
+										Export
+									</button>
+									<button
+										type="button"
+										class={styles.listActionDanger}
+										onClick={() => void onDeleteAll()}
+										title="Delete every conversation"
+									>
+										Delete all
+									</button>
+								</div>
+							</div>
 							<div class={styles.listSection}>
 								<For each={conversations() ?? []}>
 									{(conv) => (
-										<button
-											class={styles.convItem}
-											type="button"
-											onClick={() => void openConversation(conv)}
-										>
-											<span class={styles.convTitle}>
-												{conv.title || "Untitled"}
-											</span>
-											<span class={styles.convMeta}>
-												{formatDate(conv.updated_at)} · {conv.model}
-											</span>
-										</button>
+										<div class={styles.convItemRow}>
+											<button
+												class={styles.convItem}
+												type="button"
+												onClick={() => void openConversation(conv)}
+											>
+												<span class={styles.convTitle}>
+													{conv.title || "Untitled"}
+												</span>
+												<span class={styles.convMeta}>
+													{formatDate(conv.updated_at)} · {conv.model}
+												</span>
+											</button>
+											<button
+												type="button"
+												class={styles.convDelete}
+												onClick={(e) => void onDeleteConv(conv, e)}
+												title="Delete this conversation"
+												aria-label="Delete conversation"
+											>
+												×
+											</button>
+										</div>
 									)}
 								</For>
 							</div>

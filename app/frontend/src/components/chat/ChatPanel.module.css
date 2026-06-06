@@ -84,6 +84,50 @@
 	padding: 8px 8px 4px;
 }
 
+.listHeader {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	padding-right: 8px;
+}
+
+.listHeaderActions {
+	display: flex;
+	gap: 4px;
+}
+
+.listAction,
+.listActionDanger {
+	font-size: 0.75rem;
+	font-weight: 600;
+	text-transform: uppercase;
+	letter-spacing: 0.05em;
+	color: var(--color-text-faint);
+	background: none;
+	border: none;
+	padding: 4px 8px;
+	border-radius: 4px;
+	cursor: pointer;
+	font-family: inherit;
+}
+
+.listAction:hover {
+	background: var(--color-bg-hover);
+	color: var(--color-text);
+}
+
+.listActionDanger:hover {
+	background: var(--color-bg-hover);
+	color: #c0392b;
+}
+
+.convItemRow {
+	display: flex;
+	align-items: stretch;
+	gap: 2px;
+}
+
 .convItem {
 	display: flex;
 	flex-direction: column;
@@ -94,11 +138,35 @@
 	border: none;
 	background: none;
 	text-align: left;
-	width: 100%;
+	flex: 1;
+	min-width: 0;
 	font-family: inherit;
 }
 
 .convItem:hover {
+	background: var(--color-bg-hover);
+}
+
+.convDelete {
+	flex-shrink: 0;
+	width: 28px;
+	border: none;
+	background: none;
+	color: var(--color-text-faint);
+	cursor: pointer;
+	border-radius: 6px;
+	font-size: 1.25rem;
+	line-height: 1;
+	opacity: 0;
+	transition: opacity 0.1s ease;
+}
+
+.convItemRow:hover .convDelete {
+	opacity: 1;
+}
+
+.convDelete:hover {
+	color: #c0392b;
 	background: var(--color-bg-hover);
 }
 
