@@ -16,6 +16,7 @@ use Paith\Notes\Shared\Db\Row;
 use Paith\Notes\Shared\Uuid;
 use PDO;
 use ZipArchive;
+use Paith\Notes\Api\Http\Auth\User;
 
 final class ConversationsController
 {
@@ -289,7 +290,7 @@ final class ConversationsController
             where n.id = :note_id and nm.user_id = :user_id
             limit 1
         ');
-        $noteNookStmt->execute([':note_id' => $noteId, ':user_id' => $user['id']]);
+        $noteNookStmt->execute([':note_id' => $noteId, ':user_id' => $user->id]);
         if ($noteNookStmt->fetchColumn() === false) {
             throw new HttpError('note not found', 404);
         }
@@ -526,7 +527,7 @@ final class ConversationsController
     }
 
     /** @return array<string, mixed> */
-    private function requireConversationOwner(PDO $pdo, array $user, string $conversationId): array
+    private function requireConversationOwner(PDO $pdo, User $user, string $conversationId): array
     {
         $stmt = $pdo->prepare('
             select id, title, model
@@ -534,7 +535,7 @@ final class ConversationsController
             where id = :id and user_id = :user_id
             limit 1
         ');
-        $stmt->execute([':id' => $conversationId, ':user_id' => $user['id']]);
+        $stmt->execute([':id' => $conversationId, ':user_id' => $user->id]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
         if (!is_array($row)) {
             throw new HttpError('conversation not found', 404);

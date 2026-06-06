@@ -23,7 +23,7 @@ final class SearchController
     {
         $pdo = $context->pdo();
         $user = $context->user();
-        $userId = Row::str($user, 'id');
+        $userId = $user->id;
 
         $q = strtolower(trim($request->queryParam('q')));
         if ($q === '') {

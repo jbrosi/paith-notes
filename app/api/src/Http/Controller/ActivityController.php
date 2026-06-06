@@ -12,6 +12,7 @@ use Paith\Notes\Api\Http\Response;
 use Paith\Notes\Shared\Db\Row;
 use PDO;
 use Paith\Notes\Shared\Uuid;
+use Paith\Notes\Api\Http\Auth\User;
 
 final class ActivityController
 {
@@ -31,7 +32,7 @@ final class ActivityController
         $before = $beforeRaw !== '' ? (int)$beforeRaw : 0;
 
         $whereClause = 'am.user_id = :user_id and (am.nook_id is null or am.nook_id in (select nook_id from global.nook_members where user_id = :user_id_sub))';
-        $params = [':user_id' => $user['id'], ':user_id_sub' => $user['id']];
+        $params = [':user_id' => $user->id, ':user_id_sub' => $user->id];
 
         if ($before > 0) {
             $whereClause .= ' and am.id < :before';
@@ -60,6 +61,7 @@ final class ActivityController
         }
         $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
         $stmt->execute();
+        /** @var list<array<string, mixed>> $rows */
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
         return JsonResponse::ok([
@@ -123,6 +125,7 @@ final class ActivityController
         }
         $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
         $stmt->execute();
+        /** @var list<array<string, mixed>> $rows */
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
         return JsonResponse::ok([
@@ -131,16 +134,13 @@ final class ActivityController
     }
 
     /**
-     * @param array $rows
-     * @return array<int, array<string, mixed>>
+     * @param list<array<string, mixed>> $rows
+     * @return list<array<string, mixed>>
      */
     private static function formatRows(array $rows): array
     {
         $activity = [];
         foreach ($rows as $r) {
-            if (!is_array($r)) {
-                continue;
-            }
             $entry = [
                 'id' => Row::int($r, 'id'),
                 'version' => Row::int($r, 'version'),
@@ -198,7 +198,7 @@ final class ActivityController
         $before = $beforeRaw !== '' ? (int)$beforeRaw : 0;
 
         $whereClause = 'user_id = :user_id';
-        $params = [':user_id' => $user['id']];
+        $params = [':user_id' => $user->id];
 
         if ($before > 0) {
             $whereClause .= ' and id < :before';
@@ -236,10 +236,10 @@ final class ActivityController
         return JsonResponse::ok(['events' => $events]);
     }
 
-    private function requireMember(PDO $pdo, array $user, string $nookId): void
+    private function requireMember(PDO $pdo, User $user, string $nookId): void
     {
         $check = $pdo->prepare('select 1 from global.nook_members where nook_id = :nook_id and user_id = :user_id limit 1');
-        $check->execute([':nook_id' => $nookId, ':user_id' => $user['id']]);
+        $check->execute([':nook_id' => $nookId, ':user_id' => $user->id]);
         if ($check->fetch() === false) {
             throw new HttpError('forbidden', 403);
         }

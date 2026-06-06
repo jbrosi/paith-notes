@@ -15,6 +15,7 @@ use Paith\Notes\Shared\Db\Row;
 use Paith\Notes\Shared\Uuid;
 use PDO;
 use Throwable;
+use Paith\Notes\Api\Http\Auth\User;
 
 final class TypeAttributesController
 {
@@ -438,7 +439,9 @@ final class TypeAttributesController
     /**
      * Flatten a resolved layout into a single ordered list of attribute IDs.
      * Main panel first, then side panels in order.
-     * @return string[]
+     *
+     * @param array<string, mixed> $layout
+     * @return list<string>
      */
     private function flattenLayoutOrder(array $layout): array
     {
@@ -577,9 +580,9 @@ final class TypeAttributesController
         }
     }
 
-    private function requireMember(PDO $pdo, array $user, string $nookId): void
+    private function requireMember(PDO $pdo, User $user, string $nookId): void
     {
-        $userId = Row::str($user, 'id');
+        $userId = $user->id;
         if ($userId === '') {
             throw new HttpError('invalid user', 500);
         }

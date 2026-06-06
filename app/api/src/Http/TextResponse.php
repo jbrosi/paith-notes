@@ -8,10 +8,12 @@ final class TextResponse implements Response
 {
     private int $statusCode;
 
+    /** @var array<string, string> */
     private array $headers;
 
     private string $body;
 
+    /** @param array<string, string> $headers */
     public function __construct(string $body, int $statusCode = 200, array $headers = [])
     {
         $this->statusCode = $statusCode;
@@ -25,6 +27,7 @@ final class TextResponse implements Response
         return $this->statusCode;
     }
 
+    /** @return array<string, string> */
     public function headers(): array
     {
         return $this->headers;

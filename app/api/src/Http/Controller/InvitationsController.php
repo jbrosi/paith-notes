@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Paith\Notes\Api\Http\Controller;
 
+use Paith\Notes\Api\Http\Auth\User;
 use Paith\Notes\Api\Http\Context;
 use Paith\Notes\Api\Http\HttpError;
 use Paith\Notes\Api\Http\JsonResponse;
@@ -52,7 +53,7 @@ final class InvitationsController
             ':nook_id' => $nookId,
             ':email' => $payload->email,
             ':role' => $payload->role,
-            ':invited_by' => $user['id'],
+            ':invited_by' => $user->id,
         ]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
         if (!is_array($row)) {
@@ -148,7 +149,7 @@ final class InvitationsController
 
         NookAccess::requireOwner($pdo, $user, $nookId);
 
-        $userId = Row::str($user, 'id');
+        $userId = $user->id;
         if ($memberId === $userId) {
             throw new HttpError('you cannot revoke your own access', 400);
         }
@@ -242,16 +243,15 @@ final class InvitationsController
 
     // ── User endpoints (me-scoped) ──
 
-    private function getUserEmail(PDO $pdo, array $user): string
+    private function getUserEmail(PDO $pdo, User $user): string
     {
-        // The user array from dev-header auth may not include email,
-        // so always look it up from the DB.
-        $userId = Row::str($user, 'id');
-        if ($userId === '') {
+        // The User from dev-header auth has no email field, so look it up
+        // from the DB by id either way.
+        if ($user->id === '') {
             return '';
         }
         $stmt = $pdo->prepare('select email from global.users where id = :id');
-        $stmt->execute([':id' => $userId]);
+        $stmt->execute([':id' => $user->id]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
         if (!is_array($row)) {
             return '';
@@ -312,7 +312,7 @@ final class InvitationsController
         $pdo = $context->pdo();
         $user = $context->user();
 
-        $userId = Row::str($user, 'id');
+        $userId = $user->id;
 
         $stmt = $pdo->prepare("
             select
@@ -387,7 +387,7 @@ final class InvitationsController
             ");
             $member->execute([
                 ':nook_id' => $nookId,
-                ':user_id' => $user['id'],
+                ':user_id' => $user->id,
                 ':role' => $role,
             ]);
 
@@ -437,7 +437,7 @@ final class InvitationsController
 
         $revId = $request->requireUuidRouteParam('revId');
 
-        $userId = Row::str($user, 'id');
+        $userId = $user->id;
 
         $stmt = $pdo->prepare("
             update global.nook_access_revocations

@@ -92,25 +92,15 @@ final class JsonReader
 
     /**
      * Read an associative array (object-shaped). Returns empty array when
-     * missing or non-array. Note: a JSON list (numeric keys) is also accepted —
-     * callers that need to enforce string keys should do so explicitly.
+     * missing or when the value isn't a string-keyed array (numeric-keyed
+     * lists are dropped).
      *
      * @param array<string, mixed> $data
      * @return array<string, mixed>
      */
     public static function optionalAssoc(array $data, string $key): array
     {
-        $value = $data[$key] ?? null;
-        if (!is_array($value)) {
-            return [];
-        }
-        $out = [];
-        foreach ($value as $k => $v) {
-            if (is_string($k)) {
-                $out[$k] = $v;
-            }
-        }
-        return $out;
+        return \Paith\Notes\Shared\Db\Row::stringKeyed($data[$key] ?? null);
     }
 
     /**

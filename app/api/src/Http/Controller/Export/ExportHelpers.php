@@ -107,6 +107,7 @@ final class ExportHelpers
 
     // ── YAML frontmatter ────────────────────────────────────────
 
+    /** @param array<string, mixed> $data */
     public static function renderFrontmatter(array $data): string
     {
         $yaml = self::yamlEncode($data, 0);

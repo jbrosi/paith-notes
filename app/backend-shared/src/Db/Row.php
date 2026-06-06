@@ -88,6 +88,29 @@ final class Row
     }
 
     /**
+     * Filter a (possibly mixed-key) array down to its string-keyed entries.
+     * Use this when narrowing values from PHP sources that produce
+     * `array<int|string, mixed>` (parse_str, json_decode arrays, FastRoute
+     * vars, session payloads) into the `array<string, mixed>` shape
+     * downstream code expects.
+     *
+     * @return array<string, mixed>
+     */
+    public static function stringKeyed(mixed $value): array
+    {
+        if (!is_array($value)) {
+            return [];
+        }
+        $out = [];
+        foreach ($value as $k => $v) {
+            if (is_string($k)) {
+                $out[$k] = $v;
+            }
+        }
+        return $out;
+    }
+
+    /**
      * Narrow a raw mixed JSON-ish value to a string-keyed array.
      * Accepts: native arrays (rekeys numeric keys to strings), JSON strings
      *          (decodes), and anything else returns [].

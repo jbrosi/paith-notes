@@ -20,7 +20,7 @@ final class ChatController
     public function auth(Request $request, Context $context): Response
     {
         $user   = $context->user(); // RequireUser middleware guarantees this is set
-        $userId = Row::str($user, 'id');
+        $userId = $user->id;
 
         return new TextResponse('', 200, ['X-Chat-User-Id' => $userId]);
     }

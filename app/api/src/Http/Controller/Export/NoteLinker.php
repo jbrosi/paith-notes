@@ -21,13 +21,13 @@ final class NoteLinker
      * Cross-nook links → absolute app URLs
      * Image embeds → actual file paths when available
      *
-     * @param string                     $content     Note markdown content
-     * @param array<string, string>      $noteMap     uuid → .md path (same-nook notes)
-     * @param array<string, string>      $noteTitles  uuid → title (same-nook notes)
-     * @param string                     $currentDir  directory of current note (relative to notes/)
-     * @param array<string, list<array>> $noteFiles   note_id → file metadata rows
-     * @param array<string, array>       $attrById    attribute id → { name, kind }
-     * @param string                     $appBaseUrl  Base URL for cross-nook absolute links
+     * @param string                                          $content     Note markdown content
+     * @param array<string, string>                           $noteMap     uuid → .md path (same-nook notes)
+     * @param array<string, string>                           $noteTitles  uuid → title (same-nook notes)
+     * @param string                                          $currentDir  directory of current note (relative to notes/)
+     * @param array<string, list<array<string, mixed>>>       $noteFiles   note_id → file metadata rows
+     * @param array<string, array<string, mixed>>             $attrById    attribute id → { name, kind }
+     * @param string                                          $appBaseUrl  Base URL for cross-nook absolute links
      */
     public static function rewriteToRelative(
         string $content,

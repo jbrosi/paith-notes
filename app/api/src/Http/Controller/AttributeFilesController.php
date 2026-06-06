@@ -16,6 +16,7 @@ use PDO;
 use Throwable;
 use Paith\Notes\Shared\Uuid;
 use Paith\Notes\Api\Http\Dto\JsonReader;
+use Paith\Notes\Api\Http\Auth\User;
 
 /**
  * Handles file upload/download for file-kind type attributes.
@@ -506,6 +507,8 @@ final class AttributeFilesController
     /**
      * Upsert note_files row, bumping file_version on re-upload.
      * Returns the new file_version.
+     *
+     * @param array{filename: string, extension: string, filesize: int, mime_type: string, checksum: string} $file
      */
     private function upsertNoteFile(PDO $pdo, string $noteId, string $attributeId, string $objectKey, array $file, string $nookId, string $userId): int
     {
@@ -537,6 +540,7 @@ final class AttributeFilesController
         return is_scalar($ver) ? (int)$ver : 1;
     }
 
+    /** @param array{filename: string, extension: string, filesize: int, mime_type: string, checksum: string} $file */
     private function createUpload(PDO $pdo, string $uploadId, string $noteId, string $userId, string $tempObjectKey, string $finalObjectKey, string $sessionId, string $nookId, array $file): void
     {
         $stmt = $pdo->prepare(
@@ -632,6 +636,7 @@ final class AttributeFilesController
         }
     }
 
+    /** @param array<string, mixed> $membership */
     private function requireNoteWriteAccess(PDO $pdo, array $membership, string $userId, string $noteId, string $nookId): void
     {
         $role = Row::str($membership, 'role');
@@ -646,9 +651,9 @@ final class AttributeFilesController
         }
     }
 
-    private function requireMember(PDO $pdo, array $user, string $nookId): void
+    private function requireMember(PDO $pdo, User $user, string $nookId): void
     {
-        $userId = Row::str($user, 'id');
+        $userId = $user->id;
         if ($userId === '') {
             throw new HttpError('invalid user', 500);
         }
@@ -682,6 +687,7 @@ final class AttributeFilesController
         return $sid;
     }
 
+    /** @param array<string, string> $query */
     private function filePublicUrlForRequest(Request $request, string $objectKey, array $query = []): string
     {
         $envBase = trim((string)getenv('PUBLIC_BASE_URL'));
@@ -706,14 +712,10 @@ final class AttributeFilesController
         $q = [];
         foreach ($query as $k => $v) {
             $k = trim($k);
-            if ($k === '') {
+            if ($k === '' || $v === '') {
                 continue;
             }
-            $vStr = is_scalar($v) ? trim((string)$v) : '';
-            if ($vStr === '') {
-                continue;
-            }
-            $q[] = rawurlencode($k) . '=' . rawurlencode($vStr);
+            $q[] = rawurlencode($k) . '=' . rawurlencode(trim($v));
         }
 
         return $q === [] ? $base . $path : $base . $path . '?' . implode('&', $q);
@@ -740,9 +742,9 @@ final class AttributeFilesController
         return $v;
     }
 
-    private static function requireUserId(array $user): string
+    private static function requireUserId(User $user): string
     {
-        $userId = Row::str($user, 'id');
+        $userId = $user->id;
         if ($userId === '') {
             throw new HttpError('invalid user', 500);
         }

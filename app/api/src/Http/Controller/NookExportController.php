@@ -46,7 +46,7 @@ final class NookExportController
         $pdo = $context->pdo();
         $user = $context->user();
         $nookId = $request->routeParam('nookId');
-        $userId = Row::str($user, 'id');
+        $userId = $user->id;
 
         NookAccess::requireOwner($pdo, $user, $nookId);
 

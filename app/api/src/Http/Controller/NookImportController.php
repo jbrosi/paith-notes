@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Paith\Notes\Api\Http\Controller;
 
 use Paith\Notes\Api\Http\Controller\Export;
+use Paith\Notes\Shared\Db\Row;
 use PDO;
 use ZipArchive;
 
@@ -27,7 +28,16 @@ final class NookImportController
     /**
      * Parse a ZIP archive into the import data structure.
      *
-     * @return array{version: int, nook: array, types: list, attributes: list, notes: list, predicates: list, predicate_rules: list, links: list}
+     * @return array{
+     *   version: int,
+     *   nook: array<string, mixed>,
+     *   types: list<array<string, mixed>>,
+     *   attributes: list<array<string, mixed>>,
+     *   notes: list<array<string, mixed>>,
+     *   predicates: list<array<string, mixed>>,
+     *   predicate_rules: list<array<string, mixed>>,
+     *   links: list<array<string, mixed>>
+     * }
      */
     public static function parseZip(string $zipPath): array
     {
@@ -150,11 +160,11 @@ final class NookImportController
 
         $zip->close();
 
-        $nookMeta = $manifest['nook'] ?? [];
+        $nookMeta = Row::stringKeyed($manifest['nook'] ?? null);
 
         return [
             'version' => is_int($manifest['version'] ?? null) ? $manifest['version'] : 0,
-            'nook' => is_array($nookMeta) ? $nookMeta : [],
+            'nook' => $nookMeta,
             'types' => $types,
             'attributes' => $attributes,
             'notes' => $notes,
@@ -420,9 +430,11 @@ final class NookImportController
      * Parse a markdown file with YAML frontmatter back into a note data array.
      *
      * @param array<string, string> $pathToId   path → uuid
-     * @param array<string, string> $noteMap    uuid → path (for rewriting links back)
-     * @param list<array>           $types
+     * @param array<string, string>                $pathToId
+     * @param array<string, string>                $noteMap    uuid → path (for rewriting links back)
+     * @param list<array<string, mixed>>           $types
      * @param array<string, array<string, string>> $attrNameToId  type_id → { name → attr_id }
+     * @param array<string, string>                $fileNoteIds
      * @return array<string, mixed>|null
      */
     private static function parseMdNote(

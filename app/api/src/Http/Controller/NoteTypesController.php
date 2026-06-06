@@ -15,6 +15,7 @@ use Paith\Notes\Shared\Db\Row;
 use Paith\Notes\Shared\Uuid;
 use PDO;
 use Throwable;
+use Paith\Notes\Api\Http\Auth\User;
 
 final class NoteTypesController
 {
@@ -606,9 +607,10 @@ final class NoteTypesController
         ]);
     }
 
-    private function requireMember(PDO $pdo, array $user, string $nookId): array
+    /** @return array<string, mixed> */
+    private function requireMember(PDO $pdo, User $user, string $nookId): array
     {
-        $userId = Row::str($user, 'id');
+        $userId = $user->id;
         if ($userId === '') {
             throw new HttpError('invalid user', 500);
         }
@@ -622,6 +624,7 @@ final class NoteTypesController
         if (!is_array($row)) {
             throw new HttpError('forbidden', 403);
         }
+        /** @var array<string, mixed> $row */
         return $row;
     }
 
@@ -907,6 +910,7 @@ final class NoteTypesController
         }
     }
 
+    /** @param array<string, mixed> $layout */
     private static function validateAttributeLayout(array $layout): void
     {
         $panels = $layout['panels'] ?? null;

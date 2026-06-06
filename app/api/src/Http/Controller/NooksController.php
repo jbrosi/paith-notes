@@ -40,10 +40,10 @@ final class NooksController
                 and n.purpose in ('general', 'handbook')
             order by n.created_at desc;
         ");
-        $stmt->execute([':user_id' => $user['id']]);
+        $stmt->execute([':user_id' => $user->id]);
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-        $userId = Row::str($user, 'id');
+        $userId = $user->id;
 
         $nooks = [];
         foreach ($rows as $r) {
@@ -88,7 +88,7 @@ final class NooksController
     {
         $pdo = $context->pdo();
         $user = $context->user();
-        $userId = Row::str($user, 'id');
+        $userId = $user->id;
 
         $stmt = $pdo->prepare(
             "select n.id, n.name from global.nooks n join global.nook_members nm on nm.nook_id = n.id where nm.user_id = :user_id and n.purpose = 'ai-memory' limit 1"
@@ -112,7 +112,7 @@ final class NooksController
     {
         $pdo = $context->pdo();
         $user = $context->user();
-        $userId = Row::str($user, 'id');
+        $userId = $user->id;
 
         $stmt = $pdo->prepare(
             "select n.id, n.name from global.nooks n join global.nook_members nm on nm.nook_id = n.id where nm.user_id = :user_id and n.purpose = 'handbook' limit 1"
@@ -154,15 +154,15 @@ final class NooksController
             ");
             $create->execute([
                 ':name' => $name,
-                ':created_by' => $user['id'],
-                ':owner_id' => $user['id'],
+                ':created_by' => $user->id,
+                ':owner_id' => $user->id,
             ]);
             $nookId = (string)$create->fetchColumn();
 
             $member = $pdo->prepare("\n                insert into global.nook_members (nook_id, user_id, role)\n                values (:nook_id, :user_id, 'owner')\n                on conflict (nook_id, user_id) do update set role = excluded.role\n            ");
             $member->execute([
                 ':nook_id' => $nookId,
-                ':user_id' => $user['id'],
+                ':user_id' => $user->id,
             ]);
 
             $pdo->commit();
@@ -221,7 +221,7 @@ final class NooksController
     {
         $pdo = $context->pdo();
         $user = $context->user();
-        $userId = Row::str($user, 'id');
+        $userId = $user->id;
         $nookId = trim($request->routeParam('nookId'));
 
         $stmt = $pdo->prepare(
@@ -245,7 +245,7 @@ final class NooksController
     {
         $pdo = $context->pdo();
         $user = $context->user();
-        $userId = Row::str($user, 'id');
+        $userId = $user->id;
         $nookId = trim($request->routeParam('nookId'));
 
         $data = $request->jsonBody();

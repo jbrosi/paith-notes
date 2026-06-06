@@ -18,6 +18,7 @@ final class KeycloakJwt implements JwtVerifier
 
     private int $httpTimeoutSeconds;
 
+    /** @var array<string, mixed>|null */
     private static ?array $jwksCache = null;
 
     private static int $jwksCacheFetchedAt = 0;
@@ -210,6 +211,7 @@ final class KeycloakJwt implements JwtVerifier
         throw new RuntimeException('kid not found in JWKS');
     }
 
+    /** @return array<string, mixed> */
     private function getJwks(): array
     {
         $now = time();
@@ -228,9 +230,13 @@ final class KeycloakJwt implements JwtVerifier
             throw new RuntimeException('could not fetch JWKS');
         }
 
-        $jwks = json_decode($raw, true);
-        if (!is_array($jwks)) {
+        $decoded = json_decode($raw, true);
+        if (!is_array($decoded)) {
             throw new RuntimeException('invalid JWKS JSON');
+        }
+        $jwks = [];
+        foreach ($decoded as $k => $v) {
+            $jwks[(string)$k] = $v;
         }
 
         self::$jwksCache = $jwks;

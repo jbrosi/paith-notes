@@ -148,7 +148,7 @@ final class AuthController
         $ttl = 60 * 60 * 24 * 7;
         $crypto = SessionCrypto::fromEnv();
         $tokenEncrypted = $crypto->encrypt((string)json_encode($tokenPayload));
-        $userId = Row::str($user, 'id');
+        $userId = $user->id;
         if ($userId === '') {
             return JsonResponse::error('invalid user', 500);
         }
@@ -335,6 +335,7 @@ final class AuthController
         }
     }
 
+    /** @param array<string, mixed> $meta */
     private static function recordEvent(PDO $pdo, string $userId, string $event, array $meta): void
     {
         $filtered = array_filter($meta, fn($v) => $v !== null && $v !== '');

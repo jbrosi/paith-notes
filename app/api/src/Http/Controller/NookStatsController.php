@@ -11,6 +11,7 @@ use Paith\Notes\Api\Http\Request;
 use Paith\Notes\Api\Http\Response;
 use Paith\Notes\Shared\Db\Row;
 use PDO;
+use Paith\Notes\Api\Http\Auth\User;
 
 final class NookStatsController
 {
@@ -123,7 +124,7 @@ final class NookStatsController
         $stats['most_mentioned'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
         // Most viewed by this user (personal frequency)
-        $userId = Row::str($user, 'id');
+        $userId = $user->id;
         $stmt = $pdo->prepare(
             'SELECT n.id, n.title, SUM(nv.count) AS view_count
              FROM global.note_views nv
@@ -148,7 +149,7 @@ final class NookStatsController
 
         $this->requireMember($pdo, $user, $nookId);
 
-        $userId = Row::str($user, 'id');
+        $userId = $user->id;
 
         $stmt = $pdo->prepare(
             'SELECT n.id, n.title, nv.last_seen_at
@@ -224,9 +225,9 @@ final class NookStatsController
         return JsonResponse::ok(['notes' => $notes]);
     }
 
-    private function requireMember(PDO $pdo, array $user, string $nookId): void
+    private function requireMember(PDO $pdo, User $user, string $nookId): void
     {
-        $userId = Row::str($user, 'id');
+        $userId = $user->id;
         if ($userId === '') {
             throw new HttpError('invalid user', 500);
         }

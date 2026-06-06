@@ -120,7 +120,7 @@ final class FilesController
                 : substr($objectKey, 0, $lastSlash + 1) . substr($base, 0, $dot);
         }
 
-        $userId = Row::str($user, 'id');
+        $userId = $user->id;
         if ($userId === '') {
             // auth_request wants 401 for unauthenticated
             throw new HttpError('unauthenticated', 401);

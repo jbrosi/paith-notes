@@ -22,6 +22,7 @@ use Paith\Notes\Shared\Uuid;
 use PDO;
 use Throwable;
 use Paith\Notes\Api\Http\Dto\JsonReader;
+use Paith\Notes\Api\Http\Auth\User;
 
 final class NotesController
 {
@@ -115,7 +116,7 @@ final class NotesController
 
         $noteId = $request->requireUuidRouteParam('noteId');
 
-        $userId = Row::str($user, 'id');
+        $userId = $user->id;
         $this->requireMember($pdo, $user, $nookId);
 
         // Get current version
@@ -395,7 +396,7 @@ final class NotesController
 
         $noteId = $request->requireUuidRouteParam('noteId');
 
-        $userId = Row::str($user, 'id');
+        $userId = $user->id;
         if ($userId === '') {
             throw new HttpError('invalid user', 500);
         }
@@ -553,7 +554,7 @@ final class NotesController
                 throw new HttpError('note not found', 404);
             }
 
-            $userId = Row::str($user, 'id');
+            $userId = $user->id;
             $this->mentions->syncMentions($pdo, $nookId, $noteId, $content, $userId);
             $this->headings->syncHeadings($pdo, $nookId, $noteId, $content);
 
@@ -592,7 +593,7 @@ final class NotesController
 
         $noteId = $request->requireUuidRouteParam('noteId');
 
-        $userId = Row::str($user, 'id');
+        $userId = $user->id;
         if ($userId === '') {
             throw new HttpError('invalid user', 500);
         }
@@ -654,7 +655,7 @@ final class NotesController
         );
         $outgoingStmt->execute([
             ':source_note_id' => $noteId,
-            ':user_id' => $user['id'],
+            ':user_id' => $user->id,
         ]);
         $outgoingRows = $outgoingStmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -668,7 +669,7 @@ final class NotesController
         );
         $incomingStmt->execute([
             ':target_note_id' => $noteId,
-            ':user_id' => $user['id'],
+            ':user_id' => $user->id,
         ]);
         $incomingRows = $incomingStmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -873,7 +874,7 @@ final class NotesController
 
     /**
      * Load a note's content at a specific version from the audit trail.
-     * @return array{version: int, title: string, content: string, type_id: string, attributes: array}|null
+     * @return array{version: int, title: string, content: string, type_id: string, attributes: array<string, mixed>}|null
      */
     private function loadVersionSnapshot(PDO $pdo, string $nookId, string $noteId, int $version): ?array
     {
@@ -898,17 +899,12 @@ final class NotesController
             return null;
         }
 
-        $attrs = $data['attributes'] ?? null;
-        if (is_string($attrs)) {
-            $attrs = json_decode($attrs, true);
-        }
-
         return [
             'version' => $version,
             'title' => Row::str($data, 'title'),
             'content' => Row::str($data, 'content'),
             'type_id' => Row::str($data, 'type_id'),
-            'attributes' => is_array($attrs) ? $attrs : [],
+            'attributes' => Row::decodeJsonObject($data['attributes'] ?? null),
         ];
     }
 
@@ -956,7 +952,7 @@ final class NotesController
             ':note_id2' => $noteId,
             ':note_id3' => $noteId,
             ':note_id4' => $noteId,
-            ':user_id' => $user['id'],
+            ':user_id' => $user->id,
         ]);
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -1066,17 +1062,19 @@ final class NotesController
         return $ids;
     }
 
-    private function requireMember(PDO $pdo, array $user, string $nookId): array
+    /** @return array<string, mixed> */
+    private function requireMember(PDO $pdo, User $user, string $nookId): array
     {
         $check = $pdo->prepare('select role from global.nook_members where nook_id = :nook_id and user_id = :user_id limit 1');
         $check->execute([
             ':nook_id' => $nookId,
-            ':user_id' => $user['id'],
+            ':user_id' => $user->id,
         ]);
         $row = $check->fetch(PDO::FETCH_ASSOC);
         if (!is_array($row)) {
             throw new HttpError('forbidden', 403);
         }
+        /** @var array<string, mixed> $row */
         return $row;
     }
 
