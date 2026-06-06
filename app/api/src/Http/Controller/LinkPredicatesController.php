@@ -14,6 +14,7 @@ use Throwable;
 use Paith\Notes\Shared\Uuid;
 use Paith\Notes\Shared\Db\Row;
 use Paith\Notes\Api\Http\Dto\JsonReader;
+use Paith\Notes\Api\Http\Dto\LinkPredicateRequest;
 
 final class LinkPredicatesController
 {
@@ -67,34 +68,17 @@ final class LinkPredicatesController
         NookAccess::requireWriteAccess($pdo, $user, $nookId);
         $this->ensureDefaultRelatesTo($pdo, $nookId);
 
-        $data = $request->jsonBody();
+        $payload = LinkPredicateRequest::fromJson($request->jsonBody());
 
-        $key = JsonReader::optionalTrimmedString($data, 'key');
-        if ($key === '') {
-            throw new HttpError('key is required', 400);
-        }
-        if ($key === self::DEFAULT_RELATES_TO_KEY) {
+        if ($payload->key === self::DEFAULT_RELATES_TO_KEY) {
             throw new HttpError('relates_to is reserved', 400);
         }
-
-        $forward = JsonReader::optionalTrimmedString($data, 'forward_label');
-        if ($forward === '') {
-            throw new HttpError('forward_label is required', 400);
-        }
-
-        $reverse = JsonReader::optionalTrimmedString($data, 'reverse_label');
-        if ($reverse === '') {
-            throw new HttpError('reverse_label is required', 400);
-        }
-
-        $supportsStart = (bool)($data['supports_start_date'] ?? false);
-        $supportsEnd = (bool)($data['supports_end_date'] ?? false);
 
         try {
             $pdo->beginTransaction();
 
             $dupe = $pdo->prepare('select 1 from global.link_predicates where nook_id = :nook_id and key = :key');
-            $dupe->execute([':nook_id' => $nookId, ':key' => $key]);
+            $dupe->execute([':nook_id' => $nookId, ':key' => $payload->key]);
             if ($dupe->fetchColumn()) {
                 throw new HttpError('key already exists', 409);
             }
@@ -105,11 +89,11 @@ final class LinkPredicatesController
                 . 'returning id, created_at, updated_at'
             );
             $stmt->bindValue(':nook_id', $nookId);
-            $stmt->bindValue(':key', $key);
-            $stmt->bindValue(':forward_label', $forward);
-            $stmt->bindValue(':reverse_label', $reverse);
-            $stmt->bindValue(':supports_start_date', $supportsStart, PDO::PARAM_BOOL);
-            $stmt->bindValue(':supports_end_date', $supportsEnd, PDO::PARAM_BOOL);
+            $stmt->bindValue(':key', $payload->key);
+            $stmt->bindValue(':forward_label', $payload->forwardLabel);
+            $stmt->bindValue(':reverse_label', $payload->reverseLabel);
+            $stmt->bindValue(':supports_start_date', $payload->supportsStartDate, PDO::PARAM_BOOL);
+            $stmt->bindValue(':supports_end_date', $payload->supportsEndDate, PDO::PARAM_BOOL);
             $stmt->execute();
 
             $row = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -119,17 +103,15 @@ final class LinkPredicatesController
 
             $pdo->commit();
 
-            $id = Row::str($row, 'id');
-
             return JsonResponse::ok([
                 'predicate' => [
-                    'id' => $id,
+                    'id' => Row::str($row, 'id'),
                     'nook_id' => $nookId,
-                    'key' => $key,
-                    'forward_label' => $forward,
-                    'reverse_label' => $reverse,
-                    'supports_start_date' => $supportsStart,
-                    'supports_end_date' => $supportsEnd,
+                    'key' => $payload->key,
+                    'forward_label' => $payload->forwardLabel,
+                    'reverse_label' => $payload->reverseLabel,
+                    'supports_start_date' => $payload->supportsStartDate,
+                    'supports_end_date' => $payload->supportsEndDate,
                     'created_at' => Row::str($row, 'created_at'),
                     'updated_at' => Row::str($row, 'updated_at'),
                 ],
@@ -165,32 +147,15 @@ final class LinkPredicatesController
             throw new HttpError('relates_to cannot be modified', 400);
         }
 
-        $data = $request->jsonBody();
+        $payload = LinkPredicateRequest::fromJson($request->jsonBody());
 
-        $key = JsonReader::optionalTrimmedString($data, 'key');
-        if ($key === '') {
-            throw new HttpError('key is required', 400);
-        }
-        if ($key === self::DEFAULT_RELATES_TO_KEY) {
+        if ($payload->key === self::DEFAULT_RELATES_TO_KEY) {
             throw new HttpError('relates_to is reserved', 400);
         }
 
-        $forward = JsonReader::optionalTrimmedString($data, 'forward_label');
-        if ($forward === '') {
-            throw new HttpError('forward_label is required', 400);
-        }
-
-        $reverse = JsonReader::optionalTrimmedString($data, 'reverse_label');
-        if ($reverse === '') {
-            throw new HttpError('reverse_label is required', 400);
-        }
-
-        $supportsStart = (bool)($data['supports_start_date'] ?? false);
-        $supportsEnd = (bool)($data['supports_end_date'] ?? false);
-
-        if ($key !== $existingKey) {
+        if ($payload->key !== $existingKey) {
             $dupe = $pdo->prepare('select 1 from global.link_predicates where nook_id = :nook_id and key = :key and id != :id');
-            $dupe->execute([':nook_id' => $nookId, ':key' => $key, ':id' => $predicateId]);
+            $dupe->execute([':nook_id' => $nookId, ':key' => $payload->key, ':id' => $predicateId]);
             if ($dupe->fetchColumn()) {
                 throw new HttpError('key already exists', 409);
             }
@@ -203,11 +168,11 @@ final class LinkPredicatesController
         );
         $stmt->bindValue(':id', $predicateId);
         $stmt->bindValue(':nook_id', $nookId);
-        $stmt->bindValue(':key', $key);
-        $stmt->bindValue(':forward_label', $forward);
-        $stmt->bindValue(':reverse_label', $reverse);
-        $stmt->bindValue(':supports_start_date', $supportsStart, PDO::PARAM_BOOL);
-        $stmt->bindValue(':supports_end_date', $supportsEnd, PDO::PARAM_BOOL);
+        $stmt->bindValue(':key', $payload->key);
+        $stmt->bindValue(':forward_label', $payload->forwardLabel);
+        $stmt->bindValue(':reverse_label', $payload->reverseLabel);
+        $stmt->bindValue(':supports_start_date', $payload->supportsStartDate, PDO::PARAM_BOOL);
+        $stmt->bindValue(':supports_end_date', $payload->supportsEndDate, PDO::PARAM_BOOL);
         $stmt->execute();
 
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -219,11 +184,11 @@ final class LinkPredicatesController
             'predicate' => [
                 'id' => $predicateId,
                 'nook_id' => $nookId,
-                'key' => $key,
-                'forward_label' => $forward,
-                'reverse_label' => $reverse,
-                'supports_start_date' => $supportsStart,
-                'supports_end_date' => $supportsEnd,
+                'key' => $payload->key,
+                'forward_label' => $payload->forwardLabel,
+                'reverse_label' => $payload->reverseLabel,
+                'supports_start_date' => $payload->supportsStartDate,
+                'supports_end_date' => $payload->supportsEndDate,
                 'created_at' => Row::str($row, 'created_at'),
                 'updated_at' => Row::str($row, 'updated_at'),
             ],

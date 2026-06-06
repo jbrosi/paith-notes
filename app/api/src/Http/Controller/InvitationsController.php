@@ -12,6 +12,7 @@ use Paith\Notes\Api\Http\Response;
 use PDO;
 use Throwable;
 use Paith\Notes\Shared\Db\Row;
+use Paith\Notes\Api\Http\Dto\InviteRequest;
 use Paith\Notes\Api\Http\Dto\JsonReader;
 
 final class InvitationsController
@@ -27,16 +28,7 @@ final class InvitationsController
 
         NookAccess::requireOwner($pdo, $user, $nookId);
 
-        $data = $request->jsonBody();
-        $email = is_string($data['email'] ?? null) ? trim(strtolower($data['email'])) : '';
-        if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
-            throw new HttpError('a valid email is required', 400);
-        }
-
-        $roleRaw = JsonReader::optionalTrimmedString($data, 'role', 'readonly');
-        if (!in_array($roleRaw, ['readonly', 'readwrite'], true)) {
-            throw new HttpError('role must be readonly or readwrite', 400);
-        }
+        $payload = InviteRequest::fromJson($request->jsonBody());
 
         // Check if email is already a member
         $memberCheck = $pdo->prepare("
@@ -45,7 +37,7 @@ final class InvitationsController
             where nm.nook_id = :nook_id and lower(u.email) = :email
             limit 1
         ");
-        $memberCheck->execute([':nook_id' => $nookId, ':email' => $email]);
+        $memberCheck->execute([':nook_id' => $nookId, ':email' => $payload->email]);
         if ($memberCheck->fetch()) {
             throw new HttpError('this user is already a member of this nook', 409);
         }
@@ -58,8 +50,8 @@ final class InvitationsController
         ");
         $stmt->execute([
             ':nook_id' => $nookId,
-            ':email' => $email,
-            ':role' => $roleRaw,
+            ':email' => $payload->email,
+            ':role' => $payload->role,
             ':invited_by' => $user['id'],
         ]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -71,8 +63,8 @@ final class InvitationsController
             'invitation' => [
                 'id' => Row::str($row, 'id'),
                 'nook_id' => $nookId,
-                'invited_email' => $email,
-                'role' => $roleRaw,
+                'invited_email' => $payload->email,
+                'role' => $payload->role,
                 'created_at' => Row::str($row, 'created_at'),
             ],
         ]);
