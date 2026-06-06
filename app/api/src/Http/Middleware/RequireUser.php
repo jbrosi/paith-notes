@@ -500,6 +500,15 @@ final class RequireUser implements Middleware
             }
         }
 
+        // Ensure handbook nook membership (idempotent, non-fatal)
+        if ($existingUserId !== '') {
+            try {
+                \Paith\Notes\Api\Http\Controller\NookImportController::ensureHandbookMember($pdo, $existingUserId);
+            } catch (Throwable) {
+                // Non-fatal: user can still proceed without handbook access
+            }
+        }
+
         $dbId = is_scalar($existing['id'] ?? null) ? (string)$existing['id'] : '';
         $dbFirst = is_scalar($existing['first_name'] ?? null) ? (string)$existing['first_name'] : '';
         $dbLast = is_scalar($existing['last_name'] ?? null) ? (string)$existing['last_name'] : '';

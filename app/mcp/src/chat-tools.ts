@@ -15,16 +15,16 @@ export const TOOLS: Anthropic.Tool[] = [
   },
   {
     name: 'create_note',
-    description: 'Create a new note in the current nook. Set type_id to assign a type. Pass attributes as a JSON object keyed by attribute UUIDs.',
+    description: 'Create a new note in the current nook. You MUST always set type_id — call list_note_types first to pick the most appropriate type (or use the base type key "base" as fallback). You can pass the type key string (e.g. "base", "file") or UUID. Pass attributes as a JSON object keyed by attribute UUIDs.',
     input_schema: {
       type: 'object',
       properties: {
         title:      { type: 'string' },
         content:    { type: 'string', description: 'Note content in markdown. To link to another note use [[note:<full_uuid>]] with the complete UUID (never shorten) — the title is resolved automatically. To embed a file note as an image use ![Note Title](note:<full_uuid>).' },
-        type_id:    { type: 'string', description: 'Note type ID from taxonomy' },
+        type_id:    { type: 'string', description: 'Note type ID or key (e.g. "base", "meeting"). Always set this — use "base" as fallback if unsure.' },
         attributes: { type: 'object', description: 'JSON attributes keyed by attribute UUID' },
       },
-      required: ['title'],
+      required: ['title', 'type_id'],
     },
   },
   {
@@ -190,6 +190,25 @@ export const TOOLS: Anthropic.Tool[] = [
         reason: { type: 'string', description: 'Brief reason shown to the user for why a new chat is suggested.' },
       },
       required: ['message'],
+    },
+  },
+  {
+    name: 'ask_user',
+    description: 'Present the user with quick-reply buttons for simple choices. Use this when you need a yes/no confirmation, a choice between 2-4 options, or any simple decision. The user sees clickable buttons but can also type a free-form response instead. Always include your question in the preceding text — the buttons are just a convenience.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        options: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Button labels (2-5 short options, max 5). E.g. ["Yes", "No"] or ["Option A", "Option B", "Something else"]',
+        },
+        other_label: {
+          type: 'string',
+          description: 'Custom label for the free-form reply button. Defaults to "Other…" if omitted.',
+        },
+      },
+      required: ['options'],
     },
   },
   {
@@ -384,9 +403,21 @@ export async function executeTool(
       if (typeof body.type_id === 'string' && !/^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(body.type_id)) {
         try {
           const typesData = await api('GET', `/api/nooks/${nookId}/note-types`) as { types?: Array<{ id: string; key: string }> };
-          const match = typesData?.types?.find(t => t.key === body.type_id);
-          if (match) body = { ...body, type_id: match.id };
-        } catch { /* best-effort */ }
+          const key = body.type_id as string;
+          // Try exact key match, then fall back to 'base' type
+          const match = typesData?.types?.find(t => t.key === key)
+            ?? typesData?.types?.find(t => t.key === 'base');
+          if (match) {
+            body = { ...body, type_id: match.id };
+          } else {
+            // No types at all — strip type_id to avoid sending invalid string
+            const { type_id: _, ...rest } = body;
+            body = rest;
+          }
+        } catch { /* best-effort — strip non-UUID type_id to avoid API error */
+          const { type_id: _, ...rest } = body;
+          body = rest;
+        }
       }
       return JSON.stringify(await api('POST', `/api/nooks/${nookId}/notes`, body));
     }
@@ -567,6 +598,11 @@ export async function executeTool(
       if (input.title !== undefined) body.title = input.title;
       if (input.content !== undefined) body.content = input.content;
       return JSON.stringify(await api('PUT', `/api/nooks/${memoryNookId}/notes/${uid}`, body));
+    }
+
+    case 'ask_user': {
+      const options = Array.isArray(input.options) ? input.options.map(String) : [];
+      return JSON.stringify({ presented: true, options, note: 'Buttons shown to user. Wait for their next message.' });
     }
 
     default:

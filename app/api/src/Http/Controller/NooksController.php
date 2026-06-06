@@ -35,7 +35,7 @@ final class NooksController
             left join global.user_nook_preferences unp on unp.nook_id = n.id and unp.user_id = nm.user_id
             where
                 nm.user_id = :user_id
-                and n.purpose = 'general'
+                and n.purpose in ('general', 'handbook')
             order by n.created_at desc;
         ");
         $stmt->execute([':user_id' => $user['id']]);
@@ -102,6 +102,30 @@ final class NooksController
                 'id' => is_scalar($row['id'] ?? null) ? (string)$row['id'] : '',
                 'name' => is_scalar($row['name'] ?? null) ? (string)$row['name'] : '',
                 'purpose' => 'ai-memory',
+            ],
+        ]);
+    }
+
+    public function handbook(Request $request, Context $context): Response
+    {
+        $pdo = $context->pdo();
+        $user = $context->user();
+        $userId = is_scalar($user['id'] ?? null) ? (string)$user['id'] : '';
+
+        $stmt = $pdo->prepare(
+            "select n.id, n.name from global.nooks n join global.nook_members nm on nm.nook_id = n.id where nm.user_id = :user_id and n.purpose = 'handbook' limit 1"
+        );
+        $stmt->execute([':user_id' => $userId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!is_array($row)) {
+            throw new HttpError('Handbook nook not found', 404);
+        }
+
+        return JsonResponse::ok([
+            'nook' => [
+                'id' => is_scalar($row['id'] ?? null) ? (string)$row['id'] : '',
+                'name' => is_scalar($row['name'] ?? null) ? (string)$row['name'] : '',
+                'purpose' => 'handbook',
             ],
         ]);
     }

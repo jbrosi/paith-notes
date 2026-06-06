@@ -73,6 +73,20 @@ final class App
             header($k . ': ' . (string)$v);
         }
 
-        echo $response->body();
+        if ($response instanceof FileResponse) {
+            $fp = fopen($response->filePath(), 'rb');
+            if ($fp !== false) {
+                while (!feof($fp)) {
+                    echo fread($fp, 8192);
+                    flush();
+                }
+                fclose($fp);
+            }
+            if ($response->deleteAfter()) {
+                @unlink($response->filePath());
+            }
+        } else {
+            echo $response->body();
+        }
     }
 }

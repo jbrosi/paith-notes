@@ -20,6 +20,7 @@ use Paith\Notes\Api\Http\Controller\AttributeFilesController;
 use Paith\Notes\Api\Http\Controller\NoteTypesController;
 use Paith\Notes\Api\Http\Controller\TypeAttributesController;
 use Paith\Notes\Api\Http\Controller\NoteLinksController;
+use Paith\Notes\Api\Http\Controller\NookExportController;
 use Paith\Notes\Api\Http\Controller\NooksController;
 use Paith\Notes\Api\Http\Controller\NotesController;
 use Paith\Notes\Api\Http\Middleware\RequireGroup;
@@ -67,6 +68,7 @@ final class ApiRoutes
         $r->get('/me/events', [ActivityController::class, 'myEvents']);
         $r->get('/nooks', [NooksController::class, 'list']);
         $r->get('/nooks/ai-memory', [NooksController::class, 'aiMemory']);
+        $r->get('/nooks/handbook', [NooksController::class, 'handbook']);
         $r->post('/nooks', [NooksController::class, 'create']);
         $r->add('PUT', '/nooks/{nookId}', [NooksController::class, 'update']);
         $r->get('/nooks/{nookId}/preferences', [NooksController::class, 'getPreferences']);
@@ -86,6 +88,7 @@ final class ApiRoutes
         $r->post('/me/invitations/{invId}/decline', [InvitationsController::class, 'declineInvitation']);
         $r->post('/me/revocations/{revId}/dismiss', [InvitationsController::class, 'dismissRevocation']);
 
+        $r->get('/nooks/{nookId}/export', [NookExportController::class, 'export']);
         $r->get('/nooks/{nookId}/activity', [ActivityController::class, 'nookActivity']);
         $r->get('/nooks/{nookId}/stats', [NookStatsController::class, 'stats']);
         $r->get('/nooks/{nookId}/unlinked-notes', [NookStatsController::class, 'unlinkedNotes']);

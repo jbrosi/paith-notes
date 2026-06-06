@@ -995,6 +995,17 @@ final class GlobalSchema
                     end \$\$;
                 ");
             }
+            // ─── Handbook nook seeding ──────────────────────────────────────────────────
+            // Seed/update the handbook nook from the shipped JSON file (if present).
+            // Runs inside the advisory lock so concurrent requests don't race.
+            $handbookPath = __DIR__ . '/../../handbook.zip';
+            if (file_exists($handbookPath)) {
+                try {
+                    \Paith\Notes\Api\Http\Controller\NookImportController::seedHandbook($pdo, $handbookPath);
+                } catch (\Throwable) {
+                    // Non-fatal: app works without handbook
+                }
+            }
         } finally {
             $pdo->exec("select pg_advisory_unlock(hashtext('paith_notes_global_schema_ensure'))");
         }
