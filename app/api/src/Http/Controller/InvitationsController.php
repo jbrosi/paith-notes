@@ -12,6 +12,7 @@ use Paith\Notes\Api\Http\Response;
 use PDO;
 use Throwable;
 use Paith\Notes\Shared\Db\Row;
+use Paith\Notes\Api\Http\Dto\JsonReader;
 
 final class InvitationsController
 {
@@ -22,10 +23,7 @@ final class InvitationsController
         $pdo = $context->pdo();
         $user = $context->user();
 
-        $nookId = trim($request->routeParam('nookId'));
-        if ($nookId === '' || !NookAccess::isUuid($nookId)) {
-            throw new HttpError('nookId must be a UUID', 400);
-        }
+        $nookId = $request->requireUuidRouteParam('nookId');
 
         NookAccess::requireOwner($pdo, $user, $nookId);
 
@@ -35,7 +33,7 @@ final class InvitationsController
             throw new HttpError('a valid email is required', 400);
         }
 
-        $roleRaw = is_string($data['role'] ?? null) ? trim($data['role']) : 'readonly';
+        $roleRaw = JsonReader::optionalTrimmedString($data, 'role', 'readonly');
         if (!in_array($roleRaw, ['readonly', 'readwrite'], true)) {
             throw new HttpError('role must be readonly or readwrite', 400);
         }
@@ -85,10 +83,7 @@ final class InvitationsController
         $pdo = $context->pdo();
         $user = $context->user();
 
-        $nookId = trim($request->routeParam('nookId'));
-        if ($nookId === '' || !NookAccess::isUuid($nookId)) {
-            throw new HttpError('nookId must be a UUID', 400);
-        }
+        $nookId = $request->requireUuidRouteParam('nookId');
 
         NookAccess::requireOwner($pdo, $user, $nookId);
 
@@ -136,14 +131,10 @@ final class InvitationsController
         $pdo = $context->pdo();
         $user = $context->user();
 
-        $nookId = trim($request->routeParam('nookId'));
-        $invId = trim($request->routeParam('invId'));
-        if ($nookId === '' || !NookAccess::isUuid($nookId)) {
-            throw new HttpError('nookId must be a UUID', 400);
-        }
-        if ($invId === '' || !NookAccess::isUuid($invId)) {
-            throw new HttpError('invId must be a UUID', 400);
-        }
+        $nookId = $request->requireUuidRouteParam('nookId');
+
+
+        $invId = $request->requireUuidRouteParam('invId');
 
         NookAccess::requireOwner($pdo, $user, $nookId);
 
@@ -158,14 +149,10 @@ final class InvitationsController
         $pdo = $context->pdo();
         $user = $context->user();
 
-        $nookId = trim($request->routeParam('nookId'));
-        $memberId = trim($request->routeParam('userId'));
-        if ($nookId === '' || !NookAccess::isUuid($nookId)) {
-            throw new HttpError('nookId must be a UUID', 400);
-        }
-        if ($memberId === '' || !NookAccess::isUuid($memberId)) {
-            throw new HttpError('userId must be a UUID', 400);
-        }
+        $nookId = $request->requireUuidRouteParam('nookId');
+
+
+        $memberId = $request->requireUuidRouteParam('userId');
 
         NookAccess::requireOwner($pdo, $user, $nookId);
 
@@ -225,10 +212,7 @@ final class InvitationsController
         $pdo = $context->pdo();
         $user = $context->user();
 
-        $nookId = trim($request->routeParam('nookId'));
-        if ($nookId === '' || !NookAccess::isUuid($nookId)) {
-            throw new HttpError('nookId must be a UUID', 400);
-        }
+        $nookId = $request->requireUuidRouteParam('nookId');
 
         NookAccess::requireOwner($pdo, $user, $nookId);
 
@@ -376,10 +360,7 @@ final class InvitationsController
         $pdo = $context->pdo();
         $user = $context->user();
 
-        $invId = trim($request->routeParam('invId'));
-        if ($invId === '' || !NookAccess::isUuid($invId)) {
-            throw new HttpError('invId must be a UUID', 400);
-        }
+        $invId = $request->requireUuidRouteParam('invId');
 
         $email = $this->getUserEmail($pdo, $user);
         if ($email === '') {
@@ -437,10 +418,7 @@ final class InvitationsController
         $pdo = $context->pdo();
         $user = $context->user();
 
-        $invId = trim($request->routeParam('invId'));
-        if ($invId === '' || !NookAccess::isUuid($invId)) {
-            throw new HttpError('invId must be a UUID', 400);
-        }
+        $invId = $request->requireUuidRouteParam('invId');
 
         $email = $this->getUserEmail($pdo, $user);
         if ($email === '') {
@@ -465,10 +443,7 @@ final class InvitationsController
         $pdo = $context->pdo();
         $user = $context->user();
 
-        $revId = trim($request->routeParam('revId'));
-        if ($revId === '' || !NookAccess::isUuid($revId)) {
-            throw new HttpError('revId must be a UUID', 400);
-        }
+        $revId = $request->requireUuidRouteParam('revId');
 
         $userId = Row::str($user, 'id');
 

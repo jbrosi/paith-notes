@@ -15,6 +15,7 @@ use Paith\Notes\Shared\Db\Row;
 use PDO;
 use Throwable;
 use Paith\Notes\Shared\Uuid;
+use Paith\Notes\Api\Http\Dto\JsonReader;
 
 /**
  * Handles file upload/download for file-kind type attributes.
@@ -440,19 +441,22 @@ final class AttributeFilesController
 
     // ─── Helpers ────────────────────────────────────────────────────────────────
 
-    /** @return array{filename: string, extension: string, filesize: int, mime_type: string, checksum: string} */
+    /**
+     * @param array<string, mixed> $data
+     * @return array{filename: string, extension: string, filesize: int, mime_type: string, checksum: string}
+     */
     private function parseFileMetadata(array $data): array
     {
-        $filename = is_string($data['filename'] ?? null) ? trim($data['filename']) : '';
+        $filename = JsonReader::optionalTrimmedString($data, 'filename');
         if ($filename === '') {
             throw new HttpError('filename is required', 400);
         }
         return [
             'filename' => $filename,
-            'extension' => is_string($data['extension'] ?? null) ? trim($data['extension']) : '',
+            'extension' => JsonReader::optionalTrimmedString($data, 'extension'),
             'filesize' => is_numeric($data['filesize'] ?? null) ? max(0, (int)$data['filesize']) : 0,
-            'mime_type' => is_string($data['mime_type'] ?? null) ? trim($data['mime_type']) : '',
-            'checksum' => is_string($data['checksum'] ?? null) ? trim($data['checksum']) : '',
+            'mime_type' => JsonReader::optionalTrimmedString($data, 'mime_type'),
+            'checksum' => JsonReader::optionalTrimmedString($data, 'checksum'),
         ];
     }
 

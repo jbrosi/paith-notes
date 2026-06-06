@@ -12,6 +12,7 @@ use Paith\Notes\Api\Http\Response;
 use PDO;
 use Paith\Notes\Shared\Uuid;
 use Paith\Notes\Shared\Db\Row;
+use Paith\Notes\Api\Http\Dto\JsonReader;
 
 final class ConversationsController
 {
@@ -23,19 +24,19 @@ final class ConversationsController
         $user = $context->user();
         $data = $request->jsonBody();
 
-        $nookId = is_string($data['nook_id'] ?? null) ? trim($data['nook_id']) : '';
+        $nookId = JsonReader::optionalTrimmedString($data, 'nook_id');
         if ($nookId === '' || !Uuid::isValid($nookId)) {
             throw new HttpError('nook_id is required and must be a UUID', 400);
         }
 
         $this->requireMember($pdo, $user, $nookId);
 
-        $model = is_string($data['model'] ?? null) ? trim($data['model']) : self::DEFAULT_MODEL;
+        $model = JsonReader::optionalTrimmedString($data, 'model', self::DEFAULT_MODEL);
         if ($model === '') {
             $model = self::DEFAULT_MODEL;
         }
 
-        $titleRaw = is_string($data['title'] ?? null) ? trim($data['title']) : '';
+        $titleRaw = JsonReader::optionalTrimmedString($data, 'title');
         $title    = mb_substr($titleRaw, 0, 255);
 
         $stmt = $pdo->prepare('
@@ -286,12 +287,12 @@ final class ConversationsController
         $this->requireConversationOwner($pdo, $user, $conversationId);
 
         $data   = $request->jsonBody();
-        $noteId = is_string($data['note_id'] ?? null) ? trim($data['note_id']) : '';
+        $noteId = JsonReader::optionalTrimmedString($data, 'note_id');
         if ($noteId === '' || !Uuid::isValid($noteId)) {
             throw new HttpError('note_id must be a UUID', 400);
         }
 
-        $blockId = is_string($data['block_id'] ?? null) ? trim($data['block_id']) : '';
+        $blockId = JsonReader::optionalTrimmedString($data, 'block_id');
         if ($blockId !== '' && !Uuid::isValid($blockId)) {
             throw new HttpError('block_id must be a UUID if provided', 400);
         }
