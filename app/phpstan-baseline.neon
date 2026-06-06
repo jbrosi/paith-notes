@@ -1,30 +1,6 @@
 parameters:
 	ignoreErrors:
 		-
-			message: '#^Cannot call method fetchColumn\(\) on PDOStatement\|false\.$#'
-			identifier: method.nonObject
-			count: 1
-			path: api/src/Http/Controller/AttributeFilesController.php
-
-		-
-			message: '#^Cannot cast mixed to int\.$#'
-			identifier: cast.int
-			count: 1
-			path: api/src/Http/Controller/AttributeFilesController.php
-
-		-
-			message: '#^Cannot cast mixed to string\.$#'
-			identifier: cast.string
-			count: 1
-			path: api/src/Http/Controller/AttributeFilesController.php
-
-		-
-			message: '#^Parameter \#1 \$value of static method Paith\\Notes\\Api\\Http\\Controller\\AttributeFilesController\:\:requireUuid\(\) expects string, mixed given\.$#'
-			identifier: argument.type
-			count: 6
-			path: api/src/Http/Controller/AttributeFilesController.php
-
-		-
 			message: '#^Argument of an invalid type mixed supplied for foreach, only iterables are supported\.$#'
 			identifier: foreach.nonIterable
 			count: 4

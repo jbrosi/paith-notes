@@ -11,6 +11,7 @@ use Paith\Notes\Api\Http\HttpError;
 use Paith\Notes\Api\Http\JsonResponse;
 use Paith\Notes\Api\Http\Request;
 use Paith\Notes\Api\Http\Response;
+use Paith\Notes\Shared\Db\Row;
 use PDO;
 use Throwable;
 
@@ -105,7 +106,7 @@ final class AttributeFilesController
         $this->requireNoteWriteAccess($pdo, $membership, $userId, $noteId, $nookId);
 
         $data = $request->jsonBody();
-        $uploadId = self::requireUuid(is_string($data['upload_id'] ?? '') ? $data['upload_id'] : '', 'upload_id');
+        $uploadId = self::requireUuid($data['upload_id'] ?? null, 'upload_id');
 
         try {
             $pdo->beginTransaction();
@@ -212,8 +213,8 @@ final class AttributeFilesController
         $file = $this->parseFileMetadata($data);
 
         // type_id and attribute_id are required for the new flow
-        $typeId = self::requireUuid(is_string($data['type_id'] ?? '') ? $data['type_id'] : '', 'type_id');
-        $attributeId = self::requireUuid(is_string($data['attribute_id'] ?? '') ? $data['attribute_id'] : '', 'attribute_id');
+        $typeId = self::requireUuid($data['type_id'] ?? null, 'type_id');
+        $attributeId = self::requireUuid($data['attribute_id'] ?? null, 'attribute_id');
 
         // Validate the type and attribute exist and attribute is a file kind
         $this->requireTypeAttribute($pdo, $nookId, $typeId, $attributeId);
@@ -263,9 +264,9 @@ final class AttributeFilesController
         $userId = self::requireUserId($user);
 
         $data = $request->jsonBody();
-        $uploadId = self::requireUuid(is_string($data['upload_id'] ?? '') ? $data['upload_id'] : '', 'upload_id');
-        $typeId = self::requireUuid(is_string($data['type_id'] ?? '') ? $data['type_id'] : '', 'type_id');
-        $attributeId = self::requireUuid(is_string($data['attribute_id'] ?? '') ? $data['attribute_id'] : '', 'attribute_id');
+        $uploadId = self::requireUuid($data['upload_id'] ?? null, 'upload_id');
+        $typeId = self::requireUuid($data['type_id'] ?? null, 'type_id');
+        $attributeId = self::requireUuid($data['attribute_id'] ?? null, 'attribute_id');
 
         $this->requireTypeAttribute($pdo, $nookId, $typeId, $attributeId);
 
@@ -304,14 +305,14 @@ final class AttributeFilesController
                 throw new HttpError('not authorized', 403);
             }
 
-            $filename = is_scalar($row['filename'] ?? null) ? trim((string)$row['filename']) : 'upload';
+            $filename = trim(Row::str($row, 'filename', 'upload'));
             if ($filename === '') {
                 $filename = 'upload';
             }
-            $extension = is_scalar($row['extension'] ?? null) ? trim((string)$row['extension']) : '';
-            $mimeType = is_scalar($row['mime_type'] ?? null) ? trim((string)$row['mime_type']) : '';
-            $expectedFilesize = is_numeric($row['expected_filesize'] ?? 0) ? (int)$row['expected_filesize'] : 0;
-            $expectedChecksum = is_scalar($row['expected_checksum'] ?? '') ? trim((string)$row['expected_checksum']) : '';
+            $extension = trim(Row::str($row, 'extension'));
+            $mimeType = trim(Row::str($row, 'mime_type'));
+            $expectedFilesize = max(0, Row::int($row, 'expected_filesize'));
+            $expectedChecksum = trim(Row::str($row, 'expected_checksum'));
 
             $from = self::dataPath() . '/' . ltrim($tempObjectKey, '/');
             if (!file_exists($from)) {
@@ -339,7 +340,8 @@ final class AttributeFilesController
 
             // Pre-generate note ID so we can build the path before INSERT.
             // INSERT first (validates UUID uniqueness), then move the file.
-            $genId = $pdo->query('select gen_random_uuid()::text')->fetchColumn();
+            $genStmt = $pdo->query('select gen_random_uuid()::text');
+            $genId = $genStmt !== false ? $genStmt->fetchColumn() : null;
             $noteId = is_string($genId) ? trim($genId) : '';
             if ($noteId === '') {
                 throw new HttpError('failed to generate note id', 500);
@@ -719,8 +721,11 @@ final class AttributeFilesController
         return $path !== '' ? rtrim($path, '/') : '/data';
     }
 
-    private static function requireUuid(string $value, string $name): string
+    private static function requireUuid(mixed $value, string $name): string
     {
+        if (!is_string($value)) {
+            throw new HttpError($name . ' is required', 400);
+        }
         $v = trim($value);
         if ($v === '') {
             throw new HttpError($name . ' is required', 400);
