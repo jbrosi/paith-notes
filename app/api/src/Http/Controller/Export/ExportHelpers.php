@@ -11,7 +11,8 @@ final class ExportHelpers
 {
     public static function jsonEncode(mixed $data): string
     {
-        return json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        $encoded = json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        return $encoded !== false ? $encoded : 'null';
     }
 
     public static function humanFilesize(int $bytes): string
@@ -34,7 +35,7 @@ final class ExportHelpers
 
     public static function safeFilename(string $name): string
     {
-        $safe = preg_replace('/[\/\\\\<>:"|?*\x00-\x1f]/', '-', $name);
+        $safe = preg_replace('/[\/\\\\<>:"|?*\x00-\x1f]/', '-', $name) ?? $name;
         $safe = trim($safe, '. -');
         return $safe !== '' ? $safe : 'Untitled';
     }
@@ -64,7 +65,8 @@ final class ExportHelpers
 
     public static function dataPath(): string
     {
-        $path = trim((string) getenv('FILES_DATA_PATH'));
+        $raw = getenv('FILES_DATA_PATH');
+        $path = is_string($raw) ? trim($raw) : '';
         return $path !== '' ? rtrim($path, '/') : '/data';
     }
 
@@ -163,7 +165,10 @@ final class ExportHelpers
         if (is_int($value) || is_float($value)) {
             return (string) $value;
         }
-        $s = (string) $value;
+        if (!is_string($value)) {
+            return '""';
+        }
+        $s = $value;
         if (
             $s === '' || preg_match('/^[\d.eE+-]|^(true|false|null|yes|no)$/i', $s)
             || preg_match('/[:{}\[\],&#*?|>!%@`\n]/', $s)

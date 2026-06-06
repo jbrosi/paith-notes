@@ -381,24 +381,6 @@ parameters:
 		-
 			message: '#^Cannot cast mixed to string\.$#'
 			identifier: cast.string
-			count: 1
-			path: api/src/Http/Controller/Export/ExportHelpers.php
-
-		-
-			message: '#^Method Paith\\Notes\\Api\\Http\\Controller\\Export\\ExportHelpers\:\:jsonEncode\(\) should return string but returns string\|false\.$#'
-			identifier: return.type
-			count: 1
-			path: api/src/Http/Controller/Export/ExportHelpers.php
-
-		-
-			message: '#^Parameter \#1 \$string of function trim expects string, string\|null given\.$#'
-			identifier: argument.type
-			count: 1
-			path: api/src/Http/Controller/Export/ExportHelpers.php
-
-		-
-			message: '#^Cannot cast mixed to string\.$#'
-			identifier: cast.string
 			count: 2
 			path: api/src/Http/Controller/Export/NoteLinker.php
 
