@@ -11,6 +11,8 @@ use Paith\Notes\Api\Http\Request;
 use Paith\Notes\Api\Http\Response;
 use PDO;
 use Throwable;
+use Paith\Notes\Shared\Uuid;
+use Paith\Notes\Shared\Db\Row;
 
 final class LinkPredicatesController
 {
@@ -21,13 +23,7 @@ final class LinkPredicatesController
         $pdo = $context->pdo();
         $user = $context->user();
 
-        $nookId = trim($request->routeParam('nookId'));
-        if ($nookId === '') {
-            throw new HttpError('nookId is required', 400);
-        }
-        if (!self::isUuid($nookId)) {
-            throw new HttpError('nookId must be a UUID', 400);
-        }
+        $nookId = $request->requireUuidRouteParam('nookId');
 
         $this->requireMember($pdo, $user, $nookId);
         $this->ensureDefaultRelatesTo($pdo, $nookId);
@@ -45,15 +41,15 @@ final class LinkPredicatesController
                 continue;
             }
             $predicates[] = [
-                'id' => is_scalar($r['id'] ?? null) ? (string)$r['id'] : '',
+                'id' => Row::str($r, 'id'),
                 'nook_id' => $nookId,
-                'key' => is_scalar($r['key'] ?? null) ? (string)$r['key'] : '',
-                'forward_label' => is_scalar($r['forward_label'] ?? null) ? (string)$r['forward_label'] : '',
-                'reverse_label' => is_scalar($r['reverse_label'] ?? null) ? (string)$r['reverse_label'] : '',
+                'key' => Row::str($r, 'key'),
+                'forward_label' => Row::str($r, 'forward_label'),
+                'reverse_label' => Row::str($r, 'reverse_label'),
                 'supports_start_date' => (bool)($r['supports_start_date'] ?? false),
                 'supports_end_date' => (bool)($r['supports_end_date'] ?? false),
-                'created_at' => is_scalar($r['created_at'] ?? null) ? (string)$r['created_at'] : '',
-                'updated_at' => is_scalar($r['updated_at'] ?? null) ? (string)$r['updated_at'] : '',
+                'created_at' => Row::str($r, 'created_at'),
+                'updated_at' => Row::str($r, 'updated_at'),
             ];
         }
 
@@ -65,13 +61,7 @@ final class LinkPredicatesController
         $pdo = $context->pdo();
         $user = $context->user();
 
-        $nookId = trim($request->routeParam('nookId'));
-        if ($nookId === '') {
-            throw new HttpError('nookId is required', 400);
-        }
-        if (!self::isUuid($nookId)) {
-            throw new HttpError('nookId must be a UUID', 400);
-        }
+        $nookId = $request->requireUuidRouteParam('nookId');
 
         NookAccess::requireWriteAccess($pdo, $user, $nookId);
         $this->ensureDefaultRelatesTo($pdo, $nookId);
@@ -131,7 +121,7 @@ final class LinkPredicatesController
 
             $pdo->commit();
 
-            $id = is_scalar($row['id'] ?? null) ? (string)$row['id'] : '';
+            $id = Row::str($row, 'id');
 
             return JsonResponse::ok([
                 'predicate' => [
@@ -142,8 +132,8 @@ final class LinkPredicatesController
                     'reverse_label' => $reverse,
                     'supports_start_date' => $supportsStart,
                     'supports_end_date' => $supportsEnd,
-                    'created_at' => is_scalar($row['created_at'] ?? null) ? (string)$row['created_at'] : '',
-                    'updated_at' => is_scalar($row['updated_at'] ?? null) ? (string)$row['updated_at'] : '',
+                    'created_at' => Row::str($row, 'created_at'),
+                    'updated_at' => Row::str($row, 'updated_at'),
                 ],
             ]);
         } catch (Throwable $e) {
@@ -159,21 +149,9 @@ final class LinkPredicatesController
         $pdo = $context->pdo();
         $user = $context->user();
 
-        $nookId = trim($request->routeParam('nookId'));
-        if ($nookId === '') {
-            throw new HttpError('nookId is required', 400);
-        }
-        if (!self::isUuid($nookId)) {
-            throw new HttpError('nookId must be a UUID', 400);
-        }
+        $nookId = $request->requireUuidRouteParam('nookId');
 
-        $predicateId = trim($request->routeParam('predicateId'));
-        if ($predicateId === '') {
-            throw new HttpError('predicateId is required', 400);
-        }
-        if (!self::isUuid($predicateId)) {
-            throw new HttpError('predicateId must be a UUID', 400);
-        }
+        $predicateId = $request->requireUuidRouteParam('predicateId');
 
         NookAccess::requireWriteAccess($pdo, $user, $nookId);
         $this->ensureDefaultRelatesTo($pdo, $nookId);
@@ -251,8 +229,8 @@ final class LinkPredicatesController
                 'reverse_label' => $reverse,
                 'supports_start_date' => $supportsStart,
                 'supports_end_date' => $supportsEnd,
-                'created_at' => is_scalar($row['created_at'] ?? null) ? (string)$row['created_at'] : '',
-                'updated_at' => is_scalar($row['updated_at'] ?? null) ? (string)$row['updated_at'] : '',
+                'created_at' => Row::str($row, 'created_at'),
+                'updated_at' => Row::str($row, 'updated_at'),
             ],
         ]);
     }
@@ -262,21 +240,9 @@ final class LinkPredicatesController
         $pdo = $context->pdo();
         $user = $context->user();
 
-        $nookId = trim($request->routeParam('nookId'));
-        if ($nookId === '') {
-            throw new HttpError('nookId is required', 400);
-        }
-        if (!self::isUuid($nookId)) {
-            throw new HttpError('nookId must be a UUID', 400);
-        }
+        $nookId = $request->requireUuidRouteParam('nookId');
 
-        $predicateId = trim($request->routeParam('predicateId'));
-        if ($predicateId === '') {
-            throw new HttpError('predicateId is required', 400);
-        }
-        if (!self::isUuid($predicateId)) {
-            throw new HttpError('predicateId must be a UUID', 400);
-        }
+        $predicateId = $request->requireUuidRouteParam('predicateId');
 
         NookAccess::requireWriteAccess($pdo, $user, $nookId);
         $this->ensureDefaultRelatesTo($pdo, $nookId);
@@ -310,21 +276,9 @@ final class LinkPredicatesController
         $pdo = $context->pdo();
         $user = $context->user();
 
-        $nookId = trim($request->routeParam('nookId'));
-        if ($nookId === '') {
-            throw new HttpError('nookId is required', 400);
-        }
-        if (!self::isUuid($nookId)) {
-            throw new HttpError('nookId must be a UUID', 400);
-        }
+        $nookId = $request->requireUuidRouteParam('nookId');
 
-        $predicateId = trim($request->routeParam('predicateId'));
-        if ($predicateId === '') {
-            throw new HttpError('predicateId is required', 400);
-        }
-        if (!self::isUuid($predicateId)) {
-            throw new HttpError('predicateId must be a UUID', 400);
-        }
+        $predicateId = $request->requireUuidRouteParam('predicateId');
 
         $this->requireMember($pdo, $user, $nookId);
 
@@ -347,10 +301,10 @@ final class LinkPredicatesController
                 continue;
             }
             $rules[] = [
-                'id' => is_scalar($r['id'] ?? null) ? (int)$r['id'] : 0,
+                'id' => Row::int($r, 'id'),
                 'predicate_id' => $predicateId,
-                'source_type_id' => is_scalar($r['source_type_id'] ?? null) ? (string)$r['source_type_id'] : '',
-                'target_type_id' => is_scalar($r['target_type_id'] ?? null) ? (string)$r['target_type_id'] : '',
+                'source_type_id' => Row::str($r, 'source_type_id'),
+                'target_type_id' => Row::str($r, 'target_type_id'),
                 'include_source_subtypes' => (bool)($r['include_source_subtypes'] ?? true),
                 'include_target_subtypes' => (bool)($r['include_target_subtypes'] ?? true),
             ];
@@ -364,21 +318,9 @@ final class LinkPredicatesController
         $pdo = $context->pdo();
         $user = $context->user();
 
-        $nookId = trim($request->routeParam('nookId'));
-        if ($nookId === '') {
-            throw new HttpError('nookId is required', 400);
-        }
-        if (!self::isUuid($nookId)) {
-            throw new HttpError('nookId must be a UUID', 400);
-        }
+        $nookId = $request->requireUuidRouteParam('nookId');
 
-        $predicateId = trim($request->routeParam('predicateId'));
-        if ($predicateId === '') {
-            throw new HttpError('predicateId is required', 400);
-        }
-        if (!self::isUuid($predicateId)) {
-            throw new HttpError('predicateId must be a UUID', 400);
-        }
+        $predicateId = $request->requireUuidRouteParam('predicateId');
 
         NookAccess::requireWriteAccess($pdo, $user, $nookId);
 
@@ -402,13 +344,13 @@ final class LinkPredicatesController
 
             $sourceTypeIdRaw = $rr['source_type_id'] ?? '';
             $sourceTypeId = is_string($sourceTypeIdRaw) ? trim($sourceTypeIdRaw) : '';
-            if ($sourceTypeId !== '' && !self::isUuid($sourceTypeId)) {
+            if ($sourceTypeId !== '' && !Uuid::isValid($sourceTypeId)) {
                 throw new HttpError('source_type_id must be a UUID', 400);
             }
 
             $targetTypeIdRaw = $rr['target_type_id'] ?? '';
             $targetTypeId = is_string($targetTypeIdRaw) ? trim($targetTypeIdRaw) : '';
-            if ($targetTypeId !== '' && !self::isUuid($targetTypeId)) {
+            if ($targetTypeId !== '' && !Uuid::isValid($targetTypeId)) {
                 throw new HttpError('target_type_id must be a UUID', 400);
             }
 
@@ -489,7 +431,7 @@ final class LinkPredicatesController
 
     private function requireMember(PDO $pdo, array $user, string $nookId): array
     {
-        $userId = is_scalar($user['id'] ?? null) ? (string)$user['id'] : '';
+        $userId = Row::str($user, 'id');
         if ($userId === '') {
             throw new HttpError('invalid user', 500);
         }
@@ -504,13 +446,5 @@ final class LinkPredicatesController
             throw new HttpError('forbidden', 403);
         }
         return $row;
-    }
-
-    private static function isUuid(string $value): bool
-    {
-        return (bool)preg_match(
-            '/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i',
-            $value
-        );
     }
 }

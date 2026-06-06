@@ -6,6 +6,7 @@ namespace Paith\Notes\Api\Http\Service;
 
 use Paith\Notes\Api\Http\HttpError;
 use PDO;
+use Paith\Notes\Shared\Db\Row;
 
 /**
  * Validates attribute configs (type-level) and attribute values (note-level).
@@ -294,7 +295,7 @@ final class AttributeValidator
                 continue;
             }
             $attr = $attrMap[$attrId];
-            $kind = is_scalar($attr['kind'] ?? null) ? (string)$attr['kind'] : '';
+            $kind = Row::str($attr, 'kind');
             $rawConfig = $attr['config'] ?? null;
             $config = [];
             if (is_array($rawConfig)) {
@@ -342,12 +343,12 @@ final class AttributeValidator
             if (!is_array($r)) {
                 continue;
             }
-            $id = is_scalar($r['id'] ?? null) ? (string)$r['id'] : '';
+            $id = Row::str($r, 'id');
             $config = is_scalar($r['config'] ?? null) ? json_decode((string)$r['config'], true) : [];
             $attrs[] = [
                 'id' => $id,
-                'name' => is_scalar($r['name'] ?? null) ? (string)$r['name'] : '',
-                'kind' => is_scalar($r['kind'] ?? null) ? (string)$r['kind'] : '',
+                'name' => Row::str($r, 'name'),
+                'kind' => Row::str($r, 'kind'),
                 'config' => is_array($config) ? $config : [],
             ];
         }

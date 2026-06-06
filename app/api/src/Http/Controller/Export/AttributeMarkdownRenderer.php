@@ -138,8 +138,8 @@ final class AttributeMarkdownRenderer
         }
 
         // Suffix/prefix
-        $suffix = is_scalar($config['suffix'] ?? null) ? (string)$config['suffix'] : '';
-        $prefix = is_scalar($config['prefix'] ?? null) ? (string)$config['prefix'] : '';
+        $suffix = Row::str($config, 'suffix');
+        $prefix = Row::str($config, 'prefix');
         $formatted = floor($num) !== $num
             ? rtrim(rtrim(number_format($num, 2), '0'), '.')
             : (string) (int) $num;
@@ -163,8 +163,8 @@ final class AttributeMarkdownRenderer
         if (!is_array($value)) {
             return null;
         }
-        $from = is_scalar($value['from'] ?? null) ? (string)$value['from'] : '';
-        $to = is_scalar($value['to'] ?? null) ? (string)$value['to'] : '';
+        $from = Row::str($value, 'from');
+        $to = Row::str($value, 'to');
         if ($from === '' && $to === '') {
             return null;
         }

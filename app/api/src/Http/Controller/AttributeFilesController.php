@@ -14,6 +14,7 @@ use Paith\Notes\Api\Http\Response;
 use Paith\Notes\Shared\Db\Row;
 use PDO;
 use Throwable;
+use Paith\Notes\Shared\Uuid;
 
 /**
  * Handles file upload/download for file-kind type attributes.
@@ -178,7 +179,7 @@ final class AttributeFilesController
             throw new HttpError('file not found', 404);
         }
 
-        $objectKey = is_scalar($row['object_key'] ?? null) ? (string)$row['object_key'] : '';
+        $objectKey = Row::str($row, 'object_key');
         if ($objectKey === '') {
             throw new HttpError('file not found', 404);
         }
@@ -286,12 +287,12 @@ final class AttributeFilesController
                 throw new HttpError('upload not found', 404);
             }
 
-            $uploadNookId = is_scalar($row['nook_id'] ?? null) ? (string)$row['nook_id'] : '';
+            $uploadNookId = Row::str($row, 'nook_id');
             if ($uploadNookId !== $nookId) {
                 throw new HttpError('not found', 404);
             }
 
-            $tempObjectKey = is_scalar($row['temp_object_key'] ?? null) ? (string)$row['temp_object_key'] : '';
+            $tempObjectKey = Row::str($row, 'temp_object_key');
             $uploadSessionId = is_scalar($row['session_id'] ?? null) ? trim((string)$row['session_id']) : '';
             $putClaimedAt = $row['put_claimed_at'] ?? null;
 
@@ -372,7 +373,7 @@ final class AttributeFilesController
                 throw new HttpError('failed to create note', 500);
             }
 
-            $createdAt = is_scalar($noteRow['created_at'] ?? null) ? (string)$noteRow['created_at'] : '';
+            $createdAt = Row::str($noteRow, 'created_at');
 
             // Move file to final location (safe — note ID is confirmed unique)
             $to = self::dataPath() . '/' . ltrim($objectKey, '/');
@@ -589,8 +590,8 @@ final class AttributeFilesController
             throw new HttpError('upload not found', 404);
         }
 
-        $tempObjectKey = is_scalar($row['temp_object_key'] ?? null) ? (string)$row['temp_object_key'] : '';
-        $finalObjectKey = is_scalar($row['final_object_key'] ?? null) ? (string)$row['final_object_key'] : '';
+        $tempObjectKey = Row::str($row, 'temp_object_key');
+        $finalObjectKey = Row::str($row, 'final_object_key');
         $uploadSessionId = is_scalar($row['session_id'] ?? null) ? trim((string)$row['session_id']) : '';
         $putClaimedAt = $row['put_claimed_at'] ?? null;
 
@@ -630,7 +631,7 @@ final class AttributeFilesController
 
     private function requireNoteWriteAccess(PDO $pdo, array $membership, string $userId, string $noteId, string $nookId): void
     {
-        $role = is_scalar($membership['role'] ?? null) ? (string)$membership['role'] : '';
+        $role = Row::str($membership, 'role');
         if ($role === 'owner') {
             return;
         }
@@ -644,7 +645,7 @@ final class AttributeFilesController
 
     private function requireMember(PDO $pdo, array $user, string $nookId): void
     {
-        $userId = is_scalar($user['id'] ?? null) ? (string)$user['id'] : '';
+        $userId = Row::str($user, 'id');
         if ($userId === '') {
             throw new HttpError('invalid user', 500);
         }
@@ -672,7 +673,7 @@ final class AttributeFilesController
         $cookies = $cookieHeader !== '' ? Cookies::parseCookieHeader($cookieHeader) : [];
         $sid = $cookies[SessionStore::cookieName()] ?? '';
         $sid = trim($sid);
-        if ($sid !== '' && !self::isUuid($sid)) {
+        if ($sid !== '' && !Uuid::isValid($sid)) {
             return '';
         }
         return $sid;
@@ -730,7 +731,7 @@ final class AttributeFilesController
         if ($v === '') {
             throw new HttpError($name . ' is required', 400);
         }
-        if (!self::isUuid($v)) {
+        if (!Uuid::isValid($v)) {
             throw new HttpError($name . ' must be a UUID', 400);
         }
         return $v;
@@ -738,18 +739,10 @@ final class AttributeFilesController
 
     private static function requireUserId(array $user): string
     {
-        $userId = is_scalar($user['id'] ?? null) ? (string)$user['id'] : '';
+        $userId = Row::str($user, 'id');
         if ($userId === '') {
             throw new HttpError('invalid user', 500);
         }
         return $userId;
-    }
-
-    private static function isUuid(string $value): bool
-    {
-        return (bool)preg_match(
-            '/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i',
-            $value
-        );
     }
 }

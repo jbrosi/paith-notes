@@ -36,13 +36,7 @@ final class NotesController
         $pdo = $context->pdo();
         $user = $context->user();
 
-        $nookId = trim($request->routeParam('nookId'));
-        if ($nookId === '') {
-            throw new HttpError('nookId is required', 400);
-        }
-        if (!self::isUuid($nookId)) {
-            throw new HttpError('nookId must be a UUID', 400);
-        }
+        $nookId = $request->requireUuidRouteParam('nookId');
 
         $this->requireMember($pdo, $user, $nookId);
 
@@ -92,15 +86,15 @@ final class NotesController
             }
 
             $notes[] = [
-                'id' => is_scalar($r['id'] ?? null) ? (string)$r['id'] : '',
+                'id' => Row::str($r, 'id'),
                 'nook_id' => $nookId,
-                'title' => is_scalar($r['title'] ?? null) ? (string)$r['title'] : '',
-                'type_id' => is_scalar($r['type_id'] ?? null) ? (string)$r['type_id'] : '',
-                'created_at' => is_scalar($r['created_at'] ?? null) ? (string)$r['created_at'] : '',
-                'outgoing_mentions_count' => is_scalar($r['outgoing_mentions_count'] ?? null) ? (int)$r['outgoing_mentions_count'] : 0,
-                'incoming_mentions_count' => is_scalar($r['incoming_mentions_count'] ?? null) ? (int)$r['incoming_mentions_count'] : 0,
-                'outgoing_links_count' => is_scalar($r['outgoing_links_count'] ?? null) ? (int)$r['outgoing_links_count'] : 0,
-                'incoming_links_count' => is_scalar($r['incoming_links_count'] ?? null) ? (int)$r['incoming_links_count'] : 0,
+                'title' => Row::str($r, 'title'),
+                'type_id' => Row::str($r, 'type_id'),
+                'created_at' => Row::str($r, 'created_at'),
+                'outgoing_mentions_count' => Row::int($r, 'outgoing_mentions_count'),
+                'incoming_mentions_count' => Row::int($r, 'incoming_mentions_count'),
+                'outgoing_links_count' => Row::int($r, 'outgoing_links_count'),
+                'incoming_links_count' => Row::int($r, 'incoming_links_count'),
             ];
         }
 
@@ -114,17 +108,11 @@ final class NotesController
         $pdo = $context->pdo();
         $user = $context->user();
 
-        $nookId = trim($request->routeParam('nookId'));
-        if ($nookId === '' || !self::isUuid($nookId)) {
-            throw new HttpError('nookId must be a UUID', 400);
-        }
+        $nookId = $request->requireUuidRouteParam('nookId');
 
-        $noteId = trim($request->routeParam('noteId'));
-        if ($noteId === '' || !self::isUuid($noteId)) {
-            throw new HttpError('noteId must be a UUID', 400);
-        }
+        $noteId = $request->requireUuidRouteParam('noteId');
 
-        $userId = is_scalar($user['id'] ?? null) ? (string)$user['id'] : '';
+        $userId = Row::str($user, 'id');
         $this->requireMember($pdo, $user, $nookId);
 
         // Get current version
@@ -181,21 +169,9 @@ final class NotesController
         $pdo = $context->pdo();
         $user = $context->user();
 
-        $nookId = trim($request->routeParam('nookId'));
-        if ($nookId === '') {
-            throw new HttpError('nookId is required', 400);
-        }
-        if (!self::isUuid($nookId)) {
-            throw new HttpError('nookId must be a UUID', 400);
-        }
+        $nookId = $request->requireUuidRouteParam('nookId');
 
-        $noteId = trim($request->routeParam('noteId'));
-        if ($noteId === '') {
-            throw new HttpError('noteId is required', 400);
-        }
-        if (!self::isUuid($noteId)) {
-            throw new HttpError('noteId must be a UUID', 400);
-        }
+        $noteId = $request->requireUuidRouteParam('noteId');
 
         $this->requireMember($pdo, $user, $nookId);
 
@@ -216,7 +192,7 @@ final class NotesController
         $attributes = Row::decodeJsonObject($r['attributes'] ?? null);
         $archive = Row::decodeJsonObject($r['archive'] ?? null);
 
-        $content = is_scalar($r['content'] ?? null) ? (string)$r['content'] : '';
+        $content = Row::str($r, 'content');
 
         // Optional: extract a single section starting at a character offset.
         // Returns content from that position to the next heading of same or higher level.
@@ -234,11 +210,11 @@ final class NotesController
         $viewCount = is_scalar($vcCol) ? (int)$vcCol : 0;
 
         $note = [
-            'id' => is_scalar($r['id'] ?? null) ? (string)$r['id'] : '',
+            'id' => Row::str($r, 'id'),
             'nook_id' => $nookId,
-            'title' => is_scalar($r['title'] ?? null) ? (string)$r['title'] : '',
+            'title' => Row::str($r, 'title'),
             'content' => $content,
-            'type_id' => is_scalar($r['type_id'] ?? null) ? (string)$r['type_id'] : '',
+            'type_id' => Row::str($r, 'type_id'),
             'attributes' => $attributes === [] ? (object)[] : $attributes,
             'archive' => $archive === [] ? (object)[] : $archive,
             'version' => Row::int($r, 'version'),
@@ -299,15 +275,9 @@ final class NotesController
         $pdo = $context->pdo();
         $user = $context->user();
 
-        $nookId = trim($request->routeParam('nookId'));
-        if ($nookId === '' || !self::isUuid($nookId)) {
-            throw new HttpError('nookId must be a UUID', 400);
-        }
+        $nookId = $request->requireUuidRouteParam('nookId');
 
-        $noteId = trim($request->routeParam('noteId'));
-        if ($noteId === '' || !self::isUuid($noteId)) {
-            throw new HttpError('noteId must be a UUID', 400);
-        }
+        $noteId = $request->requireUuidRouteParam('noteId');
 
         $this->requireMember($pdo, $user, $nookId);
 
@@ -347,10 +317,7 @@ final class NotesController
         $user = $context->user();
         $userId = $context->userId();
 
-        $nookId = trim($request->routeParam('nookId'));
-        if ($nookId === '' || !self::isUuid($nookId)) {
-            throw new HttpError('nookId must be a UUID', 400);
-        }
+        $nookId = $request->requireUuidRouteParam('nookId');
 
         NookAccess::requireWriteAccess($pdo, $user, $nookId);
 
@@ -421,23 +388,11 @@ final class NotesController
         $pdo = $context->pdo();
         $user = $context->user();
 
-        $nookId = trim($request->routeParam('nookId'));
-        if ($nookId === '') {
-            throw new HttpError('nookId is required', 400);
-        }
-        if (!self::isUuid($nookId)) {
-            throw new HttpError('nookId must be a UUID', 400);
-        }
+        $nookId = $request->requireUuidRouteParam('nookId');
 
-        $noteId = trim($request->routeParam('noteId'));
-        if ($noteId === '') {
-            throw new HttpError('noteId is required', 400);
-        }
-        if (!self::isUuid($noteId)) {
-            throw new HttpError('noteId must be a UUID', 400);
-        }
+        $noteId = $request->requireUuidRouteParam('noteId');
 
-        $userId = is_scalar($user['id'] ?? null) ? (string)$user['id'] : '';
+        $userId = Row::str($user, 'id');
         if ($userId === '') {
             throw new HttpError('invalid user', 500);
         }
@@ -453,7 +408,7 @@ final class NotesController
         $content = is_string($contentRaw) ? $contentRaw : '';
 
         $allowed = false;
-        $role = is_scalar($membership['role'] ?? null) ? (string)$membership['role'] : '';
+        $role = Row::str($membership, 'role');
         if ($role === 'owner') {
             $allowed = true;
         } else {
@@ -609,7 +564,7 @@ final class NotesController
                 throw new HttpError('note not found', 404);
             }
 
-            $userId = is_scalar($user['id'] ?? null) ? (string)$user['id'] : '';
+            $userId = Row::str($user, 'id');
             $this->mentions->syncMentions($pdo, $nookId, $noteId, $content, $userId);
             $this->headings->syncHeadings($pdo, $nookId, $noteId, $content);
 
@@ -644,23 +599,11 @@ final class NotesController
         $pdo = $context->pdo();
         $user = $context->user();
 
-        $nookId = trim($request->routeParam('nookId'));
-        if ($nookId === '') {
-            throw new HttpError('nookId is required', 400);
-        }
-        if (!self::isUuid($nookId)) {
-            throw new HttpError('nookId must be a UUID', 400);
-        }
+        $nookId = $request->requireUuidRouteParam('nookId');
 
-        $noteId = trim($request->routeParam('noteId'));
-        if ($noteId === '') {
-            throw new HttpError('noteId is required', 400);
-        }
-        if (!self::isUuid($noteId)) {
-            throw new HttpError('noteId must be a UUID', 400);
-        }
+        $noteId = $request->requireUuidRouteParam('noteId');
 
-        $userId = is_scalar($user['id'] ?? null) ? (string)$user['id'] : '';
+        $userId = Row::str($user, 'id');
         if ($userId === '') {
             throw new HttpError('invalid user', 500);
         }
@@ -668,7 +611,7 @@ final class NotesController
         $membership = NookAccess::requireWriteAccess($pdo, $user, $nookId);
 
         $allowed = false;
-        $role = is_scalar($membership['role'] ?? null) ? (string)$membership['role'] : '';
+        $role = Row::str($membership, 'role');
         if ($role === 'owner') {
             $allowed = true;
         } else {
@@ -705,21 +648,9 @@ final class NotesController
         $pdo = $context->pdo();
         $user = $context->user();
 
-        $nookId = trim($request->routeParam('nookId'));
-        if ($nookId === '') {
-            throw new HttpError('nookId is required', 400);
-        }
-        if (!self::isUuid($nookId)) {
-            throw new HttpError('nookId must be a UUID', 400);
-        }
+        $nookId = $request->requireUuidRouteParam('nookId');
 
-        $noteId = trim($request->routeParam('noteId'));
-        if ($noteId === '') {
-            throw new HttpError('noteId is required', 400);
-        }
-        if (!self::isUuid($noteId)) {
-            throw new HttpError('noteId must be a UUID', 400);
-        }
+        $noteId = $request->requireUuidRouteParam('noteId');
 
         $this->requireMember($pdo, $user, $nookId);
 
@@ -754,11 +685,11 @@ final class NotesController
 
         $normalize = static function (array $r): array {
             return [
-                'note_id' => is_scalar($r['note_id'] ?? null) ? (string)$r['note_id'] : '',
-                'nook_id' => is_scalar($r['nook_id'] ?? null) ? (string)$r['nook_id'] : '',
-                'note_title' => is_scalar($r['note_title'] ?? null) ? (string)$r['note_title'] : '',
-                'link_title' => is_scalar($r['link_title'] ?? null) ? (string)$r['link_title'] : '',
-                'position' => is_scalar($r['position'] ?? null) ? (int)$r['position'] : 0,
+                'note_id' => Row::str($r, 'note_id'),
+                'nook_id' => Row::str($r, 'nook_id'),
+                'note_title' => Row::str($r, 'note_title'),
+                'link_title' => Row::str($r, 'link_title'),
+                'position' => Row::int($r, 'position'),
             ];
         };
 
@@ -789,15 +720,9 @@ final class NotesController
         $pdo = $context->pdo();
         $user = $context->user();
 
-        $nookId = trim($request->routeParam('nookId'));
-        if ($nookId === '' || !self::isUuid($nookId)) {
-            throw new HttpError('nookId must be a UUID', 400);
-        }
+        $nookId = $request->requireUuidRouteParam('nookId');
 
-        $noteId = trim($request->routeParam('noteId'));
-        if ($noteId === '' || !self::isUuid($noteId)) {
-            throw new HttpError('noteId must be a UUID', 400);
-        }
+        $noteId = $request->requireUuidRouteParam('noteId');
 
         $historyId = trim($request->routeParam('historyId'));
         if ($historyId === '') {
@@ -892,15 +817,9 @@ final class NotesController
         $pdo = $context->pdo();
         $user = $context->user();
 
-        $nookId = trim($request->routeParam('nookId'));
-        if ($nookId === '' || !self::isUuid($nookId)) {
-            throw new HttpError('nookId must be a UUID', 400);
-        }
+        $nookId = $request->requireUuidRouteParam('nookId');
 
-        $noteId = trim($request->routeParam('noteId'));
-        if ($noteId === '' || !self::isUuid($noteId)) {
-            throw new HttpError('noteId must be a UUID', 400);
-        }
+        $noteId = $request->requireUuidRouteParam('noteId');
 
         $this->requireMember($pdo, $user, $nookId);
 
@@ -997,9 +916,9 @@ final class NotesController
 
         return [
             'version' => $version,
-            'title' => is_scalar($data['title'] ?? null) ? (string)$data['title'] : '',
-            'content' => is_scalar($data['content'] ?? null) ? (string)$data['content'] : '',
-            'type_id' => is_scalar($data['type_id'] ?? null) ? (string)$data['type_id'] : '',
+            'title' => Row::str($data, 'title'),
+            'content' => Row::str($data, 'content'),
+            'type_id' => Row::str($data, 'type_id'),
             'attributes' => is_array($attrs) ? $attrs : [],
         ];
     }
@@ -1009,15 +928,9 @@ final class NotesController
         $pdo = $context->pdo();
         $user = $context->user();
 
-        $nookId = trim($request->routeParam('nookId'));
-        if ($nookId === '' || !self::isUuid($nookId)) {
-            throw new HttpError('nookId must be a UUID', 400);
-        }
+        $nookId = $request->requireUuidRouteParam('nookId');
 
-        $noteId = trim($request->routeParam('noteId'));
-        if ($noteId === '' || !self::isUuid($noteId)) {
-            throw new HttpError('noteId must be a UUID', 400);
-        }
+        $noteId = $request->requireUuidRouteParam('noteId');
 
         $this->requireMember($pdo, $user, $nookId);
 
@@ -1101,9 +1014,9 @@ final class NotesController
                 if (is_array($dataRow) && is_scalar($dataRow['data'] ?? null)) {
                     $fileData = json_decode((string)$dataRow['data'], true);
                     if (is_array($fileData)) {
-                        $entry['filename'] = is_scalar($fileData['filename'] ?? null) ? (string)$fileData['filename'] : '';
+                        $entry['filename'] = Row::str($fileData, 'filename');
                         $entry['filesize'] = is_numeric($fileData['filesize'] ?? null) ? (int)$fileData['filesize'] : 0;
-                        $entry['mime_type'] = is_scalar($fileData['mime_type'] ?? null) ? (string)$fileData['mime_type'] : '';
+                        $entry['mime_type'] = Row::str($fileData, 'mime_type');
                     }
                 }
             }

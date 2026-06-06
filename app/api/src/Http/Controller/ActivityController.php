@@ -11,6 +11,7 @@ use Paith\Notes\Api\Http\Request;
 use Paith\Notes\Api\Http\Response;
 use Paith\Notes\Shared\Db\Row;
 use PDO;
+use Paith\Notes\Shared\Uuid;
 
 final class ActivityController
 {
@@ -76,10 +77,7 @@ final class ActivityController
         $pdo = $context->pdo();
         $user = $context->user();
 
-        $nookId = trim($request->routeParam('nookId'));
-        if ($nookId === '' || !self::isUuid($nookId)) {
-            throw new HttpError('nookId must be a UUID', 400);
-        }
+        $nookId = $request->requireUuidRouteParam('nookId');
 
         $this->requireMember($pdo, $user, $nookId);
 
@@ -97,7 +95,7 @@ final class ActivityController
             $params[':before'] = $before;
         }
 
-        if ($filterUserId !== '' && self::isUuid($filterUserId)) {
+        if ($filterUserId !== '' && Uuid::isValid($filterUserId)) {
             $whereClause .= ' and am.user_id = :filter_user_id';
             $params[':filter_user_id'] = $filterUserId;
         }
@@ -245,13 +243,5 @@ final class ActivityController
         if ($check->fetch() === false) {
             throw new HttpError('forbidden', 403);
         }
-    }
-
-    private static function isUuid(string $value): bool
-    {
-        return (bool)preg_match(
-            '/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i',
-            $value
-        );
     }
 }

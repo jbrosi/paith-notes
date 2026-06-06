@@ -151,6 +151,23 @@ final class Request
         return is_scalar($v) ? (string)$v : '';
     }
 
+    /**
+     * Read a route param expected to be a UUID. Throws HttpError 400 when
+     * missing or malformed — saves the repeated `trim + isUuid + throw`
+     * block at the top of every controller method.
+     */
+    public function requireUuidRouteParam(string $name): string
+    {
+        $v = trim($this->routeParam($name));
+        if ($v === '') {
+            throw new HttpError("{$name} is required", 400);
+        }
+        if (!\Paith\Notes\Shared\Uuid::isValid($v)) {
+            throw new HttpError("{$name} must be a UUID", 400);
+        }
+        return $v;
+    }
+
     public function withRouteParams(array $params): self
     {
         return new self($this->method, $this->path, $this->headers, $this->query, $this->body, $params);

@@ -23,7 +23,7 @@ final class SearchController
     {
         $pdo = $context->pdo();
         $user = $context->user();
-        $userId = is_scalar($user['id'] ?? null) ? (string)$user['id'] : '';
+        $userId = Row::str($user, 'id');
 
         $q = strtolower(trim($request->queryParam('q')));
         if ($q === '') {

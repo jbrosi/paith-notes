@@ -13,6 +13,7 @@ use Paith\Notes\Api\Http\Service\AttributeValidator;
 use Paith\Notes\Shared\Db\Row;
 use PDO;
 use Throwable;
+use Paith\Notes\Shared\Uuid;
 
 final class TypeAttributesController
 {
@@ -71,7 +72,7 @@ final class TypeAttributesController
         // Validate name uniqueness within resolved attribute set (own + inherited)
         $existing = $this->resolveInheritedAttributes($pdo, $nookId, $typeId);
         foreach ($existing as $attr) {
-            $attrName = is_scalar($attr['name'] ?? null) ? (string)$attr['name'] : '';
+            $attrName = Row::str($attr, 'name');
             if (strcasecmp($attrName, $name) === 0) {
                 throw new HttpError('attribute name "' . $name . '" already exists (own or inherited)', 409);
             }
@@ -104,7 +105,7 @@ final class TypeAttributesController
 
             $pdo->commit();
 
-            $id = is_scalar($row['id'] ?? null) ? (string)$row['id'] : '';
+            $id = Row::str($row, 'id');
 
             // Index lifecycle: create after commit (outside transaction for safety)
             $this->syncAttributeIndex($pdo, $id, $kind, $indexed);
@@ -119,8 +120,8 @@ final class TypeAttributesController
                     'config' => $config === [] ? (object)[] : $config,
                     'indexed' => $indexed,
                     'inherited' => false,
-                    'created_at' => is_scalar($row['created_at'] ?? null) ? (string)$row['created_at'] : '',
-                    'updated_at' => is_scalar($row['updated_at'] ?? null) ? (string)$row['updated_at'] : '',
+                    'created_at' => Row::str($row, 'created_at'),
+                    'updated_at' => Row::str($row, 'updated_at'),
                 ],
             ]);
         } catch (Throwable $e) {
@@ -172,7 +173,7 @@ final class TypeAttributesController
         // Validate name uniqueness (excluding self)
         $existing = $this->resolveInheritedAttributes($pdo, $nookId, $typeId);
         foreach ($existing as $attr) {
-            $attrName = is_scalar($attr['name'] ?? null) ? (string)$attr['name'] : '';
+            $attrName = Row::str($attr, 'name');
             if (($attr['id'] ?? null) !== $attrId && strcasecmp($attrName, $name) === 0) {
                 throw new HttpError('attribute name "' . $name . '" already exists (own or inherited)', 409);
             }
@@ -222,8 +223,8 @@ final class TypeAttributesController
                 'config' => $config === [] ? (object)[] : $config,
                 'indexed' => $indexed,
                 'inherited' => false,
-                'created_at' => is_scalar($row['created_at'] ?? null) ? (string)$row['created_at'] : '',
-                'updated_at' => is_scalar($row['updated_at'] ?? null) ? (string)$row['updated_at'] : '',
+                'created_at' => Row::str($row, 'created_at'),
+                'updated_at' => Row::str($row, 'updated_at'),
             ],
         ]);
     }
@@ -305,8 +306,8 @@ final class TypeAttributesController
             if (!is_array($r)) {
                 continue;
             }
-            $attrId = is_scalar($r['id'] ?? null) ? (string)$r['id'] : '';
-            $rowTypeId = is_scalar($r['type_id'] ?? null) ? (string)$r['type_id'] : '';
+            $attrId = Row::str($r, 'id');
+            $rowTypeId = Row::str($r, 'type_id');
             $inherited = $rowTypeId !== $typeId;
             $config = Row::decodeJsonObject($r['config'] ?? null);
 
@@ -327,16 +328,16 @@ final class TypeAttributesController
 
             $out[] = [
                 'id' => $attrId,
-                'type_id' => is_scalar($r['type_id'] ?? null) ? (string)$r['type_id'] : '',
-                'name' => is_scalar($r['name'] ?? null) ? (string)$r['name'] : '',
-                'key' => is_scalar($r['key'] ?? null) ? (string)$r['key'] : '',
-                'kind' => is_scalar($r['kind'] ?? null) ? (string)$r['kind'] : '',
+                'type_id' => Row::str($r, 'type_id'),
+                'name' => Row::str($r, 'name'),
+                'key' => Row::str($r, 'key'),
+                'kind' => Row::str($r, 'kind'),
                 'config' => $config === [] ? (object)[] : $config,
                 'indexed' => (bool)($r['indexed'] ?? false),
                 'inherited' => $inherited,
                 'overridden' => $overridden,
-                'created_at' => is_scalar($r['created_at'] ?? null) ? (string)$r['created_at'] : '',
-                'updated_at' => is_scalar($r['updated_at'] ?? null) ? (string)$r['updated_at'] : '',
+                'created_at' => Row::str($r, 'created_at'),
+                'updated_at' => Row::str($r, 'updated_at'),
             ];
         }
 
@@ -385,7 +386,7 @@ final class TypeAttributesController
             }
         }
 
-        $parentId = is_scalar($row['parent_id'] ?? null) ? (string)$row['parent_id'] : '';
+        $parentId = Row::str($row, 'parent_id');
 
         // No parent — own layout is final
         if ($parentId === '') {
@@ -598,7 +599,7 @@ final class TypeAttributesController
 
     private function requireMember(PDO $pdo, array $user, string $nookId): void
     {
-        $userId = is_scalar($user['id'] ?? null) ? (string)$user['id'] : '';
+        $userId = Row::str($user, 'id');
         if ($userId === '') {
             throw new HttpError('invalid user', 500);
         }
@@ -615,7 +616,7 @@ final class TypeAttributesController
         if ($v === '') {
             throw new HttpError($name . ' is required', 400);
         }
-        if (!self::isUuid($v)) {
+        if (!Uuid::isValid($v)) {
             throw new HttpError($name . ' must be a UUID', 400);
         }
         return $v;
@@ -652,13 +653,5 @@ final class TypeAttributesController
         $slug = strtolower(trim($value));
         $slug = (string)preg_replace('/[^a-z0-9]+/', '-', $slug);
         return trim($slug, '-');
-    }
-
-    private static function isUuid(string $value): bool
-    {
-        return (bool)preg_match(
-            '/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i',
-            $value
-        );
     }
 }

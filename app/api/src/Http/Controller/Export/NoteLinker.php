@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Paith\Notes\Api\Http\Controller\Export;
 
+use Paith\Notes\Shared\Db\Row;
+
 /**
  * Rewrites note links between internal [[note:uuid]] format and relative markdown paths.
  * Handles both same-nook and cross-nook links.
@@ -89,8 +91,8 @@ final class NoteLinker
                 $files = is_array($noteFiles[$uuid] ?? null) ? $noteFiles[$uuid] : [];
                 $first = $files[0] ?? null;
                 if (is_array($first)) {
-                    $filename = is_scalar($first['filename'] ?? null) ? (string)$first['filename'] : 'file';
-                    $ext = is_scalar($first['extension'] ?? null) ? (string)$first['extension'] : '';
+                    $filename = Row::str($first, 'filename', 'file');
+                    $ext = Row::str($first, 'extension');
                     $fullFilename = ExportHelpers::buildFilename($filename, $ext);
 
                     $attrName = null;

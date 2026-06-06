@@ -11,6 +11,7 @@ use Paith\Notes\Api\Http\Request;
 use Paith\Notes\Api\Http\Response;
 use PDO;
 use Throwable;
+use Paith\Notes\Shared\Db\Row;
 
 final class InvitationsController
 {
@@ -70,11 +71,11 @@ final class InvitationsController
 
         return JsonResponse::ok([
             'invitation' => [
-                'id' => is_scalar($row['id'] ?? null) ? (string) $row['id'] : '',
+                'id' => Row::str($row, 'id'),
                 'nook_id' => $nookId,
                 'invited_email' => $email,
                 'role' => $roleRaw,
-                'created_at' => is_scalar($row['created_at'] ?? null) ? (string) $row['created_at'] : '',
+                'created_at' => Row::str($row, 'created_at'),
             ],
         ]);
     }
@@ -114,16 +115,16 @@ final class InvitationsController
             $status = is_scalar($acceptedAt) ? 'accepted'
                 : (is_scalar($declinedAt) ? 'declined' : 'pending');
 
-            $firstName = is_scalar($r['inviter_first_name'] ?? null) ? (string) $r['inviter_first_name'] : '';
-            $lastName = is_scalar($r['inviter_last_name'] ?? null) ? (string) $r['inviter_last_name'] : '';
+            $firstName = Row::str($r, 'inviter_first_name');
+            $lastName = Row::str($r, 'inviter_last_name');
 
             $invitations[] = [
-                'id' => is_scalar($r['id'] ?? null) ? (string) $r['id'] : '',
-                'invited_email' => is_scalar($r['invited_email'] ?? null) ? (string) $r['invited_email'] : '',
-                'role' => is_scalar($r['role'] ?? null) ? (string) $r['role'] : '',
+                'id' => Row::str($r, 'id'),
+                'invited_email' => Row::str($r, 'invited_email'),
+                'role' => Row::str($r, 'role'),
                 'status' => $status,
                 'inviter_name' => trim($firstName . ' ' . $lastName),
-                'created_at' => is_scalar($r['created_at'] ?? null) ? (string) $r['created_at'] : '',
+                'created_at' => Row::str($r, 'created_at'),
             ];
         }
 
@@ -168,7 +169,7 @@ final class InvitationsController
 
         NookAccess::requireOwner($pdo, $user, $nookId);
 
-        $userId = is_scalar($user['id'] ?? null) ? (string) $user['id'] : '';
+        $userId = Row::str($user, 'id');
         if ($memberId === $userId) {
             throw new HttpError('you cannot revoke your own access', 400);
         }
@@ -190,7 +191,7 @@ final class InvitationsController
             $nookStmt = $pdo->prepare('select name from global.nooks where id = :id');
             $nookStmt->execute([':id' => $nookId]);
             $nookRow = $nookStmt->fetch(PDO::FETCH_ASSOC);
-            $nookName = is_array($nookRow) && is_scalar($nookRow['name'] ?? null) ? (string) $nookRow['name'] : '';
+            $nookName = is_array($nookRow) ? Row::str($nookRow, 'name') : '';
 
             // Remove membership
             $del = $pdo->prepare('delete from global.nook_members where nook_id = :nook_id and user_id = :user_id');
@@ -248,15 +249,15 @@ final class InvitationsController
                 continue;
             }
 
-            $firstName = is_scalar($r['first_name'] ?? null) ? (string) $r['first_name'] : '';
-            $lastName = is_scalar($r['last_name'] ?? null) ? (string) $r['last_name'] : '';
+            $firstName = Row::str($r, 'first_name');
+            $lastName = Row::str($r, 'last_name');
 
             $members[] = [
-                'id' => is_scalar($r['id'] ?? null) ? (string) $r['id'] : '',
+                'id' => Row::str($r, 'id'),
                 'name' => trim($firstName . ' ' . $lastName),
-                'email' => is_scalar($r['email'] ?? null) ? (string) $r['email'] : '',
-                'role' => is_scalar($r['role'] ?? null) ? (string) $r['role'] : '',
-                'joined_at' => is_scalar($r['created_at'] ?? null) ? (string) $r['created_at'] : '',
+                'email' => Row::str($r, 'email'),
+                'role' => Row::str($r, 'role'),
+                'joined_at' => Row::str($r, 'created_at'),
             ];
         }
 
@@ -269,7 +270,7 @@ final class InvitationsController
     {
         // The user array from dev-header auth may not include email,
         // so always look it up from the DB.
-        $userId = is_scalar($user['id'] ?? null) ? (string) $user['id'] : '';
+        $userId = Row::str($user, 'id');
         if ($userId === '') {
             return '';
         }
@@ -314,16 +315,16 @@ final class InvitationsController
                 continue;
             }
 
-            $firstName = is_scalar($r['inviter_first_name'] ?? null) ? (string) $r['inviter_first_name'] : '';
-            $lastName = is_scalar($r['inviter_last_name'] ?? null) ? (string) $r['inviter_last_name'] : '';
+            $firstName = Row::str($r, 'inviter_first_name');
+            $lastName = Row::str($r, 'inviter_last_name');
 
             $invitations[] = [
-                'id' => is_scalar($r['id'] ?? null) ? (string) $r['id'] : '',
-                'nook_id' => is_scalar($r['nook_id'] ?? null) ? (string) $r['nook_id'] : '',
-                'nook_name' => is_scalar($r['nook_name'] ?? null) ? (string) $r['nook_name'] : '',
-                'role' => is_scalar($r['role'] ?? null) ? (string) $r['role'] : '',
+                'id' => Row::str($r, 'id'),
+                'nook_id' => Row::str($r, 'nook_id'),
+                'nook_name' => Row::str($r, 'nook_name'),
+                'role' => Row::str($r, 'role'),
                 'inviter_name' => trim($firstName . ' ' . $lastName),
-                'created_at' => is_scalar($r['created_at'] ?? null) ? (string) $r['created_at'] : '',
+                'created_at' => Row::str($r, 'created_at'),
             ];
         }
 
@@ -335,7 +336,7 @@ final class InvitationsController
         $pdo = $context->pdo();
         $user = $context->user();
 
-        $userId = is_scalar($user['id'] ?? null) ? (string) $user['id'] : '';
+        $userId = Row::str($user, 'id');
 
         $stmt = $pdo->prepare("
             select
@@ -356,14 +357,14 @@ final class InvitationsController
                 continue;
             }
 
-            $firstName = is_scalar($r['revoker_first_name'] ?? null) ? (string) $r['revoker_first_name'] : '';
-            $lastName = is_scalar($r['revoker_last_name'] ?? null) ? (string) $r['revoker_last_name'] : '';
+            $firstName = Row::str($r, 'revoker_first_name');
+            $lastName = Row::str($r, 'revoker_last_name');
 
             $revocations[] = [
-                'id' => is_scalar($r['id'] ?? null) ? (string) $r['id'] : '',
-                'nook_name' => is_scalar($r['nook_name'] ?? null) ? (string) $r['nook_name'] : '',
+                'id' => Row::str($r, 'id'),
+                'nook_name' => Row::str($r, 'nook_name'),
                 'revoked_by_name' => trim($firstName . ' ' . $lastName),
-                'created_at' => is_scalar($r['created_at'] ?? null) ? (string) $r['created_at'] : '',
+                'created_at' => Row::str($r, 'created_at'),
             ];
         }
 
@@ -400,8 +401,8 @@ final class InvitationsController
             throw new HttpError('invitation not found or already processed', 404);
         }
 
-        $nookId = is_scalar($inv['nook_id'] ?? null) ? (string) $inv['nook_id'] : '';
-        $role = is_scalar($inv['role'] ?? null) ? (string) $inv['role'] : 'readonly';
+        $nookId = Row::str($inv, 'nook_id');
+        $role = Row::str($inv, 'role', 'readonly');
 
         try {
             $pdo->beginTransaction();
@@ -469,7 +470,7 @@ final class InvitationsController
             throw new HttpError('revId must be a UUID', 400);
         }
 
-        $userId = is_scalar($user['id'] ?? null) ? (string) $user['id'] : '';
+        $userId = Row::str($user, 'id');
 
         $stmt = $pdo->prepare("
             update global.nook_access_revocations

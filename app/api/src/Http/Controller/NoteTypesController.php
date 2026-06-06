@@ -12,6 +12,7 @@ use Paith\Notes\Api\Http\Response;
 use Paith\Notes\Shared\Db\Row;
 use PDO;
 use Throwable;
+use Paith\Notes\Shared\Uuid;
 
 final class NoteTypesController
 {
@@ -26,13 +27,7 @@ final class NoteTypesController
         $pdo = $context->pdo();
         $user = $context->user();
 
-        $nookId = trim($request->routeParam('nookId'));
-        if ($nookId === '') {
-            throw new HttpError('nookId is required', 400);
-        }
-        if (!self::isUuid($nookId)) {
-            throw new HttpError('nookId must be a UUID', 400);
-        }
+        $nookId = $request->requireUuidRouteParam('nookId');
 
         $this->requireMember($pdo, $user, $nookId);
 
@@ -54,16 +49,16 @@ final class NoteTypesController
                 continue;
             }
             $types[] = [
-                'id' => is_scalar($r['id'] ?? null) ? (string)$r['id'] : '',
+                'id' => Row::str($r, 'id'),
                 'nook_id' => $nookId,
-                'key' => is_scalar($r['key'] ?? null) ? (string)$r['key'] : '',
-                'label' => is_scalar($r['label'] ?? null) ? (string)$r['label'] : '',
-                'description' => is_scalar($r['description'] ?? null) ? (string)$r['description'] : '',
-                'parent_id' => is_scalar($r['parent_id'] ?? null) ? (string)$r['parent_id'] : '',
+                'key' => Row::str($r, 'key'),
+                'label' => Row::str($r, 'label'),
+                'description' => Row::str($r, 'description'),
+                'parent_id' => Row::str($r, 'parent_id'),
                 'attribute_layout' => Row::decodeJsonObject($r['attribute_layout'] ?? null) ?: null,
                 'config_overrides' => Row::decodeJsonObject($r['config_overrides'] ?? null) ?: (object)[],
-                'created_at' => is_scalar($r['created_at'] ?? null) ? (string)$r['created_at'] : '',
-                'updated_at' => is_scalar($r['updated_at'] ?? null) ? (string)$r['updated_at'] : '',
+                'created_at' => Row::str($r, 'created_at'),
+                'updated_at' => Row::str($r, 'updated_at'),
                 'attributes' => [],
             ];
         }
@@ -81,18 +76,18 @@ final class NoteTypesController
             if (!is_array($a)) {
                 continue;
             }
-            $tid = is_scalar($a['type_id'] ?? null) ? (string)$a['type_id'] : '';
+            $tid = Row::str($a, 'type_id');
             $config = Row::decodeJsonObject($a['config'] ?? null);
             $attrsByType[$tid][] = [
-                'id' => is_scalar($a['id'] ?? null) ? (string)$a['id'] : '',
+                'id' => Row::str($a, 'id'),
                 'type_id' => $tid,
-                'name' => is_scalar($a['name'] ?? null) ? (string)$a['name'] : '',
-                'key' => is_scalar($a['key'] ?? null) ? (string)$a['key'] : '',
-                'kind' => is_scalar($a['kind'] ?? null) ? (string)$a['kind'] : '',
+                'name' => Row::str($a, 'name'),
+                'key' => Row::str($a, 'key'),
+                'kind' => Row::str($a, 'kind'),
                 'config' => $config === [] ? (object)[] : $config,
                 'indexed' => (bool)($a['indexed'] ?? false),
-                'created_at' => is_scalar($a['created_at'] ?? null) ? (string)$a['created_at'] : '',
-                'updated_at' => is_scalar($a['updated_at'] ?? null) ? (string)$a['updated_at'] : '',
+                'created_at' => Row::str($a, 'created_at'),
+                'updated_at' => Row::str($a, 'updated_at'),
             ];
         }
 
@@ -119,13 +114,7 @@ final class NoteTypesController
         $pdo = $context->pdo();
         $user = $context->user();
 
-        $nookId = trim($request->routeParam('nookId'));
-        if ($nookId === '') {
-            throw new HttpError('nookId is required', 400);
-        }
-        if (!self::isUuid($nookId)) {
-            throw new HttpError('nookId must be a UUID', 400);
-        }
+        $nookId = $request->requireUuidRouteParam('nookId');
 
         NookAccess::requireWriteAccess($pdo, $user, $nookId);
 
@@ -148,7 +137,7 @@ final class NoteTypesController
 
         $parentIdRaw = $data['parent_id'] ?? '';
         $parentId = is_string($parentIdRaw) ? trim($parentIdRaw) : '';
-        if ($parentId !== '' && !self::isUuid($parentId)) {
+        if ($parentId !== '' && !Uuid::isValid($parentId)) {
             throw new HttpError('parent_id must be a UUID', 400);
         }
 
@@ -182,7 +171,7 @@ final class NoteTypesController
 
             $pdo->commit();
 
-            $id = is_scalar($row['id'] ?? null) ? (string)$row['id'] : '';
+            $id = Row::str($row, 'id');
 
             return JsonResponse::ok([
                 'type' => [
@@ -194,8 +183,8 @@ final class NoteTypesController
                     'parent_id' => $parentId,
                     'attribute_layout' => null,
                     'config_overrides' => (object)[],
-                    'created_at' => is_scalar($row['created_at'] ?? null) ? (string)$row['created_at'] : '',
-                    'updated_at' => is_scalar($row['updated_at'] ?? null) ? (string)$row['updated_at'] : '',
+                    'created_at' => Row::str($row, 'created_at'),
+                    'updated_at' => Row::str($row, 'updated_at'),
                 ],
             ]);
         } catch (Throwable $e) {
@@ -211,21 +200,9 @@ final class NoteTypesController
         $pdo = $context->pdo();
         $user = $context->user();
 
-        $nookId = trim($request->routeParam('nookId'));
-        if ($nookId === '') {
-            throw new HttpError('nookId is required', 400);
-        }
-        if (!self::isUuid($nookId)) {
-            throw new HttpError('nookId must be a UUID', 400);
-        }
+        $nookId = $request->requireUuidRouteParam('nookId');
 
-        $typeId = trim($request->routeParam('typeId'));
-        if ($typeId === '') {
-            throw new HttpError('typeId is required', 400);
-        }
-        if (!self::isUuid($typeId)) {
-            throw new HttpError('typeId must be a UUID', 400);
-        }
+        $typeId = $request->requireUuidRouteParam('typeId');
 
         NookAccess::requireWriteAccess($pdo, $user, $nookId);
 
@@ -255,7 +232,7 @@ final class NoteTypesController
 
         $parentIdRaw = $data['parent_id'] ?? '';
         $parentId = is_string($parentIdRaw) ? trim($parentIdRaw) : '';
-        if ($parentId !== '' && !self::isUuid($parentId)) {
+        if ($parentId !== '' && !Uuid::isValid($parentId)) {
             throw new HttpError('parent_id must be a UUID', 400);
         }
         if ($parentId === $typeId) {
@@ -326,8 +303,8 @@ final class NoteTypesController
                 'parent_id' => $parentId,
                 'attribute_layout' => Row::decodeJsonObject($row['attribute_layout'] ?? null) ?: null,
                 'config_overrides' => Row::decodeJsonObject($row['config_overrides'] ?? null) ?: (object)[],
-                'created_at' => is_scalar($row['created_at'] ?? null) ? (string)$row['created_at'] : '',
-                'updated_at' => is_scalar($row['updated_at'] ?? null) ? (string)$row['updated_at'] : '',
+                'created_at' => Row::str($row, 'created_at'),
+                'updated_at' => Row::str($row, 'updated_at'),
             ],
         ]);
     }
@@ -337,21 +314,9 @@ final class NoteTypesController
         $pdo = $context->pdo();
         $user = $context->user();
 
-        $nookId = trim($request->routeParam('nookId'));
-        if ($nookId === '') {
-            throw new HttpError('nookId is required', 400);
-        }
-        if (!self::isUuid($nookId)) {
-            throw new HttpError('nookId must be a UUID', 400);
-        }
+        $nookId = $request->requireUuidRouteParam('nookId');
 
-        $typeId = trim($request->routeParam('typeId'));
-        if ($typeId === '') {
-            throw new HttpError('typeId is required', 400);
-        }
-        if (!self::isUuid($typeId)) {
-            throw new HttpError('typeId must be a UUID', 400);
-        }
+        $typeId = $request->requireUuidRouteParam('typeId');
 
         NookAccess::requireWriteAccess($pdo, $user, $nookId);
 
@@ -390,13 +355,7 @@ final class NoteTypesController
         $pdo = $context->pdo();
         $user = $context->user();
 
-        $nookId = trim($request->routeParam('nookId'));
-        if ($nookId === '') {
-            throw new HttpError('nookId is required', 400);
-        }
-        if (!self::isUuid($nookId)) {
-            throw new HttpError('nookId must be a UUID', 400);
-        }
+        $nookId = $request->requireUuidRouteParam('nookId');
 
         $typeId = trim($request->routeParam('typeId'));
         if ($typeId === '') {
@@ -436,13 +395,13 @@ final class NoteTypesController
             $cursorIdRaw = $obj['id'] ?? '';
             $cursorCreatedAt = is_string($cursorCreatedAtRaw) ? trim($cursorCreatedAtRaw) : '';
             $cursorId = is_string($cursorIdRaw) ? trim($cursorIdRaw) : '';
-            if ($cursorCreatedAt === '' || $cursorId === '' || !self::isUuid($cursorId)) {
+            if ($cursorCreatedAt === '' || $cursorId === '' || !Uuid::isValid($cursorId)) {
                 throw new HttpError('cursor is invalid', 400);
             }
         }
 
         $isAll = $typeId === self::TYPE_ID_ALL;
-        if (!$isAll && !self::isUuid($typeId)) {
+        if (!$isAll && !Uuid::isValid($typeId)) {
             throw new HttpError('typeId must be a UUID or "all"', 400);
         }
 
@@ -611,17 +570,17 @@ final class NoteTypesController
             }
 
             $notes[] = [
-                'id' => is_scalar($r['id'] ?? null) ? (string)$r['id'] : '',
+                'id' => Row::str($r, 'id'),
                 'nook_id' => $nookId,
-                'title' => is_scalar($r['title'] ?? null) ? (string)$r['title'] : '',
-                'type_id' => is_scalar($r['type_id'] ?? null) ? (string)$r['type_id'] : '',
+                'title' => Row::str($r, 'title'),
+                'type_id' => Row::str($r, 'type_id'),
                 'attributes' => Row::decodeJsonObject($r['attributes'] ?? null),
-                'created_at' => is_scalar($r['created_at'] ?? null) ? (string)$r['created_at'] : '',
-                'updated_at' => is_scalar($r['updated_at'] ?? null) ? (string)$r['updated_at'] : '',
-                'outgoing_mentions_count' => is_scalar($r['outgoing_mentions_count'] ?? null) ? (int)$r['outgoing_mentions_count'] : 0,
-                'incoming_mentions_count' => is_scalar($r['incoming_mentions_count'] ?? null) ? (int)$r['incoming_mentions_count'] : 0,
-                'outgoing_links_count' => is_scalar($r['outgoing_links_count'] ?? null) ? (int)$r['outgoing_links_count'] : 0,
-                'incoming_links_count' => is_scalar($r['incoming_links_count'] ?? null) ? (int)$r['incoming_links_count'] : 0,
+                'created_at' => Row::str($r, 'created_at'),
+                'updated_at' => Row::str($r, 'updated_at'),
+                'outgoing_mentions_count' => Row::int($r, 'outgoing_mentions_count'),
+                'incoming_mentions_count' => Row::int($r, 'incoming_mentions_count'),
+                'outgoing_links_count' => Row::int($r, 'outgoing_links_count'),
+                'incoming_links_count' => Row::int($r, 'incoming_links_count'),
             ];
         }
 
@@ -629,8 +588,8 @@ final class NoteTypesController
             $last = $rows[count($rows) - 1];
             if (is_array($last)) {
                 $lastSortVal = is_scalar($last[$sortCol] ?? null) ? (string)$last[$sortCol] : '';
-                $lastId = is_scalar($last['id'] ?? null) ? (string)$last['id'] : '';
-                if ($lastSortVal !== '' && $lastId !== '' && self::isUuid($lastId)) {
+                $lastId = Row::str($last, 'id');
+                if ($lastSortVal !== '' && $lastId !== '' && Uuid::isValid($lastId)) {
                     $payload = json_encode(['created_at' => $lastSortVal, 'id' => $lastId]);
                     if (is_string($payload)) {
                         $nextCursor = base64_encode($payload);
@@ -694,7 +653,7 @@ final class NoteTypesController
 
     private function requireMember(PDO $pdo, array $user, string $nookId): array
     {
-        $userId = is_scalar($user['id'] ?? null) ? (string)$user['id'] : '';
+        $userId = Row::str($user, 'id');
         if ($userId === '') {
             throw new HttpError('invalid user', 500);
         }
@@ -860,7 +819,7 @@ final class NoteTypesController
             $value = $f['value'] ?? null;
             $scalarValue = is_scalar($value) ? (string)$value : '';
 
-            if ($attrId === '' || !self::isUuid($attrId)) {
+            if ($attrId === '' || !Uuid::isValid($attrId)) {
                 continue;
             }
 
@@ -1046,13 +1005,5 @@ final class NoteTypesController
         if ($mainCount > 1) {
             throw new HttpError('only one panel may have position "main"', 400);
         }
-    }
-
-    private static function isUuid(string $value): bool
-    {
-        return (bool)preg_match(
-            '/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i',
-            $value
-        );
     }
 }

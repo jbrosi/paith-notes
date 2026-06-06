@@ -19,6 +19,8 @@ use Paith\Notes\Api\Http\Response;
 use PDO;
 use RuntimeException;
 use Throwable;
+use Paith\Notes\Shared\Uuid;
+use Paith\Notes\Shared\Db\Row;
 
 final class RequireUser implements Middleware
 {
@@ -246,7 +248,7 @@ final class RequireUser implements Middleware
                 throw new HttpError('X-Nook-User header is required', 401);
             }
 
-            if (!self::isUuid($id)) {
+            if (!Uuid::isValid($id)) {
                 throw new HttpError('X-Nook-User must be a UUID', 400);
             }
 
@@ -463,7 +465,7 @@ final class RequireUser implements Middleware
                     $existing = $created;
                 }
 
-                $userId = is_scalar($existing['id'] ?? null) ? (string)$existing['id'] : '';
+                $userId = Row::str($existing, 'id');
                 if ($didCreate && $userId !== '') {
                     $this->ensurePersonalNook($pdo, $userId);
                 }
@@ -482,7 +484,7 @@ final class RequireUser implements Middleware
         }
 
         // Ensure AI memory nook exists for all users (idempotent, runs outside user-creation transaction)
-        $existingUserId = is_scalar($existing['id'] ?? null) ? (string)$existing['id'] : '';
+        $existingUserId = Row::str($existing, 'id');
         if ($existingUserId !== '') {
             if (!$pdo->inTransaction()) {
                 $pdo->beginTransaction();
@@ -509,11 +511,11 @@ final class RequireUser implements Middleware
             }
         }
 
-        $dbId = is_scalar($existing['id'] ?? null) ? (string)$existing['id'] : '';
-        $dbFirst = is_scalar($existing['first_name'] ?? null) ? (string)$existing['first_name'] : '';
-        $dbLast = is_scalar($existing['last_name'] ?? null) ? (string)$existing['last_name'] : '';
-        $dbUsername = is_scalar($existing['username'] ?? null) ? (string)$existing['username'] : '';
-        $dbEmail = is_scalar($existing['email'] ?? null) ? (string)$existing['email'] : '';
+        $dbId = Row::str($existing, 'id');
+        $dbFirst = Row::str($existing, 'first_name');
+        $dbLast = Row::str($existing, 'last_name');
+        $dbUsername = Row::str($existing, 'username');
+        $dbEmail = Row::str($existing, 'email');
         $dbEmailVerified = (bool)($existing['email_verified'] ?? false);
 
         $newFirst = $firstName !== '' ? $firstName : $dbFirst;
@@ -610,8 +612,8 @@ final class RequireUser implements Middleware
 
             return [
                 'id' => $id,
-                'first_name' => is_scalar($created['first_name'] ?? null) ? (string)$created['first_name'] : '',
-                'last_name' => is_scalar($created['last_name'] ?? null) ? (string)$created['last_name'] : '',
+                'first_name' => Row::str($created, 'first_name'),
+                'last_name' => Row::str($created, 'last_name'),
             ];
         } catch (Throwable $e) {
             if ($pdo->inTransaction()) {
@@ -619,14 +621,6 @@ final class RequireUser implements Middleware
             }
             throw $e;
         }
-    }
-
-    private static function isUuid(string $value): bool
-    {
-        return (bool)preg_match(
-            '/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i',
-            $value
-        );
     }
 
     private static function randomName(): array

@@ -6,6 +6,7 @@ namespace Paith\Notes\Api\Http\Controller;
 
 use Paith\Notes\Api\Http\HttpError;
 use PDO;
+use Paith\Notes\Shared\Db\Row;
 
 final class NookAccess
 {
@@ -27,7 +28,7 @@ final class NookAccess
     public static function requireWriteAccess(PDO $pdo, array $user, string $nookId): array
     {
         $membership = self::requireMember($pdo, $user, $nookId);
-        $role = is_scalar($membership['role'] ?? null) ? (string) $membership['role'] : '';
+        $role = Row::str($membership, 'role');
         if ($role === 'readonly') {
             throw new HttpError('this nook is shared with you as read-only', 403);
         }
@@ -37,7 +38,7 @@ final class NookAccess
     public static function requireOwner(PDO $pdo, array $user, string $nookId): array
     {
         $membership = self::requireMember($pdo, $user, $nookId);
-        $role = is_scalar($membership['role'] ?? null) ? (string) $membership['role'] : '';
+        $role = Row::str($membership, 'role');
         if ($role !== 'owner') {
             throw new HttpError('only the nook owner can perform this action', 403);
         }

@@ -8,6 +8,7 @@ use Paith\Notes\Api\Http\Context;
 use Paith\Notes\Api\Http\Request;
 use Paith\Notes\Api\Http\Response;
 use Paith\Notes\Api\Http\TextResponse;
+use Paith\Notes\Shared\Db\Row;
 
 final class ChatController
 {
@@ -19,7 +20,7 @@ final class ChatController
     public function auth(Request $request, Context $context): Response
     {
         $user   = $context->user(); // RequireUser middleware guarantees this is set
-        $userId = is_scalar($user['id'] ?? null) ? (string)$user['id'] : '';
+        $userId = Row::str($user, 'id');
 
         return new TextResponse('', 200, ['X-Chat-User-Id' => $userId]);
     }

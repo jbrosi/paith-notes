@@ -10,6 +10,8 @@ use Paith\Notes\Api\Http\JsonResponse;
 use Paith\Notes\Api\Http\Request;
 use Paith\Notes\Api\Http\Response;
 use PDO;
+use Paith\Notes\Shared\Uuid;
+use Paith\Notes\Shared\Db\Row;
 
 final class ConversationsController
 {
@@ -22,7 +24,7 @@ final class ConversationsController
         $data = $request->jsonBody();
 
         $nookId = is_string($data['nook_id'] ?? null) ? trim($data['nook_id']) : '';
-        if ($nookId === '' || !self::isUuid($nookId)) {
+        if ($nookId === '' || !Uuid::isValid($nookId)) {
             throw new HttpError('nook_id is required and must be a UUID', 400);
         }
 
@@ -54,12 +56,12 @@ final class ConversationsController
 
         return JsonResponse::ok([
             'conversation' => [
-                'id'         => is_scalar($row['id'] ?? null) ? (string)$row['id'] : '',
+                'id'         => Row::str($row, 'id'),
                 'nook_id'    => $nookId,
                 'title'      => $title,
                 'model'      => $model,
-                'created_at' => is_scalar($row['created_at'] ?? null) ? (string)$row['created_at'] : '',
-                'updated_at' => is_scalar($row['updated_at'] ?? null) ? (string)$row['updated_at'] : '',
+                'created_at' => Row::str($row, 'created_at'),
+                'updated_at' => Row::str($row, 'updated_at'),
             ],
         ]);
     }
@@ -70,7 +72,7 @@ final class ConversationsController
         $user = $context->user();
 
         $nookId = trim($request->queryParam('nook_id'));
-        if ($nookId === '' || !self::isUuid($nookId)) {
+        if ($nookId === '' || !Uuid::isValid($nookId)) {
             throw new HttpError('nook_id is required and must be a UUID', 400);
         }
 
@@ -94,12 +96,12 @@ final class ConversationsController
                 continue;
             }
             $conversations[] = [
-                'id'         => is_scalar($row['id'] ?? null) ? (string)$row['id'] : '',
+                'id'         => Row::str($row, 'id'),
                 'nook_id'    => $nookId,
-                'title'      => is_scalar($row['title'] ?? null) ? (string)$row['title'] : '',
-                'model'      => is_scalar($row['model'] ?? null) ? (string)$row['model'] : '',
-                'created_at' => is_scalar($row['created_at'] ?? null) ? (string)$row['created_at'] : '',
-                'updated_at' => is_scalar($row['updated_at'] ?? null) ? (string)$row['updated_at'] : '',
+                'title'      => Row::str($row, 'title'),
+                'model'      => Row::str($row, 'model'),
+                'created_at' => Row::str($row, 'created_at'),
+                'updated_at' => Row::str($row, 'updated_at'),
             ];
         }
 
@@ -116,10 +118,7 @@ final class ConversationsController
         $pdo  = $context->pdo();
         $user = $context->user();
 
-        $conversationId = trim($request->routeParam('conversationId'));
-        if ($conversationId === '' || !self::isUuid($conversationId)) {
-            throw new HttpError('conversationId must be a UUID', 400);
-        }
+        $conversationId = $request->requireUuidRouteParam('conversationId');
 
         $this->requireConversationOwner($pdo, $user, $conversationId);
 
@@ -160,7 +159,7 @@ final class ConversationsController
                 ? trim($message->model)
                 : null;
 
-            $turnId      = self::generateUuid();
+            $turnId      = Uuid::v4();
             $savedBlocks = [];
 
             foreach ($content as $blockIndex => $block) {
@@ -187,10 +186,10 @@ final class ConversationsController
                 }
 
                 $blockData = [
-                    'id'          => is_scalar($row['id'] ?? null) ? (string)$row['id'] : '',
+                    'id'          => Row::str($row, 'id'),
                     'block_type'  => $blockType,
                     'block_index' => (int)$blockIndex,
-                    'created_at'  => is_scalar($row['created_at'] ?? null) ? (string)$row['created_at'] : '',
+                    'created_at'  => Row::str($row, 'created_at'),
                 ];
 
                 // Expose tool_use_id so callers can match saved blocks to pending tool uses
@@ -221,10 +220,7 @@ final class ConversationsController
         $pdo  = $context->pdo();
         $user = $context->user();
 
-        $conversationId = trim($request->routeParam('conversationId'));
-        if ($conversationId === '' || !self::isUuid($conversationId)) {
-            throw new HttpError('conversationId must be a UUID', 400);
-        }
+        $conversationId = $request->requireUuidRouteParam('conversationId');
 
         $this->requireConversationOwner($pdo, $user, $conversationId);
 
@@ -247,7 +243,7 @@ final class ConversationsController
             if (!is_array($row)) {
                 continue;
             }
-            $turnId = is_scalar($row['turn_id'] ?? null) ? (string)$row['turn_id'] : '';
+            $turnId = Row::str($row, 'turn_id');
             if ($turnId === '') {
                 continue;
             }
@@ -256,7 +252,7 @@ final class ConversationsController
                 $turns[$turnId] = [
                     'id'              => $turnId,
                     'conversation_id' => $conversationId,
-                    'role'            => is_scalar($row['role'] ?? null) ? (string)$row['role'] : '',
+                    'role'            => Row::str($row, 'role'),
                     'model'           => isset($row['model']) && is_string($row['model']) ? $row['model'] : null,
                     'content'         => [],
                     'created_at'      => is_scalar($createdAt) ? (string)$createdAt : '',
@@ -285,21 +281,18 @@ final class ConversationsController
         $pdo  = $context->pdo();
         $user = $context->user();
 
-        $conversationId = trim($request->routeParam('conversationId'));
-        if ($conversationId === '' || !self::isUuid($conversationId)) {
-            throw new HttpError('conversationId must be a UUID', 400);
-        }
+        $conversationId = $request->requireUuidRouteParam('conversationId');
 
         $this->requireConversationOwner($pdo, $user, $conversationId);
 
         $data   = $request->jsonBody();
         $noteId = is_string($data['note_id'] ?? null) ? trim($data['note_id']) : '';
-        if ($noteId === '' || !self::isUuid($noteId)) {
+        if ($noteId === '' || !Uuid::isValid($noteId)) {
             throw new HttpError('note_id must be a UUID', 400);
         }
 
         $blockId = is_string($data['block_id'] ?? null) ? trim($data['block_id']) : '';
-        if ($blockId !== '' && !self::isUuid($blockId)) {
+        if ($blockId !== '' && !Uuid::isValid($blockId)) {
             throw new HttpError('block_id must be a UUID if provided', 400);
         }
 
@@ -345,21 +338,5 @@ final class ConversationsController
             throw new HttpError('conversation not found', 404);
         }
         return $row;
-    }
-
-    private static function generateUuid(): string
-    {
-        $data    = random_bytes(16);
-        $data[6] = chr(ord($data[6]) & 0x0f | 0x40);
-        $data[8] = chr(ord($data[8]) & 0x3f | 0x80);
-        return vsprintf('%s%s-%s-%s-%s-%s%s%s', str_split(bin2hex($data), 4));
-    }
-
-    private static function isUuid(string $value): bool
-    {
-        return (bool) preg_match(
-            '/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i',
-            $value
-        );
     }
 }

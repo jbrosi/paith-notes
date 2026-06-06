@@ -11,6 +11,7 @@ use Paith\Notes\Api\Http\Request;
 use Paith\Notes\Api\Http\Response;
 use PDO;
 use Throwable;
+use Paith\Notes\Shared\Db\Row;
 
 final class NooksController
 {
@@ -41,7 +42,7 @@ final class NooksController
         $stmt->execute([':user_id' => $user['id']]);
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-        $userId = is_scalar($user['id'] ?? null) ? (string)$user['id'] : '';
+        $userId = Row::str($user, 'id');
 
         $nooks = [];
         foreach ($rows as $r) {
@@ -55,8 +56,8 @@ final class NooksController
             $ownerId = $r['owner_id'] ?? null;
 
             $isOwned = is_scalar($ownerId) && (string)$ownerId === $userId;
-            $ownerFirst = is_scalar($r['owner_first_name'] ?? null) ? (string)$r['owner_first_name'] : '';
-            $ownerLast = is_scalar($r['owner_last_name'] ?? null) ? (string)$r['owner_last_name'] : '';
+            $ownerFirst = Row::str($r, 'owner_first_name');
+            $ownerLast = Row::str($r, 'owner_last_name');
             $ownerName = trim($ownerFirst . ' ' . $ownerLast);
 
             $userSettings = [];
@@ -86,7 +87,7 @@ final class NooksController
     {
         $pdo = $context->pdo();
         $user = $context->user();
-        $userId = is_scalar($user['id'] ?? null) ? (string)$user['id'] : '';
+        $userId = Row::str($user, 'id');
 
         $stmt = $pdo->prepare(
             "select n.id, n.name from global.nooks n join global.nook_members nm on nm.nook_id = n.id where nm.user_id = :user_id and n.purpose = 'ai-memory' limit 1"
@@ -99,8 +100,8 @@ final class NooksController
 
         return JsonResponse::ok([
             'nook' => [
-                'id' => is_scalar($row['id'] ?? null) ? (string)$row['id'] : '',
-                'name' => is_scalar($row['name'] ?? null) ? (string)$row['name'] : '',
+                'id' => Row::str($row, 'id'),
+                'name' => Row::str($row, 'name'),
                 'purpose' => 'ai-memory',
             ],
         ]);
@@ -110,7 +111,7 @@ final class NooksController
     {
         $pdo = $context->pdo();
         $user = $context->user();
-        $userId = is_scalar($user['id'] ?? null) ? (string)$user['id'] : '';
+        $userId = Row::str($user, 'id');
 
         $stmt = $pdo->prepare(
             "select n.id, n.name from global.nooks n join global.nook_members nm on nm.nook_id = n.id where nm.user_id = :user_id and n.purpose = 'handbook' limit 1"
@@ -123,8 +124,8 @@ final class NooksController
 
         return JsonResponse::ok([
             'nook' => [
-                'id' => is_scalar($row['id'] ?? null) ? (string)$row['id'] : '',
-                'name' => is_scalar($row['name'] ?? null) ? (string)$row['name'] : '',
+                'id' => Row::str($row, 'id'),
+                'name' => Row::str($row, 'name'),
                 'purpose' => 'handbook',
             ],
         ]);
@@ -211,8 +212,8 @@ final class NooksController
 
         return JsonResponse::ok([
             'nook' => [
-                'id' => is_scalar($row['id'] ?? null) ? (string)$row['id'] : '',
-                'name' => is_scalar($row['name'] ?? null) ? (string)$row['name'] : '',
+                'id' => Row::str($row, 'id'),
+                'name' => Row::str($row, 'name'),
             ],
         ]);
     }
@@ -221,7 +222,7 @@ final class NooksController
     {
         $pdo = $context->pdo();
         $user = $context->user();
-        $userId = is_scalar($user['id'] ?? null) ? (string)$user['id'] : '';
+        $userId = Row::str($user, 'id');
         $nookId = trim($request->routeParam('nookId'));
 
         $stmt = $pdo->prepare(
@@ -245,7 +246,7 @@ final class NooksController
     {
         $pdo = $context->pdo();
         $user = $context->user();
-        $userId = is_scalar($user['id'] ?? null) ? (string)$user['id'] : '';
+        $userId = Row::str($user, 'id');
         $nookId = trim($request->routeParam('nookId'));
 
         $data = $request->jsonBody();

@@ -12,6 +12,7 @@ use Paith\Notes\Api\Http\Response;
 use Paith\Notes\Shared\Db\Row;
 use PDO;
 use Throwable;
+use Paith\Notes\Shared\Uuid;
 
 final class NoteLinksController
 {
@@ -22,21 +23,9 @@ final class NoteLinksController
         $pdo = $context->pdo();
         $user = $context->user();
 
-        $nookId = trim($request->routeParam('nookId'));
-        if ($nookId === '') {
-            throw new HttpError('nookId is required', 400);
-        }
-        if (!self::isUuid($nookId)) {
-            throw new HttpError('nookId must be a UUID', 400);
-        }
+        $nookId = $request->requireUuidRouteParam('nookId');
 
-        $noteId = trim($request->routeParam('noteId'));
-        if ($noteId === '') {
-            throw new HttpError('noteId is required', 400);
-        }
-        if (!self::isUuid($noteId)) {
-            throw new HttpError('noteId must be a UUID', 400);
-        }
+        $noteId = $request->requireUuidRouteParam('noteId');
 
         $this->requireMember($pdo, $user, $nookId);
 
@@ -61,7 +50,7 @@ final class NoteLinksController
         if ($predicateIdsRaw !== '') {
             foreach (explode(',', $predicateIdsRaw) as $pid) {
                 $pid = trim($pid);
-                if (self::isUuid($pid)) {
+                if (Uuid::isValid($pid)) {
                     $predicateIds[] = $pid;
                 }
             }
@@ -77,7 +66,7 @@ final class NoteLinksController
         if ($nodeTypeIdsRaw !== '') {
             foreach (explode(',', $nodeTypeIdsRaw) as $tid) {
                 $tid = trim($tid);
-                if (self::isUuid($tid)) {
+                if (Uuid::isValid($tid)) {
                     $nodeTypeIds[] = $tid;
                 }
             }
@@ -170,32 +159,32 @@ final class NoteLinksController
                     continue;
                 }
 
-                $id = is_scalar($r['id'] ?? null) ? (string)$r['id'] : '';
+                $id = Row::str($r, 'id');
                 if ($id === '') {
                     continue;
                 }
 
-                $sourceId     = is_scalar($r['source_note_id'] ?? null) ? (string)$r['source_note_id'] : '';
-                $targetId     = is_scalar($r['target_note_id'] ?? null) ? (string)$r['target_note_id'] : '';
-                $sourceTypeId = is_scalar($r['source_type_id'] ?? null) ? (string)$r['source_type_id'] : '';
-                $targetTypeId = is_scalar($r['target_type_id'] ?? null) ? (string)$r['target_type_id'] : '';
+                $sourceId     = Row::str($r, 'source_note_id');
+                $targetId     = Row::str($r, 'target_note_id');
+                $sourceTypeId = Row::str($r, 'source_type_id');
+                $targetTypeId = Row::str($r, 'target_type_id');
 
                 $sourceMatchesType = $nodeTypeIds === [] || in_array($sourceTypeId, $nodeTypeIds, true) || $sourceId === $noteId;
                 $targetMatchesType = $nodeTypeIds === [] || in_array($targetTypeId, $nodeTypeIds, true) || $targetId === $noteId;
 
                 // Expand frontier: in strict mode only through matching nodes, otherwise through all
                 if ($strictTypeFilter && $nodeTypeIds !== []) {
-                    if ($sourceId !== '' && self::isUuid($sourceId) && !isset($visited[$sourceId]) && $sourceMatchesType) {
+                    if ($sourceId !== '' && Uuid::isValid($sourceId) && !isset($visited[$sourceId]) && $sourceMatchesType) {
                         $nextFrontier[$sourceId] = true;
                     }
-                    if ($targetId !== '' && self::isUuid($targetId) && !isset($visited[$targetId]) && $targetMatchesType) {
+                    if ($targetId !== '' && Uuid::isValid($targetId) && !isset($visited[$targetId]) && $targetMatchesType) {
                         $nextFrontier[$targetId] = true;
                     }
                 } else {
-                    if ($sourceId !== '' && self::isUuid($sourceId) && !isset($visited[$sourceId])) {
+                    if ($sourceId !== '' && Uuid::isValid($sourceId) && !isset($visited[$sourceId])) {
                         $nextFrontier[$sourceId] = true;
                     }
-                    if ($targetId !== '' && self::isUuid($targetId) && !isset($visited[$targetId])) {
+                    if ($targetId !== '' && Uuid::isValid($targetId) && !isset($visited[$targetId])) {
                         $nextFrontier[$targetId] = true;
                     }
                 }
@@ -227,25 +216,25 @@ final class NoteLinksController
                 $linksById[$id] = [
                     'id' => $id,
                     'nook_id' => $nookId,
-                    'predicate_id' => is_scalar($r['predicate_id'] ?? null) ? (string)$r['predicate_id'] : '',
-                    'predicate_key' => is_scalar($r['predicate_key'] ?? null) ? (string)$r['predicate_key'] : '',
-                    'forward_label' => is_scalar($r['forward_label'] ?? null) ? (string)$r['forward_label'] : '',
-                    'reverse_label' => is_scalar($r['reverse_label'] ?? null) ? (string)$r['reverse_label'] : '',
+                    'predicate_id' => Row::str($r, 'predicate_id'),
+                    'predicate_key' => Row::str($r, 'predicate_key'),
+                    'forward_label' => Row::str($r, 'forward_label'),
+                    'reverse_label' => Row::str($r, 'reverse_label'),
                     'supports_start_date' => (bool)($r['supports_start_date'] ?? false),
                     'supports_end_date' => (bool)($r['supports_end_date'] ?? false),
                     'source_note_id' => $sourceId,
-                    'source_note_title' => is_scalar($r['source_note_title'] ?? null) ? (string)$r['source_note_title'] : '',
+                    'source_note_title' => Row::str($r, 'source_note_title'),
                     'source_type_id' => $sourceTypeId,
                     'target_note_id' => $targetId,
-                    'target_note_title' => is_scalar($r['target_note_title'] ?? null) ? (string)$r['target_note_title'] : '',
+                    'target_note_title' => Row::str($r, 'target_note_title'),
                     'target_type_id' => $targetTypeId,
-                    'start_date' => is_scalar($r['start_date'] ?? null) ? (string)$r['start_date'] : '',
-                    'end_date' => is_scalar($r['end_date'] ?? null) ? (string)$r['end_date'] : '',
+                    'start_date' => Row::str($r, 'start_date'),
+                    'end_date' => Row::str($r, 'end_date'),
                     'former' => $former === [] ? (object)[] : $former,
-                    'last_actor' => is_scalar($r['last_actor'] ?? null) ? (string)$r['last_actor'] : 'user',
+                    'last_actor' => Row::str($r, 'last_actor', 'user'),
                     'last_user_name' => $lastUserName,
-                    'created_at' => is_scalar($r['created_at'] ?? null) ? (string)$r['created_at'] : '',
-                    'updated_at' => is_scalar($r['updated_at'] ?? null) ? (string)$r['updated_at'] : '',
+                    'created_at' => Row::str($r, 'created_at'),
+                    'updated_at' => Row::str($r, 'updated_at'),
                 ];
             }
 
@@ -376,21 +365,9 @@ final class NoteLinksController
         $pdo = $context->pdo();
         $user = $context->user();
 
-        $nookId = trim($request->routeParam('nookId'));
-        if ($nookId === '') {
-            throw new HttpError('nookId is required', 400);
-        }
-        if (!self::isUuid($nookId)) {
-            throw new HttpError('nookId must be a UUID', 400);
-        }
+        $nookId = $request->requireUuidRouteParam('nookId');
 
-        $sourceNoteId = trim($request->routeParam('noteId'));
-        if ($sourceNoteId === '') {
-            throw new HttpError('noteId is required', 400);
-        }
-        if (!self::isUuid($sourceNoteId)) {
-            throw new HttpError('noteId must be a UUID', 400);
-        }
+        $sourceNoteId = $request->requireUuidRouteParam('noteId');
 
         NookAccess::requireWriteAccess($pdo, $user, $nookId);
         $this->ensureDefaultRelatesTo($pdo, $nookId);
@@ -402,7 +379,7 @@ final class NoteLinksController
         if ($predicateId === '') {
             throw new HttpError('predicate_id is required', 400);
         }
-        if (!self::isUuid($predicateId)) {
+        if (!Uuid::isValid($predicateId)) {
             throw new HttpError('predicate_id must be a UUID', 400);
         }
 
@@ -411,7 +388,7 @@ final class NoteLinksController
         if ($targetNoteId === '') {
             throw new HttpError('target_note_id is required', 400);
         }
-        if (!self::isUuid($targetNoteId)) {
+        if (!Uuid::isValid($targetNoteId)) {
             throw new HttpError('target_note_id must be a UUID', 400);
         }
         if ($targetNoteId === $sourceNoteId) {
@@ -492,12 +469,12 @@ final class NoteLinksController
 
             return JsonResponse::ok([
                 'link' => [
-                    'id' => is_scalar($row['id'] ?? null) ? (string)$row['id'] : '',
+                    'id' => Row::str($row, 'id'),
                     'nook_id' => $nookId,
                     'predicate_id' => $predicateId,
-                    'predicate_key' => is_scalar($pred['key'] ?? null) ? (string)$pred['key'] : '',
-                    'forward_label' => is_scalar($pred['forward_label'] ?? null) ? (string)$pred['forward_label'] : '',
-                    'reverse_label' => is_scalar($pred['reverse_label'] ?? null) ? (string)$pred['reverse_label'] : '',
+                    'predicate_key' => Row::str($pred, 'key'),
+                    'forward_label' => Row::str($pred, 'forward_label'),
+                    'reverse_label' => Row::str($pred, 'reverse_label'),
                     'supports_start_date' => $supportsStart,
                     'supports_end_date' => $supportsEnd,
                     'source_note_id' => $sourceNoteId,
@@ -505,8 +482,8 @@ final class NoteLinksController
                     'start_date' => $startDate,
                     'end_date' => $endDate,
                     'former' => (object)[],
-                    'created_at' => is_scalar($row['created_at'] ?? null) ? (string)$row['created_at'] : '',
-                    'updated_at' => is_scalar($row['updated_at'] ?? null) ? (string)$row['updated_at'] : '',
+                    'created_at' => Row::str($row, 'created_at'),
+                    'updated_at' => Row::str($row, 'updated_at'),
                 ],
             ]);
         } catch (Throwable $e) {
@@ -522,29 +499,11 @@ final class NoteLinksController
         $pdo = $context->pdo();
         $user = $context->user();
 
-        $nookId = trim($request->routeParam('nookId'));
-        if ($nookId === '') {
-            throw new HttpError('nookId is required', 400);
-        }
-        if (!self::isUuid($nookId)) {
-            throw new HttpError('nookId must be a UUID', 400);
-        }
+        $nookId = $request->requireUuidRouteParam('nookId');
 
-        $noteId = trim($request->routeParam('noteId'));
-        if ($noteId === '') {
-            throw new HttpError('noteId is required', 400);
-        }
-        if (!self::isUuid($noteId)) {
-            throw new HttpError('noteId must be a UUID', 400);
-        }
+        $noteId = $request->requireUuidRouteParam('noteId');
 
-        $linkId = trim($request->routeParam('linkId'));
-        if ($linkId === '') {
-            throw new HttpError('linkId is required', 400);
-        }
-        if (!self::isUuid($linkId)) {
-            throw new HttpError('linkId must be a UUID', 400);
-        }
+        $linkId = $request->requireUuidRouteParam('linkId');
 
         NookAccess::requireWriteAccess($pdo, $user, $nookId);
 
@@ -643,7 +602,7 @@ final class NoteLinksController
             $parentRaw = $stmt->fetchColumn();
             $parent = is_scalar($parentRaw) ? trim((string)$parentRaw) : '';
 
-            if ($parent === '' || !self::isUuid($parent)) {
+            if ($parent === '' || !Uuid::isValid($parent)) {
                 break;
             }
 
@@ -697,7 +656,7 @@ final class NoteLinksController
 
     private function requireMember(PDO $pdo, array $user, string $nookId): array
     {
-        $userId = is_scalar($user['id'] ?? null) ? (string)$user['id'] : '';
+        $userId = Row::str($user, 'id');
         if ($userId === '') {
             throw new HttpError('invalid user', 500);
         }
@@ -712,13 +671,5 @@ final class NoteLinksController
             throw new HttpError('forbidden', 403);
         }
         return $row;
-    }
-
-    private static function isUuid(string $value): bool
-    {
-        return (bool)preg_match(
-            '/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i',
-            $value
-        );
     }
 }

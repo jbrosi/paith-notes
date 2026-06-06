@@ -148,7 +148,7 @@ final class AuthController
         $ttl = 60 * 60 * 24 * 7;
         $crypto = SessionCrypto::fromEnv();
         $tokenEncrypted = $crypto->encrypt((string)json_encode($tokenPayload));
-        $userId = is_scalar($user['id'] ?? null) ? (string)$user['id'] : '';
+        $userId = Row::str($user, 'id');
         if ($userId === '') {
             return JsonResponse::error('invalid user', 500);
         }
