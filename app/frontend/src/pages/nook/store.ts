@@ -24,7 +24,6 @@ import {
 	NoteTypeNotesResponseSchema,
 	NoteTypeResponseSchema,
 	NoteTypesListResponseSchema,
-
 } from "./types";
 
 export function createNookStore(nookId: () => string) {
@@ -112,7 +111,7 @@ export function createNookStore(nookId: () => string) {
 	const [selectedId, setSelectedId] = createSignal<string>("");
 	const [typeId, setTypeId] = createSignal<string>("");
 	const [title, setTitle] = createSignal<string>("");
-	const [titleIsManual, setTitleIsManual] = createSignal<boolean>(false);
+	const [_titleIsManual, setTitleIsManual] = createSignal<boolean>(false);
 	const [content, setContent] = createSignal<string>("");
 	const [noteAttributes, setNoteAttributes] = createSignal<
 		Record<string, unknown>
@@ -139,7 +138,8 @@ export function createNookStore(nookId: () => string) {
 	const [noteFiles, setNoteFiles] = createSignal<Record<string, NoteFile>>({});
 	const [headingMatches, setHeadingMatches] = createSignal<HeadingMatch[]>([]);
 	const [remoteVersion, setRemoteVersion] = createSignal<number>(0);
-	const [remoteNoteChanged, setRemoteNoteChanged] = createSignal<boolean>(false);
+	const [remoteNoteChanged, setRemoteNoteChanged] =
+		createSignal<boolean>(false);
 	const [noteViewers, setNoteViewers] = createSignal<
 		Array<{ user_id: string; user_name: string }>
 	>([]);
@@ -546,7 +546,7 @@ export function createNookStore(nookId: () => string) {
 				}
 			}
 		}
-		if (!imageFile || !imageFile.object_key) {
+		if (!imageFile?.object_key) {
 			return null;
 		}
 
@@ -728,7 +728,7 @@ export function createNookStore(nookId: () => string) {
 		const types = noteTypes();
 		const typeMap = new Map(types.map((t) => [t.id, t]));
 		const seen = new Set<string>();
-		const attrs: typeof types[0]["attributes"] = [];
+		const attrs: (typeof types)[0]["attributes"] = [];
 		const namesSeen = new Set<string>();
 
 		let cur = typeId;
@@ -771,9 +771,10 @@ export function createNookStore(nookId: () => string) {
 			const layout = chain[i];
 			if (!layout) continue;
 			for (const panel of layout.panels) {
-				if (merged.has(panel.key)) {
+				const existing = merged.get(panel.key);
+				if (existing) {
 					// Shallow merge: child fields override parent
-					merged.set(panel.key, { ...merged.get(panel.key)!, ...panel });
+					merged.set(panel.key, { ...existing, ...panel });
 				} else {
 					merged.set(panel.key, { ...panel });
 				}
@@ -799,9 +800,7 @@ export function createNookStore(nookId: () => string) {
 		const types = noteTypes();
 		const fileType = types.find((t) => t.key === "file");
 		if (!fileType)
-			throw new Error(
-				'No "File" type found — check your nook type settings',
-			);
+			throw new Error('No "File" type found — check your nook type settings');
 
 		const attrs = resolveTypeAttributes(fileType.id);
 		const fileAttr = attrs.find((a) => a.kind === "file");
@@ -820,25 +819,20 @@ export function createNookStore(nookId: () => string) {
 		attrId: string,
 	): Promise<Note | null> => {
 		const filename = file.name || "upload";
-		const ext = filename.includes(".")
-			? (filename.split(".").pop() ?? "")
-			: "";
+		const ext = filename.includes(".") ? (filename.split(".").pop() ?? "") : "";
 
-		const initRes = await apiFetch(
-			`/api/nooks/${nook}/file/attr-upload-url`,
-			{
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({
-					filename,
-					extension: ext,
-					filesize: file.size,
-					mime_type: file.type,
-					type_id: typeId,
-					attribute_id: attrId,
-				}),
-			},
-		);
+		const initRes = await apiFetch(`/api/nooks/${nook}/file/attr-upload-url`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				filename,
+				extension: ext,
+				filesize: file.size,
+				mime_type: file.type,
+				type_id: typeId,
+				attribute_id: attrId,
+			}),
+		});
 		if (!initRes.ok) throw new Error("Failed to get upload URL");
 		const initData = (await initRes.json()) as {
 			upload_url: string;

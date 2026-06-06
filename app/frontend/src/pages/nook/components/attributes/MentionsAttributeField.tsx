@@ -14,7 +14,10 @@ export function MentionsAttributeField(props: {
 	fullscreen?: boolean;
 }) {
 	const direction = () =>
-		String(props.attr.config.direction ?? "both") as "outgoing" | "incoming" | "both";
+		String(props.attr.config.direction ?? "both") as
+			| "outgoing"
+			| "incoming"
+			| "both";
 
 	const items = createMemo((): MentionItem[] => {
 		const noteId = props.store.selectedId();
@@ -65,7 +68,9 @@ export function MentionsAttributeField(props: {
 						{(item) => (
 							<button
 								type="button"
-								onClick={() => props.store.onNoteLinkClick(item.noteId, item.nookId)}
+								onClick={() =>
+									props.store.onNoteLinkClick(item.noteId, item.nookId)
+								}
 								style={{
 									display: "block",
 									width: "100%",

@@ -277,7 +277,12 @@ export function NookNotesSearchDropdown(props: NookNotesSearchDropdownProps) {
 								</button>
 							)}
 						</For>
-						<Show when={query().trim() !== "" && (store()?.headingMatches()?.length ?? 0) > 0}>
+						<Show
+							when={
+								query().trim() !== "" &&
+								(store()?.headingMatches()?.length ?? 0) > 0
+							}
+						>
 							<div
 								style={{
 									padding: "4px 12px 2px",

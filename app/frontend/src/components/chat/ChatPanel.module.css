@@ -161,13 +161,13 @@
 	transition: opacity 0.1s ease;
 }
 
-.convItemRow:hover .convDelete {
-	opacity: 1;
-}
-
 .convDelete:hover {
 	color: #c0392b;
 	background: var(--color-bg-hover);
+}
+
+.convItemRow:hover .convDelete {
+	opacity: 1;
 }
 
 .convTitle {
@@ -250,9 +250,11 @@
 	0% {
 		transform: translateX(-100%);
 	}
+
 	50% {
 		transform: translateX(200%);
 	}
+
 	100% {
 		transform: translateX(-100%);
 	}

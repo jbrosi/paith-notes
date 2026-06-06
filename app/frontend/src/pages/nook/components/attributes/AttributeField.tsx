@@ -26,12 +26,14 @@ export function AttributeField(props: {
 	const display = () => (props.attr.config.display as string) ?? "";
 
 	switch (props.attr.kind) {
-		case "text":
+		case "text": {
+			const inputId = `attr-${props.attr.id}`;
 			return (
-				<label>
+				<label for={inputId}>
 					<div style={labelStyle}>{props.attr.name}</div>
 					{display() === "paragraph" ? (
 						<textarea
+							id={inputId}
 							value={strVal()}
 							onInput={(e) => props.onChange(e.currentTarget.value)}
 							disabled={props.disabled}
@@ -40,6 +42,7 @@ export function AttributeField(props: {
 						/>
 					) : (
 						<input
+							id={inputId}
 							value={strVal()}
 							onInput={(e) => props.onChange(e.currentTarget.value)}
 							disabled={props.disabled}
@@ -48,6 +51,7 @@ export function AttributeField(props: {
 					)}
 				</label>
 			);
+		}
 
 		case "number": {
 			if (display() === "rating") {
@@ -67,13 +71,23 @@ export function AttributeField(props: {
 										cursor: props.disabled ? "default" : "pointer",
 										"font-size": "20px",
 										padding: "0 1px",
-										color: n <= numVal() ? "var(--seed-warning)" : "var(--color-border-light)",
+										color:
+											n <= numVal()
+												? "var(--seed-warning)"
+												: "var(--color-border-light)",
 									}}
 								>
 									★
 								</button>
 							))}
-							<span style={{ "font-size": "12px", color: "var(--color-text-muted)", "margin-left": "4px", "align-self": "center" }}>
+							<span
+								style={{
+									"font-size": "12px",
+									color: "var(--color-text-muted)",
+									"margin-left": "4px",
+									"align-self": "center",
+								}}
+							>
 								{numVal() > 0 ? numVal() : ""}
 							</span>
 						</div>
@@ -149,7 +163,14 @@ export function AttributeField(props: {
 							disabled={props.disabled}
 							style={{ ...inputStyle, flex: 1 }}
 						/>
-						<span style={{ "align-self": "center", color: "var(--color-text-muted)" }}>to</span>
+						<span
+							style={{
+								"align-self": "center",
+								color: "var(--color-text-muted)",
+							}}
+						>
+							to
+						</span>
 						<input
 							type="date"
 							value={rangeVal().to}
@@ -216,7 +237,8 @@ export function AttributeField(props: {
 												padding: "2px 8px",
 												"border-radius": "999px",
 												background: "var(--color-primary-bg, #eff6ff)",
-												border: "1px solid var(--color-primary-border, #bae6fd)",
+												border:
+													"1px solid var(--color-primary-border, #bae6fd)",
 												"font-size": "0.7rem",
 												color: "var(--color-primary, #3b82f6)",
 											}}
@@ -226,7 +248,14 @@ export function AttributeField(props: {
 									)}
 								</For>
 								<Show when={selected().length === 0}>
-									<span style={{ "font-size": "0.75rem", color: "var(--color-text-muted)" }}>(none)</span>
+									<span
+										style={{
+											"font-size": "0.75rem",
+											color: "var(--color-text-muted)",
+										}}
+									>
+										(none)
+									</span>
 								</Show>
 							</div>
 						}
@@ -243,10 +272,16 @@ export function AttributeField(props: {
 												padding: "2px 8px",
 												"border-radius": "999px",
 												border: "1px solid",
-												"border-color": isSelected() ? "var(--color-primary-border, #bae6fd)" : "var(--color-border-light, #e5e7eb)",
-												background: isSelected() ? "var(--color-primary-bg, #eff6ff)" : "transparent",
+												"border-color": isSelected()
+													? "var(--color-primary-border, #bae6fd)"
+													: "var(--color-border-light, #e5e7eb)",
+												background: isSelected()
+													? "var(--color-primary-bg, #eff6ff)"
+													: "transparent",
 												"font-size": "0.7rem",
-												color: isSelected() ? "var(--color-primary, #3b82f6)" : "var(--color-text-secondary)",
+												color: isSelected()
+													? "var(--color-primary, #3b82f6)"
+													: "var(--color-text-secondary)",
 												cursor: "pointer",
 											}}
 										>
@@ -270,13 +305,26 @@ export function AttributeField(props: {
 						fallback={
 							<Show
 								when={strVal()}
-								fallback={<span style={{ "font-size": "0.75rem", color: "var(--color-text-muted)" }}>(none)</span>}
+								fallback={
+									<span
+										style={{
+											"font-size": "0.75rem",
+											color: "var(--color-text-muted)",
+										}}
+									>
+										(none)
+									</span>
+								}
 							>
 								<a
 									href={strVal()}
 									target="_blank"
 									rel="noopener noreferrer"
-									style={{ "font-size": "0.8rem", color: "var(--link-color, #0066cc)", "word-break": "break-all" }}
+									style={{
+										"font-size": "0.8rem",
+										color: "var(--link-color, #0066cc)",
+										"word-break": "break-all",
+									}}
 								>
 									{strVal()}
 								</a>

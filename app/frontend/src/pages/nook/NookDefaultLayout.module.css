@@ -49,7 +49,9 @@
 	font-weight: 500;
 	color: var(--color-text-muted);
 	border-bottom: 2px solid transparent;
-	transition: color 0.15s, border-color 0.15s;
+	transition:
+		color 0.15s,
+		border-color 0.15s;
 }
 
 .sidePanelTab:hover {
@@ -81,8 +83,10 @@
 	display: none;
 }
 
-/* mobileHidden — no effect on desktop */
-.mobileHidden {}
+/* mobileHidden — no effect on desktop (the class only matters in the mobile media query below) */
+.mobileHidden {
+	display: block;
+}
 
 /* ── Mobile / Tablet (≤ 1024px): single panel at a time ── */
 

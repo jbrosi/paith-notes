@@ -168,7 +168,11 @@ export function NookTypeEditPanel(props: NookTypeEditPanelProps) {
 						>
 							<option value="">(none — root type)</option>
 							<For each={availableParents()}>
-								{(t) => <option value={t.id}>{t.label} ({t.key})</option>}
+								{(t) => (
+									<option value={t.id}>
+										{t.label} ({t.key})
+									</option>
+								)}
 							</For>
 						</select>
 					</label>
@@ -191,7 +195,11 @@ export function NookTypeEditPanel(props: NookTypeEditPanelProps) {
 					</div>
 				</div>
 
-				<TypeAttributeEditor nookId={store().nookId()} typeId={props.typeId} store={store()} />
+				<TypeAttributeEditor
+					nookId={store().nookId()}
+					typeId={props.typeId}
+					store={store()}
+				/>
 			</Show>
 		</div>
 	);

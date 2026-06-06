@@ -14,11 +14,11 @@ import { apiFetch } from "../auth/keycloak";
 import { Button } from "../components/Button";
 import { useUi } from "../ui/UiContext";
 import { NookActivityFeed } from "./nook/NookActivityFeed";
+import { NookComparePage } from "./nook/NookComparePage";
 import { useNook } from "./nook/NookContext";
 import { NookDefaultLayout } from "./nook/NookDefaultLayout";
 import { NookFullscreenAttr } from "./nook/NookFullscreenAttr";
 import { NookLinksPanel } from "./nook/NookLinksPanel";
-import { NookComparePage } from "./nook/NookComparePage";
 import { NookNoteHistoryPage } from "./nook/NookNoteHistoryPage";
 import {
 	applyNookSeeds,
@@ -163,7 +163,9 @@ export default function Nook() {
 	);
 
 	const compareVersions = createMemo(() => {
-		const m = normalizedSubPath().match(/^notes\/[^/]+\/compare\/(\d+)(?:\/(\d+))?$/);
+		const m = normalizedSubPath().match(
+			/^notes\/[^/]+\/compare\/(\d+)(?:\/(\d+))?$/,
+		);
 		if (!m) return null;
 		return {
 			from: Number(m[1]),
@@ -281,29 +283,29 @@ export default function Nook() {
 															<Show
 																when={showNoteHistory()}
 																fallback={
-															<Show
-																when={fullscreenAttr()}
-																fallback={
-																	<NookDefaultLayout
-																		nookId={nookId()}
-																		store={store}
-																		onSettings={() =>
-																			navigate(
-																				`/nooks/${encodeURIComponent(nookId())}/settings`,
-																			)
+																	<Show
+																		when={fullscreenAttr()}
+																		fallback={
+																			<NookDefaultLayout
+																				nookId={nookId()}
+																				store={store}
+																				onSettings={() =>
+																					navigate(
+																						`/nooks/${encodeURIComponent(nookId())}/settings`,
+																					)
+																				}
+																			/>
 																		}
-																	/>
+																	>
+																		{(fa) => (
+																			<NookFullscreenAttr
+																				store={store}
+																				attrKey={fa().attrKey}
+																			/>
+																		)}
+																	</Show>
 																}
 															>
-																{(fa) => (
-																	<NookFullscreenAttr
-																		store={store}
-																		attrKey={fa().attrKey}
-																	/>
-																)}
-															</Show>
-														}
-													>
 																<NookNoteHistoryPage store={store} />
 															</Show>
 														}

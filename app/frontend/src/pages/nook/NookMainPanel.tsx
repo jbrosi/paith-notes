@@ -224,7 +224,12 @@ export function NookMainPanel(props: NookMainPanelProps) {
 							</div>
 						</div>
 					</Show>
-					<Show when={(store().noteHasUpdate() || store().remoteNoteChanged()) && !conflict()}>
+					<Show
+						when={
+							(store().noteHasUpdate() || store().remoteNoteChanged()) &&
+							!conflict()
+						}
+					>
 						<div
 							style={{
 								padding: "8px 12px",
@@ -308,7 +313,10 @@ export function NookMainPanel(props: NookMainPanelProps) {
 					</div>
 
 					<TitleSection store={store()} />
-					<NoteAttributeFields store={store()} panelFilter={props.panelFilter} />
+					<NoteAttributeFields
+						store={store()}
+						panelFilter={props.panelFilter}
+					/>
 				</div>
 			</Show>
 		</>

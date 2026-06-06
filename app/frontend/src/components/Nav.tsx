@@ -790,13 +790,27 @@ export function Nav() {
 							padding: "4px",
 							"border-radius": "4px",
 							opacity: ui.debugMode() ? "1" : "0.35",
-							color: ui.debugMode() ? "var(--color-warning, #f59e0b)" : "currentColor",
+							color: ui.debugMode()
+								? "var(--color-warning, #f59e0b)"
+								: "currentColor",
 							display: "flex",
 							"align-items": "center",
 							transition: "opacity 0.15s, color 0.15s",
 						}}
 					>
-						<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+						<svg
+							width="16"
+							height="16"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="2"
+							stroke-linecap="round"
+							stroke-linejoin="round"
+							role="img"
+							aria-labelledby="nav-debug-toggle-title"
+						>
+							<title id="nav-debug-toggle-title">Debug mode</title>
 							<path d="M12 2a4 4 0 0 0-4 4v2H6a2 2 0 0 0-2 2v1h4" />
 							<path d="M18 8h-2V6a4 4 0 0 0-4-4" />
 							<path d="M20 10a2 2 0 0 0-2-2h0v1" />
@@ -1044,7 +1058,11 @@ export function Nav() {
 											class={styles.iconButton}
 											onClick={() => ui.toggleSidebarLeft()}
 											aria-pressed={ui.sidebarLeftOpen()}
-											title={ui.sidebarLeftOpen() ? "Hide left sidebar" : "Show left sidebar"}
+											title={
+												ui.sidebarLeftOpen()
+													? "Hide left sidebar"
+													: "Show left sidebar"
+											}
 										>
 											<svg
 												aria-hidden="true"
@@ -1069,7 +1087,11 @@ export function Nav() {
 											class={styles.iconButton}
 											onClick={() => ui.toggleSidebarRight()}
 											aria-pressed={ui.sidebarRightOpen()}
-											title={ui.sidebarRightOpen() ? "Hide right sidebar" : "Show right sidebar"}
+											title={
+												ui.sidebarRightOpen()
+													? "Hide right sidebar"
+													: "Show right sidebar"
+											}
 										>
 											<svg
 												aria-hidden="true"

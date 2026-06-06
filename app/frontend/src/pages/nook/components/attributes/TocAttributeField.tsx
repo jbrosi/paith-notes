@@ -12,7 +12,11 @@ export function TocAttributeField(props: {
 	// Per-note override: attribute value can be { max_depth: N }
 	const noteOverride = () => {
 		const val = props.store.noteAttributes?.()[props.attr.id];
-		if (typeof val === "object" && val !== null && "max_depth" in (val as Record<string, unknown>)) {
+		if (
+			typeof val === "object" &&
+			val !== null &&
+			"max_depth" in (val as Record<string, unknown>)
+		) {
 			return Number((val as Record<string, unknown>).max_depth);
 		}
 		return 0;
@@ -31,7 +35,8 @@ export function TocAttributeField(props: {
 	const [open, setOpen] = createSignal(true);
 
 	const scrollToHeading = (text: string) => {
-		const container = document.querySelector("[data-note-content]") ?? document.body;
+		const container =
+			document.querySelector("[data-note-content]") ?? document.body;
 		const els = container.querySelectorAll("h1, h2, h3, h4, h5, h6");
 		for (const el of els) {
 			if (el.textContent?.trim() === text) {
@@ -84,7 +89,8 @@ export function TocAttributeField(props: {
 					<div style={{ padding: "4px 0" }}>
 						<For each={headings()}>
 							{(h) => {
-								const minLevel = () => Math.min(...props.store.noteHeadings().map((x) => x.level));
+								const minLevel = () =>
+									Math.min(...props.store.noteHeadings().map((x) => x.level));
 								return (
 									<button
 										type="button"

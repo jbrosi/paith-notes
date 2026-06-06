@@ -65,7 +65,10 @@ function actionLabel(action: string, type: string): string {
 function formatFilesize(bytes: number): string {
 	if (bytes <= 0) return "";
 	const units = ["B", "KB", "MB", "GB"];
-	const i = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+	const i = Math.min(
+		Math.floor(Math.log(bytes) / Math.log(1024)),
+		units.length - 1,
+	);
 	const val = bytes / 1024 ** i;
 	return `${val < 10 ? val.toFixed(1) : Math.round(val)} ${units[i]}`;
 }
@@ -217,7 +220,8 @@ export function ActivityEntryRow(props: Props) {
 				>
 					{e().filename}
 					<Show when={(e().filesize ?? 0) > 0}>
-						{" "}({formatFilesize(e().filesize!)})
+						{" "}
+						({formatFilesize(e().filesize ?? 0)})
 					</Show>
 				</span>
 			</Show>

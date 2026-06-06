@@ -61,14 +61,16 @@ const DEBUG_MODE_STORAGE_KEY = "paith-notes:debugMode";
 
 export function UiProvider(props: { children: JSX.Element }) {
 	const [mode, setModeSignal] = createSignal<"view" | "edit">("view");
-	const [sidebarRightOpen, setSidebarRightOpenSignal] = createSignal<boolean>(true);
-	const [sidebarLeftOpen, setSidebarLeftOpenSignal] = createSignal<boolean>(false);
+	const [sidebarRightOpen, setSidebarRightOpenSignal] =
+		createSignal<boolean>(true);
+	const [sidebarLeftOpen, setSidebarLeftOpenSignal] =
+		createSignal<boolean>(false);
 	const [typesPanelOpen, setTypesPanelOpenSignal] = createSignal<boolean>(true);
 	const [chatPanelOpen, setChatPanelOpenSignal] = createSignal<boolean>(false);
-	const [activePanel, setActivePanelSignal] =
-		createSignal<MobilePanel>("main");
-	const [mobilePanels, setMobilePanelsSignal] =
-		createSignal<string[]>(DEFAULT_MOBILE_PANELS);
+	const [activePanel, setActivePanelSignal] = createSignal<MobilePanel>("main");
+	const [mobilePanels, setMobilePanelsSignal] = createSignal<string[]>(
+		DEFAULT_MOBILE_PANELS,
+	);
 	const [theme, setThemeSignal] = createSignal<ThemeMode>("system");
 	const [accentColor, setAccentColorSignal] = createSignal("");
 	const [debugMode, setDebugModeSignal] = createSignal(false);
@@ -78,37 +80,51 @@ export function UiProvider(props: { children: JSX.Element }) {
 			const v = window.localStorage.getItem(SIDEBAR_RIGHT_STORAGE_KEY);
 			if (v === "0") setSidebarRightOpenSignal(false);
 			if (v === "1") setSidebarRightOpenSignal(true);
-		} catch { /* ignore */ }
+		} catch {
+			/* ignore */
+		}
 		try {
 			const v = window.localStorage.getItem(SIDEBAR_LEFT_STORAGE_KEY);
 			if (v === "0") setSidebarLeftOpenSignal(false);
 			if (v === "1") setSidebarLeftOpenSignal(true);
-		} catch { /* ignore */ }
+		} catch {
+			/* ignore */
+		}
 		try {
 			const v = window.localStorage.getItem(TYPES_PANEL_OPEN_STORAGE_KEY);
 			if (v === "0") setTypesPanelOpenSignal(false);
 			if (v === "1") setTypesPanelOpenSignal(true);
-		} catch { /* ignore */ }
+		} catch {
+			/* ignore */
+		}
 		try {
 			const v = window.localStorage.getItem(CHAT_PANEL_OPEN_STORAGE_KEY);
 			if (v === "0") setChatPanelOpenSignal(false);
 			if (v === "1") setChatPanelOpenSignal(true);
-		} catch { /* ignore */ }
+		} catch {
+			/* ignore */
+		}
 		try {
 			const v = window.localStorage.getItem(ACTIVE_PANEL_STORAGE_KEY);
 			if (v) setActivePanelSignal(v);
-		} catch { /* ignore */ }
+		} catch {
+			/* ignore */
+		}
 		try {
 			const v = window.localStorage.getItem(THEME_STORAGE_KEY);
 			if (v === "light" || v === "dark" || v === "system") {
 				setThemeSignal(v);
 				applyTheme(v);
 			}
-		} catch { /* ignore */ }
+		} catch {
+			/* ignore */
+		}
 		try {
 			const v = window.localStorage.getItem(DEBUG_MODE_STORAGE_KEY);
 			if (v === "1") setDebugModeSignal(true);
-		} catch { /* ignore */ }
+		} catch {
+			/* ignore */
+		}
 	});
 
 	const setMode = (next: "view" | "edit") => {
@@ -116,7 +132,11 @@ export function UiProvider(props: { children: JSX.Element }) {
 	};
 
 	const persistBool = (key: string, val: boolean) => {
-		try { window.localStorage.setItem(key, val ? "1" : "0"); } catch { /* ignore */ }
+		try {
+			window.localStorage.setItem(key, val ? "1" : "0");
+		} catch {
+			/* ignore */
+		}
 	};
 
 	const setSidebarRightOpen = (next: boolean) => {
@@ -141,7 +161,11 @@ export function UiProvider(props: { children: JSX.Element }) {
 
 	const setActivePanel = (next: MobilePanel) => {
 		setActivePanelSignal(next);
-		try { window.localStorage.setItem(ACTIVE_PANEL_STORAGE_KEY, next); } catch { /* ignore */ }
+		try {
+			window.localStorage.setItem(ACTIVE_PANEL_STORAGE_KEY, next);
+		} catch {
+			/* ignore */
+		}
 	};
 
 	const applyTheme = (t: ThemeMode) => {
@@ -155,7 +179,11 @@ export function UiProvider(props: { children: JSX.Element }) {
 	const setTheme = (next: ThemeMode) => {
 		setThemeSignal(next);
 		applyTheme(next);
-		try { window.localStorage.setItem(THEME_STORAGE_KEY, next); } catch { /* ignore */ }
+		try {
+			window.localStorage.setItem(THEME_STORAGE_KEY, next);
+		} catch {
+			/* ignore */
+		}
 	};
 
 	let currentNookIdForAccent = "";
@@ -192,7 +220,9 @@ export function UiProvider(props: { children: JSX.Element }) {
 			} else {
 				window.localStorage.removeItem(key);
 			}
-		} catch { /* ignore */ }
+		} catch {
+			/* ignore */
+		}
 	};
 
 	const resetAccentColor = (nookId?: string) => setAccentColor("", nookId);
@@ -208,7 +238,9 @@ export function UiProvider(props: { children: JSX.Element }) {
 				setAccentColorSignal("");
 				applyAccentColor("");
 			}
-		} catch { /* ignore */ }
+		} catch {
+			/* ignore */
+		}
 	};
 
 	const cycleTheme = () => {
@@ -234,9 +266,7 @@ export function UiProvider(props: { children: JSX.Element }) {
 	const prevPanel = () => {
 		const panels = mobilePanels();
 		const idx = panels.indexOf(activePanel());
-		setActivePanel(
-			panels[(idx - 1 + panels.length) % panels.length],
-		);
+		setActivePanel(panels[(idx - 1 + panels.length) % panels.length]);
 	};
 
 	const setDebugMode = (next: boolean) => {

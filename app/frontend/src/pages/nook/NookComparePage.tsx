@@ -1,10 +1,10 @@
 import { useNavigate } from "@solidjs/router";
-import { createMemo, createResource, createSignal, For, Show } from "solid-js";
+import { createMemo, createResource, For, Show } from "solid-js";
 import { apiFetch } from "../../auth/keycloak";
 import { Button } from "../../components/Button";
+import { AttributeDiff } from "./components/attributes/AttributeDiff";
 import type { NookStore } from "./store";
 import type { TypeAttribute } from "./types";
-import { AttributeDiff } from "./components/attributes/AttributeDiff";
 
 type DiffResult = {
 	content_diff: string;
@@ -16,8 +16,18 @@ type DiffResult = {
 		lines: Array<{ type: string; content: string }>;
 	}>;
 	stats: { additions: number; deletions: number; unchanged: number };
-	from: { version: number; title: string; type_id: string; attributes: Record<string, unknown> };
-	to: { version: number; title: string; type_id: string; attributes: Record<string, unknown> };
+	from: {
+		version: number;
+		title: string;
+		type_id: string;
+		attributes: Record<string, unknown>;
+	};
+	to: {
+		version: number;
+		title: string;
+		type_id: string;
+		attributes: Record<string, unknown>;
+	};
 };
 
 type Props = {
@@ -46,7 +56,8 @@ export function NookComparePage(props: Props) {
 	};
 
 	const [diff] = createResource(
-		() => `${nookId()}|${noteId()}|${props.fromVersion}|${props.toVersion ?? "current"}`,
+		() =>
+			`${nookId()}|${noteId()}|${props.fromVersion}|${props.toVersion ?? "current"}`,
 		fetchDiff,
 	);
 
@@ -70,16 +81,16 @@ export function NookComparePage(props: Props) {
 					"margin-bottom": "1rem",
 				}}
 			>
-				<h3 style={{ margin: "0", "font-size": "1.1rem" }}>
-					Compare versions
-				</h3>
+				<h3 style={{ margin: "0", "font-size": "1.1rem" }}>Compare versions</h3>
 				<Button variant="secondary" size="small" onClick={goBack}>
 					Back
 				</Button>
 			</div>
 
 			<Show when={diff.loading}>
-				<div style={{ color: "var(--color-text-muted)", "font-size": "0.85rem" }}>
+				<div
+					style={{ color: "var(--color-text-muted)", "font-size": "0.85rem" }}
+				>
 					Loading diff...
 				</div>
 			</Show>
@@ -98,9 +109,16 @@ export function NookComparePage(props: Props) {
 							}}
 						>
 							<div>
-								<span style={{ "font-weight": "600" }}>v{d().from.version}</span>
+								<span style={{ "font-weight": "600" }}>
+									v{d().from.version}
+								</span>
 								<Show when={d().from.title !== d().to.title}>
-									<span style={{ color: "var(--color-text-muted)", "margin-left": "6px" }}>
+									<span
+										style={{
+											color: "var(--color-text-muted)",
+											"margin-left": "6px",
+										}}
+									>
 										{d().from.title}
 									</span>
 								</Show>
@@ -112,7 +130,12 @@ export function NookComparePage(props: Props) {
 									{!props.toVersion ? " (current)" : ""}
 								</span>
 								<Show when={d().from.title !== d().to.title}>
-									<span style={{ color: "var(--color-text-muted)", "margin-left": "6px" }}>
+									<span
+										style={{
+											color: "var(--color-text-muted)",
+											"margin-left": "6px",
+										}}
+									>
 										{d().to.title}
 									</span>
 								</Show>
@@ -159,12 +182,21 @@ export function NookComparePage(props: Props) {
 									"font-size": "0.8rem",
 								}}
 							>
-								<span style={{ color: "var(--color-text-muted)" }}>Title: </span>
-								<span style={{ "text-decoration": "line-through", color: "var(--color-danger)" }}>
+								<span style={{ color: "var(--color-text-muted)" }}>
+									Title:{" "}
+								</span>
+								<span
+									style={{
+										"text-decoration": "line-through",
+										color: "var(--color-danger)",
+									}}
+								>
 									{d().from.title}
 								</span>
 								{" → "}
-								<span style={{ color: "var(--color-success)" }}>{d().to.title}</span>
+								<span style={{ color: "var(--color-success)" }}>
+									{d().to.title}
+								</span>
 							</div>
 						</Show>
 
@@ -172,14 +204,20 @@ export function NookComparePage(props: Props) {
 						<Show
 							when={d().content_diff}
 							fallback={
-								<div style={{ color: "var(--color-text-muted)", "font-size": "0.85rem" }}>
+								<div
+									style={{
+										color: "var(--color-text-muted)",
+										"font-size": "0.85rem",
+									}}
+								>
 									No content changes between these versions.
 								</div>
 							}
 						>
 							<pre
 								style={{
-									"font-family": "ui-monospace, 'Cascadia Code', 'Fira Code', monospace",
+									"font-family":
+										"ui-monospace, 'Cascadia Code', 'Fira Code', monospace",
 									"font-size": "0.8rem",
 									"line-height": "1.6",
 									overflow: "auto",
@@ -231,8 +269,15 @@ export function NookComparePage(props: Props) {
 
 /** Data-bearing kinds that have note-level values worth diffing */
 const DIFFABLE_KINDS = new Set([
-	"text", "number", "boolean", "date", "date_range",
-	"select", "multi_select", "url", "graph",
+	"text",
+	"number",
+	"boolean",
+	"date",
+	"date_range",
+	"select",
+	"multi_select",
+	"url",
+	"graph",
 ]);
 
 function valuesEqual(a: unknown, b: unknown): boolean {
@@ -260,7 +305,11 @@ function AttributeChanges(props: {
 
 	const changedAttrs = createMemo(() => {
 		const attrs = resolvedAttrs();
-		const result: Array<{ attr: TypeAttribute; oldVal: unknown; newVal: unknown }> = [];
+		const result: Array<{
+			attr: TypeAttribute;
+			oldVal: unknown;
+			newVal: unknown;
+		}> = [];
 
 		// Collect all attribute IDs from both sides
 		const allIds = new Set([
@@ -284,22 +333,32 @@ function AttributeChanges(props: {
 
 	return (
 		<Show when={changedAttrs().length > 0}>
-			<div style={{
-				padding: "8px 12px",
-				"margin-bottom": "12px",
-				"border-radius": "6px",
-				border: "1px solid var(--color-border-light)",
-			}}>
-				<div style={{
-					"font-size": "0.75rem",
-					"font-weight": "600",
-					color: "var(--color-text-muted)",
-					"margin-bottom": "4px",
-				}}>
+			<div
+				style={{
+					padding: "8px 12px",
+					"margin-bottom": "12px",
+					"border-radius": "6px",
+					border: "1px solid var(--color-border-light)",
+				}}
+			>
+				<div
+					style={{
+						"font-size": "0.75rem",
+						"font-weight": "600",
+						color: "var(--color-text-muted)",
+						"margin-bottom": "4px",
+					}}
+				>
 					Attribute changes
 				</div>
 				<For each={changedAttrs()}>
-					{(c) => <AttributeDiff attr={c.attr} oldValue={c.oldVal} newValue={c.newVal} />}
+					{(c) => (
+						<AttributeDiff
+							attr={c.attr}
+							oldValue={c.oldVal}
+							newValue={c.newVal}
+						/>
+					)}
 				</For>
 			</div>
 		</Show>

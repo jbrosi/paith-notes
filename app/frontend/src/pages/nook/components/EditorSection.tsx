@@ -131,4 +131,3 @@ export function EditorSection(props: { store: NookStore }) {
 		</Show>
 	);
 }
-

@@ -50,14 +50,21 @@ export function MetadataAttributeField(props: {
 				</Show>
 				<Show when={config().showCreated && props.store.noteCreatedAt()}>
 					<span>
-						Created{props.store.noteCreatedByName() ? ` by ${props.store.noteCreatedByName()}` : ""}{" "}
+						Created
+						{props.store.noteCreatedByName()
+							? ` by ${props.store.noteCreatedByName()}`
+							: ""}{" "}
 						{formatTimeAgo(props.store.noteCreatedAt())}
 					</span>
 				</Show>
-				<Show when={config().showUpdated && props.store.noteUpdatedAt() && props.store.noteUpdatedAt() !== props.store.noteCreatedAt()}>
-					<span>
-						Edited {formatTimeAgo(props.store.noteUpdatedAt())}
-					</span>
+				<Show
+					when={
+						config().showUpdated &&
+						props.store.noteUpdatedAt() &&
+						props.store.noteUpdatedAt() !== props.store.noteCreatedAt()
+					}
+				>
+					<span>Edited {formatTimeAgo(props.store.noteUpdatedAt())}</span>
 				</Show>
 			</div>
 		</Show>

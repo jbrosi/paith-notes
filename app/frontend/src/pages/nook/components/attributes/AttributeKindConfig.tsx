@@ -46,17 +46,28 @@ export function AttributeKindConfig(props: {
 	);
 
 	// ── Metadata ────────────────────────────────────────────────────────
-	const [mdShowVersion, setMdShowVersion] = createSignal(props.config.show_version !== false);
-	const [mdShowCreated, setMdShowCreated] = createSignal(props.config.show_created !== false);
-	const [mdShowUpdated, setMdShowUpdated] = createSignal(props.config.show_updated !== false);
-	const [mdShowViews, setMdShowViews] = createSignal(props.config.show_views !== false);
+	const [mdShowVersion, setMdShowVersion] = createSignal(
+		props.config.show_version !== false,
+	);
+	const [mdShowCreated, setMdShowCreated] = createSignal(
+		props.config.show_created !== false,
+	);
+	const [mdShowUpdated, setMdShowUpdated] = createSignal(
+		props.config.show_updated !== false,
+	);
+	const [mdShowViews, setMdShowViews] = createSignal(
+		props.config.show_views !== false,
+	);
 
 	// ── Build config ────────────────────────────────────────────────────
 	const buildConfig = (): Record<string, unknown> => {
 		const c: Record<string, unknown> = {};
 		const k = props.kind;
 		if (k === "select" || k === "multi_select") {
-			c.options = options().split(",").map((s) => s.trim()).filter(Boolean);
+			c.options = options()
+				.split(",")
+				.map((s) => s.trim())
+				.filter(Boolean);
 		}
 		if (display()) c.display = display();
 		if (k === "number" && max()) c.max = Number(max());
@@ -92,7 +103,11 @@ export function AttributeKindConfig(props: {
 			</Show>
 
 			<Show when={props.kind === "text"}>
-				<select value={display()} onChange={(e) => setDisplay(e.currentTarget.value)} style={s}>
+				<select
+					value={display()}
+					onChange={(e) => setDisplay(e.currentTarget.value)}
+					style={s}
+				>
 					<option value="">Single line (default)</option>
 					<option value="paragraph">Paragraph</option>
 				</select>
@@ -100,19 +115,32 @@ export function AttributeKindConfig(props: {
 
 			<Show when={props.kind === "number"}>
 				<div style={{ display: "flex", gap: "6px", "align-items": "center" }}>
-					<select value={display()} onChange={(e) => setDisplay(e.currentTarget.value)} style={s}>
+					<select
+						value={display()}
+						onChange={(e) => setDisplay(e.currentTarget.value)}
+						style={s}
+					>
 						<option value="">Plain number (default)</option>
 						<option value="rating">Rating</option>
 					</select>
 					<Show when={display() === "rating"}>
-						<input type="number" value={max()} onInput={(e) => setMax(e.currentTarget.value)}
-							placeholder="Max (e.g. 5)" style={{ width: "80px", ...s }} />
+						<input
+							type="number"
+							value={max()}
+							onInput={(e) => setMax(e.currentTarget.value)}
+							placeholder="Max (e.g. 5)"
+							style={{ width: "80px", ...s }}
+						/>
 					</Show>
 				</div>
 			</Show>
 
 			<Show when={props.kind === "file"}>
-				<select value={display()} onChange={(e) => setDisplay(e.currentTarget.value)} style={s}>
+				<select
+					value={display()}
+					onChange={(e) => setDisplay(e.currentTarget.value)}
+					style={s}
+				>
 					<option value="">Download (default)</option>
 					<option value="preview">Preview</option>
 					<option value="player">Player</option>
@@ -120,7 +148,11 @@ export function AttributeKindConfig(props: {
 			</Show>
 
 			<Show when={props.kind === "content"}>
-				<select value={contentMode()} onChange={(e) => setContentMode(e.currentTarget.value)} style={s}>
+				<select
+					value={contentMode()}
+					onChange={(e) => setContentMode(e.currentTarget.value)}
+					style={s}
+				>
 					<option value="markdown">Markdown (default)</option>
 					<option value="plain">Plain text</option>
 					<option value="code">Code</option>
@@ -129,7 +161,11 @@ export function AttributeKindConfig(props: {
 			</Show>
 
 			<Show when={props.kind === "linked_notes" || props.kind === "mentions"}>
-				<select value={lnDirection()} onChange={(e) => setLnDirection(e.currentTarget.value)} style={s}>
+				<select
+					value={lnDirection()}
+					onChange={(e) => setLnDirection(e.currentTarget.value)}
+					style={s}
+				>
 					<option value="outgoing">Outgoing (from this note)</option>
 					<option value="incoming">Incoming (to this note)</option>
 					<option value="both">Both directions</option>
@@ -138,34 +174,87 @@ export function AttributeKindConfig(props: {
 
 			<Show when={props.kind === "history"}>
 				<div style={{ display: "flex", gap: "6px", "align-items": "center" }}>
-					<label style={{ "font-size": "12px" }}>Show last</label>
-					<input type="number" value={historyLimit()} onInput={(e) => setHistoryLimit(e.currentTarget.value)}
-						min="0" max="50" style={{ width: "60px", ...s }} />
-					<span style={{ "font-size": "12px" }}>entries (0 = version info only)</span>
+					<label for="attr-history-limit" style={{ "font-size": "12px" }}>
+						Show last
+					</label>
+					<input
+						id="attr-history-limit"
+						type="number"
+						value={historyLimit()}
+						onInput={(e) => setHistoryLimit(e.currentTarget.value)}
+						min="0"
+						max="50"
+						style={{ width: "60px", ...s }}
+					/>
+					<span style={{ "font-size": "12px" }}>
+						entries (0 = version info only)
+					</span>
 				</div>
 			</Show>
 
 			<Show when={props.kind === "metadata"}>
-				<div style={{ display: "flex", gap: "8px", "flex-wrap": "wrap", "font-size": "12px" }}>
-					<label style={{ display: "flex", "align-items": "center", gap: "3px" }}>
-						<input type="checkbox" checked={mdShowVersion()} onChange={(e) => setMdShowVersion(e.currentTarget.checked)} /> Version
+				<div
+					style={{
+						display: "flex",
+						gap: "8px",
+						"flex-wrap": "wrap",
+						"font-size": "12px",
+					}}
+				>
+					<label
+						style={{ display: "flex", "align-items": "center", gap: "3px" }}
+					>
+						<input
+							type="checkbox"
+							checked={mdShowVersion()}
+							onChange={(e) => setMdShowVersion(e.currentTarget.checked)}
+						/>{" "}
+						Version
 					</label>
-					<label style={{ display: "flex", "align-items": "center", gap: "3px" }}>
-						<input type="checkbox" checked={mdShowCreated()} onChange={(e) => setMdShowCreated(e.currentTarget.checked)} /> Created
+					<label
+						style={{ display: "flex", "align-items": "center", gap: "3px" }}
+					>
+						<input
+							type="checkbox"
+							checked={mdShowCreated()}
+							onChange={(e) => setMdShowCreated(e.currentTarget.checked)}
+						/>{" "}
+						Created
 					</label>
-					<label style={{ display: "flex", "align-items": "center", gap: "3px" }}>
-						<input type="checkbox" checked={mdShowUpdated()} onChange={(e) => setMdShowUpdated(e.currentTarget.checked)} /> Last edited
+					<label
+						style={{ display: "flex", "align-items": "center", gap: "3px" }}
+					>
+						<input
+							type="checkbox"
+							checked={mdShowUpdated()}
+							onChange={(e) => setMdShowUpdated(e.currentTarget.checked)}
+						/>{" "}
+						Last edited
 					</label>
-					<label style={{ display: "flex", "align-items": "center", gap: "3px" }}>
-						<input type="checkbox" checked={mdShowViews()} onChange={(e) => setMdShowViews(e.currentTarget.checked)} /> View count
+					<label
+						style={{ display: "flex", "align-items": "center", gap: "3px" }}
+					>
+						<input
+							type="checkbox"
+							checked={mdShowViews()}
+							onChange={(e) => setMdShowViews(e.currentTarget.checked)}
+						/>{" "}
+						View count
 					</label>
 				</div>
 			</Show>
 
 			<Show when={props.kind === "toc"}>
 				<div style={{ display: "flex", gap: "6px", "align-items": "center" }}>
-					<label style={{ "font-size": "12px" }}>Max heading depth</label>
-					<select value={tocMaxDepth()} onChange={(e) => setTocMaxDepth(e.currentTarget.value)} style={s}>
+					<label for="attr-toc-max-depth" style={{ "font-size": "12px" }}>
+						Max heading depth
+					</label>
+					<select
+						id="attr-toc-max-depth"
+						value={tocMaxDepth()}
+						onChange={(e) => setTocMaxDepth(e.currentTarget.value)}
+						style={s}
+					>
 						<option value="1">h1 only</option>
 						<option value="2">h1–h2</option>
 						<option value="3">h1–h3</option>
@@ -173,7 +262,9 @@ export function AttributeKindConfig(props: {
 						<option value="5">h1–h5</option>
 						<option value="6">All levels</option>
 					</select>
-					<span style={{ "font-size": "11px", color: "var(--color-text-muted)" }}>
+					<span
+						style={{ "font-size": "11px", color: "var(--color-text-muted)" }}
+					>
 						(can be overridden per note)
 					</span>
 				</div>

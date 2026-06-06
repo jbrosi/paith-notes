@@ -51,11 +51,13 @@ const valueSchemas: Record<string, (attr: TypeAttribute) => z.ZodType> = {
 	url: () => z.union([z.literal(""), z.string().url()]),
 
 	graph: () =>
-		z.object({
-			rootNoteId: z.string().optional(),
-			depth: z.number().int().min(1).max(5).optional(),
-			layout: z.enum(["force", "tree", "radial"]).optional(),
-		}).passthrough(),
+		z
+			.object({
+				rootNoteId: z.string().optional(),
+				depth: z.number().int().min(1).max(5).optional(),
+				layout: z.enum(["force", "tree", "radial"]).optional(),
+			})
+			.passthrough(),
 
 	view: () => z.record(z.string(), z.unknown()),
 };
@@ -68,14 +70,18 @@ const nonEmptyStringArray = z
 	.refine((a) => new Set(a).size === a.length, "options must be unique");
 
 const configSchemas: Record<string, z.ZodType> = {
-	text: z.object({
-		display: z.enum(["", "paragraph"]).optional(),
-	}).passthrough(),
+	text: z
+		.object({
+			display: z.enum(["", "paragraph"]).optional(),
+		})
+		.passthrough(),
 
-	number: z.object({
-		display: z.enum(["", "rating"]).optional(),
-		max: z.number().int().min(1).max(100).optional(),
-	}).passthrough(),
+	number: z
+		.object({
+			display: z.enum(["", "rating"]).optional(),
+			max: z.number().int().min(1).max(100).optional(),
+		})
+		.passthrough(),
 
 	boolean: z.object({}).passthrough(),
 
@@ -83,50 +89,68 @@ const configSchemas: Record<string, z.ZodType> = {
 
 	date_range: z.object({}).passthrough(),
 
-	select: z.object({
-		options: nonEmptyStringArray,
-	}).passthrough(),
+	select: z
+		.object({
+			options: nonEmptyStringArray,
+		})
+		.passthrough(),
 
-	multi_select: z.object({
-		options: nonEmptyStringArray,
-	}).passthrough(),
+	multi_select: z
+		.object({
+			options: nonEmptyStringArray,
+		})
+		.passthrough(),
 
 	url: z.object({}).passthrough(),
 
-	file: z.object({
-		display: z.enum(["", "download", "preview", "player"]).optional(),
-	}).passthrough(),
+	file: z
+		.object({
+			display: z.enum(["", "download", "preview", "player"]).optional(),
+		})
+		.passthrough(),
 
 	graph: z.object({}).passthrough(),
 
 	view: z.object({}).passthrough(),
 
-	content: z.object({
-		mode: z.enum(["markdown", "plain", "code", "hidden"]).optional(),
-	}).passthrough(),
+	content: z
+		.object({
+			mode: z.enum(["markdown", "plain", "code", "hidden"]).optional(),
+		})
+		.passthrough(),
 
-	linked_notes: z.object({
-		direction: z.enum(["outgoing", "incoming", "both"]).optional(),
-	}).passthrough(),
+	linked_notes: z
+		.object({
+			direction: z.enum(["outgoing", "incoming", "both"]).optional(),
+		})
+		.passthrough(),
 
-	mentions: z.object({
-		direction: z.enum(["outgoing", "incoming", "both"]).optional(),
-	}).passthrough(),
+	mentions: z
+		.object({
+			direction: z.enum(["outgoing", "incoming", "both"]).optional(),
+		})
+		.passthrough(),
 
-	history: z.object({
-		limit: z.number().int().min(0).max(100).optional(),
-	}).passthrough(),
+	history: z
+		.object({
+			limit: z.number().int().min(0).max(100).optional(),
+		})
+		.passthrough(),
 
-	toc: z.object({
-		max_depth: z.number().int().min(1).max(6).optional(),
-	}).passthrough(),
+	toc: z
+		.object({
+			max_depth: z.number().int().min(1).max(6).optional(),
+		})
+		.passthrough(),
 
-	metadata: z.object({
-		show_version: z.boolean().optional(),
-		show_created: z.boolean().optional(),
-		show_updated: z.boolean().optional(),
-		show_views: z.boolean().optional(),
-	}).passthrough(),
+	metadata: z
+		.object({
+			show_version: z.boolean().optional(),
+			show_created: z.boolean().optional(),
+			show_updated: z.boolean().optional(),
+			show_views: z.boolean().optional(),
+		})
+		.passthrough(),
 
 	source: z.object({}).passthrough(),
 };

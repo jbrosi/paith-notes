@@ -35,8 +35,12 @@ export function FullscreenButton(props: {
 				"line-height": "1",
 				opacity: "0.6",
 			}}
-			onMouseEnter={(e) => { e.currentTarget.style.opacity = "1"; }}
-			onMouseLeave={(e) => { e.currentTarget.style.opacity = "0.6"; }}
+			onMouseEnter={(e) => {
+				e.currentTarget.style.opacity = "1";
+			}}
+			onMouseLeave={(e) => {
+				e.currentTarget.style.opacity = "0.6";
+			}}
 		>
 			<svg
 				width="14"
@@ -47,7 +51,10 @@ export function FullscreenButton(props: {
 				stroke-width="2"
 				stroke-linecap="round"
 				stroke-linejoin="round"
+				role="img"
+				aria-labelledby="fullscreen-toggle-title"
 			>
+				<title id="fullscreen-toggle-title">Toggle fullscreen</title>
 				<path d="M8 3H5a2 2 0 0 0-2 2v3" />
 				<path d="M21 8V5a2 2 0 0 0-2-2h-3" />
 				<path d="M3 16v3a2 2 0 0 0 2 2h3" />

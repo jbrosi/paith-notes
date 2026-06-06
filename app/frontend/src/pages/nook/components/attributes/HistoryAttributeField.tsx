@@ -65,7 +65,9 @@ export function HistoryAttributeField(props: {
 	});
 
 	return (
-		<Show when={entries().length > 0 || (limit() === 0 && currentVersionLabel())}>
+		<Show
+			when={entries().length > 0 || (limit() === 0 && currentVersionLabel())}
+		>
 			<div style={{ "margin-top": "8px" }}>
 				<div
 					style={{
@@ -85,12 +87,14 @@ export function HistoryAttributeField(props: {
 						<FullscreenButton attr={props.attr} store={props.store} />
 					</Show>
 					<Show when={limit() === 0 && currentVersionLabel()}>
-						<span style={{
-							"font-weight": "400",
-							"text-transform": "none",
-							"letter-spacing": "normal",
-							color: "var(--color-text-muted)",
-						}}>
+						<span
+							style={{
+								"font-weight": "400",
+								"text-transform": "none",
+								"letter-spacing": "normal",
+								color: "var(--color-text-muted)",
+							}}
+						>
 							{currentVersionLabel()}
 						</span>
 					</Show>
@@ -100,10 +104,24 @@ export function HistoryAttributeField(props: {
 						const isLink = entry.type === "link";
 						const isFile = entry.type === "file";
 						const actionLabel = isLink
-							? entry.action === "INSERT" ? "linked" : entry.action === "DELETE" ? "unlinked" : "updated link"
+							? entry.action === "INSERT"
+								? "linked"
+								: entry.action === "DELETE"
+									? "unlinked"
+									: "updated link"
 							: isFile
-								? entry.action === "INSERT" ? "uploaded" : entry.action === "UPDATE" ? "re-uploaded" : "removed file"
-								: entry.action === "INSERT" ? "created" : entry.action === "UPDATE" ? "edited" : entry.action === "DELETE" ? "deleted" : entry.action;
+								? entry.action === "INSERT"
+									? "uploaded"
+									: entry.action === "UPDATE"
+										? "re-uploaded"
+										: "removed file"
+								: entry.action === "INSERT"
+									? "created"
+									: entry.action === "UPDATE"
+										? "edited"
+										: entry.action === "DELETE"
+											? "deleted"
+											: entry.action;
 						const versionHref = () => {
 							if (entry.type !== "note" || !entry.version) return "";
 							const nook = nookId();
@@ -122,11 +140,18 @@ export function HistoryAttributeField(props: {
 									"flex-wrap": "wrap",
 								}}
 							>
-								<span style={{ "font-weight": "500", color: "var(--color-text-secondary)" }}>
+								<span
+									style={{
+										"font-weight": "500",
+										color: "var(--color-text-secondary)",
+									}}
+								>
 									{entry.userName || "Unknown"}
 								</span>
 								<span>{actionLabel}</span>
-								<Show when={entry.type === "note" && entry.version && versionHref()}>
+								<Show
+									when={entry.type === "note" && entry.version && versionHref()}
+								>
 									<a
 										href={versionHref()}
 										style={{
@@ -143,7 +168,12 @@ export function HistoryAttributeField(props: {
 									</a>
 								</Show>
 								<Show when={isFile && entry.filename}>
-									<span style={{ "font-size": "0.65rem", color: "var(--color-text-muted)" }}>
+									<span
+										style={{
+											"font-size": "0.65rem",
+											color: "var(--color-text-muted)",
+										}}
+									>
 										{entry.filename}
 									</span>
 								</Show>
@@ -160,7 +190,9 @@ export function HistoryAttributeField(props: {
 						);
 					}}
 				</For>
-				<Show when={props.store.noteHistory().length > limit() && historyHref()}>
+				<Show
+					when={props.store.noteHistory().length > limit() && historyHref()}
+				>
 					<a
 						href={historyHref()}
 						style={{

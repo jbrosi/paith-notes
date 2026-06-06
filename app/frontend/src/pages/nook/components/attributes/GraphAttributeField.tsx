@@ -36,7 +36,13 @@ export function GraphAttributeField(props: {
 			{(gp) => (
 				<div>
 					<Show when={!props.fullscreen}>
-						<div style={{ display: "flex", "justify-content": "flex-end", padding: "4px 0" }}>
+						<div
+							style={{
+								display: "flex",
+								"justify-content": "flex-end",
+								padding: "4px 0",
+							}}
+						>
 							<FullscreenButton attr={props.attr} store={props.store} />
 						</div>
 					</Show>

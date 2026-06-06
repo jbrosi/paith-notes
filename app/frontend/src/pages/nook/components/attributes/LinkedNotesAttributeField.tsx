@@ -31,9 +31,16 @@ export function LinkedNotesAttributeField(props: {
 	const config = () => {
 		const c = props.attr.config;
 		return {
-			direction: String(c.direction ?? "both") as "outgoing" | "incoming" | "both",
-			filterTypeIds: Array.isArray(c.filter_type_ids) ? (c.filter_type_ids as string[]) : [],
-			filterPredicateIds: Array.isArray(c.filter_predicate_ids) ? (c.filter_predicate_ids as string[]) : [],
+			direction: String(c.direction ?? "both") as
+				| "outgoing"
+				| "incoming"
+				| "both",
+			filterTypeIds: Array.isArray(c.filter_type_ids)
+				? (c.filter_type_ids as string[])
+				: [],
+			filterPredicateIds: Array.isArray(c.filter_predicate_ids)
+				? (c.filter_predicate_ids as string[])
+				: [],
 			sort: String(c.sort ?? "title") as "title" | "created" | "updated",
 			display: String(c.display ?? "list"),
 		};
@@ -105,7 +112,12 @@ export function LinkedNotesAttributeField(props: {
 
 		const addItem = (item: LinkedNoteItem) => {
 			if (seen.has(item.noteId) || item.noteId === noteId) return;
-			if (cfg.filterTypeIds.length > 0 && item.typeId && !cfg.filterTypeIds.includes(item.typeId)) return;
+			if (
+				cfg.filterTypeIds.length > 0 &&
+				item.typeId &&
+				!cfg.filterTypeIds.includes(item.typeId)
+			)
+				return;
 			seen.add(item.noteId);
 			result.push(item);
 		};
@@ -113,7 +125,11 @@ export function LinkedNotesAttributeField(props: {
 		// Links (from API)
 		for (const l of links()) {
 			if (cfg.direction !== "both" && l.direction !== cfg.direction) continue;
-			if (cfg.filterPredicateIds.length > 0 && !cfg.filterPredicateIds.includes(l.predicateId)) continue;
+			if (
+				cfg.filterPredicateIds.length > 0 &&
+				!cfg.filterPredicateIds.includes(l.predicateId)
+			)
+				continue;
 			addItem({
 				noteId: l.noteId,
 				noteTitle: l.noteTitle,
@@ -156,7 +172,9 @@ export function LinkedNotesAttributeField(props: {
 						{(item) => (
 							<button
 								type="button"
-								onClick={() => props.store.onNoteLinkClick(item.noteId, item.nookId)}
+								onClick={() =>
+									props.store.onNoteLinkClick(item.noteId, item.nookId)
+								}
 								style={{
 									display: "block",
 									width: "100%",
@@ -172,7 +190,13 @@ export function LinkedNotesAttributeField(props: {
 							>
 								{item.noteTitle || "(untitled)"}
 								<Show when={item.predicateLabel}>
-									<span style={{ color: "var(--color-text-muted)", "margin-left": "6px", "font-size": "0.7rem" }}>
+									<span
+										style={{
+											color: "var(--color-text-muted)",
+											"margin-left": "6px",
+											"font-size": "0.7rem",
+										}}
+									>
 										{item.predicateLabel}
 									</span>
 								</Show>

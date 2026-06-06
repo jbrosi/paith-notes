@@ -299,7 +299,10 @@ const NoteTypeApiSchema = z
 		description: t.description ?? "",
 		parentId: t.parent_id ?? "",
 		attributeLayout: (t.attribute_layout ?? null) as AttributeLayout,
-		configOverrides: (t.config_overrides ?? {}) as Record<string, Record<string, unknown>>,
+		configOverrides: (t.config_overrides ?? {}) as Record<
+			string,
+			Record<string, unknown>
+		>,
 		attributes: t.attributes ?? [],
 		createdAt: t.created_at,
 		updatedAt: t.updated_at,

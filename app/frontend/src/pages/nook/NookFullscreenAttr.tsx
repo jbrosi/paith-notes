@@ -39,21 +39,35 @@ export function NookFullscreenAttr(props: NookFullscreenAttrProps) {
 	};
 
 	return (
-		<div style={{ width: "100%", height: "100%", display: "flex", "flex-direction": "column" }}>
-			<div style={{
+		<div
+			style={{
+				width: "100%",
+				height: "100%",
 				display: "flex",
-				"align-items": "center",
-				gap: "12px",
-				padding: "12px 16px",
-				"border-bottom": "1px solid var(--color-border-light)",
-				"flex-shrink": "0",
-			}}>
+				"flex-direction": "column",
+			}}
+		>
+			<div
+				style={{
+					display: "flex",
+					"align-items": "center",
+					gap: "12px",
+					padding: "12px 16px",
+					"border-bottom": "1px solid var(--color-border-light)",
+					"flex-shrink": "0",
+				}}
+			>
 				<Button variant="secondary" size="small" onClick={goBack}>
 					Back
 				</Button>
 				<Show when={attr()}>
-					<span style={{ "font-size": "0.9rem", color: "var(--color-text-secondary)" }}>
-						{props.store.title()} — <strong>{attr()!.name}</strong>
+					<span
+						style={{
+							"font-size": "0.9rem",
+							color: "var(--color-text-secondary)",
+						}}
+					>
+						{props.store.title()} — <strong>{attr()?.name}</strong>
 					</span>
 				</Show>
 			</div>
@@ -82,12 +96,22 @@ function FullscreenField(props: { attr: TypeAttribute; store: NookStore }) {
 
 	switch (props.attr.kind) {
 		case "content":
-			return <ContentAttributeField attr={props.attr} store={props.store} fullscreen />;
+			return (
+				<ContentAttributeField
+					attr={props.attr}
+					store={props.store}
+					fullscreen
+				/>
+			);
 		case "graph":
 			return (
 				<GraphAttributeField
 					attr={props.attr}
-					value={noteAttributes()[props.attr.id] as Record<string, unknown> | undefined}
+					value={
+						noteAttributes()[props.attr.id] as
+							| Record<string, unknown>
+							| undefined
+					}
 					onChange={setAttr}
 					store={props.store}
 					fullscreen
@@ -97,25 +121,65 @@ function FullscreenField(props: { attr: TypeAttribute; store: NookStore }) {
 			return (
 				<ViewAttributeField
 					attr={props.attr}
-					value={noteAttributes()[props.attr.id] as Record<string, unknown> | undefined}
+					value={
+						noteAttributes()[props.attr.id] as
+							| Record<string, unknown>
+							| undefined
+					}
 					onChange={setAttr}
 					store={props.store}
 					fullscreen
 				/>
 			);
 		case "linked_notes":
-			return <LinkedNotesAttributeField attr={props.attr} store={props.store} fullscreen />;
+			return (
+				<LinkedNotesAttributeField
+					attr={props.attr}
+					store={props.store}
+					fullscreen
+				/>
+			);
 		case "mentions":
-			return <MentionsAttributeField attr={props.attr} store={props.store} fullscreen />;
+			return (
+				<MentionsAttributeField
+					attr={props.attr}
+					store={props.store}
+					fullscreen
+				/>
+			);
 		case "metadata":
-			return <MetadataAttributeField attr={props.attr} store={props.store} fullscreen />;
+			return (
+				<MetadataAttributeField
+					attr={props.attr}
+					store={props.store}
+					fullscreen
+				/>
+			);
 		case "toc":
-			return <TocAttributeField attr={props.attr} store={props.store} fullscreen />;
+			return (
+				<TocAttributeField attr={props.attr} store={props.store} fullscreen />
+			);
 		case "history":
-			return <HistoryAttributeField attr={props.attr} store={props.store} fullscreen />;
+			return (
+				<HistoryAttributeField
+					attr={props.attr}
+					store={props.store}
+					fullscreen
+				/>
+			);
 		case "source":
-			return <SourceAttributeField attr={props.attr} store={props.store} fullscreen />;
+			return (
+				<SourceAttributeField
+					attr={props.attr}
+					store={props.store}
+					fullscreen
+				/>
+			);
 		default:
-			return <div style={{ color: "var(--color-text-muted)" }}>This attribute kind cannot be displayed fullscreen.</div>;
+			return (
+				<div style={{ color: "var(--color-text-muted)" }}>
+					This attribute kind cannot be displayed fullscreen.
+				</div>
+			);
 	}
 }

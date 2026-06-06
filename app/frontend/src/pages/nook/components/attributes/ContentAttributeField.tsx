@@ -120,7 +120,8 @@ export function ContentAttributeField(props: {
 						style={{
 							width: "100%",
 							padding: "8px",
-							"font-family": "ui-monospace, 'Cascadia Code', 'Fira Code', monospace",
+							"font-family":
+								"ui-monospace, 'Cascadia Code', 'Fira Code', monospace",
 							"font-size": "0.8rem",
 							"box-sizing": "border-box",
 							border: "1px solid var(--color-border-light)",
@@ -134,7 +135,8 @@ export function ContentAttributeField(props: {
 					style={{
 						"white-space": "pre-wrap",
 						"word-break": "break-word",
-						"font-family": "ui-monospace, 'Cascadia Code', 'Fira Code', monospace",
+						"font-family":
+							"ui-monospace, 'Cascadia Code', 'Fira Code', monospace",
 						"font-size": "0.8rem",
 						padding: "12px",
 						background: "var(--color-bg-secondary, #f9fafb)",

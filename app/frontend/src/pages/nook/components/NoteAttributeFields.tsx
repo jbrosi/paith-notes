@@ -1,4 +1,4 @@
-import { createMemo, For, Show } from "solid-js";
+import { createMemo, For } from "solid-js";
 import type { NookStore } from "../store";
 import type { TypeAttribute } from "../types";
 import { AttributeField } from "./attributes/AttributeField";
@@ -15,8 +15,15 @@ import { ViewAttributeField } from "./attributes/ViewAttributeField";
 
 /** Kinds rendered inline as simple form fields — grouped together with a border */
 const SIMPLE_KINDS = new Set([
-	"text", "number", "boolean", "date", "date_range",
-	"select", "multi_select", "url", "file",
+	"text",
+	"number",
+	"boolean",
+	"date",
+	"date_range",
+	"select",
+	"multi_select",
+	"url",
+	"file",
 ]);
 
 export function NoteAttributeFields(props: {
@@ -60,7 +67,10 @@ export function NoteAttributeFields(props: {
 	});
 
 	const noteAttributes = () =>
-		(props.valuesOverride ?? props.store.noteAttributes?.() ?? {}) as Record<string, unknown>;
+		(props.valuesOverride ?? props.store.noteAttributes?.() ?? {}) as Record<
+			string,
+			unknown
+		>;
 
 	const setAttr = (attrId: string, value: unknown) => {
 		if (props.readonly) return;
@@ -70,7 +80,10 @@ export function NoteAttributeFields(props: {
 	// Group consecutive simple attributes together for visual grouping
 	const renderGroups = createMemo(() => {
 		const attrs = attributes();
-		const groups: Array<{ type: "simple"; attrs: TypeAttribute[] } | { type: "single"; attr: TypeAttribute }> = [];
+		const groups: Array<
+			| { type: "simple"; attrs: TypeAttribute[] }
+			| { type: "single"; attr: TypeAttribute }
+		> = [];
 		let currentSimple: TypeAttribute[] = [];
 
 		const flushSimple = () => {
@@ -135,7 +148,11 @@ export function NoteAttributeFields(props: {
 						return (
 							<GraphAttributeField
 								attr={attr}
-								value={noteAttributes()[attr.id] as Record<string, unknown> | undefined}
+								value={
+									noteAttributes()[attr.id] as
+										| Record<string, unknown>
+										| undefined
+								}
 								onChange={(v) => setAttr(attr.id, v)}
 								store={props.store}
 							/>
@@ -144,13 +161,19 @@ export function NoteAttributeFields(props: {
 						return (
 							<ViewAttributeField
 								attr={attr}
-								value={noteAttributes()[attr.id] as Record<string, unknown> | undefined}
+								value={
+									noteAttributes()[attr.id] as
+										| Record<string, unknown>
+										| undefined
+								}
 								onChange={(v) => setAttr(attr.id, v)}
 								store={props.store}
 							/>
 						);
 					case "linked_notes":
-						return <LinkedNotesAttributeField attr={attr} store={props.store} />;
+						return (
+							<LinkedNotesAttributeField attr={attr} store={props.store} />
+						);
 					case "mentions":
 						return <MentionsAttributeField attr={attr} store={props.store} />;
 					case "metadata":

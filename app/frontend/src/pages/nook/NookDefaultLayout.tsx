@@ -10,13 +10,13 @@ import {
 import { createNotePreview } from "../../components/NotePreview";
 import { attachSwipe } from "../../ui/swipe";
 import { useUi } from "../../ui/UiContext";
+import { NoteAttributeFields } from "./components/NoteAttributeFields";
 import { NotePreviewProvider } from "./NookContext";
 import { NookDashboard } from "./NookDashboard";
 import styles from "./NookDefaultLayout.module.css";
 import { NookMainPanel } from "./NookMainPanel";
 import type { NookStore } from "./store";
 import type { Panel } from "./types";
-import { NoteAttributeFields } from "./components/NoteAttributeFields";
 
 export type NookDefaultLayoutProps = {
 	nookId: string;
@@ -47,8 +47,13 @@ export function NookDefaultLayout(props: NookDefaultLayoutProps) {
 		return props.store.resolveTypeLayout(typeId);
 	});
 
-	const mainPanel = createMemo(() =>
-		resolvedPanels().find((p) => p.position === "main") ?? { key: "main", position: "main" as const, attributes: [] },
+	const mainPanel = createMemo(
+		() =>
+			resolvedPanels().find((p) => p.position === "main") ?? {
+				key: "main",
+				position: "main" as const,
+				attributes: [],
+			},
 	);
 
 	const rightPanels = createMemo(() =>
@@ -70,11 +75,11 @@ export function NookDefaultLayout(props: NookDefaultLayoutProps) {
 	);
 
 	// Show sidebars only when panels exist and toggle is on
-	const showRightSidebar = createMemo(() =>
-		ui.sidebarRightOpen() && rightPanels().length > 0,
+	const showRightSidebar = createMemo(
+		() => ui.sidebarRightOpen() && rightPanels().length > 0,
 	);
-	const showLeftSidebar = createMemo(() =>
-		ui.sidebarLeftOpen() && leftPanels().length > 0,
+	const showLeftSidebar = createMemo(
+		() => ui.sidebarLeftOpen() && leftPanels().length > 0,
 	);
 
 	const [activeSideTab, setActiveSideTab] = createSignal("");
@@ -173,10 +178,7 @@ export function NookDefaultLayout(props: NookDefaultLayoutProps) {
 					</div>
 				}
 			>
-				<div
-					ref={layoutEl}
-					class={styles.layout}
-				>
+				<div ref={layoutEl} class={styles.layout}>
 					{/* Desktop: left sidebar */}
 					<Show when={showLeftSidebar()}>
 						<SidebarContainer
@@ -191,11 +193,16 @@ export function NookDefaultLayout(props: NookDefaultLayoutProps) {
 					{/* Main scrollable area — hidden on mobile when another panel is active */}
 					<div
 						class={styles.mainScroll}
-						classList={{ [styles.mobileHidden]: ui.activePanel() !== mainPanel().key }}
+						classList={{
+							[styles.mobileHidden]: ui.activePanel() !== mainPanel().key,
+						}}
 					>
 						<div class={styles.mainScrollInner}>
 							<div class={styles.panelContent}>
-								<NookMainPanel store={props.store} panelFilter={mainPanel().key} />
+								<NookMainPanel
+									store={props.store}
+									panelFilter={mainPanel().key}
+								/>
 							</div>
 						</div>
 					</div>
@@ -216,10 +223,18 @@ export function NookDefaultLayout(props: NookDefaultLayoutProps) {
 						{(panel) => (
 							<div
 								class={styles.mobilePanel}
-								classList={{ [styles.mobilePanelActive]: ui.activePanel() === panel.key }}
+								classList={{
+									[styles.mobilePanelActive]: ui.activePanel() === panel.key,
+								}}
 							>
 								<div style={{ padding: "8px 0" }}>
-									<h3 style={{ margin: "0 0 8px", "font-size": "14px", color: "var(--color-text-secondary)" }}>
+									<h3
+										style={{
+											margin: "0 0 8px",
+											"font-size": "14px",
+											color: "var(--color-text-secondary)",
+										}}
+									>
 										{panelLabel(panel)}
 									</h3>
 									<NoteAttributeFields
@@ -236,7 +251,8 @@ export function NookDefaultLayout(props: NookDefaultLayoutProps) {
 				<div class={styles.panelIndicator}>
 					<For each={ui.mobilePanels()}>
 						{(panelKey) => {
-							const panel = () => resolvedPanels().find((p) => p.key === panelKey);
+							const panel = () =>
+								resolvedPanels().find((p) => p.key === panelKey);
 							return (
 								<button
 									type="button"
@@ -249,7 +265,9 @@ export function NookDefaultLayout(props: NookDefaultLayoutProps) {
 					</For>
 					<span class={styles.dotLabel}>
 						{(() => {
-							const panel = resolvedPanels().find((p) => p.key === ui.activePanel());
+							const panel = resolvedPanels().find(
+								(p) => p.key === ui.activePanel(),
+							);
 							return panel?.label || ui.activePanel();
 						})()}
 					</span>
@@ -294,7 +312,12 @@ function SidebarContainer(props: {
 			<div class={styles.sidePanelBody}>
 				<For each={props.panels}>
 					{(panel) => (
-						<div style={{ display: props.activeSideTab() === panel.key ? undefined : "none" }}>
+						<div
+							style={{
+								display:
+									props.activeSideTab() === panel.key ? undefined : "none",
+							}}
+						>
 							<NoteAttributeFields
 								store={props.store}
 								panelFilter={panel.key}

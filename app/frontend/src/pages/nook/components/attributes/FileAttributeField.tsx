@@ -106,7 +106,11 @@ export function FileAttributeField(props: {
 	return (
 		<div>
 			<div
-				style={{ "font-size": "12px", color: "var(--color-text-secondary)", "margin-bottom": "4px" }}
+				style={{
+					"font-size": "12px",
+					color: "var(--color-text-secondary)",
+					"margin-bottom": "4px",
+				}}
 			>
 				{props.attr.name}
 			</div>
@@ -138,12 +142,16 @@ export function FileAttributeField(props: {
 					<button type="button" onClick={() => void onDownload()}>
 						Download
 					</button>
-					<span style={{ "font-size": "12px", color: "var(--color-text-muted)" }}>
+					<span
+						style={{ "font-size": "12px", color: "var(--color-text-muted)" }}
+					>
 						{filename()} ({Math.round(size() / 1024)}KB)
 					</span>
 				</Show>
 				<Show when={uploading()}>
-					<span style={{ "font-size": "12px", color: "var(--color-text-muted)" }}>
+					<span
+						style={{ "font-size": "12px", color: "var(--color-text-muted)" }}
+					>
 						Uploading...
 					</span>
 				</Show>
