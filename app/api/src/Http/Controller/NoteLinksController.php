@@ -9,6 +9,7 @@ use Paith\Notes\Api\Http\HttpError;
 use Paith\Notes\Api\Http\JsonResponse;
 use Paith\Notes\Api\Http\Request;
 use Paith\Notes\Api\Http\Response;
+use Paith\Notes\Api\Http\Dto\CreateNoteLinkRequest;
 use Paith\Notes\Shared\Db\Row;
 use PDO;
 use Throwable;
@@ -373,39 +374,17 @@ final class NoteLinksController
         NookAccess::requireWriteAccess($pdo, $user, $nookId);
         $this->ensureDefaultRelatesTo($pdo, $nookId);
 
-        $data = $request->jsonBody();
+        $payload = CreateNoteLinkRequest::fromJson($request->jsonBody());
 
-        $predicateId = JsonReader::optionalTrimmedString($data, 'predicate_id');
-        if ($predicateId === '') {
-            throw new HttpError('predicate_id is required', 400);
-        }
-        if (!Uuid::isValid($predicateId)) {
-            throw new HttpError('predicate_id must be a UUID', 400);
-        }
-
-        $targetNoteId = JsonReader::optionalTrimmedString($data, 'target_note_id');
-        if ($targetNoteId === '') {
-            throw new HttpError('target_note_id is required', 400);
-        }
-        if (!Uuid::isValid($targetNoteId)) {
-            throw new HttpError('target_note_id must be a UUID', 400);
-        }
-        if ($targetNoteId === $sourceNoteId) {
+        if ($payload->targetNoteId === $sourceNoteId) {
             throw new HttpError('cannot link a note to itself', 400);
-        }
-
-        $startDate = self::normalizeDate($data['start_date'] ?? null);
-        $endDate = self::normalizeDate($data['end_date'] ?? null);
-
-        if ($startDate !== '' && $endDate !== '' && $startDate > $endDate) {
-            throw new HttpError('start_date must be <= end_date', 400);
         }
 
         $predStmt = $pdo->prepare(
             'select key, forward_label, reverse_label, supports_start_date, supports_end_date '
             . 'from global.link_predicates where id = :id and nook_id = :nook_id'
         );
-        $predStmt->execute([':id' => $predicateId, ':nook_id' => $nookId]);
+        $predStmt->execute([':id' => $payload->predicateId, ':nook_id' => $nookId]);
         $pred = $predStmt->fetch(PDO::FETCH_ASSOC);
         if (!is_array($pred)) {
             throw new HttpError('predicate not found', 404);
@@ -414,10 +393,10 @@ final class NoteLinksController
         $supportsStart = (bool)($pred['supports_start_date'] ?? false);
         $supportsEnd = (bool)($pred['supports_end_date'] ?? false);
 
-        if ($startDate !== '' && !$supportsStart) {
+        if ($payload->startDate !== null && !$supportsStart) {
             throw new HttpError('predicate does not support start_date', 400);
         }
-        if ($endDate !== '' && !$supportsEnd) {
+        if ($payload->endDate !== null && !$supportsEnd) {
             throw new HttpError('predicate does not support end_date', 400);
         }
 
@@ -429,7 +408,7 @@ final class NoteLinksController
         }
 
         $targetStmt = $pdo->prepare('select id, type_id from global.notes where id = :id and nook_id = :nook_id');
-        $targetStmt->execute([':id' => $targetNoteId, ':nook_id' => $nookId]);
+        $targetStmt->execute([':id' => $payload->targetNoteId, ':nook_id' => $nookId]);
         $target = $targetStmt->fetch(PDO::FETCH_ASSOC);
         if (!is_array($target)) {
             throw new HttpError('target note not found', 404);
@@ -438,7 +417,7 @@ final class NoteLinksController
         $sourceTypeId = is_scalar($source['type_id'] ?? null) ? trim((string)$source['type_id']) : '';
         $targetTypeId = is_scalar($target['type_id'] ?? null) ? trim((string)$target['type_id']) : '';
 
-        if (!$this->isPredicateAllowedForTypes($pdo, $nookId, $predicateId, $sourceTypeId, $targetTypeId)) {
+        if (!$this->isPredicateAllowedForTypes($pdo, $nookId, $payload->predicateId, $sourceTypeId, $targetTypeId)) {
             throw new HttpError('predicate not allowed for these note types', 400);
         }
 
@@ -452,11 +431,11 @@ final class NoteLinksController
             );
             $stmt->execute([
                 ':nook_id' => $nookId,
-                ':predicate_id' => $predicateId,
+                ':predicate_id' => $payload->predicateId,
                 ':source_note_id' => $sourceNoteId,
-                ':target_note_id' => $targetNoteId,
-                ':start_date' => $startDate !== '' ? $startDate : null,
-                ':end_date' => $endDate !== '' ? $endDate : null,
+                ':target_note_id' => $payload->targetNoteId,
+                ':start_date' => $payload->startDate,
+                ':end_date' => $payload->endDate,
             ]);
 
             $row = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -470,16 +449,16 @@ final class NoteLinksController
                 'link' => [
                     'id' => Row::str($row, 'id'),
                     'nook_id' => $nookId,
-                    'predicate_id' => $predicateId,
+                    'predicate_id' => $payload->predicateId,
                     'predicate_key' => Row::str($pred, 'key'),
                     'forward_label' => Row::str($pred, 'forward_label'),
                     'reverse_label' => Row::str($pred, 'reverse_label'),
                     'supports_start_date' => $supportsStart,
                     'supports_end_date' => $supportsEnd,
                     'source_note_id' => $sourceNoteId,
-                    'target_note_id' => $targetNoteId,
-                    'start_date' => $startDate,
-                    'end_date' => $endDate,
+                    'target_note_id' => $payload->targetNoteId,
+                    'start_date' => $payload->startDate ?? '',
+                    'end_date' => $payload->endDate ?? '',
                     'former' => (object)[],
                     'created_at' => Row::str($row, 'created_at'),
                     'updated_at' => Row::str($row, 'updated_at'),
@@ -610,28 +589,6 @@ final class NoteLinksController
 
         return $out;
     }
-
-    private static function normalizeDate(mixed $value): string
-    {
-        if ($value === null) {
-            return '';
-        }
-        if (!is_string($value)) {
-            throw new HttpError('date must be a string (YYYY-MM-DD)', 400);
-        }
-
-        $v = trim($value);
-        if ($v === '') {
-            return '';
-        }
-
-        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $v)) {
-            throw new HttpError('date must be in format YYYY-MM-DD', 400);
-        }
-
-        return $v;
-    }
-
 
     private function ensureDefaultRelatesTo(PDO $pdo, string $nookId): void
     {
