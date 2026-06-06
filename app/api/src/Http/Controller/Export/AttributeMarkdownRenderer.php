@@ -4,23 +4,31 @@ declare(strict_types=1);
 
 namespace Paith\Notes\Api\Http\Controller\Export;
 
+use Paith\Notes\Shared\Db\Row;
+
 /**
  * Renders note attributes to markdown for export.
  *
  * Each attribute kind has a render function that produces human-readable
  * markdown. Presentational-only kinds (toc, history, metadata, content, source)
  * are skipped — they have no user data to render.
+ *
+ * @phpstan-import-type RenderContext from ExportTypes
+ * @phpstan-import-type AttrRow from ExportTypes
+ * @phpstan-import-type FileRow from ExportTypes
+ * @phpstan-import-type NoteLinkSummary from ExportTypes
  */
 final class AttributeMarkdownRenderer
 {
     /**
      * Render a single attribute value to markdown.
      *
-     * @param string               $kind       Attribute kind
-     * @param mixed                $value      The stored attribute value
-     * @param array<string, mixed> $config     Attribute config (options, display, etc.)
-     * @param array<string, mixed> $context    Extra context: noteMap, noteTitles, noteFiles, noteDir, attrById
-     * @return string|null  Rendered markdown, or null to skip
+     * Context-driven kinds (file, linked_notes, mentions, graph) require a
+     * populated RenderContext. When the context is empty (e.g. callers that
+     * only render scalar data kinds), those kinds short-circuit to null.
+     *
+     * @param array<string, mixed>  $config   Attribute config
+     * @param RenderContext|array{} $context  Per-note render context, or [] for scalar-only callers
      */
     public static function render(string $kind, mixed $value, array $config = [], array $context = []): ?string
     {
@@ -34,11 +42,11 @@ final class AttributeMarkdownRenderer
             'select' => $value !== null ? self::renderSelect($value) : null,
             'multi_select' => $value !== null ? self::renderMultiSelect($value) : null,
             'url' => $value !== null ? self::renderUrl($value) : null,
-            // Context-driven kinds — value is optional, data comes from context
-            'file' => self::renderFile($value, $context),
-            'linked_notes' => self::renderLinkedNotes($context),
-            'mentions' => self::renderMentions($context),
-            'graph' => self::renderGraph($value, $context),
+            // Context-driven kinds — only when context is populated
+            'file' => $context === [] ? null : self::renderFile($context),
+            'linked_notes' => $context === [] ? null : self::renderLinkedNotes($context),
+            'mentions' => $context === [] ? null : self::renderMentions($context),
+            'graph' => $context === [] ? null : self::renderGraph($value, $context),
             // Presentational — no user data to export
             'history', 'toc', 'metadata', 'content', 'source' => null,
             default => null,
@@ -51,9 +59,9 @@ final class AttributeMarkdownRenderer
      * Returns { before: md, after: md } — content goes between them.
      * If no content attribute exists, everything goes in "after".
      *
-     * @param array<string, mixed>       $rawAttrs   Note attributes { attr_id → value }
-     * @param list<array<string, mixed>> $attrDefs   Attribute definitions in layout order
-     * @param array<string, mixed>       $context    Shared context for rendering
+     * @param array<string, mixed> $rawAttrs  Note attributes { attr_id → value }
+     * @param list<AttrRow>        $attrDefs  Attribute definitions in layout order
+     * @param RenderContext        $context   Shared context for rendering
      * @return array{before: string, after: string}
      */
     public static function renderSplit(array $rawAttrs, array $attrDefs, array $context): array
@@ -63,19 +71,16 @@ final class AttributeMarkdownRenderer
         $seenContent = false;
 
         foreach ($attrDefs as $def) {
-            $kind = $def['kind'] ?? '';
+            $kind = $def['kind'];
 
             if ($kind === 'content') {
                 $seenContent = true;
                 continue;
             }
 
-            $attrId = $def['id'] ?? '';
-            $name = $def['name'] ?? '';
-            $config = is_string($def['config'] ?? null) ? json_decode($def['config'], true) : ($def['config'] ?? []);
-            if (!is_array($config)) {
-                $config = [];
-            }
+            $attrId = $def['id'];
+            $name = $def['name'];
+            $config = Row::decodeJsonObject($def['config']);
 
             $value = $rawAttrs[$attrId] ?? null;
             $rendered = self::render($kind, $value, $config, $context);
@@ -92,12 +97,12 @@ final class AttributeMarkdownRenderer
         }
 
         $beforeMd = '';
-        if ($before) {
+        if ($before !== []) {
             $beforeMd = implode("\n\n", $before) . "\n\n";
         }
 
         $afterMd = '';
-        if ($after) {
+        if ($after !== []) {
             $afterMd = "\n\n---\n\n" . implode("\n\n", $after);
         }
 
@@ -108,10 +113,13 @@ final class AttributeMarkdownRenderer
 
     private static function renderText(mixed $value): ?string
     {
-        $s = (string) $value;
+        $s = is_scalar($value) ? (string)$value : '';
         return $s !== '' ? $s : null;
     }
 
+    /**
+     * @param array<string, mixed> $config
+     */
     private static function renderNumber(mixed $value, array $config): ?string
     {
         if (!is_numeric($value)) {
@@ -122,16 +130,17 @@ final class AttributeMarkdownRenderer
         // Rating display: render as stars
         $display = $config['display'] ?? null;
         if ($display === 'rating' || $display === 'stars') {
-            $max = (int) ($config['max'] ?? 5);
+            $maxRaw = $config['max'] ?? 5;
+            $max = is_numeric($maxRaw) ? (int)$maxRaw : 5;
             $filled = (int) round($num);
             $filled = max(0, min($filled, $max));
             return str_repeat('★', $filled) . str_repeat('☆', $max - $filled);
         }
 
         // Suffix/prefix
-        $suffix = $config['suffix'] ?? '';
-        $prefix = $config['prefix'] ?? '';
-        $formatted = is_float($num) && floor($num) !== $num
+        $suffix = is_scalar($config['suffix'] ?? null) ? (string)$config['suffix'] : '';
+        $prefix = is_scalar($config['prefix'] ?? null) ? (string)$config['prefix'] : '';
+        $formatted = floor($num) !== $num
             ? rtrim(rtrim(number_format($num, 2), '0'), '.')
             : (string) (int) $num;
 
@@ -145,7 +154,7 @@ final class AttributeMarkdownRenderer
 
     private static function renderDate(mixed $value): ?string
     {
-        $s = (string) $value;
+        $s = is_scalar($value) ? (string)$value : '';
         return $s !== '' ? $s : null;
     }
 
@@ -154,8 +163,8 @@ final class AttributeMarkdownRenderer
         if (!is_array($value)) {
             return null;
         }
-        $from = (string) ($value['from'] ?? '');
-        $to = (string) ($value['to'] ?? '');
+        $from = is_scalar($value['from'] ?? null) ? (string)$value['from'] : '';
+        $to = is_scalar($value['to'] ?? null) ? (string)$value['to'] : '';
         if ($from === '' && $to === '') {
             return null;
         }
@@ -170,21 +179,27 @@ final class AttributeMarkdownRenderer
 
     private static function renderSelect(mixed $value): ?string
     {
-        $s = (string) $value;
+        $s = is_scalar($value) ? (string)$value : '';
         return $s !== '' ? "`{$s}`" : null;
     }
 
     private static function renderMultiSelect(mixed $value): ?string
     {
-        if (!is_array($value) || empty($value)) {
+        if (!is_array($value) || $value === []) {
             return null;
         }
-        return implode(' ', array_map(fn($v) => "`{$v}`", $value));
+        $parts = [];
+        foreach ($value as $v) {
+            if (is_scalar($v)) {
+                $parts[] = '`' . (string)$v . '`';
+            }
+        }
+        return $parts === [] ? null : implode(' ', $parts);
     }
 
     private static function renderUrl(mixed $value): ?string
     {
-        $url = (string) $value;
+        $url = is_scalar($value) ? (string)$value : '';
         if ($url === '') {
             return null;
         }
@@ -193,40 +208,40 @@ final class AttributeMarkdownRenderer
         return "[{$host}]({$url})";
     }
 
-    private static function renderFile(mixed $value, array $context): ?string
+    /**
+     * @param RenderContext $context
+     */
+    private static function renderFile(array $context): ?string
     {
-        $noteId = $context['note_id'] ?? '';
-        $noteTitles = $context['noteTitles'] ?? [];
-        $noteFiles = $context['noteFiles'] ?? [];
-        $noteDir = $context['noteDir'] ?? '';
-        $attrById = $context['attrById'] ?? [];
+        $noteId = $context['note_id'];
+        $noteTitles = $context['noteTitles'];
+        $noteFiles = $context['noteFiles'];
+        $noteDir = $context['noteDir'];
+        $attrById = $context['attrById'];
 
         $files = $noteFiles[$noteId] ?? [];
-        if (empty($files)) {
+        if ($files === []) {
             return null;
         }
 
         $noteTitle = $noteTitles[$noteId] ?? 'Untitled';
         $lines = [];
         foreach ($files as $f) {
-            $filename = (string) ($f['filename'] ?? 'file');
-            $ext = (string) ($f['extension'] ?? '');
-            $fullFilename = ExportHelpers::buildFilename($filename, $ext);
-            $mime = (string) ($f['mime_type'] ?? '');
+            $fullFilename = ExportHelpers::buildFilename($f['filename'], $f['extension']);
 
             $attrName = null;
-            if (isset($f['attribute_id'], $attrById[$f['attribute_id']])) {
-                $attrName = self::safeFilename($attrById[$f['attribute_id']]['name']);
+            if ($f['attribute_id'] !== null && isset($attrById[$f['attribute_id']])) {
+                $attrName = ExportHelpers::safeFilename($attrById[$f['attribute_id']]['name']);
             }
             $fileZipPath = ExportHelpers::buildFileZipPath($noteTitle, $attrName, $fullFilename);
 
-            $rel = self::relativePath("notes/{$noteDir}", $fileZipPath);
-            $isImage = str_starts_with($mime, 'image/');
+            $rel = ExportHelpers::relativePath("notes/{$noteDir}", $fileZipPath);
+            $isImage = str_starts_with($f['mime_type'], 'image/');
 
             if ($isImage) {
                 $lines[] = "![{$fullFilename}]({$rel})";
             } else {
-                $size = self::humanFilesize((int) ($f['filesize'] ?? 0));
+                $size = ExportHelpers::humanFilesize($f['filesize']);
                 $lines[] = "[{$fullFilename}]({$rel}) ({$size})";
             }
         }
@@ -234,16 +249,19 @@ final class AttributeMarkdownRenderer
         return implode("\n\n", $lines);
     }
 
+    /**
+     * @param RenderContext $context
+     */
     private static function renderLinkedNotes(array $context): ?string
     {
-        $noteId = $context['note_id'] ?? '';
-        $linksBySource = $context['linksBySource'] ?? [];
-        $noteTitles = $context['noteTitles'] ?? [];
-        $noteMap = $context['noteMap'] ?? [];
-        $noteDir = $context['noteDir'] ?? '';
+        $noteId = $context['note_id'];
+        $linksBySource = $context['linksBySource'];
+        $noteTitles = $context['noteTitles'];
+        $noteMap = $context['noteMap'];
+        $noteDir = $context['noteDir'];
 
         $links = $linksBySource[$noteId] ?? [];
-        if (empty($links)) {
+        if ($links === []) {
             return null;
         }
 
@@ -253,8 +271,8 @@ final class AttributeMarkdownRenderer
             $title = $noteTitles[$targetId] ?? $targetId;
             $predicate = $link['predicate'];
             $targetPath = $noteMap[$targetId] ?? null;
-            if ($targetPath) {
-                $rel = self::relativePath($noteDir, $targetPath);
+            if ($targetPath !== null && $targetPath !== '') {
+                $rel = ExportHelpers::relativePath($noteDir, $targetPath);
                 $lines[] = "- **{$predicate}**: [{$title}]({$rel})";
             } else {
                 $lines[] = "- **{$predicate}**: {$title}";
@@ -264,16 +282,19 @@ final class AttributeMarkdownRenderer
         return implode("\n", $lines);
     }
 
+    /**
+     * @param RenderContext $context
+     */
     private static function renderMentions(array $context): ?string
     {
-        $noteId = $context['note_id'] ?? '';
-        $mentionsBySource = $context['mentionsBySource'] ?? [];
-        $noteTitles = $context['noteTitles'] ?? [];
-        $noteMap = $context['noteMap'] ?? [];
-        $noteDir = $context['noteDir'] ?? '';
+        $noteId = $context['note_id'];
+        $mentionsBySource = $context['mentionsBySource'];
+        $noteTitles = $context['noteTitles'];
+        $noteMap = $context['noteMap'];
+        $noteDir = $context['noteDir'];
 
         $mentions = $mentionsBySource[$noteId] ?? [];
-        if (empty($mentions)) {
+        if ($mentions === []) {
             return null;
         }
 
@@ -281,8 +302,8 @@ final class AttributeMarkdownRenderer
         foreach ($mentions as $mid) {
             $title = $noteTitles[$mid] ?? $mid;
             $targetPath = $noteMap[$mid] ?? null;
-            if ($targetPath) {
-                $rel = self::relativePath($noteDir, $targetPath);
+            if ($targetPath !== null && $targetPath !== '') {
+                $rel = ExportHelpers::relativePath($noteDir, $targetPath);
                 $lines[] = "- [{$title}]({$rel})";
             } else {
                 $lines[] = "- {$title}";
@@ -292,19 +313,22 @@ final class AttributeMarkdownRenderer
         return implode("\n", $lines);
     }
 
+    /**
+     * @param RenderContext $context
+     */
     private static function renderGraph(mixed $value, array $context): ?string
     {
         if (!is_array($value)) {
             return null;
         }
 
-        $noteId = $context['note_id'] ?? '';
-        $linksBySource = $context['linksBySource'] ?? [];
-        $noteTitles = $context['noteTitles'] ?? [];
+        $noteId = $context['note_id'];
+        $linksBySource = $context['linksBySource'];
+        $noteTitles = $context['noteTitles'];
 
         // Build a simple mermaid graph from the note's links
         $links = $linksBySource[$noteId] ?? [];
-        if (empty($links)) {
+        if ($links === []) {
             return null;
         }
 
@@ -337,22 +361,7 @@ final class AttributeMarkdownRenderer
     private static function mermaidId(string $id, string $title): string
     {
         $short = substr($id, 0, 8);
-        $safe = preg_replace('/[^a-zA-Z0-9 ]/', '', $title);
+        $safe = preg_replace('/[^a-zA-Z0-9 ]/', '', $title) ?? $title;
         return "{$short}[\"{$safe}\"]";
-    }
-
-    private static function safeFilename(string $name): string
-    {
-        return ExportHelpers::safeFilename($name);
-    }
-
-    private static function relativePath(string $fromDir, string $toPath): string
-    {
-        return ExportHelpers::relativePath($fromDir, $toPath);
-    }
-
-    private static function humanFilesize(int $bytes): string
-    {
-        return ExportHelpers::humanFilesize($bytes);
     }
 }

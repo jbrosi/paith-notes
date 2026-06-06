@@ -6,11 +6,24 @@ namespace Paith\Notes\Api\Http\Controller\Export;
 
 /**
  * Renders dashboard, index, unlinked, and README pages for export.
+ *
+ * @phpstan-import-type TypeRow from ExportTypes
+ * @phpstan-import-type LinkRow from ExportTypes
+ *
+ * @phpstan-type NoteEntry array{id: string, path: string, title: string}
  */
 final class DashboardRenderer
 {
     /**
      * Root dashboard index.md — notes grouped by type, stats, recent notes.
+     *
+     * @param list<TypeRow>                       $typeList
+     * @param array<string, string>               $typeFolders
+     * @param array<string, list<NoteEntry>>      $notesByFolder
+     * @param array<string, string>               $noteMap
+     * @param array<string, string>               $noteTitles
+     * @param list<LinkRow>                       $linkList
+     * @param array<string, int>                  $stats
      */
     public static function buildDashboard(
         string $nookName,
@@ -30,8 +43,8 @@ final class DashboardRenderer
         $md .= "| Files | {$stats['files']} |\n\n";
 
         // Notes grouped by type (root types first)
-        $rootTypes = array_filter($typeList, fn($t) => empty($t['parent_id']));
-        if ($rootTypes) {
+        $rootTypes = array_filter($typeList, fn($t) => $t['parent_id'] === null);
+        if ($rootTypes !== []) {
             $md .= "## By Type\n\n";
             foreach ($rootTypes as $type) {
                 $folder = $typeFolders[$type['id']] ?? null;
@@ -44,7 +57,7 @@ final class DashboardRenderer
                 // Count subtypes
                 $childCount = 0;
                 foreach ($typeList as $t) {
-                    if (($t['parent_id'] ?? '') === $type['id']) {
+                    if ($t['parent_id'] === $type['id']) {
                         $cf = $typeFolders[$t['id']] ?? '';
                         $childCount += count($notesByFolder[$cf] ?? []);
                     }
@@ -54,7 +67,7 @@ final class DashboardRenderer
                 $md .= "- [{$type['label']}]({$folder}/_index.md) ({$total} note" . ($total !== 1 ? 's' : '') . ")\n";
 
                 foreach ($typeList as $t) {
-                    if (($t['parent_id'] ?? '') !== $type['id']) {
+                    if ($t['parent_id'] !== $type['id']) {
                         continue;
                     }
                     $cf = $typeFolders[$t['id']] ?? '';
@@ -66,7 +79,7 @@ final class DashboardRenderer
 
         // Untyped notes
         $untypedNotes = $notesByFolder[''] ?? [];
-        if ($untypedNotes) {
+        if ($untypedNotes !== []) {
             $md .= "\n## Untyped Notes\n\n";
             foreach ($untypedNotes as $n) {
                 $md .= "- [{$n['title']}]({$n['path']})\n";
@@ -91,7 +104,7 @@ final class DashboardRenderer
 
         // Recent notes (last 10)
         $recentIds = array_slice(array_reverse(array_keys($noteMap)), 0, 10);
-        if ($recentIds) {
+        if ($recentIds !== []) {
             $md .= "\n## Recent Notes\n\n";
             foreach ($recentIds as $rid) {
                 $rpath = $noteMap[$rid] ?? '';
@@ -105,13 +118,15 @@ final class DashboardRenderer
 
     /**
      * Page listing notes with no structural links.
+     *
+     * @param list<NoteEntry> $unlinked
      */
     public static function buildUnlinkedPage(array $unlinked): string
     {
         $md = "# Unlinked Notes\n\n";
         $md .= "These notes have no structural links to other notes.\n\n";
 
-        if (empty($unlinked)) {
+        if ($unlinked === []) {
             $md .= "*All notes are linked.*\n";
             return $md;
         }
@@ -125,6 +140,10 @@ final class DashboardRenderer
 
     /**
      * _index.md for a type folder — type info in frontmatter + note listing.
+     *
+     * @param TypeRow                  $type
+     * @param array<string, TypeRow>   $typeById
+     * @param list<NoteEntry>          $folderNotes
      */
     public static function buildTypeIndex(array $type, array $typeById, array $folderNotes): string
     {
@@ -133,21 +152,23 @@ final class DashboardRenderer
             'type_id' => $type['id'],
             'type_key' => $type['key'],
         ];
-        if (!empty($type['description'])) {
-            $fm['description'] = $type['description'];
+        $description = $type['description'] ?? '';
+        if ($description !== '') {
+            $fm['description'] = $description;
         }
-        if (!empty($type['parent_id']) && isset($typeById[$type['parent_id']])) {
+        if ($type['parent_id'] !== null && isset($typeById[$type['parent_id']])) {
             $fm['parent'] = $typeById[$type['parent_id']]['label'];
         }
-        if (!empty($type['created_at'])) {
-            $fm['created_at'] = ExportHelpers::isoDate($type['created_at']);
+        $createdAt = $type['created_at'] ?? null;
+        if ($createdAt !== null && $createdAt !== '') {
+            $fm['created_at'] = ExportHelpers::isoDate($createdAt);
         }
 
         $body = "# {$type['label']}\n\n";
-        if (!empty($type['description'])) {
-            $body .= "{$type['description']}\n\n";
+        if ($description !== '') {
+            $body .= "{$description}\n\n";
         }
-        if ($folderNotes) {
+        if ($folderNotes !== []) {
             $body .= "## Notes\n\n";
             foreach ($folderNotes as $fn) {
                 $relPath = basename($fn['path']);
@@ -160,6 +181,8 @@ final class DashboardRenderer
 
     /**
      * Root README.md explaining the export structure.
+     *
+     * @param array<string, int> $stats
      */
     public static function buildReadme(string $nookName, string $exportedAt, array $stats): string
     {
