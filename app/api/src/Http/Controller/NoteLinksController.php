@@ -9,6 +9,7 @@ use Paith\Notes\Api\Http\HttpError;
 use Paith\Notes\Api\Http\JsonResponse;
 use Paith\Notes\Api\Http\Request;
 use Paith\Notes\Api\Http\Response;
+use Paith\Notes\Shared\Db\Row;
 use PDO;
 use Throwable;
 
@@ -220,7 +221,7 @@ final class NoteLinksController
                 }
 
 
-                $former = self::decodeJsonObject($r['former'] ?? null);
+                $former = Row::decodeJsonObject($r['former'] ?? null);
                 $lastUserName = is_scalar($r['last_user_name'] ?? null) ? trim((string)$r['last_user_name']) : '';
 
                 $linksById[$id] = [
@@ -673,19 +674,6 @@ final class NoteLinksController
         return $v;
     }
 
-    /** @return array<string, mixed> */
-    private static function decodeJsonObject(mixed $value): array
-    {
-        if (!is_scalar($value)) {
-            return [];
-        }
-        $decoded = json_decode((string)$value, true);
-        if (!is_array($decoded)) {
-            return [];
-        }
-        /** @var array<string, mixed> $decoded */
-        return $decoded;
-    }
 
     private function ensureDefaultRelatesTo(PDO $pdo, string $nookId): void
     {

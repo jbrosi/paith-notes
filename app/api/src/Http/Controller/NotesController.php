@@ -213,8 +213,8 @@ final class NotesController
             throw new HttpError('note not found', 404);
         }
 
-        $attributes = self::decodeJsonObject($r['attributes'] ?? null);
-        $archive = self::decodeJsonObject($r['archive'] ?? null);
+        $attributes = Row::decodeJsonObject($r['attributes'] ?? null);
+        $archive = Row::decodeJsonObject($r['archive'] ?? null);
 
         $content = is_scalar($r['content'] ?? null) ? (string)$r['content'] : '';
 
@@ -332,7 +332,7 @@ final class NotesController
                 'nook_id' => $nookId,
                 'title' => Row::str($r, 'title'),
                 'type_id' => Row::str($r, 'type_id'),
-                'attributes' => self::decodeJsonObject($r['attributes'] ?? null),
+                'attributes' => Row::decodeJsonObject($r['attributes'] ?? null),
                 'version' => Row::int($r, 'version'),
                 'headings' => $headings,
                 'created_at' => Row::str($r, 'created_at'),
@@ -477,8 +477,8 @@ final class NotesController
         }
 
         $existingTypeId = is_scalar($existingRow['type_id'] ?? null) ? trim((string)$existingRow['type_id']) : '';
-        $existingAttributes = self::decodeJsonObject($existingRow['attributes'] ?? null);
-        $existingArchive = self::decodeJsonObject($existingRow['archive'] ?? null);
+        $existingAttributes = Row::decodeJsonObject($existingRow['attributes'] ?? null);
+        $existingArchive = Row::decodeJsonObject($existingRow['archive'] ?? null);
 
         $typeIdRaw = $data['type_id'] ?? null;
         $typeId = $existingTypeId !== '' ? $existingTypeId : null;
@@ -938,7 +938,7 @@ final class NotesController
                 'title' => Row::str($cur, 'title'),
                 'content' => Row::str($cur, 'content'),
                 'type_id' => Row::str($cur, 'type_id'),
-                'attributes' => self::decodeJsonObject($cur['attributes'] ?? null),
+                'attributes' => Row::decodeJsonObject($cur['attributes'] ?? null),
             ];
         }
 
@@ -1184,20 +1184,6 @@ final class NotesController
             '/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i',
             $value
         );
-    }
-
-    /** @return array<string, mixed> */
-    private static function decodeJsonObject(mixed $value): array
-    {
-        if (!is_scalar($value)) {
-            return [];
-        }
-        $decoded = json_decode((string)$value, true);
-        if (!is_array($decoded)) {
-            return [];
-        }
-        /** @var array<string, mixed> $decoded */
-        return $decoded;
     }
 
     /**

@@ -60,8 +60,8 @@ final class NoteTypesController
                 'label' => is_scalar($r['label'] ?? null) ? (string)$r['label'] : '',
                 'description' => is_scalar($r['description'] ?? null) ? (string)$r['description'] : '',
                 'parent_id' => is_scalar($r['parent_id'] ?? null) ? (string)$r['parent_id'] : '',
-                'attribute_layout' => self::decodeJsonObject($r['attribute_layout'] ?? null) ?: null,
-                'config_overrides' => self::decodeJsonObject($r['config_overrides'] ?? null) ?: (object)[],
+                'attribute_layout' => Row::decodeJsonObject($r['attribute_layout'] ?? null) ?: null,
+                'config_overrides' => Row::decodeJsonObject($r['config_overrides'] ?? null) ?: (object)[],
                 'created_at' => is_scalar($r['created_at'] ?? null) ? (string)$r['created_at'] : '',
                 'updated_at' => is_scalar($r['updated_at'] ?? null) ? (string)$r['updated_at'] : '',
                 'attributes' => [],
@@ -82,7 +82,7 @@ final class NoteTypesController
                 continue;
             }
             $tid = is_scalar($a['type_id'] ?? null) ? (string)$a['type_id'] : '';
-            $config = self::decodeJsonObject($a['config'] ?? null);
+            $config = Row::decodeJsonObject($a['config'] ?? null);
             $attrsByType[$tid][] = [
                 'id' => is_scalar($a['id'] ?? null) ? (string)$a['id'] : '',
                 'type_id' => $tid,
@@ -324,8 +324,8 @@ final class NoteTypesController
                 'label' => $label,
                 'description' => is_scalar($row['description'] ?? null) ? (string)$row['description'] : $description,
                 'parent_id' => $parentId,
-                'attribute_layout' => self::decodeJsonObject($row['attribute_layout'] ?? null) ?: null,
-                'config_overrides' => self::decodeJsonObject($row['config_overrides'] ?? null) ?: (object)[],
+                'attribute_layout' => Row::decodeJsonObject($row['attribute_layout'] ?? null) ?: null,
+                'config_overrides' => Row::decodeJsonObject($row['config_overrides'] ?? null) ?: (object)[],
                 'created_at' => is_scalar($row['created_at'] ?? null) ? (string)$row['created_at'] : '',
                 'updated_at' => is_scalar($row['updated_at'] ?? null) ? (string)$row['updated_at'] : '',
             ],
@@ -615,7 +615,7 @@ final class NoteTypesController
                 'nook_id' => $nookId,
                 'title' => is_scalar($r['title'] ?? null) ? (string)$r['title'] : '',
                 'type_id' => is_scalar($r['type_id'] ?? null) ? (string)$r['type_id'] : '',
-                'attributes' => self::decodeJsonObject($r['attributes'] ?? null),
+                'attributes' => Row::decodeJsonObject($r['attributes'] ?? null),
                 'created_at' => is_scalar($r['created_at'] ?? null) ? (string)$r['created_at'] : '',
                 'updated_at' => is_scalar($r['updated_at'] ?? null) ? (string)$r['updated_at'] : '',
                 'outgoing_mentions_count' => is_scalar($r['outgoing_mentions_count'] ?? null) ? (int)$r['outgoing_mentions_count'] : 0,
@@ -959,25 +959,6 @@ final class NoteTypesController
         }
 
         return ['where' => 'and ' . implode(' and ', $clauses)];
-    }
-
-    /** @return array<string, mixed> */
-    private static function decodeJsonObject(mixed $value): array
-    {
-        if (!is_scalar($value)) {
-            return [];
-        }
-        $decoded = json_decode((string)$value, true);
-        if (!is_array($decoded)) {
-            return [];
-        }
-        $out = [];
-        foreach ($decoded as $k => $v) {
-            if (is_string($k)) {
-                $out[$k] = $v;
-            }
-        }
-        return $out;
     }
 
     private function ensureDefaultViewType(PDO $pdo, string $nookId, string $baseTypeId): void

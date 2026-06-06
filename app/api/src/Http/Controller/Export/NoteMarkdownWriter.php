@@ -4,8 +4,15 @@ declare(strict_types=1);
 
 namespace Paith\Notes\Api\Http\Controller\Export;
 
+use Paith\Notes\Shared\Db\Row;
+
 /**
  * Builds a single note's markdown file: frontmatter + rendered attributes + content.
+ *
+ * @phpstan-import-type Lookups from ExportTypes
+ * @phpstan-import-type RenderContext from ExportTypes
+ * @phpstan-import-type AttrRow from ExportTypes
+ * @phpstan-import-type FileRow from ExportTypes
  */
 final class NoteMarkdownWriter
 {
@@ -18,21 +25,18 @@ final class NoteMarkdownWriter
     /**
      * Render a complete .md file for a note.
      *
-     * @param array<string, mixed> $note          DB row: id, title, content, type_id, created_by, created_at, updated_at, version, attributes
-     * @param array<string, mixed> $lookups       Shared lookup tables (typeById, attrById, attrList, noteMap, noteTitles, noteFiles, linksBySource, mentionsBySource, userNames, lastUpdaters, typeFolders)
+     * @param array<string, mixed> $note     DB row: id, title, content, type_id, created_by, created_at, updated_at, version, attributes
+     * @param Lookups              $lookups  Shared lookup tables built by NookExportController
      * @return string  Full markdown with frontmatter
      */
     public static function render(array $note, array $lookups): string
     {
-        $id = (string) $note['id'];
-        $title = (string) ($note['title'] ?: 'Untitled');
-        $content = (string) ($note['content'] ?? '');
-        $rawAttrs = is_string($note['attributes'] ?? null)
-            ? json_decode($note['attributes'], true)
-            : ($note['attributes'] ?? []);
-        if (!is_array($rawAttrs)) {
-            $rawAttrs = [];
-        }
+        $id = Row::requireStr($note, 'id');
+        $titleRaw = Row::str($note, 'title');
+        $title = $titleRaw !== '' ? $titleRaw : 'Untitled';
+        $content = Row::str($note, 'content');
+
+        $rawAttrs = Row::decodeJsonObject($note['attributes'] ?? null);
 
         $noteMap = $lookups['noteMap'];
         $noteTitles = $lookups['noteTitles'];
@@ -56,42 +60,44 @@ final class NoteMarkdownWriter
             'title' => $title,
         ];
 
-        $typeId = $note['type_id'] ?? null;
-        if ($typeId && isset($typeById[$typeId])) {
+        $typeId = Row::nullStr($note, 'type_id');
+        if ($typeId !== null && isset($typeById[$typeId])) {
             $fm['type'] = $typeById[$typeId]['label'];
         }
 
-        $fm['version'] = (int) ($note['version'] ?? 0);
+        $fm['version'] = Row::int($note, 'version');
         // `date` for Hugo/SSG compatibility, plus our own timestamps
-        if (!empty($note['created_at'])) {
-            $iso = ExportHelpers::isoDate($note['created_at']);
+        $createdAt = Row::str($note, 'created_at');
+        if ($createdAt !== '') {
+            $iso = ExportHelpers::isoDate($createdAt);
             $fm['date'] = $iso;
             $fm['created_at'] = $iso;
         }
-        if (!empty($note['updated_at'])) {
-            $fm['updated_at'] = ExportHelpers::isoDate($note['updated_at']);
+        $updatedAt = Row::str($note, 'updated_at');
+        if ($updatedAt !== '') {
+            $fm['updated_at'] = ExportHelpers::isoDate($updatedAt);
             $fm['lastmod'] = $fm['updated_at']; // Hugo convention
         }
         $fm['draft'] = false;
 
-        $creatorId = $note['created_by'] ?? null;
-        if ($creatorId && isset($userNames[$creatorId])) {
+        $creatorId = Row::str($note, 'created_by');
+        if ($creatorId !== '' && isset($userNames[$creatorId])) {
             $fm['created_by'] = $userNames[$creatorId];
         }
-        $updaterId = $lastUpdaters[$id] ?? null;
-        if ($updaterId && isset($userNames[$updaterId])) {
+        $updaterId = $lastUpdaters[$id] ?? '';
+        if ($updaterId !== '' && isset($userNames[$updaterId])) {
             $fm['updated_by'] = $userNames[$updaterId];
         }
 
         // Simple attributes
         $fmAttrs = self::buildFrontmatterAttrs($rawAttrs, $attrById);
-        if ($fmAttrs) {
+        if ($fmAttrs !== []) {
             $fm['attributes'] = $fmAttrs;
         }
 
         // Links
         $noteLinks = $linksBySource[$id] ?? [];
-        if ($noteLinks) {
+        if ($noteLinks !== []) {
             $grouped = [];
             foreach ($noteLinks as $link) {
                 $targetTitle = $noteTitles[$link['target_id']] ?? $link['target_id'];
@@ -102,22 +108,22 @@ final class NoteMarkdownWriter
 
         // Mentions
         $noteMentions = $mentionsBySource[$id] ?? [];
-        if ($noteMentions) {
+        if ($noteMentions !== []) {
             $fm['mentions'] = array_map(fn($mid) => $noteTitles[$mid] ?? $mid, $noteMentions);
         }
 
         // Files in frontmatter
         $fmFiles = self::buildFrontmatterFiles($id, $title, $noteFiles, $attrById);
-        if ($fmFiles) {
+        if ($fmFiles !== []) {
             $fm['files'] = $fmFiles;
         }
 
         // ── Rewrite content links ───────────────────────────────
-        $appBaseUrl = $lookups['appBaseUrl'] ?? '';
+        $appBaseUrl = $lookups['appBaseUrl'];
         $rewrittenContent = NoteLinker::rewriteToRelative($content, $noteMap, $noteTitles, $noteDir, $noteFiles, $attrById, $appBaseUrl);
 
         // ── Render attributes around content ────────────────────
-        $typeAttrDefs = $typeId ? array_values(array_filter($attrList, fn($a) => $a['type_id'] === $typeId)) : [];
+        $typeAttrDefs = $typeId !== null ? array_values(array_filter($attrList, fn($a) => $a['type_id'] === $typeId)) : [];
         $renderCtx = [
             'note_id' => $id,
             'noteMap' => $noteMap,
@@ -145,6 +151,10 @@ final class NoteMarkdownWriter
 
     /**
      * Build human-readable attribute map for frontmatter (simple kinds only).
+     *
+     * @param array<string, mixed>      $rawAttrs
+     * @param array<string, AttrRow>    $attrById
+     * @return array<string, mixed>
      */
     private static function buildFrontmatterAttrs(array $rawAttrs, array $attrById): array
     {
@@ -154,7 +164,7 @@ final class NoteMarkdownWriter
                 continue;
             }
             $def = $attrById[$attrId] ?? null;
-            if (!$def) {
+            if ($def === null) {
                 continue;
             }
             if (!in_array($def['kind'], self::FRONTMATTER_KINDS, true)) {
@@ -167,23 +177,24 @@ final class NoteMarkdownWriter
 
     /**
      * Build file entries for frontmatter.
+     *
+     * @param array<string, list<FileRow>> $noteFiles
+     * @param array<string, AttrRow>       $attrById
+     * @return list<array{path: string, filename: string, mime_type: string, size: string}>
      */
     private static function buildFrontmatterFiles(string $noteId, string $noteTitle, array $noteFiles, array $attrById): array
     {
         $files = $noteFiles[$noteId] ?? [];
-        if (empty($files)) {
+        if ($files === []) {
             return [];
         }
 
         $out = [];
         foreach ($files as $f) {
-            $filename = (string) ($f['filename'] ?? 'file');
-            $ext = (string) ($f['extension'] ?? '');
-            $fullFilename = ExportHelpers::buildFilename($filename, $ext);
-            $mime = (string) ($f['mime_type'] ?? '');
+            $fullFilename = ExportHelpers::buildFilename($f['filename'], $f['extension']);
 
             $attrName = null;
-            if (isset($f['attribute_id'], $attrById[$f['attribute_id']])) {
+            if ($f['attribute_id'] !== null && isset($attrById[$f['attribute_id']])) {
                 $attrName = ExportHelpers::safeFilename($attrById[$f['attribute_id']]['name']);
             }
             $fileZipPath = ExportHelpers::buildFileZipPath($noteTitle, $attrName, $fullFilename);
@@ -191,8 +202,8 @@ final class NoteMarkdownWriter
             $out[] = [
                 'path' => $fileZipPath,
                 'filename' => $fullFilename,
-                'mime_type' => $mime,
-                'size' => ExportHelpers::humanFilesize((int) ($f['filesize'] ?? 0)),
+                'mime_type' => $f['mime_type'],
+                'size' => ExportHelpers::humanFilesize($f['filesize']),
             ];
         }
         return $out;

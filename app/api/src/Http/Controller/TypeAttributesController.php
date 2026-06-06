@@ -10,6 +10,7 @@ use Paith\Notes\Api\Http\JsonResponse;
 use Paith\Notes\Api\Http\Request;
 use Paith\Notes\Api\Http\Response;
 use Paith\Notes\Api\Http\Service\AttributeValidator;
+use Paith\Notes\Shared\Db\Row;
 use PDO;
 use Throwable;
 
@@ -307,7 +308,7 @@ final class TypeAttributesController
             $attrId = is_scalar($r['id'] ?? null) ? (string)$r['id'] : '';
             $rowTypeId = is_scalar($r['type_id'] ?? null) ? (string)$r['type_id'] : '';
             $inherited = $rowTypeId !== $typeId;
-            $config = self::decodeJsonObject($r['config'] ?? null);
+            $config = Row::decodeJsonObject($r['config'] ?? null);
 
             // Apply config overrides for inherited attributes
             $overridden = false;
@@ -644,20 +645,6 @@ final class TypeAttributesController
             }
         }
         return $out;
-    }
-
-    /** @return array<string, mixed> */
-    private static function decodeJsonObject(mixed $value): array
-    {
-        if (!is_scalar($value)) {
-            return [];
-        }
-        $decoded = json_decode((string)$value, true);
-        if (!is_array($decoded)) {
-            return [];
-        }
-        /** @var array<string, mixed> $decoded */
-        return $decoded;
     }
 
     private static function slugify(string $value): string

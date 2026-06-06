@@ -84,27 +84,33 @@ final class Row
      */
     public static function jsonObj(array $row, string $key): array
     {
-        $v = $row[$key] ?? null;
-        if ($v === null || $v === '') {
+        return self::decodeJsonObject($row[$key] ?? null);
+    }
+
+    /**
+     * Narrow a raw mixed JSON-ish value to a string-keyed array.
+     * Accepts: native arrays (rekeys numeric keys to strings), JSON strings
+     *          (decodes), and anything else returns [].
+     *
+     * Use this when you have a value off the boundary (PDO JSONB column,
+     * request body field, etc.) and want a typed map.
+     *
+     * @return array<string, mixed>
+     */
+    public static function decodeJsonObject(mixed $value): array
+    {
+        if ($value === null || $value === '') {
             return [];
         }
-        if (is_array($v)) {
-            $out = [];
-            foreach ($v as $k => $vv) {
-                $out[(string)$k] = $vv;
-            }
-            return $out;
+        if (is_string($value)) {
+            $value = json_decode($value, true);
         }
-        if (!is_string($v)) {
-            return [];
-        }
-        $decoded = json_decode($v, true);
-        if (!is_array($decoded)) {
+        if (!is_array($value)) {
             return [];
         }
         $out = [];
-        foreach ($decoded as $k => $vv) {
-            $out[(string)$k] = $vv;
+        foreach ($value as $k => $v) {
+            $out[(string)$k] = $v;
         }
         return $out;
     }
