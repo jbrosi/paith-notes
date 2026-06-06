@@ -9,11 +9,12 @@ use Paith\Notes\Api\Http\HttpError;
 use Paith\Notes\Api\Http\JsonResponse;
 use Paith\Notes\Api\Http\Request;
 use Paith\Notes\Api\Http\Response;
+use Paith\Notes\Api\Http\Dto\TypeAttributeRequest;
 use Paith\Notes\Api\Http\Service\AttributeValidator;
 use Paith\Notes\Shared\Db\Row;
+use Paith\Notes\Shared\Uuid;
 use PDO;
 use Throwable;
-use Paith\Notes\Shared\Uuid;
 
 final class TypeAttributesController
 {
@@ -52,34 +53,23 @@ final class TypeAttributesController
         NookAccess::requireWriteAccess($pdo, $user, $nookId);
         $this->requireType($pdo, $nookId, $typeId);
 
-        $data = $request->jsonBody();
+        $payload = TypeAttributeRequest::fromJson($request->jsonBody(), self::VALID_KINDS);
+        $this->validateConfig($payload->kind, $payload->config);
 
-        $name = self::requireString($data, 'name');
-        $kind = self::requireString($data, 'kind');
-        if (!in_array($kind, self::VALID_KINDS, true)) {
-            throw new HttpError('kind must be one of: ' . implode(', ', self::VALID_KINDS), 400);
-        }
-
-        $config = self::optionalJsonObject($data, 'config');
-        $this->validateConfig($kind, $config);
-
-        $indexed = isset($data['indexed']) && $data['indexed'] === true;
-
-        // Key: user-provided or auto-slugified from name
-        $keyRaw = $data['key'] ?? null;
-        $key = is_string($keyRaw) && trim($keyRaw) !== '' ? self::slugify($keyRaw) : self::slugify($name);
+        // Key: user-provided slugified, else slug from name
+        $key = self::slugify($payload->keyRaw ?? $payload->name);
 
         // Validate name uniqueness within resolved attribute set (own + inherited)
         $existing = $this->resolveInheritedAttributes($pdo, $nookId, $typeId);
         foreach ($existing as $attr) {
             $attrName = Row::str($attr, 'name');
-            if (strcasecmp($attrName, $name) === 0) {
-                throw new HttpError('attribute name "' . $name . '" already exists (own or inherited)', 409);
+            if (strcasecmp($attrName, $payload->name) === 0) {
+                throw new HttpError('attribute name "' . $payload->name . '" already exists (own or inherited)', 409);
             }
         }
 
         // Also check descendant types for name conflicts
-        $this->checkDescendantNameConflict($pdo, $nookId, $typeId, $name, '');
+        $this->checkDescendantNameConflict($pdo, $nookId, $typeId, $payload->name, '');
 
         try {
             $pdo->beginTransaction();
@@ -91,11 +81,11 @@ final class TypeAttributesController
             );
             $stmt->bindValue(':nook_id', $nookId);
             $stmt->bindValue(':type_id', $typeId);
-            $stmt->bindValue(':name', $name);
+            $stmt->bindValue(':name', $payload->name);
             $stmt->bindValue(':key', $key);
-            $stmt->bindValue(':kind', $kind);
-            $stmt->bindValue(':config', json_encode($config));
-            $stmt->bindValue(':indexed', $indexed, PDO::PARAM_BOOL);
+            $stmt->bindValue(':kind', $payload->kind);
+            $stmt->bindValue(':config', json_encode($payload->config));
+            $stmt->bindValue(':indexed', $payload->indexed, PDO::PARAM_BOOL);
             $stmt->execute();
 
             $row = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -108,17 +98,17 @@ final class TypeAttributesController
             $id = Row::str($row, 'id');
 
             // Index lifecycle: create after commit (outside transaction for safety)
-            $this->syncAttributeIndex($pdo, $id, $kind, $indexed);
+            $this->syncAttributeIndex($pdo, $id, $payload->kind, $payload->indexed);
 
             return JsonResponse::ok([
                 'attribute' => [
                     'id' => $id,
                     'type_id' => $typeId,
-                    'name' => $name,
+                    'name' => $payload->name,
                     'key' => $key,
-                    'kind' => $kind,
-                    'config' => $config === [] ? (object)[] : $config,
-                    'indexed' => $indexed,
+                    'kind' => $payload->kind,
+                    'config' => $payload->config === [] ? (object)[] : $payload->config,
+                    'indexed' => $payload->indexed,
                     'inherited' => false,
                     'created_at' => Row::str($row, 'created_at'),
                     'updated_at' => Row::str($row, 'updated_at'),
@@ -154,32 +144,22 @@ final class TypeAttributesController
             throw new HttpError('attribute not found on this type (inherited attributes cannot be edited here)', 404);
         }
 
-        $data = $request->jsonBody();
+        $payload = TypeAttributeRequest::fromJson($request->jsonBody(), self::VALID_KINDS);
+        $this->validateConfig($payload->kind, $payload->config);
 
-        $name = self::requireString($data, 'name');
-        $kind = self::requireString($data, 'kind');
-        if (!in_array($kind, self::VALID_KINDS, true)) {
-            throw new HttpError('kind must be one of: ' . implode(', ', self::VALID_KINDS), 400);
-        }
-
-        $config = self::optionalJsonObject($data, 'config');
-        $this->validateConfig($kind, $config);
-
-        $indexed = isset($data['indexed']) && $data['indexed'] === true;
-
-        $keyRaw = $data['key'] ?? null;
-        $key = is_string($keyRaw) && trim($keyRaw) !== '' ? self::slugify($keyRaw) : null;
+        // Slugified key only when user provided one — null means "leave key alone"
+        $key = $payload->keyRaw !== null ? self::slugify($payload->keyRaw) : null;
 
         // Validate name uniqueness (excluding self)
         $existing = $this->resolveInheritedAttributes($pdo, $nookId, $typeId);
         foreach ($existing as $attr) {
             $attrName = Row::str($attr, 'name');
-            if (($attr['id'] ?? null) !== $attrId && strcasecmp($attrName, $name) === 0) {
-                throw new HttpError('attribute name "' . $name . '" already exists (own or inherited)', 409);
+            if (($attr['id'] ?? null) !== $attrId && strcasecmp($attrName, $payload->name) === 0) {
+                throw new HttpError('attribute name "' . $payload->name . '" already exists (own or inherited)', 409);
             }
         }
 
-        $this->checkDescendantNameConflict($pdo, $nookId, $typeId, $name, $attrId);
+        $this->checkDescendantNameConflict($pdo, $nookId, $typeId, $payload->name, $attrId);
 
         $sql = 'update global.type_attributes set name = :name, kind = :kind, config = :config::jsonb, '
             . 'indexed = :indexed';
@@ -194,10 +174,10 @@ final class TypeAttributesController
         $stmt->bindValue(':id', $attrId);
         $stmt->bindValue(':nook_id', $nookId);
         $stmt->bindValue(':type_id', $typeId);
-        $stmt->bindValue(':name', $name);
-        $stmt->bindValue(':kind', $kind);
-        $stmt->bindValue(':config', json_encode($config));
-        $stmt->bindValue(':indexed', $indexed, PDO::PARAM_BOOL);
+        $stmt->bindValue(':name', $payload->name);
+        $stmt->bindValue(':kind', $payload->kind);
+        $stmt->bindValue(':config', json_encode($payload->config));
+        $stmt->bindValue(':indexed', $payload->indexed, PDO::PARAM_BOOL);
         if ($key !== null) {
             $stmt->bindValue(':key', $key);
         }
@@ -208,20 +188,20 @@ final class TypeAttributesController
             throw new HttpError('attribute not found', 404);
         }
 
-        $resolvedKey = is_scalar($row['key'] ?? null) ? (string)$row['key'] : ($key ?? '');
+        $resolvedKey = Row::str($row, 'key', $key ?? '');
 
         // Index lifecycle: re-sync (kind or indexed flag may have changed)
-        $this->syncAttributeIndex($pdo, $attrId, $kind, $indexed);
+        $this->syncAttributeIndex($pdo, $attrId, $payload->kind, $payload->indexed);
 
         return JsonResponse::ok([
             'attribute' => [
                 'id' => $attrId,
                 'type_id' => $typeId,
-                'name' => $name,
+                'name' => $payload->name,
                 'key' => $resolvedKey,
-                'kind' => $kind,
-                'config' => $config === [] ? (object)[] : $config,
-                'indexed' => $indexed,
+                'kind' => $payload->kind,
+                'config' => $payload->config === [] ? (object)[] : $payload->config,
+                'indexed' => $payload->indexed,
                 'inherited' => false,
                 'created_at' => Row::str($row, 'created_at'),
                 'updated_at' => Row::str($row, 'updated_at'),
@@ -622,31 +602,6 @@ final class TypeAttributesController
         return $v;
     }
 
-    private static function requireString(array $data, string $key): string
-    {
-        $raw = $data[$key] ?? '';
-        $val = is_string($raw) ? trim($raw) : '';
-        if ($val === '') {
-            throw new HttpError($key . ' is required', 400);
-        }
-        return $val;
-    }
-
-    /** @return array<string, mixed> */
-    private static function optionalJsonObject(array $data, string $key): array
-    {
-        $raw = $data[$key] ?? null;
-        if (!is_array($raw)) {
-            return [];
-        }
-        $out = [];
-        foreach ($raw as $k => $v) {
-            if (is_string($k)) {
-                $out[$k] = $v;
-            }
-        }
-        return $out;
-    }
 
     private static function slugify(string $value): string
     {

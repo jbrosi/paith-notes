@@ -5,15 +5,16 @@ declare(strict_types=1);
 namespace Paith\Notes\Api\Http\Controller;
 
 use Paith\Notes\Api\Http\Context;
+use Paith\Notes\Api\Http\Dto\JsonReader;
+use Paith\Notes\Api\Http\Dto\NoteTypeRequest;
 use Paith\Notes\Api\Http\HttpError;
 use Paith\Notes\Api\Http\JsonResponse;
 use Paith\Notes\Api\Http\Request;
 use Paith\Notes\Api\Http\Response;
 use Paith\Notes\Shared\Db\Row;
+use Paith\Notes\Shared\Uuid;
 use PDO;
 use Throwable;
-use Paith\Notes\Shared\Uuid;
-use Paith\Notes\Api\Http\Dto\JsonReader;
 
 final class NoteTypesController
 {
@@ -119,29 +120,11 @@ final class NoteTypesController
 
         NookAccess::requireWriteAccess($pdo, $user, $nookId);
 
-        $data = $request->jsonBody();
+        $payload = NoteTypeRequest::fromJson($request->jsonBody());
 
-        $key = JsonReader::optionalTrimmedString($data, 'key');
-        if ($key === '') {
-            throw new HttpError('key is required', 400);
-        }
-
-        $label = JsonReader::optionalTrimmedString($data, 'label');
-        if ($label === '') {
-            throw new HttpError('label is required', 400);
-        }
-
-        $descriptionRaw = $data['description'] ?? '';
-        $description = is_string($descriptionRaw) ? $descriptionRaw : '';
-
-        $parentId = JsonReader::optionalTrimmedString($data, 'parent_id');
-        if ($parentId !== '' && !Uuid::isValid($parentId)) {
-            throw new HttpError('parent_id must be a UUID', 400);
-        }
-
-        if ($parentId !== '') {
+        if ($payload->parentId !== null) {
             $p = $pdo->prepare('select 1 from global.note_types where id = :id and nook_id = :nook_id');
-            $p->execute([':id' => $parentId, ':nook_id' => $nookId]);
+            $p->execute([':id' => $payload->parentId, ':nook_id' => $nookId]);
             if (!$p->fetchColumn()) {
                 throw new HttpError('parent not found', 404);
             }
@@ -156,10 +139,10 @@ final class NoteTypesController
                 . 'returning id, created_at, updated_at'
             );
             $stmt->bindValue(':nook_id', $nookId);
-            $stmt->bindValue(':key', $key);
-            $stmt->bindValue(':label', $label);
-            $stmt->bindValue(':description', $description);
-            $stmt->bindValue(':parent_id', $parentId !== '' ? $parentId : null);
+            $stmt->bindValue(':key', $payload->key);
+            $stmt->bindValue(':label', $payload->label);
+            $stmt->bindValue(':description', $payload->description);
+            $stmt->bindValue(':parent_id', $payload->parentId);
             $stmt->execute();
 
             $row = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -169,16 +152,14 @@ final class NoteTypesController
 
             $pdo->commit();
 
-            $id = Row::str($row, 'id');
-
             return JsonResponse::ok([
                 'type' => [
-                    'id' => $id,
+                    'id' => Row::str($row, 'id'),
                     'nook_id' => $nookId,
-                    'key' => $key,
-                    'label' => $label,
-                    'description' => $description,
-                    'parent_id' => $parentId,
+                    'key' => $payload->key,
+                    'label' => $payload->label,
+                    'description' => $payload->description,
+                    'parent_id' => $payload->parentId ?? '',
                     'attribute_layout' => null,
                     'config_overrides' => (object)[],
                     'created_at' => Row::str($row, 'created_at'),
@@ -211,59 +192,38 @@ final class NoteTypesController
         if ($existingKey === '') {
             throw new HttpError('type not found', 404);
         }
-        $data = $request->jsonBody();
 
-        $key = JsonReader::optionalTrimmedString($data, 'key');
-        if ($key === '') {
-            throw new HttpError('key is required', 400);
-        }
+        $payload = NoteTypeRequest::fromJson($request->jsonBody());
 
-        $label = JsonReader::optionalTrimmedString($data, 'label');
-        if ($label === '') {
-            throw new HttpError('label is required', 400);
-        }
-
-        $descriptionRaw = $data['description'] ?? '';
-        $description = is_string($descriptionRaw) ? $descriptionRaw : '';
-
-        $parentId = JsonReader::optionalTrimmedString($data, 'parent_id');
-        if ($parentId !== '' && !Uuid::isValid($parentId)) {
-            throw new HttpError('parent_id must be a UUID', 400);
-        }
-        if ($parentId === $typeId) {
+        if ($payload->parentId === $typeId) {
             throw new HttpError('parent_id cannot be self', 400);
         }
 
-        if ($parentId !== '') {
+        if ($payload->parentId !== null) {
             $p = $pdo->prepare('select 1 from global.note_types where id = :id and nook_id = :nook_id');
-            $p->execute([':id' => $parentId, ':nook_id' => $nookId]);
+            $p->execute([':id' => $payload->parentId, ':nook_id' => $nookId]);
             if (!$p->fetchColumn()) {
                 throw new HttpError('parent not found', 404);
             }
         }
 
-        $attributeLayoutRaw = $data['attribute_layout'] ?? null;
-        $attributeLayout = is_array($attributeLayoutRaw) ? $attributeLayoutRaw : null;
-        if ($attributeLayout !== null) {
-            self::validateAttributeLayout($attributeLayout);
+        if ($payload->attributeLayout !== null) {
+            self::validateAttributeLayout($payload->attributeLayout);
         }
 
-        $configOverridesRaw = $data['config_overrides'] ?? null;
-        $configOverrides = is_array($configOverridesRaw) ? $configOverridesRaw : null;
-
-        if ($key !== $existingKey) {
+        if ($payload->key !== $existingKey) {
             $dupe = $pdo->prepare('select 1 from global.note_types where nook_id = :nook_id and key = :key and id != :id');
-            $dupe->execute([':nook_id' => $nookId, ':key' => $key, ':id' => $typeId]);
+            $dupe->execute([':nook_id' => $nookId, ':key' => $payload->key, ':id' => $typeId]);
             if ($dupe->fetchColumn()) {
                 throw new HttpError('key already exists', 409);
             }
         }
 
         $sql = 'update global.note_types set key = :key, label = :label, description = :description, parent_id = :parent_id';
-        if ($attributeLayout !== null) {
+        if ($payload->attributeLayout !== null) {
             $sql .= ', attribute_layout = :attribute_layout::jsonb';
         }
-        if ($configOverrides !== null) {
+        if ($payload->configOverrides !== null) {
             $sql .= ', config_overrides = :config_overrides::jsonb';
         }
         $sql .= ', updated_at = now() where id = :id and nook_id = :nook_id returning description, attribute_layout, config_overrides, created_at, updated_at';
@@ -271,15 +231,15 @@ final class NoteTypesController
         $stmt = $pdo->prepare($sql);
         $stmt->bindValue(':id', $typeId);
         $stmt->bindValue(':nook_id', $nookId);
-        $stmt->bindValue(':key', $key);
-        $stmt->bindValue(':label', $label);
-        $stmt->bindValue(':description', $description);
-        $stmt->bindValue(':parent_id', $parentId !== '' ? $parentId : null);
-        if ($attributeLayout !== null) {
-            $stmt->bindValue(':attribute_layout', json_encode($attributeLayout));
+        $stmt->bindValue(':key', $payload->key);
+        $stmt->bindValue(':label', $payload->label);
+        $stmt->bindValue(':description', $payload->description);
+        $stmt->bindValue(':parent_id', $payload->parentId);
+        if ($payload->attributeLayout !== null) {
+            $stmt->bindValue(':attribute_layout', json_encode($payload->attributeLayout));
         }
-        if ($configOverrides !== null) {
-            $stmt->bindValue(':config_overrides', json_encode($configOverrides));
+        if ($payload->configOverrides !== null) {
+            $stmt->bindValue(':config_overrides', json_encode($payload->configOverrides));
         }
         $stmt->execute();
 
@@ -292,10 +252,10 @@ final class NoteTypesController
             'type' => [
                 'id' => $typeId,
                 'nook_id' => $nookId,
-                'key' => $key,
-                'label' => $label,
-                'description' => is_scalar($row['description'] ?? null) ? (string)$row['description'] : $description,
-                'parent_id' => $parentId,
+                'key' => $payload->key,
+                'label' => $payload->label,
+                'description' => Row::str($row, 'description', $payload->description),
+                'parent_id' => $payload->parentId ?? '',
                 'attribute_layout' => Row::decodeJsonObject($row['attribute_layout'] ?? null) ?: null,
                 'config_overrides' => Row::decodeJsonObject($row['config_overrides'] ?? null) ?: (object)[],
                 'created_at' => Row::str($row, 'created_at'),
