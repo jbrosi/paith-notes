@@ -66,6 +66,7 @@ final class ApiRoutes
         $r->get('/search', [SearchController::class, 'search']);
         $r->get('/me/activity', [ActivityController::class, 'myActivity']);
         $r->get('/me/events', [ActivityController::class, 'myEvents']);
+        $r->get('/me/conversations/export', [ConversationsController::class, 'exportMine']);
         $r->get('/nooks', [NooksController::class, 'list']);
         $r->get('/nooks/ai-memory', [NooksController::class, 'aiMemory']);
         $r->get('/nooks/handbook', [NooksController::class, 'handbook']);
@@ -140,6 +141,8 @@ final class ApiRoutes
 
         $r->get('/conversations', [ConversationsController::class, 'list']);
         $r->post('/conversations', [ConversationsController::class, 'create']);
+        $r->add('DELETE', '/conversations', [ConversationsController::class, 'deleteAll']);
+        $r->add('DELETE', '/conversations/{conversationId}', [ConversationsController::class, 'delete']);
         $r->get('/conversations/{conversationId}/messages', [ConversationsController::class, 'listMessages']);
         $r->post('/conversations/{conversationId}/messages', [ConversationsController::class, 'appendMessages']);
         $r->post('/conversations/{conversationId}/note-links', [ConversationsController::class, 'createNoteLink']);

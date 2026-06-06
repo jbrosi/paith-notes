@@ -426,7 +426,6 @@ final class GlobalSchema
             $pdo->exec("
                 create table if not exists global.conversations (
                     id          uuid        primary key default gen_random_uuid(),
-                    nook_id     uuid        not null references global.nooks(id) on delete cascade,
                     user_id     uuid        not null references global.users(id) on delete cascade,
                     title       text        not null default '',
                     model       text        not null,
@@ -435,13 +434,11 @@ final class GlobalSchema
                 );
             ");
 
-            $pdo->exec('create index if not exists conversations_nook_user_idx on global.conversations (nook_id, user_id)');
-
-            // Wipe conversations from general nooks (chats now live in AI memory nook)
-            $pdo->exec("
-                delete from global.conversations
-                where nook_id in (select id from global.nooks where purpose = 'general')
-            ");
+            // Conversations were originally per-(nook, user); they are now user-scoped only.
+            // The frontend tracks "current nook" as ephemeral UI state.
+            $pdo->exec('alter table global.conversations drop column if exists nook_id');
+            $pdo->exec('drop index if exists global.conversations_nook_user_idx');
+            $pdo->exec('create index if not exists conversations_user_idx on global.conversations (user_id)');
 
             // Drop legacy conversation_messages table (replaced by conversation_blocks)
             $pdo->exec('drop table if exists global.conversation_messages');

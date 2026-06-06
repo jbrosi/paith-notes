@@ -50,11 +50,6 @@ final class NookStatsController
         $col = $stmt->fetchColumn();
         $stats['total_mentions'] = is_scalar($col) ? (int) $col : 0;
 
-        $stmt = $pdo->prepare('SELECT count(*) FROM global.conversations WHERE nook_id = :nook_id');
-        $stmt->execute([':nook_id' => $nookId]);
-        $col = $stmt->fetchColumn();
-        $stats['total_conversations'] = is_scalar($col) ? (int) $col : 0;
-
         $stmt = $pdo->prepare(
             'SELECT COALESCE(SUM(nf.filesize), 0)
              FROM global.note_files nf

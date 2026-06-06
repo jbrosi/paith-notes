@@ -5,14 +5,17 @@ declare(strict_types=1);
 namespace Paith\Notes\Api\Http\Controller;
 
 use Paith\Notes\Api\Http\Context;
+use Paith\Notes\Api\Http\Controller\Export\ExportHelpers;
+use Paith\Notes\Api\Http\Dto\JsonReader;
+use Paith\Notes\Api\Http\FileResponse;
 use Paith\Notes\Api\Http\HttpError;
 use Paith\Notes\Api\Http\JsonResponse;
 use Paith\Notes\Api\Http\Request;
 use Paith\Notes\Api\Http\Response;
-use PDO;
-use Paith\Notes\Shared\Uuid;
 use Paith\Notes\Shared\Db\Row;
-use Paith\Notes\Api\Http\Dto\JsonReader;
+use Paith\Notes\Shared\Uuid;
+use PDO;
+use ZipArchive;
 
 final class ConversationsController
 {
@@ -22,14 +25,8 @@ final class ConversationsController
     {
         $pdo  = $context->pdo();
         $user = $context->user();
+        $userId = $context->userId();
         $data = $request->jsonBody();
-
-        $nookId = JsonReader::optionalTrimmedString($data, 'nook_id');
-        if ($nookId === '' || !Uuid::isValid($nookId)) {
-            throw new HttpError('nook_id is required and must be a UUID', 400);
-        }
-
-        $this->requireMember($pdo, $user, $nookId);
 
         $model = JsonReader::optionalTrimmedString($data, 'model', self::DEFAULT_MODEL);
         if ($model === '') {
@@ -40,13 +37,12 @@ final class ConversationsController
         $title    = mb_substr($titleRaw, 0, 255);
 
         $stmt = $pdo->prepare('
-            insert into global.conversations (nook_id, user_id, title, model)
-            values (:nook_id, :user_id, :title, :model)
+            insert into global.conversations (user_id, title, model)
+            values (:user_id, :title, :model)
             returning id, created_at, updated_at
         ');
         $stmt->execute([
-            ':nook_id' => $nookId,
-            ':user_id' => $user['id'],
+            ':user_id' => $userId,
             ':title'   => $title,
             ':model'   => $model,
         ]);
@@ -58,7 +54,6 @@ final class ConversationsController
         return JsonResponse::ok([
             'conversation' => [
                 'id'         => Row::str($row, 'id'),
-                'nook_id'    => $nookId,
                 'title'      => $title,
                 'model'      => $model,
                 'created_at' => Row::str($row, 'created_at'),
@@ -69,26 +64,16 @@ final class ConversationsController
 
     public function list(Request $request, Context $context): Response
     {
-        $pdo  = $context->pdo();
-        $user = $context->user();
-
-        $nookId = trim($request->queryParam('nook_id'));
-        if ($nookId === '' || !Uuid::isValid($nookId)) {
-            throw new HttpError('nook_id is required and must be a UUID', 400);
-        }
-
-        $this->requireMember($pdo, $user, $nookId);
+        $pdo    = $context->pdo();
+        $userId = $context->userId();
 
         $stmt = $pdo->prepare('
             select id, title, model, created_at, updated_at
             from global.conversations
-            where nook_id = :nook_id and user_id = :user_id
+            where user_id = :user_id
             order by updated_at desc
         ');
-        $stmt->execute([
-            ':nook_id' => $nookId,
-            ':user_id' => $user['id'],
-        ]);
+        $stmt->execute([':user_id' => $userId]);
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
         $conversations = [];
@@ -98,7 +83,6 @@ final class ConversationsController
             }
             $conversations[] = [
                 'id'         => Row::str($row, 'id'),
-                'nook_id'    => $nookId,
                 'title'      => Row::str($row, 'title'),
                 'model'      => Row::str($row, 'model'),
                 'created_at' => Row::str($row, 'created_at'),
@@ -311,24 +295,228 @@ final class ConversationsController
         return JsonResponse::ok(['ok' => true]);
     }
 
-    private function requireMember(PDO $pdo, array $user, string $nookId): void
+    /**
+     * Delete a single conversation owned by the caller.
+     * Cascades to conversation_blocks via FK on delete cascade.
+     */
+    public function delete(Request $request, Context $context): Response
     {
+        $pdo = $context->pdo();
+        $userId = $context->userId();
+
+        $conversationId = $request->requireUuidRouteParam('conversationId');
+
         $stmt = $pdo->prepare('
-            select 1 from global.nook_members
-            where nook_id = :nook_id and user_id = :user_id
-            limit 1
+            delete from global.conversations
+            where id = :id and user_id = :user_id
+            returning id
         ');
-        $stmt->execute([':nook_id' => $nookId, ':user_id' => $user['id']]);
-        if (!$stmt->fetch()) {
-            throw new HttpError('forbidden', 403);
+        $stmt->execute([':id' => $conversationId, ':user_id' => $userId]);
+        if ($stmt->fetchColumn() === false) {
+            throw new HttpError('conversation not found', 404);
         }
+
+        return JsonResponse::ok(['deleted' => true, 'conversation_id' => $conversationId]);
     }
 
-    /** @return array<mixed, mixed> */
+    /**
+     * Delete every conversation belonging to the caller. Returns the count
+     * deleted. No history retained — the conversation rows are gone.
+     */
+    public function deleteAll(Request $request, Context $context): Response
+    {
+        $pdo = $context->pdo();
+        $userId = $context->userId();
+
+        $stmt = $pdo->prepare('delete from global.conversations where user_id = :user_id');
+        $stmt->execute([':user_id' => $userId]);
+
+        return JsonResponse::ok(['deleted' => true, 'count' => $stmt->rowCount()]);
+    }
+
+    /**
+     * Export all of the caller's conversations as a zip.
+     *
+     * Layout mirrors the nook export so the two formats feel consistent:
+     *   manifest.json          — schema_version, exported_at, stats
+     *   meta/conversations.json — full conversation rows
+     *   meta/blocks.json        — every block, ordered, for lossless re-import
+     *   conversations/<title>.md — one human-readable markdown per chat
+     */
+    public function exportMine(Request $request, Context $context): Response
+    {
+        $pdo = $context->pdo();
+        $userId = $context->userId();
+
+        $conversations = $this->fetchConversationsForUser($pdo, $userId);
+        $blocksByConv = $this->fetchBlocksGroupedByConversation($pdo, $userId);
+
+        $tmpFile = tempnam(sys_get_temp_dir(), 'conv-export-') . '.zip';
+        $zip = new ZipArchive();
+        if ($zip->open($tmpFile, ZipArchive::CREATE | ZipArchive::OVERWRITE) !== true) {
+            throw new HttpError('Failed to create export archive', 500);
+        }
+
+        $zip->addFromString('meta/conversations.json', ExportHelpers::jsonEncode($conversations));
+        $zip->addFromString('meta/blocks.json', ExportHelpers::jsonEncode($blocksByConv));
+
+        $pathCounts = [];
+        $blockCount = 0;
+        foreach ($conversations as $conv) {
+            $blocks = $blocksByConv[$conv['id']] ?? [];
+            $blockCount += count($blocks);
+
+            $title = $conv['title'] !== '' ? $conv['title'] : 'Untitled';
+            $safe = ExportHelpers::safeFilename($title);
+            // Disambiguate when two conversations share a title.
+            $pathCounts[$safe] = ($pathCounts[$safe] ?? 0) + 1;
+            $filename = $pathCounts[$safe] > 1
+                ? "{$safe} ({$pathCounts[$safe]}).md"
+                : "{$safe}.md";
+
+            $zip->addFromString("conversations/{$filename}", self::renderConversationMarkdown($conv, $blocks));
+        }
+
+        $stats = [
+            'conversations' => count($conversations),
+            'blocks' => $blockCount,
+        ];
+        $zip->addFromString('manifest.json', ExportHelpers::jsonEncode([
+            'schema_version' => 1,
+            'exported_at' => date('c'),
+            'kind' => 'paith-conversations',
+            'user_id' => $userId,
+            'stats' => $stats,
+        ]));
+
+        $zip->close();
+
+        $date = date('Y-m-d_His');
+        return new FileResponse($tmpFile, 200, [
+            'Content-Type' => 'application/zip',
+            'Content-Disposition' => "attachment; filename=\"conversations_{$date}.zip\"",
+            'Content-Length' => (string) filesize($tmpFile),
+        ]);
+    }
+
+    /**
+     * @return list<array{id: string, title: string, model: string, created_at: string, updated_at: string}>
+     */
+    private function fetchConversationsForUser(PDO $pdo, string $userId): array
+    {
+        $stmt = $pdo->prepare('
+            select id, title, model, created_at, updated_at
+            from global.conversations
+            where user_id = :user_id
+            order by created_at asc
+        ');
+        $stmt->execute([':user_id' => $userId]);
+
+        $out = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $out[] = [
+                'id' => Row::str($row, 'id'),
+                'title' => Row::str($row, 'title'),
+                'model' => Row::str($row, 'model'),
+                'created_at' => Row::str($row, 'created_at'),
+                'updated_at' => Row::str($row, 'updated_at'),
+            ];
+        }
+        return $out;
+    }
+
+    /**
+     * @return array<string, list<array{id: string, turn_id: string, role: string, block_index: int, block_type: string, content: mixed, model: ?string, created_at: string}>>
+     */
+    private function fetchBlocksGroupedByConversation(PDO $pdo, string $userId): array
+    {
+        $stmt = $pdo->prepare('
+            select b.id, b.conversation_id, b.turn_id, b.role, b.block_index, b.block_type, b.content, b.model, b.created_at,
+                   min(b.created_at) over (partition by b.turn_id) as turn_started_at
+            from global.conversation_blocks b
+            join global.conversations c on c.id = b.conversation_id
+            where c.user_id = :user_id
+            order by b.conversation_id, turn_started_at asc, b.turn_id asc, b.block_index asc
+        ');
+        $stmt->execute([':user_id' => $userId]);
+
+        $out = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $convId = Row::str($row, 'conversation_id');
+            if ($convId === '') {
+                continue;
+            }
+            $rawContent = $row['content'] ?? null;
+            $content = is_string($rawContent) ? json_decode($rawContent, true) : $rawContent;
+
+            $out[$convId][] = [
+                'id' => Row::str($row, 'id'),
+                'turn_id' => Row::str($row, 'turn_id'),
+                'role' => Row::str($row, 'role'),
+                'block_index' => Row::int($row, 'block_index'),
+                'block_type' => Row::str($row, 'block_type'),
+                'content' => $content,
+                'model' => Row::nullStr($row, 'model'),
+                'created_at' => Row::str($row, 'created_at'),
+            ];
+        }
+        return $out;
+    }
+
+    /**
+     * @param array{id: string, title: string, model: string, created_at: string, updated_at: string} $conv
+     * @param list<array{turn_id: string, role: string, block_type: string, content: mixed, model: ?string, created_at: string}> $blocks
+     */
+    private static function renderConversationMarkdown(array $conv, array $blocks): string
+    {
+        $fm = ExportHelpers::renderFrontmatter([
+            'id' => $conv['id'],
+            'title' => $conv['title'] !== '' ? $conv['title'] : 'Untitled',
+            'model' => $conv['model'],
+            'created_at' => $conv['created_at'],
+            'updated_at' => $conv['updated_at'],
+        ]);
+
+        $md = $fm . '# ' . ($conv['title'] !== '' ? $conv['title'] : 'Untitled') . "\n\n";
+
+        $currentTurn = '';
+        foreach ($blocks as $block) {
+            if ($block['turn_id'] !== $currentTurn) {
+                $currentTurn = $block['turn_id'];
+                $who = $block['role'] === 'user' ? 'You' : 'Assistant';
+                $modelHint = $block['role'] === 'assistant' && $block['model'] !== null && $block['model'] !== ''
+                    ? ", {$block['model']}"
+                    : '';
+                $md .= "\n## {$who} ({$block['created_at']}{$modelHint})\n\n";
+            }
+            $md .= self::renderBlock($block['block_type'], $block['content']) . "\n\n";
+        }
+
+        return $md;
+    }
+
+    private static function renderBlock(string $type, mixed $content): string
+    {
+        if ($type === 'text' && is_array($content) && is_string($content['text'] ?? null)) {
+            return $content['text'];
+        }
+        // Tool calls, tool results, images, anything structured — render as a JSON fence
+        $label = $type !== '' ? $type : 'block';
+        $body = is_string($content) ? $content : (string) json_encode($content, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+        return "```{$label}\n{$body}\n```";
+    }
+
+    /** @return array<string, mixed> */
     private function requireConversationOwner(PDO $pdo, array $user, string $conversationId): array
     {
         $stmt = $pdo->prepare('
-            select id, nook_id, title, model
+            select id, title, model
             from global.conversations
             where id = :id and user_id = :user_id
             limit 1
@@ -338,6 +526,7 @@ final class ConversationsController
         if (!is_array($row)) {
             throw new HttpError('conversation not found', 404);
         }
+        /** @var array<string, mixed> $row */
         return $row;
     }
 }
