@@ -13,6 +13,7 @@ use Paith\Notes\Shared\Db\Row;
 use PDO;
 use Throwable;
 use Paith\Notes\Shared\Uuid;
+use Paith\Notes\Api\Http\Dto\JsonReader;
 
 final class NoteLinksController
 {
@@ -374,8 +375,7 @@ final class NoteLinksController
 
         $data = $request->jsonBody();
 
-        $predicateIdRaw = $data['predicate_id'] ?? '';
-        $predicateId = is_string($predicateIdRaw) ? trim($predicateIdRaw) : '';
+        $predicateId = JsonReader::optionalTrimmedString($data, 'predicate_id');
         if ($predicateId === '') {
             throw new HttpError('predicate_id is required', 400);
         }
@@ -383,8 +383,7 @@ final class NoteLinksController
             throw new HttpError('predicate_id must be a UUID', 400);
         }
 
-        $targetNoteIdRaw = $data['target_note_id'] ?? '';
-        $targetNoteId = is_string($targetNoteIdRaw) ? trim($targetNoteIdRaw) : '';
+        $targetNoteId = JsonReader::optionalTrimmedString($data, 'target_note_id');
         if ($targetNoteId === '') {
             throw new HttpError('target_note_id is required', 400);
         }

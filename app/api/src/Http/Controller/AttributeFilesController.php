@@ -334,8 +334,7 @@ final class AttributeFilesController
             }
 
             // Determine note title
-            $titleRaw = $data['title'] ?? null;
-            $title = is_string($titleRaw) ? trim($titleRaw) : '';
+            $title = JsonReader::optionalTrimmedString($data, 'title');
             if ($title === '') {
                 $title = $filename;
             }

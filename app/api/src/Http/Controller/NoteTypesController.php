@@ -13,6 +13,7 @@ use Paith\Notes\Shared\Db\Row;
 use PDO;
 use Throwable;
 use Paith\Notes\Shared\Uuid;
+use Paith\Notes\Api\Http\Dto\JsonReader;
 
 final class NoteTypesController
 {
@@ -120,14 +121,12 @@ final class NoteTypesController
 
         $data = $request->jsonBody();
 
-        $keyRaw = $data['key'] ?? '';
-        $key = is_string($keyRaw) ? trim($keyRaw) : '';
+        $key = JsonReader::optionalTrimmedString($data, 'key');
         if ($key === '') {
             throw new HttpError('key is required', 400);
         }
 
-        $labelRaw = $data['label'] ?? '';
-        $label = is_string($labelRaw) ? trim($labelRaw) : '';
+        $label = JsonReader::optionalTrimmedString($data, 'label');
         if ($label === '') {
             throw new HttpError('label is required', 400);
         }
@@ -135,8 +134,7 @@ final class NoteTypesController
         $descriptionRaw = $data['description'] ?? '';
         $description = is_string($descriptionRaw) ? $descriptionRaw : '';
 
-        $parentIdRaw = $data['parent_id'] ?? '';
-        $parentId = is_string($parentIdRaw) ? trim($parentIdRaw) : '';
+        $parentId = JsonReader::optionalTrimmedString($data, 'parent_id');
         if ($parentId !== '' && !Uuid::isValid($parentId)) {
             throw new HttpError('parent_id must be a UUID', 400);
         }
@@ -215,14 +213,12 @@ final class NoteTypesController
         }
         $data = $request->jsonBody();
 
-        $keyRaw = $data['key'] ?? '';
-        $key = is_string($keyRaw) ? trim($keyRaw) : '';
+        $key = JsonReader::optionalTrimmedString($data, 'key');
         if ($key === '') {
             throw new HttpError('key is required', 400);
         }
 
-        $labelRaw = $data['label'] ?? '';
-        $label = is_string($labelRaw) ? trim($labelRaw) : '';
+        $label = JsonReader::optionalTrimmedString($data, 'label');
         if ($label === '') {
             throw new HttpError('label is required', 400);
         }
@@ -230,8 +226,7 @@ final class NoteTypesController
         $descriptionRaw = $data['description'] ?? '';
         $description = is_string($descriptionRaw) ? $descriptionRaw : '';
 
-        $parentIdRaw = $data['parent_id'] ?? '';
-        $parentId = is_string($parentIdRaw) ? trim($parentIdRaw) : '';
+        $parentId = JsonReader::optionalTrimmedString($data, 'parent_id');
         if ($parentId !== '' && !Uuid::isValid($parentId)) {
             throw new HttpError('parent_id must be a UUID', 400);
         }

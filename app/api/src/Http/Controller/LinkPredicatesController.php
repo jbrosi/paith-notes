@@ -13,6 +13,7 @@ use PDO;
 use Throwable;
 use Paith\Notes\Shared\Uuid;
 use Paith\Notes\Shared\Db\Row;
+use Paith\Notes\Api\Http\Dto\JsonReader;
 
 final class LinkPredicatesController
 {
@@ -68,8 +69,7 @@ final class LinkPredicatesController
 
         $data = $request->jsonBody();
 
-        $keyRaw = $data['key'] ?? '';
-        $key = is_string($keyRaw) ? trim($keyRaw) : '';
+        $key = JsonReader::optionalTrimmedString($data, 'key');
         if ($key === '') {
             throw new HttpError('key is required', 400);
         }
@@ -77,14 +77,12 @@ final class LinkPredicatesController
             throw new HttpError('relates_to is reserved', 400);
         }
 
-        $forwardRaw = $data['forward_label'] ?? '';
-        $forward = is_string($forwardRaw) ? trim($forwardRaw) : '';
+        $forward = JsonReader::optionalTrimmedString($data, 'forward_label');
         if ($forward === '') {
             throw new HttpError('forward_label is required', 400);
         }
 
-        $reverseRaw = $data['reverse_label'] ?? '';
-        $reverse = is_string($reverseRaw) ? trim($reverseRaw) : '';
+        $reverse = JsonReader::optionalTrimmedString($data, 'reverse_label');
         if ($reverse === '') {
             throw new HttpError('reverse_label is required', 400);
         }
@@ -169,8 +167,7 @@ final class LinkPredicatesController
 
         $data = $request->jsonBody();
 
-        $keyRaw = $data['key'] ?? '';
-        $key = is_string($keyRaw) ? trim($keyRaw) : '';
+        $key = JsonReader::optionalTrimmedString($data, 'key');
         if ($key === '') {
             throw new HttpError('key is required', 400);
         }
@@ -178,14 +175,12 @@ final class LinkPredicatesController
             throw new HttpError('relates_to is reserved', 400);
         }
 
-        $forwardRaw = $data['forward_label'] ?? '';
-        $forward = is_string($forwardRaw) ? trim($forwardRaw) : '';
+        $forward = JsonReader::optionalTrimmedString($data, 'forward_label');
         if ($forward === '') {
             throw new HttpError('forward_label is required', 400);
         }
 
-        $reverseRaw = $data['reverse_label'] ?? '';
-        $reverse = is_string($reverseRaw) ? trim($reverseRaw) : '';
+        $reverse = JsonReader::optionalTrimmedString($data, 'reverse_label');
         if ($reverse === '') {
             throw new HttpError('reverse_label is required', 400);
         }

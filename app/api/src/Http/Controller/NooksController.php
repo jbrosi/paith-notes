@@ -12,6 +12,7 @@ use Paith\Notes\Api\Http\Response;
 use PDO;
 use Throwable;
 use Paith\Notes\Shared\Db\Row;
+use Paith\Notes\Api\Http\Dto\JsonReader;
 
 final class NooksController
 {
@@ -138,8 +139,7 @@ final class NooksController
 
         $data = $request->jsonBody();
 
-        $nameRaw = $data['name'] ?? '';
-        $name = is_string($nameRaw) ? trim($nameRaw) : '';
+        $name = JsonReader::optionalTrimmedString($data, 'name');
         if ($name === '') {
             throw new HttpError('name is required', 400);
         }
@@ -197,8 +197,7 @@ final class NooksController
 
         $data = $request->jsonBody();
 
-        $nameRaw = $data['name'] ?? '';
-        $name = is_string($nameRaw) ? trim($nameRaw) : '';
+        $name = JsonReader::optionalTrimmedString($data, 'name');
         if ($name === '') {
             throw new HttpError('name is required', 400);
         }

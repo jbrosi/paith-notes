@@ -19,6 +19,7 @@ use Paith\Notes\Shared\Db\Rows\CreatedNoteRow;
 use Paith\Notes\Shared\Db\Rows\NoteHeadingRow;
 use PDO;
 use Throwable;
+use Paith\Notes\Api\Http\Dto\JsonReader;
 
 final class NotesController
 {
@@ -401,8 +402,7 @@ final class NotesController
 
         $data = $request->jsonBody();
 
-        $titleRaw = $data['title'] ?? '';
-        $title = is_string($titleRaw) ? trim($titleRaw) : '';
+        $title = JsonReader::optionalTrimmedString($data, 'title');
 
         $contentRaw = $data['content'] ?? '';
         $content = is_string($contentRaw) ? $contentRaw : '';
