@@ -44,6 +44,9 @@ export type UiState = {
 	setAccentColor: (color: string, nookId?: string) => void;
 	resetAccentColor: (nookId?: string) => void;
 	loadNookAccent: (nookId: string) => void;
+	debugMode: () => boolean;
+	setDebugMode: (next: boolean) => void;
+	toggleDebugMode: () => void;
 };
 
 const UiContext = createContext<UiState>();
@@ -54,6 +57,7 @@ const TYPES_PANEL_OPEN_STORAGE_KEY = "paith-notes:typesPanelOpen";
 const CHAT_PANEL_OPEN_STORAGE_KEY = "paith-notes:chatPanelOpen";
 const ACTIVE_PANEL_STORAGE_KEY = "paith-notes:activePanel";
 const THEME_STORAGE_KEY = "paith-notes:theme";
+const DEBUG_MODE_STORAGE_KEY = "paith-notes:debugMode";
 
 export function UiProvider(props: { children: JSX.Element }) {
 	const [mode, setModeSignal] = createSignal<"view" | "edit">("view");
@@ -67,6 +71,7 @@ export function UiProvider(props: { children: JSX.Element }) {
 		createSignal<string[]>(DEFAULT_MOBILE_PANELS);
 	const [theme, setThemeSignal] = createSignal<ThemeMode>("system");
 	const [accentColor, setAccentColorSignal] = createSignal("");
+	const [debugMode, setDebugModeSignal] = createSignal(false);
 
 	onMount(() => {
 		try {
@@ -99,6 +104,10 @@ export function UiProvider(props: { children: JSX.Element }) {
 				setThemeSignal(v);
 				applyTheme(v);
 			}
+		} catch { /* ignore */ }
+		try {
+			const v = window.localStorage.getItem(DEBUG_MODE_STORAGE_KEY);
+			if (v === "1") setDebugModeSignal(true);
 		} catch { /* ignore */ }
 	});
 
@@ -230,6 +239,12 @@ export function UiProvider(props: { children: JSX.Element }) {
 		);
 	};
 
+	const setDebugMode = (next: boolean) => {
+		setDebugModeSignal(Boolean(next));
+		persistBool(DEBUG_MODE_STORAGE_KEY, next);
+	};
+	const toggleDebugMode = () => setDebugMode(!debugMode());
+
 	const toggleMode = () => setMode(mode() === "edit" ? "view" : "edit");
 	const toggleSidebarRight = () => setSidebarRightOpen(!sidebarRightOpen());
 	const toggleSidebarLeft = () => setSidebarLeftOpen(!sidebarLeftOpen());
@@ -267,6 +282,9 @@ export function UiProvider(props: { children: JSX.Element }) {
 				setAccentColor,
 				resetAccentColor,
 				loadNookAccent,
+				debugMode,
+				setDebugMode,
+				toggleDebugMode,
 			}}
 		>
 			{props.children}

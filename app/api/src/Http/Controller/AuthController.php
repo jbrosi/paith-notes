@@ -48,7 +48,32 @@ final class AuthController
                 return JsonResponse::error('invalid session', 401);
             }
 
-            $claims = KeycloakJwt::fromEnv()->verifyAndDecode($access);
+            $jwtVerifier = KeycloakJwt::fromEnv();
+            try {
+                $claims = $jwtVerifier->verifyAndDecode($access);
+            } catch (RuntimeException $e) {
+                if ($e->getMessage() !== 'JWT is expired') {
+                    throw $e;
+                }
+                // Access token expired — attempt refresh using refresh token
+                $refresh = $payload['refresh_token'] ?? '';
+                if (!is_string($refresh) || trim($refresh) === '') {
+                    return JsonResponse::error('session expired', 401);
+                }
+                $oauth = KeycloakOAuth::fromEnv();
+                $newPayload = $oauth->refreshToken($refresh);
+                if (!array_key_exists('refresh_token', $newPayload) && array_key_exists('refresh_token', $payload)) {
+                    $newPayload['refresh_token'] = $payload['refresh_token'];
+                }
+                $tokenEncrypted = $crypto->encrypt((string)json_encode($newPayload));
+                SessionStore::updateSessionTokenEncrypted($pdo, $sessionId, $tokenEncrypted);
+                $newAccess = $newPayload['access_token'] ?? '';
+                if (!is_string($newAccess) || trim($newAccess) === '') {
+                    return JsonResponse::error('refresh failed', 401);
+                }
+                $claims = $jwtVerifier->verifyAndDecode($newAccess);
+            }
+
             $mw = new RequireUser();
             $user = $mw->findOrCreateUserFromKeycloak($pdo, $claims);
             $context->setUser($user);
