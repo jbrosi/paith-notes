@@ -379,54 +379,6 @@ parameters:
 			path: api/src/Http/Controller/Export/DashboardRenderer.php
 
 		-
-			message: '#^Cannot cast mixed to string\.$#'
-			identifier: cast.string
-			count: 2
-			path: api/src/Http/Controller/Export/NoteLinker.php
-
-		-
-			message: '#^Offset 2 on array\{non\-empty\-string, non\-falsy\-string, non\-falsy\-string\} in empty\(\) always exists and is not falsy\.$#'
-			identifier: empty.offset
-			count: 1
-			path: api/src/Http/Controller/Export/NoteLinker.php
-
-		-
-			message: '#^Offset 5 on array\{non\-empty\-string, '''', '''', '''', non\-falsy\-string, non\-falsy\-string, non\-falsy\-string\} in empty\(\) always exists and is not falsy\.$#'
-			identifier: empty.offset
-			count: 1
-			path: api/src/Http/Controller/Export/NoteLinker.php
-
-		-
-			message: '#^Offset 6 on array\{non\-empty\-string, '''', '''', '''', non\-falsy\-string, non\-falsy\-string, non\-falsy\-string\} in empty\(\) always exists and is not falsy\.$#'
-			identifier: empty.offset
-			count: 1
-			path: api/src/Http/Controller/Export/NoteLinker.php
-
-		-
-			message: '#^Offset 8 on array\{non\-empty\-string, '''', '''', '''', '''', '''', '''', non\-falsy\-string, \.\.\.\} in empty\(\) always exists and is not falsy\.$#'
-			identifier: empty.offset
-			count: 1
-			path: api/src/Http/Controller/Export/NoteLinker.php
-
-		-
-			message: '#^Parameter \#1 \$name of static method Paith\\Notes\\Api\\Http\\Controller\\Export\\ExportHelpers\:\:safeFilename\(\) expects string, mixed given\.$#'
-			identifier: argument.type
-			count: 1
-			path: api/src/Http/Controller/Export/NoteLinker.php
-
-		-
-			message: '#^Parameter \#1 \$path of function dirname expects string, string\|null given\.$#'
-			identifier: argument.type
-			count: 1
-			path: api/src/Http/Controller/Export/NoteLinker.php
-
-		-
-			message: '#^Possibly invalid array key type mixed\.$#'
-			identifier: offsetAccess.invalidOffset
-			count: 2
-			path: api/src/Http/Controller/Export/NoteLinker.php
-
-		-
 			message: '#^Argument of an invalid type mixed supplied for foreach, only iterables are supported\.$#'
 			identifier: foreach.nonIterable
 			count: 2

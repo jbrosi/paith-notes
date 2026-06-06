@@ -46,24 +46,27 @@ final class NoteLinker
             | (\!\[[^\]]*\])\(note:(' . $uuid . ')\)                           # same-nook image: ![alt](note:noteId)
         /xi';
 
+        // One indicator group per alternative — see RemapIds for the same pattern.
         return preg_replace_callback(
             $pattern,
             static function (array $m) use ($noteMap, $noteTitles, $currentDir, $noteFiles, $attrById, $appBaseUrl): string {
                 // Cross-nook wikilink: [[note:nookId/noteId]]
-                if (!empty($m[1]) && !empty($m[2])) {
+                if ($m[1] !== '') {
                     $nookId = $m[1];
                     $noteId = $m[2];
-                    $url = $appBaseUrl ? "{$appBaseUrl}/nooks/{$nookId}/notes/{$noteId}" : "#";
-                    $title = $noteTitles[$noteId] ?? substr($noteId, 0, 8) . '…';
+                    $url = $appBaseUrl !== '' ? "{$appBaseUrl}/nooks/{$nookId}/notes/{$noteId}" : '#';
+                    $title = is_string($noteTitles[$noteId] ?? null)
+                        ? $noteTitles[$noteId]
+                        : substr($noteId, 0, 8) . '…';
                     return "[{$title}]({$url})";
                 }
 
                 // Same-nook wikilink: [[note:uuid]]
-                if (!empty($m[3])) {
+                if ($m[3] !== '') {
                     $uuid = $m[3];
-                    $targetPath = $noteMap[$uuid] ?? null;
-                    $title = $noteTitles[$uuid] ?? $uuid;
-                    if ($targetPath) {
+                    $targetPath = is_string($noteMap[$uuid] ?? null) ? $noteMap[$uuid] : null;
+                    $title = is_string($noteTitles[$uuid] ?? null) ? $noteTitles[$uuid] : $uuid;
+                    if ($targetPath !== null && $targetPath !== '') {
                         $rel = ExportHelpers::relativePath($currentDir, $targetPath);
                         return "[{$title}]({$rel})";
                     }
@@ -71,46 +74,45 @@ final class NoteLinker
                 }
 
                 // Cross-nook image: ![alt](note:nookId/noteId)
-                if (!empty($m[4]) && !empty($m[5]) && !empty($m[6])) {
+                if ($m[4] !== '') {
                     $altPart = $m[4];
                     $nookId = $m[5];
                     $noteId = $m[6];
-                    $url = $appBaseUrl ? "{$appBaseUrl}/nooks/{$nookId}/notes/{$noteId}" : "#";
+                    $url = $appBaseUrl !== '' ? "{$appBaseUrl}/nooks/{$nookId}/notes/{$noteId}" : '#';
                     return "{$altPart}({$url})";
                 }
 
-                // Same-nook image: ![alt](note:uuid) → point to actual file
-                if (!empty($m[7]) && !empty($m[8])) {
-                    $altPart = $m[7];
-                    $uuid = $m[8];
+                // Same-nook image: ![alt](note:uuid) — last remaining alternative
+                $altPart = $m[7];
+                $uuid = $m[8];
 
-                    // Try actual file on disk
-                    $files = $noteFiles[$uuid] ?? [];
-                    if ($files) {
-                        $f = $files[0];
-                        $fullFilename = ExportHelpers::buildFilename(
-                            (string) ($f['filename'] ?? 'file'),
-                            (string) ($f['extension'] ?? ''),
-                        );
-                        $attrName = null;
-                        if (isset($f['attribute_id'], $attrById[$f['attribute_id']])) {
-                            $attrName = ExportHelpers::safeFilename($attrById[$f['attribute_id']]['name']);
-                        }
-                        $noteTitle = $noteTitles[$uuid] ?? 'Untitled';
-                        $fileZipPath = ExportHelpers::buildFileZipPath($noteTitle, $attrName, $fullFilename);
-                        $rel = ExportHelpers::relativePath("notes/{$currentDir}", $fileZipPath);
-                        return "{$altPart}({$rel})";
-                    }
+                $files = is_array($noteFiles[$uuid] ?? null) ? $noteFiles[$uuid] : [];
+                $first = $files[0] ?? null;
+                if (is_array($first)) {
+                    $filename = is_scalar($first['filename'] ?? null) ? (string)$first['filename'] : 'file';
+                    $ext = is_scalar($first['extension'] ?? null) ? (string)$first['extension'] : '';
+                    $fullFilename = ExportHelpers::buildFilename($filename, $ext);
 
-                    // Fallback: link to note .md
-                    $targetPath = $noteMap[$uuid] ?? null;
-                    if ($targetPath) {
-                        $rel = ExportHelpers::relativePath($currentDir, $targetPath);
-                        return "{$altPart}({$rel})";
+                    $attrName = null;
+                    $attrId = is_string($first['attribute_id'] ?? null) ? $first['attribute_id'] : null;
+                    if ($attrId !== null && is_array($attrById[$attrId] ?? null)) {
+                        $name = is_scalar($attrById[$attrId]['name'] ?? null)
+                            ? (string)$attrById[$attrId]['name']
+                            : '';
+                        $attrName = ExportHelpers::safeFilename($name);
                     }
-                    return $m[0];
+                    $noteTitle = is_string($noteTitles[$uuid] ?? null) ? $noteTitles[$uuid] : 'Untitled';
+                    $fileZipPath = ExportHelpers::buildFileZipPath($noteTitle, $attrName, $fullFilename);
+                    $rel = ExportHelpers::relativePath("notes/{$currentDir}", $fileZipPath);
+                    return "{$altPart}({$rel})";
                 }
 
+                // Fallback: link to note .md
+                $targetPath = is_string($noteMap[$uuid] ?? null) ? $noteMap[$uuid] : null;
+                if ($targetPath !== null && $targetPath !== '') {
+                    $rel = ExportHelpers::relativePath($currentDir, $targetPath);
+                    return "{$altPart}({$rel})";
+                }
                 return $m[0];
             },
             $content,
@@ -131,7 +133,7 @@ final class NoteLinker
         array $pathToId,
         array $fileNoteIds = [],
     ): string {
-        $notePath = preg_replace('#^notes/#', '', $currentEntry);
+        $notePath = preg_replace('#^notes/#', '', $currentEntry) ?? $currentEntry;
         $currentDir = dirname($notePath);
         if ($currentDir === '.') {
             $currentDir = '';
@@ -141,8 +143,8 @@ final class NoteLinker
         return preg_replace_callback(
             '/(\!\[[^\]]*\])\(([^)]+)\)|\[([^\]]*)\]\(([^)]+\.md)\)/',
             static function (array $m) use ($currentDir, $pathToId, $fileNoteIds): string {
-                // Image: ![alt](relative/path)
-                if (!empty($m[1]) && !empty($m[2])) {
+                // Image alternative: groups 1 (alt) + 2 (relPath) populated
+                if ($m[1] !== '') {
                     $altPart = $m[1];
                     $relPath = $m[2];
                     // Skip absolute URLs
@@ -163,16 +165,12 @@ final class NoteLinker
                     return $m[0];
                 }
 
-                // Link: [text](path.md)
-                if (!empty($m[4])) {
-                    $relPath = $m[4];
-                    $absPath = self::resolveRelativePath($currentDir, $relPath);
-                    if (isset($pathToId[$absPath])) {
-                        return "[[note:{$pathToId[$absPath]}]]";
-                    }
-                    return $m[0];
+                // Link alternative: groups 3 (text) + 4 (relPath) populated
+                $relPath = $m[4];
+                $absPath = self::resolveRelativePath($currentDir, $relPath);
+                if (isset($pathToId[$absPath])) {
+                    return "[[note:{$pathToId[$absPath]}]]";
                 }
-
                 return $m[0];
             },
             $content,
