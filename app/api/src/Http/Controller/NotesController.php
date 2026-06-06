@@ -17,6 +17,7 @@ use Paith\Notes\Api\Http\Response;
 use Paith\Notes\Shared\Db\Row;
 use Paith\Notes\Shared\Db\Rows\CreatedNoteRow;
 use Paith\Notes\Shared\Db\Rows\NoteHeadingRow;
+use Paith\Notes\Shared\Uuid;
 use PDO;
 use Throwable;
 use Paith\Notes\Api\Http\Dto\JsonReader;
@@ -439,7 +440,7 @@ final class NotesController
         $typeId = $existingTypeId !== '' ? $existingTypeId : null;
         if ($typeIdRaw !== null) {
             $typeIdStr = is_string($typeIdRaw) ? trim($typeIdRaw) : '';
-            if ($typeIdStr !== '' && !self::isUuid($typeIdStr)) {
+            if ($typeIdStr !== '' && !Uuid::isValid($typeIdStr)) {
                 throw new HttpError('type_id must be a UUID', 400);
             }
             $typeId = $typeIdStr !== '' ? $typeIdStr : null;
@@ -1089,14 +1090,6 @@ final class NotesController
             throw new HttpError('forbidden', 403);
         }
         return $row;
-    }
-
-    private static function isUuid(string $value): bool
-    {
-        return (bool)preg_match(
-            '/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i',
-            $value
-        );
     }
 
     /**
