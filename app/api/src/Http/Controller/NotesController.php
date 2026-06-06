@@ -42,7 +42,7 @@ final class NotesController
 
         $nookId = $request->requireUuidRouteParam('nookId');
 
-        $this->requireMember($pdo, $user, $nookId);
+        NookAccess::requireMember($pdo, $user, $nookId);
 
         $stmt = $pdo->prepare(
             'select n.id, n.title, n.type_id, n.created_at,
@@ -117,7 +117,7 @@ final class NotesController
         $noteId = $request->requireUuidRouteParam('noteId');
 
         $userId = $user->id;
-        $this->requireMember($pdo, $user, $nookId);
+        NookAccess::requireMember($pdo, $user, $nookId);
 
         // Get current version
         $vStmt = $pdo->prepare('select version from global.notes where id = :id and nook_id = :nook_id');
@@ -177,7 +177,7 @@ final class NotesController
 
         $noteId = $request->requireUuidRouteParam('noteId');
 
-        $this->requireMember($pdo, $user, $nookId);
+        NookAccess::requireMember($pdo, $user, $nookId);
 
         $stmt = $pdo->prepare(
             'select n.id, n.title, n.content, n.type_id, n.attributes, n.archive, n.version, '
@@ -283,7 +283,7 @@ final class NotesController
 
         $noteId = $request->requireUuidRouteParam('noteId');
 
-        $this->requireMember($pdo, $user, $nookId);
+        NookAccess::requireMember($pdo, $user, $nookId);
 
         $stmt = $pdo->prepare(
             'select id, title, type_id, attributes, version, created_at, updated_at '
@@ -640,7 +640,7 @@ final class NotesController
 
         $noteId = $request->requireUuidRouteParam('noteId');
 
-        $this->requireMember($pdo, $user, $nookId);
+        NookAccess::requireMember($pdo, $user, $nookId);
 
         // Cross-nook: return mentions from any nook the user is a member of
         $outgoingStmt = $pdo->prepare(
@@ -717,7 +717,7 @@ final class NotesController
             throw new HttpError('historyId is required', 400);
         }
 
-        $this->requireMember($pdo, $user, $nookId);
+        NookAccess::requireMember($pdo, $user, $nookId);
 
         // historyId can be a numeric ID or "v{number}" for version lookup
         if (str_starts_with($historyId, 'v') && ctype_digit(substr($historyId, 1))) {
@@ -809,7 +809,7 @@ final class NotesController
 
         $noteId = $request->requireUuidRouteParam('noteId');
 
-        $this->requireMember($pdo, $user, $nookId);
+        NookAccess::requireMember($pdo, $user, $nookId);
 
         $fromVersion = trim($request->queryParam('from'));
         $toVersion = trim($request->queryParam('to'));
@@ -915,7 +915,7 @@ final class NotesController
 
         $noteId = $request->requireUuidRouteParam('noteId');
 
-        $this->requireMember($pdo, $user, $nookId);
+        NookAccess::requireMember($pdo, $user, $nookId);
 
         $stmt = $pdo->prepare(
             "select am.id, am.version, am.action, am.actor, am.table_name, am.user_id, am.created_at,
@@ -1059,23 +1059,6 @@ final class NotesController
         }
         return $ids;
     }
-
-    /** @return array<string, mixed> */
-    private function requireMember(PDO $pdo, User $user, string $nookId): array
-    {
-        $check = $pdo->prepare('select role from global.nook_members where nook_id = :nook_id and user_id = :user_id limit 1');
-        $check->execute([
-            ':nook_id' => $nookId,
-            ':user_id' => $user->id,
-        ]);
-        $row = $check->fetch(PDO::FETCH_ASSOC);
-        if (!is_array($row)) {
-            throw new HttpError('forbidden', 403);
-        }
-        /** @var array<string, mixed> $row */
-        return $row;
-    }
-
     /**
      * Extract a section from markdown starting at a character offset.
      * Returns content from that position to the next heading of the same

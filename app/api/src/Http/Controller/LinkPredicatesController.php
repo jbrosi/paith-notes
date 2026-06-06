@@ -28,7 +28,7 @@ final class LinkPredicatesController
 
         $nookId = $request->requireUuidRouteParam('nookId');
 
-        $this->requireMember($pdo, $user, $nookId);
+        NookAccess::requireMember($pdo, $user, $nookId);
         $this->ensureDefaultRelatesTo($pdo, $nookId);
 
         $stmt = $pdo->prepare(
@@ -241,7 +241,7 @@ final class LinkPredicatesController
 
         $predicateId = $request->requireUuidRouteParam('predicateId');
 
-        $this->requireMember($pdo, $user, $nookId);
+        NookAccess::requireMember($pdo, $user, $nookId);
 
         $check = $pdo->prepare('select 1 from global.link_predicates where id = :id and nook_id = :nook_id');
         $check->execute([':id' => $predicateId, ':nook_id' => $nookId]);
@@ -388,26 +388,5 @@ final class LinkPredicatesController
             ':forward_label' => 'relates to',
             ':reverse_label' => 'related to',
         ]);
-    }
-
-    /** @return array<string, mixed> */
-    private function requireMember(PDO $pdo, User $user, string $nookId): array
-    {
-        $userId = $user->id;
-        if ($userId === '') {
-            throw new HttpError('invalid user', 500);
-        }
-
-        $check = $pdo->prepare('select role from global.nook_members where nook_id = :nook_id and user_id = :user_id limit 1');
-        $check->execute([
-            ':nook_id' => $nookId,
-            ':user_id' => $userId,
-        ]);
-        $row = $check->fetch(PDO::FETCH_ASSOC);
-        if (!is_array($row)) {
-            throw new HttpError('forbidden', 403);
-        }
-        /** @var array<string, mixed> $row */
-        return $row;
     }
 }

@@ -81,7 +81,7 @@ final class ActivityController
 
         $nookId = $request->requireUuidRouteParam('nookId');
 
-        $this->requireMember($pdo, $user, $nookId);
+        NookAccess::requireMember($pdo, $user, $nookId);
 
         $limitRaw = $request->queryParam('limit');
         $limit = min(50, max(1, $limitRaw !== '' ? (int)$limitRaw : 20));
@@ -234,14 +234,5 @@ final class ActivityController
         }
 
         return JsonResponse::ok(['events' => $events]);
-    }
-
-    private function requireMember(PDO $pdo, User $user, string $nookId): void
-    {
-        $check = $pdo->prepare('select 1 from global.nook_members where nook_id = :nook_id and user_id = :user_id limit 1');
-        $check->execute([':nook_id' => $nookId, ':user_id' => $user->id]);
-        if ($check->fetch() === false) {
-            throw new HttpError('forbidden', 403);
-        }
     }
 }

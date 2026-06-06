@@ -167,7 +167,7 @@ final class AttributeFilesController
         $noteId = self::requireUuid($request->routeParam('noteId'), 'noteId');
         $attributeId = self::requireUuid($request->routeParam('attributeId'), 'attributeId');
 
-        $this->requireMember($pdo, $user, $nookId);
+        NookAccess::requireMember($pdo, $user, $nookId);
 
         $stmt = $pdo->prepare(
             'select nf.object_key, nf.filename, nf.mime_type '
@@ -648,20 +648,6 @@ final class AttributeFilesController
             throw new HttpError('forbidden', 403);
         }
     }
-
-    private function requireMember(PDO $pdo, User $user, string $nookId): void
-    {
-        $userId = $user->id;
-        if ($userId === '') {
-            throw new HttpError('invalid user', 500);
-        }
-        $check = $pdo->prepare('select 1 from global.nook_members where nook_id = :nook_id and user_id = :user_id limit 1');
-        $check->execute([':nook_id' => $nookId, ':user_id' => $userId]);
-        if (!$check->fetch()) {
-            throw new HttpError('forbidden', 403);
-        }
-    }
-
     private function generateUuid(PDO $pdo): string
     {
         $stmt = $pdo->query('select gen_random_uuid()');

@@ -32,7 +32,7 @@ final class TypeAttributesController
         $nookId = self::requireUuid($request->routeParam('nookId'), 'nookId');
         $typeId = self::requireUuid($request->routeParam('typeId'), 'typeId');
 
-        $this->requireMember($pdo, $user, $nookId);
+        NookAccess::requireMember($pdo, $user, $nookId);
         $this->requireType($pdo, $nookId, $typeId);
 
         $attributes = $this->resolveInheritedAttributes($pdo, $nookId, $typeId);
@@ -579,20 +579,6 @@ final class TypeAttributesController
             throw new HttpError('type not found', 404);
         }
     }
-
-    private function requireMember(PDO $pdo, User $user, string $nookId): void
-    {
-        $userId = $user->id;
-        if ($userId === '') {
-            throw new HttpError('invalid user', 500);
-        }
-        $check = $pdo->prepare('select 1 from global.nook_members where nook_id = :nook_id and user_id = :user_id limit 1');
-        $check->execute([':nook_id' => $nookId, ':user_id' => $userId]);
-        if (!$check->fetch()) {
-            throw new HttpError('forbidden', 403);
-        }
-    }
-
     private static function requireUuid(string $value, string $name): string
     {
         $v = trim($value);

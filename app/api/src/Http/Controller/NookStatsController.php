@@ -22,7 +22,7 @@ final class NookStatsController
 
         $nookId = $request->requireUuidRouteParam('nookId');
 
-        $this->requireMember($pdo, $user, $nookId);
+        NookAccess::requireMember($pdo, $user, $nookId);
 
         $stats = [];
 
@@ -147,7 +147,7 @@ final class NookStatsController
 
         $nookId = $request->requireUuidRouteParam('nookId');
 
-        $this->requireMember($pdo, $user, $nookId);
+        NookAccess::requireMember($pdo, $user, $nookId);
 
         $userId = $user->id;
 
@@ -184,7 +184,7 @@ final class NookStatsController
 
         $nookId = $request->requireUuidRouteParam('nookId');
 
-        $this->requireMember($pdo, $user, $nookId);
+        NookAccess::requireMember($pdo, $user, $nookId);
 
         $limitRaw = $request->queryParam('limit');
         $limit = min(50, max(1, $limitRaw !== '' ? (int)$limitRaw : 30));
@@ -223,19 +223,5 @@ final class NookStatsController
         }
 
         return JsonResponse::ok(['notes' => $notes]);
-    }
-
-    private function requireMember(PDO $pdo, User $user, string $nookId): void
-    {
-        $userId = $user->id;
-        if ($userId === '') {
-            throw new HttpError('invalid user', 500);
-        }
-        $stmt = $pdo->prepare('SELECT role FROM global.nook_members WHERE nook_id = :nook_id AND user_id = :user_id');
-        $stmt->execute([':nook_id' => $nookId, ':user_id' => $userId]);
-        $role = $stmt->fetchColumn();
-        if (!is_string($role) || $role === '') {
-            throw new HttpError('forbidden', 403);
-        }
     }
 }

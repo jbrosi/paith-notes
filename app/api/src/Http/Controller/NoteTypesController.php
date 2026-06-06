@@ -32,7 +32,7 @@ final class NoteTypesController
 
         $nookId = $request->requireUuidRouteParam('nookId');
 
-        $this->requireMember($pdo, $user, $nookId);
+        NookAccess::requireMember($pdo, $user, $nookId);
 
         $baseTypeId = $this->ensureDefaultBaseType($pdo, $nookId);
         $this->ensureDefaultFileType($pdo, $nookId, $baseTypeId);
@@ -318,7 +318,7 @@ final class NoteTypesController
             throw new HttpError('typeId is required', 400);
         }
 
-        $this->requireMember($pdo, $user, $nookId);
+        NookAccess::requireMember($pdo, $user, $nookId);
 
         $v = strtolower(trim($request->queryParam('include_subtypes')));
         $includeSubtypes = in_array($v, ['1', 'true', 'yes', 'on'], true);
@@ -606,28 +606,6 @@ final class NoteTypesController
             'heading_matches' => $headingMatches,
         ]);
     }
-
-    /** @return array<string, mixed> */
-    private function requireMember(PDO $pdo, User $user, string $nookId): array
-    {
-        $userId = $user->id;
-        if ($userId === '') {
-            throw new HttpError('invalid user', 500);
-        }
-
-        $check = $pdo->prepare('select role from global.nook_members where nook_id = :nook_id and user_id = :user_id limit 1');
-        $check->execute([
-            ':nook_id' => $nookId,
-            ':user_id' => $userId,
-        ]);
-        $row = $check->fetch(PDO::FETCH_ASSOC);
-        if (!is_array($row)) {
-            throw new HttpError('forbidden', 403);
-        }
-        /** @var array<string, mixed> $row */
-        return $row;
-    }
-
     /**
      * Ensure the base type exists. All other types inherit from it.
      * Returns the base type ID.

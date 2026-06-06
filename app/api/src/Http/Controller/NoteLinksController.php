@@ -30,7 +30,7 @@ final class NoteLinksController
 
         $noteId = $request->requireUuidRouteParam('noteId');
 
-        $this->requireMember($pdo, $user, $nookId);
+        NookAccess::requireMember($pdo, $user, $nookId);
 
         $direction = trim($request->queryParam('direction'));
         if ($direction === '') {
@@ -609,26 +609,5 @@ final class NoteLinksController
             ':forward_label' => 'relates to',
             ':reverse_label' => 'related to',
         ]);
-    }
-
-    /** @return array<string, mixed> */
-    private function requireMember(PDO $pdo, User $user, string $nookId): array
-    {
-        $userId = $user->id;
-        if ($userId === '') {
-            throw new HttpError('invalid user', 500);
-        }
-
-        $check = $pdo->prepare('select role from global.nook_members where nook_id = :nook_id and user_id = :user_id limit 1');
-        $check->execute([
-            ':nook_id' => $nookId,
-            ':user_id' => $userId,
-        ]);
-        $row = $check->fetch(PDO::FETCH_ASSOC);
-        if (!is_array($row)) {
-            throw new HttpError('forbidden', 403);
-        }
-        /** @var array<string, mixed> $row */
-        return $row;
     }
 }
