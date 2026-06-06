@@ -9,11 +9,13 @@ use Paith\Notes\Api\Http\Service\DiffService;
 use Paith\Notes\Api\Http\Service\HeadingsService;
 use Paith\Notes\Api\Http\Service\MentionsService;
 use Paith\Notes\Api\Http\Context;
+use Paith\Notes\Api\Http\Dto\CreateNoteRequest;
 use Paith\Notes\Api\Http\HttpError;
 use Paith\Notes\Api\Http\JsonResponse;
 use Paith\Notes\Api\Http\Request;
 use Paith\Notes\Api\Http\Response;
 use Paith\Notes\Shared\Db\Row;
+use Paith\Notes\Shared\Db\Rows\CreatedNoteRow;
 use PDO;
 use Throwable;
 
@@ -366,46 +368,27 @@ final class NotesController
     {
         $pdo = $context->pdo();
         $user = $context->user();
+        $userId = $context->userId();
 
         $nookId = trim($request->routeParam('nookId'));
-        if ($nookId === '') {
-            throw new HttpError('nookId is required', 400);
-        }
-        if (!self::isUuid($nookId)) {
+        if ($nookId === '' || !self::isUuid($nookId)) {
             throw new HttpError('nookId must be a UUID', 400);
         }
 
         NookAccess::requireWriteAccess($pdo, $user, $nookId);
 
-        $data = $request->jsonBody();
+        $payload = CreateNoteRequest::fromJson($request->jsonBody());
 
-        $titleRaw = $data['title'] ?? '';
-        $title = is_string($titleRaw) ? trim($titleRaw) : '';
-        $contentRaw = $data['content'] ?? '';
-        $content = is_string($contentRaw) ? $contentRaw : '';
-
-        $typeIdRaw = $data['type_id'] ?? '';
-        $typeId = is_string($typeIdRaw) ? trim($typeIdRaw) : '';
-        if ($typeId !== '' && !self::isUuid($typeId)) {
-            throw new HttpError('type_id must be a UUID', 400);
-        }
-
-        $attributes = is_array($data['attributes'] ?? null) ? $data['attributes'] : [];
-        if ($title === '') {
-            throw new HttpError('title is required', 400);
-        }
-
-        if ($typeId !== '') {
+        if ($payload->typeId !== null) {
             $typeCheck = $pdo->prepare('select 1 from global.note_types where id = :id and nook_id = :nook_id');
-            $typeCheck->execute([':id' => $typeId, ':nook_id' => $nookId]);
+            $typeCheck->execute([':id' => $payload->typeId, ':nook_id' => $nookId]);
             if (!$typeCheck->fetchColumn()) {
                 throw new HttpError('type not found', 404);
             }
-        }
 
-        // Validate attribute values against type schema
-        if ($attributes !== [] && $typeId !== '') {
-            AttributeValidator::validateNoteAttributesForType($pdo, $nookId, $typeId, $attributes);
+            if ($payload->attributes !== []) {
+                AttributeValidator::validateNoteAttributesForType($pdo, $nookId, $payload->typeId, $payload->attributes);
+            }
         }
 
         try {
@@ -417,11 +400,11 @@ final class NotesController
             );
             $stmt->execute([
                 ':nook_id' => $nookId,
-                ':created_by' => $user['id'],
-                ':title' => $title,
-                ':content' => $content,
-                ':type_id' => $typeId !== '' ? $typeId : null,
-                ':attributes' => json_encode($attributes === [] ? (object)[] : $attributes),
+                ':created_by' => $userId,
+                ':title' => $payload->title,
+                ':content' => $payload->content,
+                ':type_id' => $payload->typeId,
+                ':attributes' => json_encode($payload->attributes === [] ? (object)[] : $payload->attributes),
                 ':actor' => $context->actor(),
             ]);
 
@@ -429,29 +412,23 @@ final class NotesController
             if (!is_array($row)) {
                 throw new HttpError('failed to create note', 500);
             }
+            $created = CreatedNoteRow::fromRow($row);
 
-            $id = $row['id'] ?? '';
-            $createdAt = $row['created_at'] ?? '';
-
-            $noteId = is_scalar($id) ? (string)$id : '';
-            if ($noteId !== '') {
-                $userId = is_scalar($user['id'] ?? null) ? (string)$user['id'] : '';
-                $this->mentions->syncMentions($pdo, $nookId, $noteId, $content, $userId);
-                $this->headings->syncHeadings($pdo, $nookId, $noteId, $content);
-            }
+            $this->mentions->syncMentions($pdo, $nookId, $created->id, $payload->content, $userId);
+            $this->headings->syncHeadings($pdo, $nookId, $created->id, $payload->content);
 
             $pdo->commit();
 
             return JsonResponse::ok([
                 'note' => [
-                    'id' => is_scalar($id) ? (string)$id : '',
+                    'id' => $created->id,
                     'nook_id' => $nookId,
-                    'title' => $title,
-                    'content' => $content,
-                    'type_id' => $typeId,
-                    'attributes' => $attributes === [] ? (object)[] : $attributes,
+                    'title' => $payload->title,
+                    'content' => $payload->content,
+                    'type_id' => $payload->typeId ?? '',
+                    'attributes' => $payload->attributes === [] ? (object)[] : $payload->attributes,
                     'archive' => (object)[],
-                    'created_at' => is_scalar($createdAt) ? (string)$createdAt : '',
+                    'created_at' => $created->createdAt,
                 ],
             ]);
         } catch (Throwable $e) {
@@ -1220,15 +1197,6 @@ final class NotesController
         return $decoded;
     }
 
-    /** @param array<string, mixed> $value */
-    private static function encodeJsonObject(array $value): string
-    {
-        if ($value === []) {
-            return '{}';
-        }
-        return (string)json_encode($value, JSON_UNESCAPED_SLASHES);
-    }
-
     /**
      * Extract a section from markdown starting at a character offset.
      * Returns content from that position to the next heading of the same
@@ -1242,9 +1210,6 @@ final class NotesController
 
         $section = substr($content, $position);
         $lines = explode("\n", $section);
-        if ($lines === []) {
-            return '';
-        }
 
         // Determine the level of the heading at the start position
         $startLevel = 7; // default: capture everything

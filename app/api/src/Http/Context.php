@@ -71,6 +71,20 @@ final class Context
         return $this->user;
     }
 
+    /**
+     * Type-safe accessor for the authenticated user's id.
+     * Throws 401 when no user is set (same as user()).
+     */
+    public function userId(): string
+    {
+        $user = $this->user();
+        $id = $user['id'] ?? null;
+        if (!is_scalar($id)) {
+            throw new HttpError('not authenticated', 401);
+        }
+        return (string) $id;
+    }
+
     /** Set the actor ('user' or 'ai') from the X-Nook-Actor header */
     public function setActor(string $actor): void
     {

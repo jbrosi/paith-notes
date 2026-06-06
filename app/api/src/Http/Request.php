@@ -114,6 +114,13 @@ final class Request
         return $this->body;
     }
 
+    /**
+     * Decode the request body as a JSON object. Returns empty array on empty
+     * body, invalid JSON, non-object JSON, or any other failure mode — so
+     * callers can rely on the shape and validate field-by-field.
+     *
+     * @return array<string, mixed>
+     */
     public function jsonBody(): array
     {
         if ($this->body === '') {
@@ -121,7 +128,16 @@ final class Request
         }
 
         $data = json_decode($this->body, true);
-        return is_array($data) ? $data : [];
+        if (!is_array($data)) {
+            return [];
+        }
+        $out = [];
+        foreach ($data as $k => $v) {
+            if (is_string($k)) {
+                $out[$k] = $v;
+            }
+        }
+        return $out;
     }
 
     public function routeParams(): array
