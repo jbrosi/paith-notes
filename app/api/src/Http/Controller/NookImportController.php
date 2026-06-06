@@ -50,36 +50,45 @@ final class NookImportController
             throw new \RuntimeException('Invalid or missing manifest.json');
         }
 
-        $types = $readJson('meta/types.json') ?? [];
-        $attributes = $readJson('meta/attributes.json') ?? [];
-        $predicatesData = $readJson('meta/predicates.json') ?? [];
-        $links = $readJson('meta/links.json') ?? [];
+        $types = self::asListOfArrays($readJson('meta/types.json'));
+        $attributes = self::asListOfArrays($readJson('meta/attributes.json'));
+        $links = self::asListOfArrays($readJson('meta/links.json'));
+
+        $predicatesRaw = $readJson('meta/predicates.json');
+        $predicatesData = is_array($predicatesRaw) ? $predicatesRaw : [];
+        $predicates = self::asListOfArrays($predicatesData['predicates'] ?? []);
+        $predicateRules = self::asListOfArrays($predicatesData['rules'] ?? []);
 
         // Load note map (uuid → path) for link rewriting on import
-        $noteMap = $readJson('notes/map.json') ?? [];
+        $noteMap = self::asStringMap($readJson('notes/map.json'));
         // Invert: path → uuid
         $pathToId = array_flip($noteMap);
 
         // Build type key → id lookup from types
         $typeKeyToId = [];
         foreach ($types as $t) {
-            if (isset($t['id'], $t['key'])) {
-                $typeKeyToId[$t['key']] = $t['id'];
+            $id = $t['id'] ?? null;
+            $key = $t['key'] ?? null;
+            if (is_string($id) && is_string($key)) {
+                $typeKeyToId[$key] = $id;
             }
         }
 
         // Build attribute name → id lookup (per type)
         $attrNameToId = [];
         foreach ($attributes as $a) {
-            if (isset($a['id'], $a['type_id'], $a['name'])) {
-                $attrNameToId[$a['type_id']][$a['name']] = $a['id'];
+            $id = $a['id'] ?? null;
+            $typeId = $a['type_id'] ?? null;
+            $name = $a['name'] ?? null;
+            if (is_string($id) && is_string($typeId) && is_string($name)) {
+                $attrNameToId[$typeId][$name] = $id;
             }
         }
 
         // Build file path → note uuid map for image rewriting on import
-        $fileNoteIds = $readJson('files/map.json') ?? [];
+        $fileNoteIds = self::asStringMap($readJson('files/map.json'));
         // Fallback: scan files/ entries if no map exists (legacy format)
-        if (empty($fileNoteIds)) {
+        if ($fileNoteIds === []) {
             for ($i = 0; $i < $zip->numFiles; $i++) {
                 $name = $zip->getNameIndex($i);
                 if ($name === false) {
@@ -113,7 +122,7 @@ final class NookImportController
                     continue;
                 }
                 $parsed = self::parseMdNote($raw, $name, $pathToId, $noteMap, $types, $attrNameToId, $fileNoteIds);
-                if ($parsed && isset($parsed['id'])) {
+                if ($parsed !== null && is_string($parsed['id'] ?? null)) {
                     $notes[] = $parsed;
                     $seenIds[$parsed['id']] = true;
                 }
@@ -127,8 +136,13 @@ final class NookImportController
                 continue;
             }
             if (str_starts_with($name, 'notes/') && str_ends_with($name, '.json') && $name !== 'notes/map.json') {
-                $noteData = json_decode($zip->getFromIndex($i), true);
-                if (is_array($noteData) && isset($noteData['id']) && !isset($seenIds[$noteData['id']])) {
+                $raw = $zip->getFromIndex($i);
+                if ($raw === false) {
+                    continue;
+                }
+                $noteData = json_decode($raw, true);
+                if (is_array($noteData) && isset($noteData['id']) && is_string($noteData['id']) && !isset($seenIds[$noteData['id']])) {
+                    /** @var array<string, mixed> $noteData */
                     $notes[] = $noteData;
                 }
             }
@@ -136,14 +150,16 @@ final class NookImportController
 
         $zip->close();
 
+        $nookMeta = $manifest['nook'] ?? [];
+
         return [
-            'version' => (int) ($manifest['version'] ?? 0),
-            'nook' => $manifest['nook'] ?? [],
+            'version' => is_int($manifest['version'] ?? null) ? $manifest['version'] : 0,
+            'nook' => is_array($nookMeta) ? $nookMeta : [],
             'types' => $types,
             'attributes' => $attributes,
             'notes' => $notes,
-            'predicates' => $predicatesData['predicates'] ?? [],
-            'predicate_rules' => $predicatesData['rules'] ?? [],
+            'predicates' => $predicates,
+            'predicate_rules' => $predicateRules,
             'links' => $links,
         ];
     }
@@ -157,15 +173,28 @@ final class NookImportController
      */
     public static function importIntoNook(PDO $pdo, array $data, string $targetNookId, string $createdBy): void
     {
+        $types = self::asListOfArrays($data['types'] ?? []);
+        $attributes = self::asListOfArrays($data['attributes'] ?? []);
+        $notes = self::asListOfArrays($data['notes'] ?? []);
+        $predicates = self::asListOfArrays($data['predicates'] ?? []);
+        $predicateRules = self::asListOfArrays($data['predicate_rules'] ?? []);
+        $links = self::asListOfArrays($data['links'] ?? []);
+
         $pdo->beginTransaction();
         try {
-            self::importTypes($pdo, $data['types'] ?? [], $targetNookId);
-            self::importAttributes($pdo, $data['attributes'] ?? [], $targetNookId);
-            self::importNotes($pdo, $data['notes'] ?? [], $targetNookId, $createdBy);
-            self::importPredicates($pdo, $data['predicates'] ?? [], $targetNookId);
-            self::importPredicateRules($pdo, $data['predicate_rules'] ?? []);
-            self::importLinks($pdo, $data['links'] ?? [], $targetNookId);
-            self::cleanupRemoved($pdo, $data, $targetNookId);
+            self::importTypes($pdo, $types, $targetNookId);
+            self::importAttributes($pdo, $attributes, $targetNookId);
+            self::importNotes($pdo, $notes, $targetNookId, $createdBy);
+            self::importPredicates($pdo, $predicates, $targetNookId);
+            self::importPredicateRules($pdo, $predicateRules);
+            self::importLinks($pdo, $links, $targetNookId);
+            self::cleanupRemoved($pdo, [
+                'types' => $types,
+                'attributes' => $attributes,
+                'notes' => $notes,
+                'predicates' => $predicates,
+                'links' => $links,
+            ], $targetNookId);
 
             $pdo->commit();
         } catch (\Throwable $e) {
@@ -356,13 +385,14 @@ final class NookImportController
     /**
      * Remove entities that exist in the DB but not in the export (deleted in source).
      *
-     * @param array<string, mixed> $data
+     * @param array{types?: list<array<string, mixed>>, attributes?: list<array<string, mixed>>, notes?: list<array<string, mixed>>, predicates?: list<array<string, mixed>>, links?: list<array<string, mixed>>} $data
      */
     private static function cleanupRemoved(PDO $pdo, array $data, string $nookId): void
     {
+        /** @param list<array<string, mixed>> $items */
         $cleanup = static function (string $table, string $idColumn, array $items) use ($pdo, $nookId): void {
             $ids = array_column($items, 'id');
-            if (empty($ids)) {
+            if ($ids === []) {
                 $pdo->prepare("delete from global.{$table} where nook_id = :nook_id")
                     ->execute([':nook_id' => $nookId]);
                 return;
@@ -421,18 +451,23 @@ final class NookImportController
 
         // Simple YAML parsing
         $fm = self::parseSimpleYaml($fmRaw);
-        if (!is_array($fm) || empty($fm['id'])) {
+        $rawId = $fm['id'] ?? null;
+        if (!is_string($rawId) || $rawId === '') {
             return null;
         }
-
-        $noteId = (string) $fm['id'];
+        $noteId = $rawId;
 
         // Resolve type label → type_id
         $typeId = null;
-        if (isset($fm['type'])) {
+        if (isset($fm['type']) && is_string($fm['type'])) {
+            $wantedLabel = $fm['type'];
             foreach ($types as $t) {
-                if (($t['label'] ?? '') === $fm['type']) {
-                    $typeId = $t['id'];
+                $label = is_string($t['label'] ?? null) ? $t['label'] : '';
+                if ($label === $wantedLabel) {
+                    $candidate = $t['id'] ?? null;
+                    if (is_string($candidate)) {
+                        $typeId = $candidate;
+                    }
                     break;
                 }
             }
@@ -440,16 +475,18 @@ final class NookImportController
 
         // Resolve frontmatter attributes (name → uuid)
         $attributes = [];
-        if (is_array($fm['attributes'] ?? null) && $typeId && isset($attrNameToId[$typeId])) {
+        if (is_array($fm['attributes'] ?? null) && $typeId !== null && isset($attrNameToId[$typeId])) {
             $nameMap = $attrNameToId[$typeId];
             foreach ($fm['attributes'] as $name => $value) {
-                if (isset($nameMap[$name])) {
+                if (is_string($name) && isset($nameMap[$name])) {
                     $attributes[$nameMap[$name]] = $value;
                 }
             }
         }
 
         // Rewrite relative links + images back to [[note:uuid]] / ![](note:uuid)
+        /** @var array<string, string> $pathToId */
+        /** @var array<string, string> $fileNoteIds */
         $content = Export\NoteLinker::rewriteToInternal($content, $zipEntryName, $pathToId, $fileNoteIds);
 
         return [
@@ -607,9 +644,12 @@ final class NookImportController
         $data = self::parseZip($zipPath);
         [$remapped] = Import\RemapIds::remap($data);
 
+        $sourceName = is_string($data['nook']['name'] ?? null)
+            ? $data['nook']['name']
+            : 'Imported nook';
         $name = $nookName !== null && trim($nookName) !== ''
             ? trim($nookName)
-            : (string) ($data['nook']['name'] ?? 'Imported nook');
+            : $sourceName;
 
         $pdo->beginTransaction();
         try {
@@ -726,5 +766,45 @@ final class NookImportController
         ")->execute([':nook_id' => $nookId, ':user_id' => $userId]);
 
         return (string) $nookId;
+    }
+
+    /**
+     * Narrow a JSON-decoded value to a list of associative arrays.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private static function asListOfArrays(mixed $value): array
+    {
+        if (!is_array($value)) {
+            return [];
+        }
+        $out = [];
+        foreach ($value as $item) {
+            if (is_array($item)) {
+                /** @var array<string, mixed> $item */
+                $out[] = $item;
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * Narrow a JSON-decoded value to a string→string map.
+     * Keeps only pairs where both key and value are strings.
+     *
+     * @return array<string, string>
+     */
+    private static function asStringMap(mixed $value): array
+    {
+        if (!is_array($value)) {
+            return [];
+        }
+        $out = [];
+        foreach ($value as $k => $v) {
+            if (is_string($k) && is_string($v)) {
+                $out[$k] = $v;
+            }
+        }
+        return $out;
     }
 }
