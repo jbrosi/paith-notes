@@ -45,9 +45,9 @@ final class AttributeFilesController
         $noteId = self::requireUuid($request->routeParam('noteId'), 'noteId');
         $attributeId = self::requireUuid($request->routeParam('attributeId'), 'attributeId');
 
-        $membership = NookAccess::requireWriteAccess($pdo, $user, $nookId);
+        $role = NookAccess::requireWriteAccess($pdo, $user, $nookId);
         $userId = self::requireUserId($user);
-        $this->requireNoteWriteAccess($pdo, $membership, $userId, $noteId, $nookId);
+        $this->requireNoteWriteAccess($pdo, $role, $userId, $noteId, $nookId);
         $this->requireFileAttribute($pdo, $nookId, $noteId, $attributeId);
 
         $data = $request->jsonBody();
@@ -104,9 +104,9 @@ final class AttributeFilesController
         $noteId = self::requireUuid($request->routeParam('noteId'), 'noteId');
         $attributeId = self::requireUuid($request->routeParam('attributeId'), 'attributeId');
 
-        $membership = NookAccess::requireWriteAccess($pdo, $user, $nookId);
+        $role = NookAccess::requireWriteAccess($pdo, $user, $nookId);
         $userId = self::requireUserId($user);
-        $this->requireNoteWriteAccess($pdo, $membership, $userId, $noteId, $nookId);
+        $this->requireNoteWriteAccess($pdo, $role, $userId, $noteId, $nookId);
 
         $data = $request->jsonBody();
         $uploadId = self::requireUuid($data['upload_id'] ?? null, 'upload_id');
@@ -636,11 +636,9 @@ final class AttributeFilesController
         }
     }
 
-    /** @param array<string, mixed> $membership */
-    private function requireNoteWriteAccess(PDO $pdo, array $membership, string $userId, string $noteId, string $nookId): void
+    private function requireNoteWriteAccess(PDO $pdo, NookRole $role, string $userId, string $noteId, string $nookId): void
     {
-        $role = Row::str($membership, 'role');
-        if ($role === 'owner') {
+        if ($role === NookRole::Owner) {
             return;
         }
         $c = $pdo->prepare('select created_by from global.notes where id = :id and nook_id = :nook_id');

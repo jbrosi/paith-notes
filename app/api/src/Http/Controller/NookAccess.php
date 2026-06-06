@@ -12,9 +12,9 @@ use Paith\Notes\Api\Http\Auth\User;
 final class NookAccess
 {
     /**
-     * @return array<string, mixed>  The matching nook_members row.
+     * Verify the user is a member of the nook. Returns their NookRole.
      */
-    public static function requireMember(PDO $pdo, User $user, string $nookId): array
+    public static function requireMember(PDO $pdo, User $user, string $nookId): NookRole
     {
         $check = $pdo->prepare('select role from global.nook_members where nook_id = :nook_id and user_id = :user_id limit 1');
         $check->execute([
@@ -25,33 +25,32 @@ final class NookAccess
         if (!is_array($row)) {
             throw new HttpError('forbidden', 403);
         }
-        /** @var array<string, mixed> $row */
-        return $row;
+        return NookRole::from(Row::str($row, 'role'));
     }
 
     /**
-     * @return array<string, mixed>
+     * Verify the user can write to this nook. Returns their NookRole so
+     * callers can distinguish between Owner (full control) and Readwrite
+     * (own-note-only) for downstream checks.
      */
-    public static function requireWriteAccess(PDO $pdo, User $user, string $nookId): array
+    public static function requireWriteAccess(PDO $pdo, User $user, string $nookId): NookRole
     {
-        $membership = self::requireMember($pdo, $user, $nookId);
-        $role = Row::str($membership, 'role');
-        if ($role === 'readonly') {
+        $role = self::requireMember($pdo, $user, $nookId);
+        if ($role === NookRole::Readonly) {
             throw new HttpError('this nook is shared with you as read-only', 403);
         }
-        return $membership;
+        return $role;
     }
 
     /**
-     * @return array<string, mixed>
+     * Verify the user owns this nook.
      */
-    public static function requireOwner(PDO $pdo, User $user, string $nookId): array
+    public static function requireOwner(PDO $pdo, User $user, string $nookId): NookRole
     {
-        $membership = self::requireMember($pdo, $user, $nookId);
-        $role = Row::str($membership, 'role');
-        if ($role !== 'owner') {
+        $role = self::requireMember($pdo, $user, $nookId);
+        if ($role !== NookRole::Owner) {
             throw new HttpError('only the nook owner can perform this action', 403);
         }
-        return $membership;
+        return $role;
     }
 }

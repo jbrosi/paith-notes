@@ -401,13 +401,12 @@ final class NotesController
             throw new HttpError('invalid user', 500);
         }
 
-        $membership = NookAccess::requireWriteAccess($pdo, $user, $nookId);
+        $role = NookAccess::requireWriteAccess($pdo, $user, $nookId);
 
         $payload = UpdateNoteRequest::fromJson($request->jsonBody());
 
         $allowed = false;
-        $role = Row::str($membership, 'role');
-        if ($role === 'owner') {
+        if ($role === NookRole::Owner) {
             $allowed = true;
         } else {
             $c = $pdo->prepare('select created_by from global.notes where id = :id and nook_id = :nook_id');
@@ -598,11 +597,10 @@ final class NotesController
             throw new HttpError('invalid user', 500);
         }
 
-        $membership = NookAccess::requireWriteAccess($pdo, $user, $nookId);
+        $role = NookAccess::requireWriteAccess($pdo, $user, $nookId);
 
         $allowed = false;
-        $role = Row::str($membership, 'role');
-        if ($role === 'owner') {
+        if ($role === NookRole::Owner) {
             $allowed = true;
         } else {
             $c = $pdo->prepare('select created_by from global.notes where id = :id and nook_id = :nook_id');
