@@ -281,6 +281,19 @@ final class ConversationsController
             throw new HttpError('block_id must be a UUID if provided', 400);
         }
 
+        // Verify the caller has access to the note's nook — without this,
+        // a user could link any random note id to their own conversation.
+        $noteNookStmt = $pdo->prepare('
+            select n.nook_id from global.notes n
+            join global.nook_members nm on nm.nook_id = n.nook_id
+            where n.id = :note_id and nm.user_id = :user_id
+            limit 1
+        ');
+        $noteNookStmt->execute([':note_id' => $noteId, ':user_id' => $user['id']]);
+        if ($noteNookStmt->fetchColumn() === false) {
+            throw new HttpError('note not found', 404);
+        }
+
         $pdo->prepare('
             insert into global.note_conversation_links (note_id, conversation_id, block_id)
             values (:note_id, :conversation_id, :block_id)

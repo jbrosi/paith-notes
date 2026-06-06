@@ -90,6 +90,39 @@ it('deletes all conversations only for the caller', function (): void {
     expect(count(json_decode(App::handle('GET', '/api/conversations', $bHeaders, '')['body'], true)['conversations']))->toBe(1);
 });
 
+it('rejects linking a note when the caller has no access to the notes nook', function (): void {
+    $pdo = test_pdo();
+    [, $ownerHeaders] = makeUser('999999999999');
+    [, $strangerHeaders] = makeUser('aaaaaaaaaaab');
+
+    // Owner creates a nook + a note in it.
+    $nook = json_decode(
+        App::handle('POST', '/api/nooks', $ownerHeaders, json_encode(['name' => 'Private']))['body'],
+        true,
+    );
+    $nookId = $nook['nook']['id'];
+    $note = json_decode(
+        App::handle('POST', "/api/nooks/{$nookId}/notes", $ownerHeaders, json_encode(['title' => 'Secret']))['body'],
+        true,
+    );
+    $noteId = $note['note']['id'];
+
+    // Stranger has their own conversation but no access to the note's nook.
+    $strangerConv = createConversation($strangerHeaders, 'Mine');
+
+    $res = App::handle(
+        'POST',
+        "/api/conversations/{$strangerConv}/note-links",
+        $strangerHeaders,
+        json_encode(['note_id' => $noteId]),
+    );
+    expect($res['status'])->toBe(404);
+
+    // No link row created
+    $count = (int) $pdo->query("select count(*) from global.note_conversation_links where note_id = " . $pdo->quote($noteId))->fetchColumn();
+    expect($count)->toBe(0);
+});
+
 it('exports the callers conversations as a zip', function (): void {
     [, $headers] = makeUser('888888888888');
     createConversation($headers, 'Export me');
