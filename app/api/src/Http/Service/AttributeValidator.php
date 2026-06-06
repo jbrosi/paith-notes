@@ -35,12 +35,14 @@ final class AttributeValidator
                 if (!is_array($options) || $options === []) {
                     throw new HttpError($kind . ' kind requires a non-empty "options" array in config', 400);
                 }
+                $stringOptions = [];
                 foreach ($options as $opt) {
                     if (!is_string($opt) || trim($opt) === '') {
                         throw new HttpError($kind . ' options must be non-empty strings', 400);
                     }
+                    $stringOptions[] = $opt;
                 }
-                if (count($options) !== count(array_unique($options))) {
+                if (count($stringOptions) !== count(array_unique($stringOptions))) {
                     throw new HttpError($kind . ' options must be unique', 400);
                 }
                 break;
@@ -155,7 +157,8 @@ final class AttributeValidator
                 }
                 $display = $config['display'] ?? '';
                 if ($display === 'rating') {
-                    $max = (int)($config['max'] ?? 5);
+                    $maxRaw = $config['max'] ?? 5;
+                    $max = is_numeric($maxRaw) ? (int)$maxRaw : 5;
                     $num = is_int($value) ? $value : (is_float($value) ? $value : (int)$value);
                     if ($num < 0 || $num > $max) {
                         throw new HttpError("$prefix: rating value must be between 0 and $max", 400);
@@ -199,7 +202,8 @@ final class AttributeValidator
                 if ($value !== '') {
                     $options = $config['options'] ?? [];
                     if (is_array($options) && !in_array($value, $options, true)) {
-                        throw new HttpError("$prefix: select value must be one of: " . implode(', ', $options), 400);
+                        $stringOptions = array_filter($options, 'is_string');
+                        throw new HttpError("$prefix: select value must be one of: " . implode(', ', $stringOptions), 400);
                     }
                 }
                 break;
@@ -275,15 +279,12 @@ final class AttributeValidator
         $attrMap = [];
         foreach ($resolvedAttributes as $attr) {
             $id = $attr['id'] ?? '';
-            if ($id !== '') {
+            if (is_string($id) && $id !== '') {
                 $attrMap[$id] = $attr;
             }
         }
 
         foreach ($values as $attrId => $value) {
-            if (!is_string($attrId)) {
-                continue;
-            }
             // null means "delete" — always valid
             if ($value === null) {
                 continue;
@@ -293,9 +294,17 @@ final class AttributeValidator
                 continue;
             }
             $attr = $attrMap[$attrId];
-            $kind = (string)($attr['kind'] ?? '');
-            $config = is_array($attr['config'] ?? null) ? $attr['config'] : [];
-            $name = (string)($attr['name'] ?? $attrId);
+            $kind = is_scalar($attr['kind'] ?? null) ? (string)$attr['kind'] : '';
+            $rawConfig = $attr['config'] ?? null;
+            $config = [];
+            if (is_array($rawConfig)) {
+                foreach ($rawConfig as $ck => $cv) {
+                    if (is_string($ck)) {
+                        $config[$ck] = $cv;
+                    }
+                }
+            }
+            $name = is_scalar($attr['name'] ?? null) ? (string)$attr['name'] : $attrId;
             self::validateValue($name, $kind, $config, $value);
         }
     }

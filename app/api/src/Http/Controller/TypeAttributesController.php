@@ -70,7 +70,8 @@ final class TypeAttributesController
         // Validate name uniqueness within resolved attribute set (own + inherited)
         $existing = $this->resolveInheritedAttributes($pdo, $nookId, $typeId);
         foreach ($existing as $attr) {
-            if (strcasecmp($attr['name'], $name) === 0) {
+            $attrName = is_scalar($attr['name'] ?? null) ? (string)$attr['name'] : '';
+            if (strcasecmp($attrName, $name) === 0) {
                 throw new HttpError('attribute name "' . $name . '" already exists (own or inherited)', 409);
             }
         }
@@ -170,7 +171,8 @@ final class TypeAttributesController
         // Validate name uniqueness (excluding self)
         $existing = $this->resolveInheritedAttributes($pdo, $nookId, $typeId);
         foreach ($existing as $attr) {
-            if ($attr['id'] !== $attrId && strcasecmp($attr['name'], $name) === 0) {
+            $attrName = is_scalar($attr['name'] ?? null) ? (string)$attr['name'] : '';
+            if (($attr['id'] ?? null) !== $attrId && strcasecmp($attrName, $name) === 0) {
                 throw new HttpError('attribute name "' . $name . '" already exists (own or inherited)', 409);
             }
         }
@@ -303,7 +305,8 @@ final class TypeAttributesController
                 continue;
             }
             $attrId = is_scalar($r['id'] ?? null) ? (string)$r['id'] : '';
-            $inherited = (string)($r['type_id'] ?? '') !== $typeId;
+            $rowTypeId = is_scalar($r['type_id'] ?? null) ? (string)$r['type_id'] : '';
+            $inherited = $rowTypeId !== $typeId;
             $config = self::decodeJsonObject($r['config'] ?? null);
 
             // Apply config overrides for inherited attributes
@@ -360,7 +363,7 @@ final class TypeAttributesController
     /**
      * Resolve attribute layout for a type with inheritance.
      * Walks parent chain, merges panels by key (child overrides parent).
-     * @return array{panels: list<array{key: string, position: string, attributes: list<string>}>}
+     * @return array{panels: list<array<string, mixed>>}
      */
     private function resolveAttributeLayout(PDO $pdo, string $nookId, string $typeId): array
     {
@@ -373,11 +376,11 @@ final class TypeAttributesController
             return ['panels' => []];
         }
 
-        $ownLayout = null;
+        $ownPanels = null;
         if (is_scalar($row['attribute_layout'] ?? null)) {
             $decoded = json_decode((string)$row['attribute_layout'], true);
             if (is_array($decoded) && isset($decoded['panels']) && is_array($decoded['panels'])) {
-                $ownLayout = $decoded;
+                $ownPanels = self::normalizePanels($decoded['panels']);
             }
         }
 
@@ -385,31 +388,31 @@ final class TypeAttributesController
 
         // No parent — own layout is final
         if ($parentId === '') {
-            return $ownLayout ?? ['panels' => []];
+            return ['panels' => $ownPanels ?? []];
         }
 
         // Get parent's resolved layout (recursive)
         $parentLayout = $this->resolveAttributeLayout($pdo, $nookId, $parentId);
 
         // No own layout — inherit parent
-        if ($ownLayout === null) {
+        if ($ownPanels === null) {
             return $parentLayout;
         }
 
         // Merge: child panels override parent panels by key
         $merged = [];
-        foreach ($parentLayout['panels'] ?? [] as $p) {
-            if (is_array($p) && is_string($p['key'] ?? null)) {
-                $merged[$p['key']] = $p;
+        foreach ($parentLayout['panels'] as $p) {
+            $key = is_string($p['key'] ?? null) ? $p['key'] : '';
+            if ($key !== '') {
+                $merged[$key] = $p;
             }
         }
-        foreach ($ownLayout['panels'] ?? [] as $p) {
-            if (!is_array($p) || !is_string($p['key'] ?? null)) {
+        foreach ($ownPanels as $p) {
+            $key = is_string($p['key'] ?? null) ? $p['key'] : '';
+            if ($key === '') {
                 continue;
             }
-            $key = $p['key'];
             if (isset($merged[$key])) {
-                // Shallow merge: child fields override parent fields
                 $merged[$key] = array_merge($merged[$key], $p);
             } else {
                 $merged[$key] = $p;
@@ -425,7 +428,29 @@ final class TypeAttributesController
             $panels[] = $p;
         }
 
-        return ['panels' => array_values($panels)];
+        return ['panels' => $panels];
+    }
+
+    /**
+     * @param array<mixed, mixed> $panels
+     * @return list<array<string, mixed>>
+     */
+    private static function normalizePanels(array $panels): array
+    {
+        $out = [];
+        foreach ($panels as $panel) {
+            if (!is_array($panel)) {
+                continue;
+            }
+            $kv = [];
+            foreach ($panel as $k => $v) {
+                if (is_string($k)) {
+                    $kv[$k] = $v;
+                }
+            }
+            $out[] = $kv;
+        }
+        return $out;
     }
 
     /**
@@ -441,24 +466,27 @@ final class TypeAttributesController
         }
 
         $order = [];
+        $collectFrom = static function (array $p) use (&$order): void {
+            $attrs = $p['attributes'] ?? null;
+            if (!is_array($attrs)) {
+                return;
+            }
+            foreach ($attrs as $id) {
+                if (is_string($id)) {
+                    $order[] = $id;
+                }
+            }
+        };
         // Main panel first
         foreach ($panels as $p) {
             if (is_array($p) && ($p['position'] ?? '') === 'main') {
-                foreach ($p['attributes'] ?? [] as $id) {
-                    if (is_string($id)) {
-                        $order[] = $id;
-                    }
-                }
+                $collectFrom($p);
             }
         }
         // Then side panels
         foreach ($panels as $p) {
             if (is_array($p) && ($p['position'] ?? '') !== 'main') {
-                foreach ($p['attributes'] ?? [] as $id) {
-                    if (is_string($id)) {
-                        $order[] = $id;
-                    }
-                }
+                $collectFrom($p);
             }
         }
         return $order;
@@ -552,6 +580,7 @@ final class TypeAttributesController
         $pdo->exec("drop index if exists global.{$idxName}_to");
     }
 
+    /** @param array<string, mixed> $config */
     private function validateConfig(string $kind, array $config): void
     {
         AttributeValidator::validateConfig($kind, $config);
@@ -604,11 +633,17 @@ final class TypeAttributesController
     /** @return array<string, mixed> */
     private static function optionalJsonObject(array $data, string $key): array
     {
-        $raw = $data[$key] ?? [];
-        if (is_array($raw)) {
-            return $raw;
+        $raw = $data[$key] ?? null;
+        if (!is_array($raw)) {
+            return [];
         }
-        return [];
+        $out = [];
+        foreach ($raw as $k => $v) {
+            if (is_string($k)) {
+                $out[$k] = $v;
+            }
+        }
+        return $out;
     }
 
     /** @return array<string, mixed> */

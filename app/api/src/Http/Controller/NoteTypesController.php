@@ -853,9 +853,12 @@ final class NoteTypesController
             if (!is_array($f)) {
                 continue;
             }
-            $attrId = trim((string)($f['attribute_id'] ?? ''));
-            $op = strtolower(trim((string)($f['op'] ?? '')));
+            $attrIdRaw = $f['attribute_id'] ?? '';
+            $attrId = is_scalar($attrIdRaw) ? trim((string)$attrIdRaw) : '';
+            $opRaw = $f['op'] ?? '';
+            $op = strtolower(is_scalar($opRaw) ? trim((string)$opRaw) : '');
             $value = $f['value'] ?? null;
+            $scalarValue = is_scalar($value) ? (string)$value : '';
 
             if ($attrId === '' || !self::isUuid($attrId)) {
                 continue;
@@ -869,51 +872,51 @@ final class NoteTypesController
             switch ($op) {
                 case 'eq':
                     $clauses[] = "{$jsonPath} = {$paramKey}";
-                    $bindings[$paramKey] = (string)$value;
+                    $bindings[$paramKey] = $scalarValue;
                     break;
                 case 'neq':
                     $clauses[] = "({$jsonPath} IS NULL OR {$jsonPath} != {$paramKey})";
-                    $bindings[$paramKey] = (string)$value;
+                    $bindings[$paramKey] = $scalarValue;
                     break;
                 case 'gt':
                     $clauses[] = "global.safe_numeric({$jsonPath}) > {$paramKey}::numeric";
-                    $bindings[$paramKey] = (string)$value;
+                    $bindings[$paramKey] = $scalarValue;
                     break;
                 case 'gte':
                     $clauses[] = "global.safe_numeric({$jsonPath}) >= {$paramKey}::numeric";
-                    $bindings[$paramKey] = (string)$value;
+                    $bindings[$paramKey] = $scalarValue;
                     break;
                 case 'lt':
                     $clauses[] = "global.safe_numeric({$jsonPath}) < {$paramKey}::numeric";
-                    $bindings[$paramKey] = (string)$value;
+                    $bindings[$paramKey] = $scalarValue;
                     break;
                 case 'lte':
                     $clauses[] = "global.safe_numeric({$jsonPath}) <= {$paramKey}::numeric";
-                    $bindings[$paramKey] = (string)$value;
+                    $bindings[$paramKey] = $scalarValue;
                     break;
                 case 'date_gt':
                     $clauses[] = "({$jsonPath})::date > {$paramKey}::date";
-                    $bindings[$paramKey] = (string)$value;
+                    $bindings[$paramKey] = $scalarValue;
                     break;
                 case 'date_gte':
                     $clauses[] = "({$jsonPath})::date >= {$paramKey}::date";
-                    $bindings[$paramKey] = (string)$value;
+                    $bindings[$paramKey] = $scalarValue;
                     break;
                 case 'date_lt':
                     $clauses[] = "({$jsonPath})::date < {$paramKey}::date";
-                    $bindings[$paramKey] = (string)$value;
+                    $bindings[$paramKey] = $scalarValue;
                     break;
                 case 'date_lte':
                     $clauses[] = "({$jsonPath})::date <= {$paramKey}::date";
-                    $bindings[$paramKey] = (string)$value;
+                    $bindings[$paramKey] = $scalarValue;
                     break;
                 case 'contains':
                     $clauses[] = "{$jsonPath} ILIKE {$paramKey}";
-                    $bindings[$paramKey] = '%' . str_replace(['%', '_'], ['\\%', '\\_'], (string)$value) . '%';
+                    $bindings[$paramKey] = '%' . str_replace(['%', '_'], ['\\%', '\\_'], $scalarValue) . '%';
                     break;
                 case 'starts_with':
                     $clauses[] = "{$jsonPath} ILIKE {$paramKey}";
-                    $bindings[$paramKey] = str_replace(['%', '_'], ['\\%', '\\_'], (string)$value) . '%';
+                    $bindings[$paramKey] = str_replace(['%', '_'], ['\\%', '\\_'], $scalarValue) . '%';
                     break;
                 case 'is_null':
                     $clauses[] = "{$jsonPath} IS NULL";
@@ -927,7 +930,7 @@ final class NoteTypesController
                         foreach ($value as $vi => $vv) {
                             $pk = $paramKey . '_' . $vi;
                             $inPlaceholders[] = $pk;
-                            $bindings[$pk] = (string)$vv;
+                            $bindings[$pk] = is_scalar($vv) ? (string)$vv : '';
                         }
                         $clauses[] = "{$jsonPath} IN (" . implode(', ', $inPlaceholders) . ")";
                     }
@@ -935,8 +938,10 @@ final class NoteTypesController
                 case 'overlaps':
                     // value should be {from: "...", to: "..."}
                     if (is_array($value)) {
-                        $from = (string)($value['from'] ?? '');
-                        $to = (string)($value['to'] ?? '');
+                        $fromRaw = $value['from'] ?? '';
+                        $from = is_scalar($fromRaw) ? (string)$fromRaw : '';
+                        $toRaw = $value['to'] ?? '';
+                        $to = is_scalar($toRaw) ? (string)$toRaw : '';
                         if ($from !== '' && $to !== '') {
                             $pkFrom = $paramKey . '_from';
                             $pkTo = $paramKey . '_to';
@@ -963,7 +968,16 @@ final class NoteTypesController
             return [];
         }
         $decoded = json_decode((string)$value, true);
-        return is_array($decoded) ? $decoded : [];
+        if (!is_array($decoded)) {
+            return [];
+        }
+        $out = [];
+        foreach ($decoded as $k => $v) {
+            if (is_string($k)) {
+                $out[$k] = $v;
+            }
+        }
+        return $out;
     }
 
     private function ensureDefaultViewType(PDO $pdo, string $nookId, string $baseTypeId): void
