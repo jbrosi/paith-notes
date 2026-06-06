@@ -88,16 +88,16 @@ final class NoteLinker
                     $files = $noteFiles[$uuid] ?? [];
                     if ($files) {
                         $f = $files[0];
-                        $filename = (string) ($f['filename'] ?? 'file');
-                        $ext = (string) ($f['extension'] ?? '');
-                        $fullFilename = $ext !== '' ? "{$filename}.{$ext}" : $filename;
+                        $fullFilename = ExportHelpers::buildFilename(
+                            (string) ($f['filename'] ?? 'file'),
+                            (string) ($f['extension'] ?? ''),
+                        );
                         $attrName = null;
                         if (isset($f['attribute_id'], $attrById[$f['attribute_id']])) {
                             $attrName = ExportHelpers::safeFilename($attrById[$f['attribute_id']]['name']);
                         }
-                        $fileZipPath = $attrName
-                            ? "files/{$uuid}/{$attrName}/{$fullFilename}"
-                            : "files/{$uuid}/{$fullFilename}";
+                        $noteTitle = $noteTitles[$uuid] ?? 'Untitled';
+                        $fileZipPath = ExportHelpers::buildFileZipPath($noteTitle, $attrName, $fullFilename);
                         $rel = ExportHelpers::relativePath("notes/{$currentDir}", $fileZipPath);
                         return "{$altPart}({$rel})";
                     }
@@ -118,26 +118,59 @@ final class NoteLinker
     }
 
     /**
-     * Rewrite relative markdown links back to [[note:uuid]] format (for reimport).
+     * Rewrite relative markdown links and images back to [[note:uuid]] / ![](note:uuid) format.
      *
      * @param string                $content       Note markdown content
      * @param string                $currentEntry  Zip entry path (e.g. "notes/Note/Meeting/Standup.md")
-     * @param array<string, string> $pathToId      path → uuid
+     * @param array<string, string> $pathToId      md path → uuid (from map.json inverted)
+     * @param array<string, string> $fileNoteIds   Maps file paths (relative to zip root) → note uuid
      */
-    public static function rewriteToInternal(string $content, string $currentEntry, array $pathToId): string
-    {
+    public static function rewriteToInternal(
+        string $content,
+        string $currentEntry,
+        array $pathToId,
+        array $fileNoteIds = [],
+    ): string {
         $notePath = preg_replace('#^notes/#', '', $currentEntry);
         $currentDir = dirname($notePath);
         if ($currentDir === '.') $currentDir = '';
 
+        // Match both [text](path.md) and ![alt](path)
         return preg_replace_callback(
-            '/\[([^\]]*)\]\(([^)]+\.md)\)/',
-            static function (array $m) use ($currentDir, $pathToId): string {
-                $relPath = $m[2];
-                $absPath = self::resolveRelativePath($currentDir, $relPath);
-                if (isset($pathToId[$absPath])) {
-                    return "[[note:{$pathToId[$absPath]}]]";
+            '/(\!\[[^\]]*\])\(([^)]+)\)|\[([^\]]*)\]\(([^)]+\.md)\)/',
+            static function (array $m) use ($currentDir, $pathToId, $fileNoteIds): string {
+                // Image: ![alt](relative/path)
+                if (!empty($m[1]) && !empty($m[2])) {
+                    $altPart = $m[1];
+                    $relPath = $m[2];
+                    // Skip absolute URLs
+                    if (str_starts_with($relPath, 'http://') || str_starts_with($relPath, 'https://')) {
+                        return $m[0];
+                    }
+                    // Resolve to zip-root-relative path
+                    $absPath = self::resolveRelativePath("notes/{$currentDir}", $relPath);
+                    // Check if it's a file from files/{noteId}/...
+                    if (str_starts_with($absPath, 'files/') && isset($fileNoteIds[$absPath])) {
+                        return "{$altPart}(note:{$fileNoteIds[$absPath]})";
+                    }
+                    // Also try as a note .md
+                    $mdAbs = self::resolveRelativePath($currentDir, $relPath);
+                    if (isset($pathToId[$mdAbs])) {
+                        return "{$altPart}(note:{$pathToId[$mdAbs]})";
+                    }
+                    return $m[0];
                 }
+
+                // Link: [text](path.md)
+                if (!empty($m[4])) {
+                    $relPath = $m[4];
+                    $absPath = self::resolveRelativePath($currentDir, $relPath);
+                    if (isset($pathToId[$absPath])) {
+                        return "[[note:{$pathToId[$absPath]}]]";
+                    }
+                    return $m[0];
+                }
+
                 return $m[0];
             },
             $content,

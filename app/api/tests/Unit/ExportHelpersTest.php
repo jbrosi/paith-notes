@@ -76,6 +76,16 @@ it('renders YAML frontmatter', function (): void {
     expect($fm)->toContain("- b\n");
 });
 
+it('builds filenames without double extensions', function (): void {
+    expect(ExportHelpers::buildFilename('photo.png', 'png'))->toBe('photo.png');
+    expect(ExportHelpers::buildFilename('photo', 'png'))->toBe('photo.png');
+    expect(ExportHelpers::buildFilename('photo.PNG', 'png'))->toBe('photo.PNG');
+    expect(ExportHelpers::buildFilename('document', 'pdf'))->toBe('document.pdf');
+    expect(ExportHelpers::buildFilename('file', ''))->toBe('file');
+    expect(ExportHelpers::buildFilename('', 'jpg'))->toBe('file.jpg');
+    expect(ExportHelpers::buildFilename('', ''))->toBe('file');
+});
+
 it('quotes special YAML values', function (): void {
     expect(ExportHelpers::yamlScalar('true'))->toBe('"true"');
     expect(ExportHelpers::yamlScalar('null'))->toBe('"null"');

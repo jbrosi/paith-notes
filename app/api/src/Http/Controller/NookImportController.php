@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Paith\Notes\Api\Http\Controller;
 
+use Paith\Notes\Api\Http\Controller\Export;
 use PDO;
 use ZipArchive;
 
@@ -73,6 +74,22 @@ final class NookImportController
             }
         }
 
+        // Build file path → note uuid map for image rewriting on import
+        $fileNoteIds = $readJson('files/map.json') ?? [];
+        // Fallback: scan files/ entries if no map exists (legacy format)
+        if (empty($fileNoteIds)) {
+            for ($i = 0; $i < $zip->numFiles; $i++) {
+                $name = $zip->getNameIndex($i);
+                if ($name === false) continue;
+                if (str_starts_with($name, 'files/') && !str_ends_with($name, '/') && $name !== 'files/map.json') {
+                    $parts = explode('/', $name, 3);
+                    if (count($parts) >= 3 && $parts[1] !== '') {
+                        $fileNoteIds[$name] = $parts[1];
+                    }
+                }
+            }
+        }
+
         // Collect notes — prefer .md with frontmatter, fall back to .json
         $notes = [];
         $seenIds = [];
@@ -81,10 +98,11 @@ final class NookImportController
         for ($i = 0; $i < $zip->numFiles; $i++) {
             $name = $zip->getNameIndex($i);
             if ($name === false) continue;
-            if (str_starts_with($name, 'notes/') && str_ends_with($name, '.md')) {
+            if (str_starts_with($name, 'notes/') && str_ends_with($name, '.md')
+                && !str_ends_with($name, '/_index.md') && $name !== 'notes/index.md' && $name !== 'notes/unlinked.md') {
                 $raw = $zip->getFromIndex($i);
                 if ($raw === false) continue;
-                $parsed = self::parseMdNote($raw, $name, $pathToId, $noteMap, $types, $attrNameToId);
+                $parsed = self::parseMdNote($raw, $name, $pathToId, $noteMap, $types, $attrNameToId, $fileNoteIds);
                 if ($parsed && isset($parsed['id'])) {
                     $notes[] = $parsed;
                     $seenIds[$parsed['id']] = true;
@@ -372,6 +390,7 @@ final class NookImportController
         array $noteMap,
         array $types,
         array $attrNameToId,
+        array $fileNoteIds = [],
     ): ?array {
         // Extract frontmatter
         if (!str_starts_with($raw, "---\n")) return null;
@@ -379,9 +398,12 @@ final class NookImportController
         if ($endPos === false) return null;
 
         $fmRaw = substr($raw, 4, $endPos - 4);
-        $content = ltrim(substr($raw, $endPos + 5));
+        $body = substr($raw, $endPos + 5);
 
-        // Simple YAML parsing — we only need flat/shallow structures
+        // Extract content from between <!-- paith:content --> markers
+        $content = self::extractContent($body);
+
+        // Simple YAML parsing
         $fm = self::parseSimpleYaml($fmRaw);
         if (!is_array($fm) || empty($fm['id'])) return null;
 
@@ -409,9 +431,8 @@ final class NookImportController
             }
         }
 
-        // Rewrite relative path links back to [[note:uuid]]
-        $idByPath = $pathToId;
-        $content = self::rewriteLinksToInternal($content, $zipEntryName, $idByPath);
+        // Rewrite relative links + images back to [[note:uuid]] / ![](note:uuid)
+        $content = Export\NoteLinker::rewriteToInternal($content, $zipEntryName, $pathToId, $fileNoteIds);
 
         return [
             'id' => $noteId,
@@ -423,45 +444,22 @@ final class NookImportController
     }
 
     /**
-     * Rewrite relative markdown links back to [[note:uuid]] format.
+     * Extract content from between <!-- paith:content --> markers.
+     * Falls back to full body if markers are absent (legacy or hand-edited).
      */
-    private static function rewriteLinksToInternal(string $content, string $currentEntry, array $pathToId): string
+    private static function extractContent(string $body): string
     {
-        // Current directory relative to notes/
-        $notePath = preg_replace('#^notes/#', '', $currentEntry);
-        $currentDir = dirname($notePath);
-        if ($currentDir === '.') $currentDir = '';
+        $startMarker = '<!-- paith:content -->';
+        $endMarker = '<!-- /paith:content -->';
 
-        // Match [title](relative/path.md)
-        return preg_replace_callback(
-            '/\[([^\]]*)\]\(([^)]+\.md)\)/',
-            static function (array $m) use ($currentDir, $pathToId): string {
-                $title = $m[1];
-                $relPath = $m[2];
+        $startPos = strpos($body, $startMarker);
+        if ($startPos === false) return trim($body);
 
-                // Resolve relative path to absolute (within notes/)
-                $absPath = self::resolveRelativePath($currentDir, $relPath);
-                if (isset($pathToId[$absPath])) {
-                    return "[[note:{$pathToId[$absPath]}]]";
-                }
-                // Can't resolve — keep as-is
-                return $m[0];
-            },
-            $content,
-        ) ?? $content;
-    }
+        $contentStart = $startPos + strlen($startMarker);
+        $endPos = strpos($body, $endMarker, $contentStart);
+        if ($endPos === false) return trim(substr($body, $contentStart));
 
-    private static function resolveRelativePath(string $fromDir, string $relPath): string
-    {
-        $parts = $fromDir !== '' ? explode('/', $fromDir) : [];
-        foreach (explode('/', $relPath) as $segment) {
-            if ($segment === '..') {
-                array_pop($parts);
-            } elseif ($segment !== '.' && $segment !== '') {
-                $parts[] = $segment;
-            }
-        }
-        return implode('/', $parts);
+        return trim(substr($body, $contentStart, $endPos - $contentStart));
     }
 
     /**

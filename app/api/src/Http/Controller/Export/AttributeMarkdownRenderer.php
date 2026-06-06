@@ -178,6 +178,7 @@ final class AttributeMarkdownRenderer
     private static function renderFile(mixed $value, array $context): ?string
     {
         $noteId = $context['note_id'] ?? '';
+        $noteTitles = $context['noteTitles'] ?? [];
         $noteFiles = $context['noteFiles'] ?? [];
         $noteDir = $context['noteDir'] ?? '';
         $attrById = $context['attrById'] ?? [];
@@ -185,20 +186,19 @@ final class AttributeMarkdownRenderer
         $files = $noteFiles[$noteId] ?? [];
         if (empty($files)) return null;
 
+        $noteTitle = $noteTitles[$noteId] ?? 'Untitled';
         $lines = [];
         foreach ($files as $f) {
             $filename = (string) ($f['filename'] ?? 'file');
             $ext = (string) ($f['extension'] ?? '');
-            $fullFilename = $ext !== '' ? "{$filename}.{$ext}" : $filename;
+            $fullFilename = ExportHelpers::buildFilename($filename, $ext);
             $mime = (string) ($f['mime_type'] ?? '');
 
             $attrName = null;
             if (isset($f['attribute_id'], $attrById[$f['attribute_id']])) {
                 $attrName = self::safeFilename($attrById[$f['attribute_id']]['name']);
             }
-            $fileZipPath = $attrName
-                ? "files/{$noteId}/{$attrName}/{$fullFilename}"
-                : "files/{$noteId}/{$fullFilename}";
+            $fileZipPath = ExportHelpers::buildFileZipPath($noteTitle, $attrName, $fullFilename);
 
             $rel = self::relativePath("notes/{$noteDir}", $fileZipPath);
             $isImage = str_starts_with($mime, 'image/');

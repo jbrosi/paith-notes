@@ -30,6 +30,7 @@ it('rewrites cross-nook wikilinks to absolute URLs', function (): void {
 
 it('rewrites same-nook image embeds to file paths when available', function (): void {
     $noteId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    $noteTitles = [$noteId => 'My Photo Note'];
     $noteFiles = [
         $noteId => [
             ['filename' => 'photo', 'extension' => 'jpg', 'attribute_id' => 'attr-1', 'object_key' => 'x'],
@@ -38,9 +39,9 @@ it('rewrites same-nook image embeds to file paths when available', function (): 
     $attrById = ['attr-1' => ['name' => 'Photo', 'kind' => 'file']];
 
     $content = "![My Image](note:{$noteId})";
-    $result = NoteLinker::rewriteToRelative($content, [], [], 'Note/Meeting', $noteFiles, $attrById);
+    $result = NoteLinker::rewriteToRelative($content, [], $noteTitles, 'Note/Meeting', $noteFiles, $attrById);
 
-    expect($result)->toContain("files/{$noteId}/Photo/photo.jpg");
+    expect($result)->toContain('files/My Photo Note/Photo/photo.jpg');
     expect($result)->not->toContain('note:');
 });
 
@@ -51,6 +52,25 @@ it('rewrites relative links back to internal format', function (): void {
     $result = NoteLinker::rewriteToInternal($content, 'notes/Note/Meeting/Standup.md', $pathToId);
 
     expect($result)->toBe('See [[note:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa]] for details.');
+});
+
+it('rewrites image file paths back to note:uuid', function (): void {
+    $noteId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    $filePath = 'files/My Note/Photo/img.jpg';
+    $fileNoteIds = [$filePath => $noteId];
+
+    // From notes/Note/Meeting/ → files/ needs 3 ups: ../../../files/...
+    $content = "![Photo](../../../{$filePath})";
+    $result = NoteLinker::rewriteToInternal($content, 'notes/Note/Meeting/Standup.md', [], $fileNoteIds);
+
+    expect($result)->toBe("![Photo](note:{$noteId})");
+});
+
+it('preserves absolute URLs in images', function (): void {
+    $content = '![Logo](https://example.com/logo.png)';
+    $result = NoteLinker::rewriteToInternal($content, 'notes/Note/Test.md', []);
+
+    expect($result)->toBe($content);
 });
 
 it('preserves non-matching links', function (): void {

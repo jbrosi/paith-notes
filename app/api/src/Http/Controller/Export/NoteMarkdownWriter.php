@@ -101,7 +101,7 @@ final class NoteMarkdownWriter
         }
 
         // Files in frontmatter
-        $fmFiles = self::buildFrontmatterFiles($id, $noteFiles, $attrById);
+        $fmFiles = self::buildFrontmatterFiles($id, $title, $noteFiles, $attrById);
         if ($fmFiles) $fm['files'] = $fmFiles;
 
         // ── Rewrite content links ───────────────────────────────
@@ -122,10 +122,13 @@ final class NoteMarkdownWriter
         ];
         $split = AttributeMarkdownRenderer::renderSplit($rawAttrs, $typeAttrDefs, $renderCtx);
 
-        return ExportHelpers::renderFrontmatter($fm)
-            . $split['before']
-            . $rewrittenContent
-            . $split['after'];
+        $md = ExportHelpers::renderFrontmatter($fm);
+        if ($split['before'] !== '') $md .= $split['before'];
+        $md .= "<!-- paith:content -->\n\n";
+        $md .= $rewrittenContent;
+        $md .= "\n\n<!-- /paith:content -->";
+        if ($split['after'] !== '') $md .= $split['after'];
+        return $md;
     }
 
     /**
@@ -147,7 +150,7 @@ final class NoteMarkdownWriter
     /**
      * Build file entries for frontmatter.
      */
-    private static function buildFrontmatterFiles(string $noteId, array $noteFiles, array $attrById): array
+    private static function buildFrontmatterFiles(string $noteId, string $noteTitle, array $noteFiles, array $attrById): array
     {
         $files = $noteFiles[$noteId] ?? [];
         if (empty($files)) return [];
@@ -156,16 +159,14 @@ final class NoteMarkdownWriter
         foreach ($files as $f) {
             $filename = (string) ($f['filename'] ?? 'file');
             $ext = (string) ($f['extension'] ?? '');
-            $fullFilename = $ext !== '' ? "{$filename}.{$ext}" : $filename;
+            $fullFilename = ExportHelpers::buildFilename($filename, $ext);
             $mime = (string) ($f['mime_type'] ?? '');
 
             $attrName = null;
             if (isset($f['attribute_id'], $attrById[$f['attribute_id']])) {
                 $attrName = ExportHelpers::safeFilename($attrById[$f['attribute_id']]['name']);
             }
-            $fileZipPath = $attrName
-                ? "files/{$noteId}/{$attrName}/{$fullFilename}"
-                : "files/{$noteId}/{$fullFilename}";
+            $fileZipPath = ExportHelpers::buildFileZipPath($noteTitle, $attrName, $fullFilename);
 
             $out[] = [
                 'path' => $fileZipPath,

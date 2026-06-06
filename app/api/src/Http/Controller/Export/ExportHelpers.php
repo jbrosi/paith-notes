@@ -64,6 +64,37 @@ final class ExportHelpers
         return $path !== '' ? rtrim($path, '/') : '/data';
     }
 
+    /**
+     * Build a display filename from the DB filename + extension fields.
+     * Avoids double extension (e.g. "photo.png" + "png" → "photo.png" not "photo.png.png").
+     */
+    /**
+     * Build the zip path for a file attachment.
+     * Uses note title + attribute name for human-readable folders.
+     */
+    public static function buildFileZipPath(
+        string $noteTitle,
+        ?string $attrName,
+        string $fullFilename,
+    ): string {
+        $safeNote = self::safeFilename($noteTitle ?: 'Untitled');
+        if ($attrName) {
+            return "files/{$safeNote}/{$attrName}/{$fullFilename}";
+        }
+        return "files/{$safeNote}/{$fullFilename}";
+    }
+
+    public static function buildFilename(string $filename, string $extension): string
+    {
+        if ($extension === '') return $filename ?: 'file';
+        if ($filename === '') return "file.{$extension}";
+        // Don't append if filename already ends with the extension
+        if (str_ends_with(strtolower($filename), '.' . strtolower($extension))) {
+            return $filename;
+        }
+        return "{$filename}.{$extension}";
+    }
+
     // ── YAML frontmatter ────────────────────────────────────────
 
     public static function renderFrontmatter(array $data): string

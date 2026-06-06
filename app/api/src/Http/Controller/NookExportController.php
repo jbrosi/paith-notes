@@ -202,6 +202,8 @@ final class NookExportController
 
         // ── Second pass: write .md files + zip files ────────────
         $dataPath = ExportHelpers::dataPath();
+        /** @var array<string, string> file zip path → note uuid */
+        $fileMap = [];
         $notes2 = $pdo->prepare("select id, title, type_id, created_by, created_at, updated_at, version, content, attributes from global.notes where {$notesSql} order by created_at");
         $notes2->execute($notesParams);
 
@@ -223,15 +225,15 @@ final class NookExportController
 
                 $filename = (string) ($f['filename'] ?? 'file');
                 $ext = (string) ($f['extension'] ?? '');
-                $fullFilename = $ext !== '' ? "{$filename}.{$ext}" : $filename;
+                $fullFilename = ExportHelpers::buildFilename($filename, $ext);
                 $attrName = isset($f['attribute_id'], $attrById[$f['attribute_id']])
                     ? ExportHelpers::safeFilename($attrById[$f['attribute_id']]['name'])
                     : null;
-                $fileZipPath = $attrName
-                    ? "files/{$id}/{$attrName}/{$fullFilename}"
-                    : "files/{$id}/{$fullFilename}";
+                $noteTitle = $noteTitles[$id] ?? 'Untitled';
+                $fileZipPath = ExportHelpers::buildFileZipPath($noteTitle, $attrName, $fullFilename);
 
                 $zip->addFile($diskPath, $fileZipPath);
+                $fileMap[$fileZipPath] = $id;
                 $stats['files']++;
             }
         }
@@ -271,8 +273,11 @@ final class NookExportController
         }
         $zip->addFromString('notes/unlinked.md', DashboardRenderer::buildUnlinkedPage($unlinked));
 
-        // ── Manifest + README + map ─────────────────────────────
+        // ── Manifest + README + maps ────────────────────────────
         $zip->addFromString('notes/map.json', ExportHelpers::jsonEncode($noteMap));
+        if ($fileMap) {
+            $zip->addFromString('files/map.json', ExportHelpers::jsonEncode($fileMap));
+        }
 
         $exportedAt = date('c');
         $nookName = (string) $nookRow['name'];
