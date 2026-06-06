@@ -1,3 +1,9 @@
+includes:
+  # Baseline of pre-existing phpstan errors. Regenerate after fixing some, with:
+  #   worker/vendor/bin/phpstan analyse -c phpstan.neon --generate-baseline phpstan-baseline.neon
+  # New code should be clean — do not extend the baseline to silence new violations.
+  - phpstan-baseline.neon
+
 parameters:
   level: 10
   paths:

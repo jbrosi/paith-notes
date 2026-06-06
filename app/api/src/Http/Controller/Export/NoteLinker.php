@@ -133,7 +133,9 @@ final class NoteLinker
     ): string {
         $notePath = preg_replace('#^notes/#', '', $currentEntry);
         $currentDir = dirname($notePath);
-        if ($currentDir === '.') $currentDir = '';
+        if ($currentDir === '.') {
+            $currentDir = '';
+        }
 
         // Match both [text](path.md) and ![alt](path)
         return preg_replace_callback(

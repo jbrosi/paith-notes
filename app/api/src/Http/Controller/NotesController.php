@@ -258,9 +258,13 @@ final class NotesController
         $nfRows = $nfStmt->fetchAll(PDO::FETCH_ASSOC);
         $files = [];
         foreach ($nfRows as $nf) {
-            if (!is_array($nf)) continue;
+            if (!is_array($nf)) {
+                continue;
+            }
             $attrId = Row::str($nf, 'attribute_id');
-            if ($attrId === '') continue;
+            if ($attrId === '') {
+                continue;
+            }
             $files[$attrId] = [
                 'filename' => Row::str($nf, 'filename'),
                 'extension' => Row::str($nf, 'extension'),
@@ -281,7 +285,9 @@ final class NotesController
         $hRows = $hStmt->fetchAll(PDO::FETCH_ASSOC);
         $headings = [];
         foreach ($hRows as $hr) {
-            if (!is_array($hr)) continue;
+            if (!is_array($hr)) {
+                continue;
+            }
             $headings[] = [
                 'level' => (int)($hr['level'] ?? 0),
                 'text' => (string)($hr['text'] ?? ''),
@@ -331,7 +337,9 @@ final class NotesController
         $hStmt->execute([':note_id' => $noteId, ':nook_id' => $nookId]);
         $headings = [];
         foreach ($hStmt->fetchAll(PDO::FETCH_ASSOC) as $hr) {
-            if (!is_array($hr)) continue;
+            if (!is_array($hr)) {
+                continue;
+            }
             $headings[] = [
                 'level' => (int)($hr['level'] ?? 0),
                 'text' => (string)($hr['text'] ?? ''),
@@ -1014,10 +1022,14 @@ final class NotesController
             ':nook_id' => $nookId,
         ]);
         $raw = $stmt->fetchColumn();
-        if (!is_scalar($raw)) return null;
+        if (!is_scalar($raw)) {
+            return null;
+        }
 
         $data = json_decode((string)$raw, true);
-        if (!is_array($data)) return null;
+        if (!is_array($data)) {
+            return null;
+        }
 
         $attrs = $data['attributes'] ?? null;
         if (is_string($attrs)) {

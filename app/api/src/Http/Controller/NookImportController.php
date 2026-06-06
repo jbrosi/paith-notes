@@ -38,7 +38,9 @@ final class NookImportController
 
         $readJson = static function (string $name) use ($zip): mixed {
             $content = $zip->getFromName($name);
-            if ($content === false) return null;
+            if ($content === false) {
+                return null;
+            }
             return json_decode($content, true);
         };
 
@@ -80,7 +82,9 @@ final class NookImportController
         if (empty($fileNoteIds)) {
             for ($i = 0; $i < $zip->numFiles; $i++) {
                 $name = $zip->getNameIndex($i);
-                if ($name === false) continue;
+                if ($name === false) {
+                    continue;
+                }
                 if (str_starts_with($name, 'files/') && !str_ends_with($name, '/') && $name !== 'files/map.json') {
                     $parts = explode('/', $name, 3);
                     if (count($parts) >= 3 && $parts[1] !== '') {
@@ -97,11 +101,17 @@ final class NookImportController
         // First: parse .md files using map.json
         for ($i = 0; $i < $zip->numFiles; $i++) {
             $name = $zip->getNameIndex($i);
-            if ($name === false) continue;
-            if (str_starts_with($name, 'notes/') && str_ends_with($name, '.md')
-                && !str_ends_with($name, '/_index.md') && $name !== 'notes/index.md' && $name !== 'notes/unlinked.md') {
+            if ($name === false) {
+                continue;
+            }
+            if (
+                str_starts_with($name, 'notes/') && str_ends_with($name, '.md')
+                && !str_ends_with($name, '/_index.md') && $name !== 'notes/index.md' && $name !== 'notes/unlinked.md'
+            ) {
                 $raw = $zip->getFromIndex($i);
-                if ($raw === false) continue;
+                if ($raw === false) {
+                    continue;
+                }
                 $parsed = self::parseMdNote($raw, $name, $pathToId, $noteMap, $types, $attrNameToId, $fileNoteIds);
                 if ($parsed && isset($parsed['id'])) {
                     $notes[] = $parsed;
@@ -113,7 +123,9 @@ final class NookImportController
         // Fallback: .json files for notes not found via .md
         for ($i = 0; $i < $zip->numFiles; $i++) {
             $name = $zip->getNameIndex($i);
-            if ($name === false) continue;
+            if ($name === false) {
+                continue;
+            }
             if (str_starts_with($name, 'notes/') && str_ends_with($name, '.json') && $name !== 'notes/map.json') {
                 $noteData = json_decode($zip->getFromIndex($i), true);
                 if (is_array($noteData) && isset($noteData['id']) && !isset($seenIds[$noteData['id']])) {
@@ -393,9 +405,13 @@ final class NookImportController
         array $fileNoteIds = [],
     ): ?array {
         // Extract frontmatter
-        if (!str_starts_with($raw, "---\n")) return null;
+        if (!str_starts_with($raw, "---\n")) {
+            return null;
+        }
         $endPos = strpos($raw, "\n---\n", 4);
-        if ($endPos === false) return null;
+        if ($endPos === false) {
+            return null;
+        }
 
         $fmRaw = substr($raw, 4, $endPos - 4);
         $body = substr($raw, $endPos + 5);
@@ -405,7 +421,9 @@ final class NookImportController
 
         // Simple YAML parsing
         $fm = self::parseSimpleYaml($fmRaw);
-        if (!is_array($fm) || empty($fm['id'])) return null;
+        if (!is_array($fm) || empty($fm['id'])) {
+            return null;
+        }
 
         $noteId = (string) $fm['id'];
 
@@ -453,11 +471,15 @@ final class NookImportController
         $endMarker = '<!-- /paith:content -->';
 
         $startPos = strpos($body, $startMarker);
-        if ($startPos === false) return trim($body);
+        if ($startPos === false) {
+            return trim($body);
+        }
 
         $contentStart = $startPos + strlen($startMarker);
         $endPos = strpos($body, $endMarker, $contentStart);
-        if ($endPos === false) return trim(substr($body, $contentStart));
+        if ($endPos === false) {
+            return trim(substr($body, $contentStart));
+        }
 
         return trim(substr($body, $contentStart, $endPos - $contentStart));
     }
@@ -479,7 +501,9 @@ final class NookImportController
         $inMap = false;
 
         foreach ($lines as $line) {
-            if (trim($line) === '') continue;
+            if (trim($line) === '') {
+                continue;
+            }
 
             $stripped = ltrim($line);
             $indent = strlen($line) - strlen($stripped);
@@ -539,9 +563,15 @@ final class NookImportController
 
     private static function yamlValue(string $raw): mixed
     {
-        if ($raw === 'null') return null;
-        if ($raw === 'true' || $raw === 'yes') return true;
-        if ($raw === 'false' || $raw === 'no') return false;
+        if ($raw === 'null') {
+            return null;
+        }
+        if ($raw === 'true' || $raw === 'yes') {
+            return true;
+        }
+        if ($raw === 'false' || $raw === 'no') {
+            return false;
+        }
         if (is_numeric($raw) && !str_starts_with($raw, '0') || $raw === '0') {
             return str_contains($raw, '.') ? (float) $raw : (int) $raw;
         }
@@ -551,11 +581,65 @@ final class NookImportController
             return array_map(fn($s) => self::yamlValue(trim($s)), explode(',', $inner));
         }
         // Strip quotes
-        if ((str_starts_with($raw, '"') && str_ends_with($raw, '"'))
-            || (str_starts_with($raw, "'") && str_ends_with($raw, "'"))) {
+        if (
+            (str_starts_with($raw, '"') && str_ends_with($raw, '"'))
+            || (str_starts_with($raw, "'") && str_ends_with($raw, "'"))
+        ) {
             return stripcslashes(substr($raw, 1, -1));
         }
         return $raw;
+    }
+
+    /**
+     * Import a zip as a brand-new nook with freshly generated UUIDs for every
+     * entity. Use this for user-facing "import from zip" — preserving the
+     * source IDs would risk overwriting unrelated nooks' rows in the shared
+     * global.* tables.
+     *
+     * Returns the new nook id.
+     */
+    public static function importAsNewNook(
+        PDO $pdo,
+        string $zipPath,
+        string $ownerId,
+        ?string $nookName = null,
+    ): string {
+        $data = self::parseZip($zipPath);
+        [$remapped] = Import\RemapIds::remap($data);
+
+        $name = $nookName !== null && trim($nookName) !== ''
+            ? trim($nookName)
+            : (string) ($data['nook']['name'] ?? 'Imported nook');
+
+        $pdo->beginTransaction();
+        try {
+            $create = $pdo->prepare(
+                "insert into global.nooks (name, created_by, owner_id, purpose) "
+                . "values (:name, :created_by, :owner_id, 'general') returning id"
+            );
+            $create->execute([
+                ':name' => $name,
+                ':created_by' => $ownerId,
+                ':owner_id' => $ownerId,
+            ]);
+            $nookId = (string) $create->fetchColumn();
+
+            $pdo->prepare(
+                "insert into global.nook_members (nook_id, user_id, role) "
+                . "values (:nook_id, :user_id, 'owner') "
+                . "on conflict (nook_id, user_id) do nothing"
+            )->execute([':nook_id' => $nookId, ':user_id' => $ownerId]);
+
+            $pdo->commit();
+        } catch (\Throwable $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            throw $e;
+        }
+
+        self::importIntoNook($pdo, $remapped, $nookId, $ownerId);
+        return $nookId;
     }
 
     /**
@@ -570,7 +654,9 @@ final class NookImportController
 
         $data = self::parseZip($zipPath);
         $exportVersion = $data['version'];
-        if ($exportVersion < 1) return null;
+        if ($exportVersion < 1) {
+            return null;
+        }
 
         // Check if handbook nook already exists
         $check = $pdo->prepare("select id from global.nooks where purpose = 'handbook' limit 1");
@@ -629,7 +715,9 @@ final class NookImportController
         $check = $pdo->prepare("select id from global.nooks where purpose = 'handbook' limit 1");
         $check->execute();
         $nookId = $check->fetchColumn();
-        if (!$nookId) return null;
+        if (!$nookId) {
+            return null;
+        }
 
         $pdo->prepare("
             insert into global.nook_members (nook_id, user_id, role)

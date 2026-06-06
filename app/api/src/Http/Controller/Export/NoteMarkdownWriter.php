@@ -30,12 +30,16 @@ final class NoteMarkdownWriter
         $rawAttrs = is_string($note['attributes'] ?? null)
             ? json_decode($note['attributes'], true)
             : ($note['attributes'] ?? []);
-        if (!is_array($rawAttrs)) $rawAttrs = [];
+        if (!is_array($rawAttrs)) {
+            $rawAttrs = [];
+        }
 
         $noteMap = $lookups['noteMap'];
         $noteTitles = $lookups['noteTitles'];
         $noteDir = dirname($noteMap[$id] ?? '');
-        if ($noteDir === '.') $noteDir = '';
+        if ($noteDir === '.') {
+            $noteDir = '';
+        }
 
         $typeById = $lookups['typeById'];
         $attrById = $lookups['attrById'];
@@ -81,7 +85,9 @@ final class NoteMarkdownWriter
 
         // Simple attributes
         $fmAttrs = self::buildFrontmatterAttrs($rawAttrs, $attrById);
-        if ($fmAttrs) $fm['attributes'] = $fmAttrs;
+        if ($fmAttrs) {
+            $fm['attributes'] = $fmAttrs;
+        }
 
         // Links
         $noteLinks = $linksBySource[$id] ?? [];
@@ -102,7 +108,9 @@ final class NoteMarkdownWriter
 
         // Files in frontmatter
         $fmFiles = self::buildFrontmatterFiles($id, $title, $noteFiles, $attrById);
-        if ($fmFiles) $fm['files'] = $fmFiles;
+        if ($fmFiles) {
+            $fm['files'] = $fmFiles;
+        }
 
         // ── Rewrite content links ───────────────────────────────
         $appBaseUrl = $lookups['appBaseUrl'] ?? '';
@@ -123,11 +131,15 @@ final class NoteMarkdownWriter
         $split = AttributeMarkdownRenderer::renderSplit($rawAttrs, $typeAttrDefs, $renderCtx);
 
         $md = ExportHelpers::renderFrontmatter($fm);
-        if ($split['before'] !== '') $md .= $split['before'];
+        if ($split['before'] !== '') {
+            $md .= $split['before'];
+        }
         $md .= "<!-- paith:content -->\n\n";
         $md .= $rewrittenContent;
         $md .= "\n\n<!-- /paith:content -->";
-        if ($split['after'] !== '') $md .= $split['after'];
+        if ($split['after'] !== '') {
+            $md .= $split['after'];
+        }
         return $md;
     }
 
@@ -138,10 +150,16 @@ final class NoteMarkdownWriter
     {
         $out = [];
         foreach ($rawAttrs as $attrId => $value) {
-            if ($value === null) continue;
+            if ($value === null) {
+                continue;
+            }
             $def = $attrById[$attrId] ?? null;
-            if (!$def) continue;
-            if (!in_array($def['kind'], self::FRONTMATTER_KINDS, true)) continue;
+            if (!$def) {
+                continue;
+            }
+            if (!in_array($def['kind'], self::FRONTMATTER_KINDS, true)) {
+                continue;
+            }
             $out[$def['name']] = $value;
         }
         return $out;
@@ -153,7 +171,9 @@ final class NoteMarkdownWriter
     private static function buildFrontmatterFiles(string $noteId, string $noteTitle, array $noteFiles, array $attrById): array
     {
         $files = $noteFiles[$noteId] ?? [];
-        if (empty($files)) return [];
+        if (empty($files)) {
+            return [];
+        }
 
         $out = [];
         foreach ($files as $f) {

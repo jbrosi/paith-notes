@@ -41,14 +41,18 @@ final class ExportHelpers
 
     public static function relativePath(string $fromDir, string $toPath): string
     {
-        if ($fromDir === '' || $fromDir === '.') return $toPath;
+        if ($fromDir === '' || $fromDir === '.') {
+            return $toPath;
+        }
 
         $fromParts = explode('/', $fromDir);
         $toParts = explode('/', $toPath);
 
         $common = 0;
-        while ($common < count($fromParts) && $common < count($toParts) - 1
-            && $fromParts[$common] === $toParts[$common]) {
+        while (
+            $common < count($fromParts) && $common < count($toParts) - 1
+            && $fromParts[$common] === $toParts[$common]
+        ) {
             $common++;
         }
 
@@ -86,8 +90,12 @@ final class ExportHelpers
 
     public static function buildFilename(string $filename, string $extension): string
     {
-        if ($extension === '') return $filename ?: 'file';
-        if ($filename === '') return "file.{$extension}";
+        if ($extension === '') {
+            return $filename ?: 'file';
+        }
+        if ($filename === '') {
+            return "file.{$extension}";
+        }
         // Don't append if filename already ends with the extension
         if (str_ends_with(strtolower($filename), '.' . strtolower($extension))) {
             return $filename;
@@ -106,7 +114,9 @@ final class ExportHelpers
     public static function yamlEncode(mixed $data, int $indent): string
     {
         if (is_array($data) && array_is_list($data)) {
-            if (empty($data)) return "[]\n";
+            if (empty($data)) {
+                return "[]\n";
+            }
             $out = '';
             $pad = str_repeat('  ', $indent);
             foreach ($data as $item) {
@@ -120,7 +130,9 @@ final class ExportHelpers
         }
 
         if (is_array($data)) {
-            if (empty($data)) return "{}\n";
+            if (empty($data)) {
+                return "{}\n";
+            }
             $out = '';
             $pad = str_repeat('  ', $indent);
             foreach ($data as $key => $value) {
@@ -139,14 +151,24 @@ final class ExportHelpers
 
     public static function yamlScalar(mixed $value): string
     {
-        if ($value === null) return 'null';
-        if ($value === true) return 'true';
-        if ($value === false) return 'false';
-        if (is_int($value) || is_float($value)) return (string) $value;
+        if ($value === null) {
+            return 'null';
+        }
+        if ($value === true) {
+            return 'true';
+        }
+        if ($value === false) {
+            return 'false';
+        }
+        if (is_int($value) || is_float($value)) {
+            return (string) $value;
+        }
         $s = (string) $value;
-        if ($s === '' || preg_match('/^[\d.eE+-]|^(true|false|null|yes|no)$/i', $s)
+        if (
+            $s === '' || preg_match('/^[\d.eE+-]|^(true|false|null|yes|no)$/i', $s)
             || preg_match('/[:{}\[\],&#*?|>!%@`\n]/', $s)
-            || str_starts_with($s, '- ') || str_starts_with($s, '# ')) {
+            || str_starts_with($s, '- ') || str_starts_with($s, '# ')
+        ) {
             return '"' . addcslashes($s, "\"\\\n\r\t") . '"';
         }
         return $s;

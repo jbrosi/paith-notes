@@ -35,7 +35,9 @@ final class DashboardRenderer
             $md .= "## By Type\n\n";
             foreach ($rootTypes as $type) {
                 $folder = $typeFolders[$type['id']] ?? null;
-                if ($folder === null) continue;
+                if ($folder === null) {
+                    continue;
+                }
                 $folderNotes = $notesByFolder[$folder] ?? [];
                 $count = count($folderNotes);
 
@@ -52,7 +54,9 @@ final class DashboardRenderer
                 $md .= "- [{$type['label']}]({$folder}/_index.md) ({$total} note" . ($total !== 1 ? 's' : '') . ")\n";
 
                 foreach ($typeList as $t) {
-                    if (($t['parent_id'] ?? '') !== $type['id']) continue;
+                    if (($t['parent_id'] ?? '') !== $type['id']) {
+                        continue;
+                    }
                     $cf = $typeFolders[$t['id']] ?? '';
                     $cn = count($notesByFolder[$cf] ?? []);
                     $md .= "  - [{$t['label']}]({$cf}/_index.md) ({$cn})\n";
@@ -77,7 +81,9 @@ final class DashboardRenderer
         }
         $unlinkedCount = 0;
         foreach ($noteMap as $nid => $_) {
-            if (!isset($linkedIds[$nid])) $unlinkedCount++;
+            if (!isset($linkedIds[$nid])) {
+                $unlinkedCount++;
+            }
         }
         if ($unlinkedCount > 0) {
             $md .= "\n## [Unlinked Notes](unlinked.md) ({$unlinkedCount})\n";
@@ -127,11 +133,15 @@ final class DashboardRenderer
             'type_id' => $type['id'],
             'type_key' => $type['key'],
         ];
-        if (!empty($type['description'])) $fm['description'] = $type['description'];
+        if (!empty($type['description'])) {
+            $fm['description'] = $type['description'];
+        }
         if (!empty($type['parent_id']) && isset($typeById[$type['parent_id']])) {
             $fm['parent'] = $typeById[$type['parent_id']]['label'];
         }
-        if (!empty($type['created_at'])) $fm['created_at'] = ExportHelpers::isoDate($type['created_at']);
+        if (!empty($type['created_at'])) {
+            $fm['created_at'] = ExportHelpers::isoDate($type['created_at']);
+        }
 
         $body = "# {$type['label']}\n\n";
         if (!empty($type['description'])) {

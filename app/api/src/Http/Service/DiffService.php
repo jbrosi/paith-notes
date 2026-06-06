@@ -164,7 +164,9 @@ final class DiffService
     /** @return string[] */
     private static function splitLines(string $text): array
     {
-        if ($text === '') return [];
+        if ($text === '') {
+            return [];
+        }
         return explode("\n", $text);
     }
 }

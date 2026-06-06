@@ -78,7 +78,9 @@ final class NoteTypesController
 
         $attrsByType = [];
         foreach ($attrRows as $a) {
-            if (!is_array($a)) continue;
+            if (!is_array($a)) {
+                continue;
+            }
             $tid = is_scalar($a['type_id'] ?? null) ? (string)$a['type_id'] : '';
             $config = self::decodeJsonObject($a['config'] ?? null);
             $attrsByType[$tid][] = [
@@ -669,7 +671,9 @@ final class NoteTypesController
                 $hRows = $hStmt->fetchAll(PDO::FETCH_ASSOC);
 
                 foreach ($hRows as $hr) {
-                    if (!is_array($hr)) continue;
+                    if (!is_array($hr)) {
+                        continue;
+                    }
                     $headingMatches[] = [
                         'note_id' => Row::str($hr, 'note_id'),
                         'note_title' => Row::str($hr, 'note_title'),
@@ -846,12 +850,16 @@ final class NoteTypesController
         $clauses = [];
         $idx = 0;
         foreach ($filters as $f) {
-            if (!is_array($f)) continue;
+            if (!is_array($f)) {
+                continue;
+            }
             $attrId = trim((string)($f['attribute_id'] ?? ''));
             $op = strtolower(trim((string)($f['op'] ?? '')));
             $value = $f['value'] ?? null;
 
-            if ($attrId === '' || !self::isUuid($attrId)) continue;
+            if ($attrId === '' || !self::isUuid($attrId)) {
+                continue;
+            }
 
             $paramKey = ':af_' . $idx;
             $jsonPath = "n.attributes->>'" . $attrId . "'";
@@ -951,7 +959,9 @@ final class NoteTypesController
     /** @return array<string, mixed> */
     private static function decodeJsonObject(mixed $value): array
     {
-        if (!is_scalar($value)) return [];
+        if (!is_scalar($value)) {
+            return [];
+        }
         $decoded = json_decode((string)$value, true);
         return is_array($decoded) ? $decoded : [];
     }

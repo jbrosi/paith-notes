@@ -99,7 +99,9 @@ final class NookExportController
         $nook = $pdo->prepare('select id, name, purpose from global.nooks where id = :id');
         $nook->execute([':id' => $nookId]);
         $nookRow = $nook->fetch(PDO::FETCH_ASSOC);
-        if (!is_array($nookRow)) throw new \RuntimeException('Nook not found');
+        if (!is_array($nookRow)) {
+            throw new \RuntimeException('Nook not found');
+        }
 
         // ── Query all metadata ──────────────────────────────────
         $typeList = self::queryTypes($pdo, $nookId, $excludeTypeId);
@@ -127,14 +129,20 @@ final class NookExportController
 
         // ── Build lookup tables ─────────────────────────────────
         $typeById = [];
-        foreach ($typeList as $t) $typeById[$t['id']] = $t;
+        foreach ($typeList as $t) {
+            $typeById[$t['id']] = $t;
+        }
         $typeFolders = ExportHelpers::buildTypeFolders($typeById);
 
         $attrById = [];
-        foreach ($attrList as $a) $attrById[$a['id']] = $a;
+        foreach ($attrList as $a) {
+            $attrById[$a['id']] = $a;
+        }
 
         $predLabelById = [];
-        foreach ($predList as $p) $predLabelById[$p['id']] = $p['forward_label'];
+        foreach ($predList as $p) {
+            $predLabelById[$p['id']] = $p['forward_label'];
+        }
 
         // Users + last updaters
         $userNames = self::queryUserNames($pdo);
@@ -149,7 +157,9 @@ final class NookExportController
         // ── First pass: assign paths ────────────────────────────
         $notesSql = self::buildNotesWhere($excludeTypeId);
         $notesParams = [':nook_id' => $nookId];
-        if ($excludeTypeId) $notesParams[':exclude_type'] = $excludeTypeId;
+        if ($excludeTypeId) {
+            $notesParams[':exclude_type'] = $excludeTypeId;
+        }
 
         $notes = $pdo->prepare("select id, title, type_id from global.notes where {$notesSql} order by created_at");
         $notes->execute($notesParams);
@@ -159,7 +169,9 @@ final class NookExportController
         $pathCounts = [];
 
         while ($n = $notes->fetch(PDO::FETCH_ASSOC)) {
-            if (!is_array($n)) continue;
+            if (!is_array($n)) {
+                continue;
+            }
             $id = (string) $n['id'];
             $title = (string) ($n['title'] ?: 'Untitled');
             $noteTitles[$id] = $title;
@@ -192,13 +204,27 @@ final class NookExportController
         );
         $mentionsStmt->execute([':nook_id' => $nookId]);
         while ($m = $mentionsStmt->fetch(PDO::FETCH_ASSOC)) {
-            if (!is_array($m)) continue;
+            if (!is_array($m)) {
+                continue;
+            }
             $mentionsBySource[$m['source_note_id']][] = $m['target_note_id'];
         }
 
         // ── Shared lookups for note rendering ───────────────────
-        $lookups = compact('typeById', 'attrById', 'attrList', 'noteMap', 'noteTitles',
-            'noteFiles', 'linksBySource', 'mentionsBySource', 'userNames', 'lastUpdaters', 'typeFolders', 'appBaseUrl');
+        $lookups = compact(
+            'typeById',
+            'attrById',
+            'attrList',
+            'noteMap',
+            'noteTitles',
+            'noteFiles',
+            'linksBySource',
+            'mentionsBySource',
+            'userNames',
+            'lastUpdaters',
+            'typeFolders',
+            'appBaseUrl'
+        );
 
         // ── Second pass: write .md files + zip files ────────────
         $dataPath = ExportHelpers::dataPath();
@@ -209,7 +235,9 @@ final class NookExportController
 
         $noteCount = 0;
         while ($n = $notes2->fetch(PDO::FETCH_ASSOC)) {
-            if (!is_array($n)) continue;
+            if (!is_array($n)) {
+                continue;
+            }
             $noteCount++;
             $id = (string) $n['id'];
 
@@ -221,7 +249,9 @@ final class NookExportController
             foreach ($noteFiles[$id] ?? [] as $f) {
                 $objectKey = (string) ($f['object_key'] ?? '');
                 $diskPath = "{$dataPath}/{$objectKey}";
-                if ($objectKey === '' || !file_exists($diskPath)) continue;
+                if ($objectKey === '' || !file_exists($diskPath)) {
+                    continue;
+                }
 
                 $filename = (string) ($f['filename'] ?? 'file');
                 $ext = (string) ($f['extension'] ?? '');
@@ -243,21 +273,32 @@ final class NookExportController
         $notesByFolder = [];
         foreach ($noteMap as $id => $path) {
             $folder = dirname($path);
-            if ($folder === '.') $folder = '';
+            if ($folder === '.') {
+                $folder = '';
+            }
             $notesByFolder[$folder][] = ['id' => $id, 'path' => $path, 'title' => $noteTitles[$id] ?? $id];
         }
 
         // Type _index.md pages
         foreach ($typeList as $type) {
             $folder = $typeFolders[$type['id']] ?? null;
-            if ($folder === null) continue;
+            if ($folder === null) {
+                continue;
+            }
             $folderNotes = $notesByFolder[$folder] ?? [];
             $zip->addFromString("notes/{$folder}/_index.md", DashboardRenderer::buildTypeIndex($type, $typeById, $folderNotes));
         }
 
         // Dashboard + unlinked
         $zip->addFromString('notes/index.md', DashboardRenderer::buildDashboard(
-            (string) $nookRow['name'], $typeList, $typeFolders, $notesByFolder, $noteMap, $noteTitles, $linkList, $stats,
+            (string) $nookRow['name'],
+            $typeList,
+            $typeFolders,
+            $notesByFolder,
+            $noteMap,
+            $noteTitles,
+            $linkList,
+            $stats,
         ));
 
         $linkedIds = [];
@@ -290,7 +331,9 @@ final class NookExportController
         ]));
         $zip->addFromString('README.md', DashboardRenderer::buildReadme($nookName, $exportedAt, $stats));
 
-        if ($stats['files'] === 0) $zip->addEmptyDir('files');
+        if ($stats['files'] === 0) {
+            $zip->addEmptyDir('files');
+        }
 
         $zip->close();
         return $tmpFile;
@@ -303,7 +346,9 @@ final class NookExportController
         $check = $pdo->prepare('select id from global.note_types where nook_id = :nook_id and key = :key');
         $check->execute([':nook_id' => $nookId, ':key' => self::BACKUP_TYPE_KEY]);
         $typeId = $check->fetchColumn();
-        if ($typeId) return (string) $typeId;
+        if ($typeId) {
+            return (string) $typeId;
+        }
 
         $baseCheck = $pdo->prepare("select id from global.note_types where nook_id = :nook_id and key = 'base'");
         $baseCheck->execute([':nook_id' => $nookId]);
@@ -365,7 +410,9 @@ final class NookExportController
             $dataPath = ExportHelpers::dataPath();
             $destPath = "{$dataPath}/{$objectKey}";
             $destDir = dirname($destPath);
-            if (!is_dir($destDir)) mkdir($destDir, 0755, true);
+            if (!is_dir($destDir)) {
+                mkdir($destDir, 0755, true);
+            }
             $tmpDest = $destPath . '.tmp';
             copy($zipPath, $tmpDest);
             rename($tmpDest, $destPath);
@@ -385,7 +432,9 @@ final class NookExportController
             $pdo->commit();
             return $noteId;
         } catch (\Throwable $e) {
-            if ($pdo->inTransaction()) $pdo->rollBack();
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
             throw $e;
         }
     }
@@ -395,7 +444,9 @@ final class NookExportController
     private static function buildNotesWhere(?string $excludeTypeId): string
     {
         $where = 'nook_id = :nook_id';
-        if ($excludeTypeId) $where .= ' and (type_id is null or type_id != :exclude_type)';
+        if ($excludeTypeId) {
+            $where .= ' and (type_id is null or type_id != :exclude_type)';
+        }
         return $where;
     }
 
@@ -403,22 +454,31 @@ final class NookExportController
     {
         $sql = 'select id, key, label, description, parent_id, attribute_layout, config_overrides, created_at from global.note_types where nook_id = :nook_id';
         $params = [':nook_id' => $nookId];
-        if ($excludeTypeId) { $sql .= ' and id != :exclude_type'; $params[':exclude_type'] = $excludeTypeId; }
+        if ($excludeTypeId) {
+            $sql .= ' and id != :exclude_type';
+            $params[':exclude_type'] = $excludeTypeId;
+        }
         $sql .= ' order by created_at';
         $stmt = $pdo->prepare($sql);
         $stmt->execute($params);
 
         $list = [];
         while ($t = $stmt->fetch(PDO::FETCH_ASSOC)) {
-            if (!is_array($t)) continue;
+            if (!is_array($t)) {
+                continue;
+            }
             $entry = ['id' => $t['id'], 'key' => $t['key'], 'label' => $t['label'], 'description' => $t['description'] ?? '', 'parent_id' => $t['parent_id'], 'created_at' => $t['created_at'] ?? null];
             if (!empty($t['attribute_layout'])) {
                 $d = is_string($t['attribute_layout']) ? json_decode($t['attribute_layout'], true) : $t['attribute_layout'];
-                if ($d) $entry['attribute_layout'] = $d;
+                if ($d) {
+                    $entry['attribute_layout'] = $d;
+                }
             }
             if (!empty($t['config_overrides']) && $t['config_overrides'] !== '{}') {
                 $d = is_string($t['config_overrides']) ? json_decode($t['config_overrides'], true) : $t['config_overrides'];
-                if ($d) $entry['config_overrides'] = $d;
+                if ($d) {
+                    $entry['config_overrides'] = $d;
+                }
             }
             $list[] = $entry;
         }
@@ -431,7 +491,9 @@ final class NookExportController
         $stmt->execute([':nook_id' => $nookId]);
         $list = [];
         while ($a = $stmt->fetch(PDO::FETCH_ASSOC)) {
-            if (!is_array($a) || !isset($typeIdSet[$a['type_id']])) continue;
+            if (!is_array($a) || !isset($typeIdSet[$a['type_id']])) {
+                continue;
+            }
             $config = is_string($a['config'] ?? null) ? json_decode($a['config'], true) : ($a['config'] ?? []);
             $list[] = ['id' => $a['id'], 'type_id' => $a['type_id'], 'key' => $a['key'], 'name' => $a['name'], 'kind' => $a['kind'], 'config' => $config ?: new \stdClass(), 'indexed' => (bool) ($a['indexed'] ?? false)];
         }
@@ -445,7 +507,9 @@ final class NookExportController
         $predList = [];
         $predIds = [];
         while ($p = $stmt->fetch(PDO::FETCH_ASSOC)) {
-            if (!is_array($p)) continue;
+            if (!is_array($p)) {
+                continue;
+            }
             $predIds[] = $p['id'];
             $predList[] = ['id' => $p['id'], 'key' => $p['key'], 'forward_label' => $p['forward_label'], 'reverse_label' => $p['reverse_label'], 'supports_start_date' => (bool) ($p['supports_start_date'] ?? false), 'supports_end_date' => (bool) ($p['supports_end_date'] ?? false)];
         }
@@ -456,7 +520,9 @@ final class NookExportController
             $rules = $pdo->prepare("select predicate_id, source_type_id, target_type_id, include_source_subtypes, include_target_subtypes from global.link_predicate_rules where predicate_id in ({$ph})");
             $rules->execute($predIds);
             while ($r = $rules->fetch(PDO::FETCH_ASSOC)) {
-                if (!is_array($r)) continue;
+                if (!is_array($r)) {
+                    continue;
+                }
                 $ruleList[] = ['predicate_id' => $r['predicate_id'], 'source_type_id' => $r['source_type_id'], 'target_type_id' => $r['target_type_id'], 'include_source_subtypes' => (bool) ($r['include_source_subtypes'] ?? true), 'include_target_subtypes' => (bool) ($r['include_target_subtypes'] ?? true)];
             }
         }
@@ -469,10 +535,16 @@ final class NookExportController
         $stmt->execute([':nook_id' => $nookId]);
         $list = [];
         while ($l = $stmt->fetch(PDO::FETCH_ASSOC)) {
-            if (!is_array($l)) continue;
+            if (!is_array($l)) {
+                continue;
+            }
             $entry = ['id' => $l['id'], 'predicate_id' => $l['predicate_id'], 'source_note_id' => $l['source_note_id'], 'target_note_id' => $l['target_note_id']];
-            if ($l['start_date'] ?? null) $entry['start_date'] = $l['start_date'];
-            if ($l['end_date'] ?? null) $entry['end_date'] = $l['end_date'];
+            if ($l['start_date'] ?? null) {
+                $entry['start_date'] = $l['start_date'];
+            }
+            if ($l['end_date'] ?? null) {
+                $entry['end_date'] = $l['end_date'];
+            }
             $list[] = $entry;
         }
         return $list;
@@ -484,7 +556,9 @@ final class NookExportController
         $stmt->execute([':nook_id' => $nookId]);
         $list = [];
         while ($f = $stmt->fetch(PDO::FETCH_ASSOC)) {
-            if (!is_array($f)) continue;
+            if (!is_array($f)) {
+                continue;
+            }
             $list[] = ['note_id' => $f['note_id'], 'object_key' => $f['object_key'], 'filename' => $f['filename'], 'extension' => $f['extension'], 'mime_type' => $f['mime_type'], 'filesize' => (int) ($f['filesize'] ?? 0), 'checksum' => $f['checksum'] ?? '', 'attribute_id' => $f['attribute_id'], 'file_version' => (int) ($f['file_version'] ?? 1)];
         }
         return $list;
@@ -495,9 +569,13 @@ final class NookExportController
         $names = [];
         $stmt = $pdo->query('select id, first_name, last_name, username from global.users');
         while ($u = $stmt->fetch(PDO::FETCH_ASSOC)) {
-            if (!is_array($u)) continue;
+            if (!is_array($u)) {
+                continue;
+            }
             $name = trim(($u['first_name'] ?? '') . ' ' . ($u['last_name'] ?? ''));
-            if ($name === '') $name = (string) ($u['username'] ?? $u['id']);
+            if ($name === '') {
+                $name = (string) ($u['username'] ?? $u['id']);
+            }
             $names[$u['id']] = $name;
         }
         return $names;
@@ -509,7 +587,9 @@ final class NookExportController
         $stmt->execute([':nook_id' => $nookId]);
         $map = [];
         while ($a = $stmt->fetch(PDO::FETCH_ASSOC)) {
-            if (!is_array($a)) continue;
+            if (!is_array($a)) {
+                continue;
+            }
             $map[$a['entity_id']] = $a['user_id'];
         }
         return $map;

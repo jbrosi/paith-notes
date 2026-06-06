@@ -123,7 +123,9 @@ final class SearchController
             $hRows = $hStmt->fetchAll(PDO::FETCH_ASSOC);
 
             foreach ($hRows as $hr) {
-                if (!is_array($hr)) continue;
+                if (!is_array($hr)) {
+                    continue;
+                }
                 $headingMatches[] = [
                     'note_id' => Row::str($hr, 'note_id'),
                     'nook_id' => Row::str($hr, 'nook_id'),

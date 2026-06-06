@@ -345,7 +345,9 @@ final class TypeAttributesController
             usort($out, function (array $a, array $b) use ($posMap): int {
                 $pa = $posMap[$a['id']] ?? PHP_INT_MAX;
                 $pb = $posMap[$b['id']] ?? PHP_INT_MAX;
-                if ($pa !== $pb) return $pa <=> $pb;
+                if ($pa !== $pb) {
+                    return $pa <=> $pb;
+                }
                 return strcasecmp($a['name'], $b['name']);
             });
         } else {
@@ -402,7 +404,9 @@ final class TypeAttributesController
             }
         }
         foreach ($ownLayout['panels'] ?? [] as $p) {
-            if (!is_array($p) || !is_string($p['key'] ?? null)) continue;
+            if (!is_array($p) || !is_string($p['key'] ?? null)) {
+                continue;
+            }
             $key = $p['key'];
             if (isset($merged[$key])) {
                 // Shallow merge: child fields override parent fields
@@ -415,7 +419,9 @@ final class TypeAttributesController
         // Filter out hidden panels
         $panels = [];
         foreach ($merged as $p) {
-            if (!empty($p['hidden'])) continue;
+            if (!empty($p['hidden'])) {
+                continue;
+            }
             $panels[] = $p;
         }
 
@@ -439,7 +445,9 @@ final class TypeAttributesController
         foreach ($panels as $p) {
             if (is_array($p) && ($p['position'] ?? '') === 'main') {
                 foreach ($p['attributes'] ?? [] as $id) {
-                    if (is_string($id)) $order[] = $id;
+                    if (is_string($id)) {
+                        $order[] = $id;
+                    }
                 }
             }
         }
@@ -447,7 +455,9 @@ final class TypeAttributesController
         foreach ($panels as $p) {
             if (is_array($p) && ($p['position'] ?? '') !== 'main') {
                 foreach ($p['attributes'] ?? [] as $id) {
-                    if (is_string($id)) $order[] = $id;
+                    if (is_string($id)) {
+                        $order[] = $id;
+                    }
                 }
             }
         }

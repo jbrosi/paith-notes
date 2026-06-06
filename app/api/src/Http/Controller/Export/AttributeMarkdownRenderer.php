@@ -73,11 +73,15 @@ final class AttributeMarkdownRenderer
             $attrId = $def['id'] ?? '';
             $name = $def['name'] ?? '';
             $config = is_string($def['config'] ?? null) ? json_decode($def['config'], true) : ($def['config'] ?? []);
-            if (!is_array($config)) $config = [];
+            if (!is_array($config)) {
+                $config = [];
+            }
 
             $value = $rawAttrs[$attrId] ?? null;
             $rendered = self::render($kind, $value, $config, $context);
-            if ($rendered === null || $rendered === '') continue;
+            if ($rendered === null || $rendered === '') {
+                continue;
+            }
 
             $section = "### {$name}\n\n{$rendered}";
             if ($seenContent) {
@@ -110,7 +114,9 @@ final class AttributeMarkdownRenderer
 
     private static function renderNumber(mixed $value, array $config): ?string
     {
-        if (!is_numeric($value)) return null;
+        if (!is_numeric($value)) {
+            return null;
+        }
         $num = (float) $value;
 
         // Rating display: render as stars
@@ -145,12 +151,20 @@ final class AttributeMarkdownRenderer
 
     private static function renderDateRange(mixed $value): ?string
     {
-        if (!is_array($value)) return null;
+        if (!is_array($value)) {
+            return null;
+        }
         $from = (string) ($value['from'] ?? '');
         $to = (string) ($value['to'] ?? '');
-        if ($from === '' && $to === '') return null;
-        if ($from !== '' && $to !== '') return "{$from} → {$to}";
-        if ($from !== '') return "from {$from}";
+        if ($from === '' && $to === '') {
+            return null;
+        }
+        if ($from !== '' && $to !== '') {
+            return "{$from} → {$to}";
+        }
+        if ($from !== '') {
+            return "from {$from}";
+        }
         return "until {$to}";
     }
 
@@ -162,14 +176,18 @@ final class AttributeMarkdownRenderer
 
     private static function renderMultiSelect(mixed $value): ?string
     {
-        if (!is_array($value) || empty($value)) return null;
+        if (!is_array($value) || empty($value)) {
+            return null;
+        }
         return implode(' ', array_map(fn($v) => "`{$v}`", $value));
     }
 
     private static function renderUrl(mixed $value): ?string
     {
         $url = (string) $value;
-        if ($url === '') return null;
+        if ($url === '') {
+            return null;
+        }
         // Show domain as link text
         $host = parse_url($url, PHP_URL_HOST) ?: $url;
         return "[{$host}]({$url})";
@@ -184,7 +202,9 @@ final class AttributeMarkdownRenderer
         $attrById = $context['attrById'] ?? [];
 
         $files = $noteFiles[$noteId] ?? [];
-        if (empty($files)) return null;
+        if (empty($files)) {
+            return null;
+        }
 
         $noteTitle = $noteTitles[$noteId] ?? 'Untitled';
         $lines = [];
@@ -223,7 +243,9 @@ final class AttributeMarkdownRenderer
         $noteDir = $context['noteDir'] ?? '';
 
         $links = $linksBySource[$noteId] ?? [];
-        if (empty($links)) return null;
+        if (empty($links)) {
+            return null;
+        }
 
         $lines = [];
         foreach ($links as $link) {
@@ -251,7 +273,9 @@ final class AttributeMarkdownRenderer
         $noteDir = $context['noteDir'] ?? '';
 
         $mentions = $mentionsBySource[$noteId] ?? [];
-        if (empty($mentions)) return null;
+        if (empty($mentions)) {
+            return null;
+        }
 
         $lines = [];
         foreach ($mentions as $mid) {
@@ -270,7 +294,9 @@ final class AttributeMarkdownRenderer
 
     private static function renderGraph(mixed $value, array $context): ?string
     {
-        if (!is_array($value)) return null;
+        if (!is_array($value)) {
+            return null;
+        }
 
         $noteId = $context['note_id'] ?? '';
         $linksBySource = $context['linksBySource'] ?? [];
@@ -278,7 +304,9 @@ final class AttributeMarkdownRenderer
 
         // Build a simple mermaid graph from the note's links
         $links = $linksBySource[$noteId] ?? [];
-        if (empty($links)) return null;
+        if (empty($links)) {
+            return null;
+        }
 
         $rootTitle = $noteTitles[$noteId] ?? 'root';
         $lines = ["```mermaid", "graph LR"];
@@ -292,7 +320,9 @@ final class AttributeMarkdownRenderer
             $safeTarget = self::mermaidId($targetId, $targetTitle);
 
             $key = "{$noteId}-{$targetId}";
-            if (isset($seen[$key])) continue;
+            if (isset($seen[$key])) {
+                continue;
+            }
             $seen[$key] = true;
 
             $lines[] = "    {$safeRoot} -->|{$predicate}| {$safeTarget}";

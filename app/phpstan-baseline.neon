@@ -1,0 +1,1165 @@
+parameters:
+	ignoreErrors:
+		-
+			message: '#^Cannot call method fetchColumn\(\) on PDOStatement\|false\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: api/src/Http/Controller/AttributeFilesController.php
+
+		-
+			message: '#^Cannot cast mixed to int\.$#'
+			identifier: cast.int
+			count: 1
+			path: api/src/Http/Controller/AttributeFilesController.php
+
+		-
+			message: '#^Cannot cast mixed to string\.$#'
+			identifier: cast.string
+			count: 1
+			path: api/src/Http/Controller/AttributeFilesController.php
+
+		-
+			message: '#^Parameter \#1 \$value of static method Paith\\Notes\\Api\\Http\\Controller\\AttributeFilesController\:\:requireUuid\(\) expects string, mixed given\.$#'
+			identifier: argument.type
+			count: 6
+			path: api/src/Http/Controller/AttributeFilesController.php
+
+		-
+			message: '#^Argument of an invalid type mixed supplied for foreach, only iterables are supported\.$#'
+			identifier: foreach.nonIterable
+			count: 4
+			path: api/src/Http/Controller/Export/AttributeMarkdownRenderer.php
+
+		-
+			message: '#^Call to function is_float\(\) with float will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: api/src/Http/Controller/Export/AttributeMarkdownRenderer.php
+
+		-
+			message: '#^Cannot access offset ''attribute_id'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 2
+			path: api/src/Http/Controller/Export/AttributeMarkdownRenderer.php
+
+		-
+			message: '#^Cannot access offset ''extension'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: api/src/Http/Controller/Export/AttributeMarkdownRenderer.php
+
+		-
+			message: '#^Cannot access offset ''filename'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: api/src/Http/Controller/Export/AttributeMarkdownRenderer.php
+
+		-
+			message: '#^Cannot access offset ''filesize'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: api/src/Http/Controller/Export/AttributeMarkdownRenderer.php
+
+		-
+			message: '#^Cannot access offset ''mime_type'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: api/src/Http/Controller/Export/AttributeMarkdownRenderer.php
+
+		-
+			message: '#^Cannot access offset ''name'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: api/src/Http/Controller/Export/AttributeMarkdownRenderer.php
+
+		-
+			message: '#^Cannot access offset ''predicate'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 2
+			path: api/src/Http/Controller/Export/AttributeMarkdownRenderer.php
+
+		-
+			message: '#^Cannot access offset ''target_id'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 2
+			path: api/src/Http/Controller/Export/AttributeMarkdownRenderer.php
+
+		-
+			message: '#^Cannot access offset mixed on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 12
+			path: api/src/Http/Controller/Export/AttributeMarkdownRenderer.php
+
+		-
+			message: '#^Cannot cast mixed to int\.$#'
+			identifier: cast.int
+			count: 2
+			path: api/src/Http/Controller/Export/AttributeMarkdownRenderer.php
+
+		-
+			message: '#^Cannot cast mixed to string\.$#'
+			identifier: cast.string
+			count: 9
+			path: api/src/Http/Controller/Export/AttributeMarkdownRenderer.php
+
+		-
+			message: '#^Parameter \#1 \$fromDir of static method Paith\\Notes\\Api\\Http\\Controller\\Export\\AttributeMarkdownRenderer\:\:relativePath\(\) expects string, mixed given\.$#'
+			identifier: argument.type
+			count: 2
+			path: api/src/Http/Controller/Export/AttributeMarkdownRenderer.php
+
+		-
+			message: '#^Parameter \#1 \$id of static method Paith\\Notes\\Api\\Http\\Controller\\Export\\AttributeMarkdownRenderer\:\:mermaidId\(\) expects string, mixed given\.$#'
+			identifier: argument.type
+			count: 2
+			path: api/src/Http/Controller/Export/AttributeMarkdownRenderer.php
+
+		-
+			message: '#^Parameter \#1 \$kind of static method Paith\\Notes\\Api\\Http\\Controller\\Export\\AttributeMarkdownRenderer\:\:render\(\) expects string, mixed given\.$#'
+			identifier: argument.type
+			count: 1
+			path: api/src/Http/Controller/Export/AttributeMarkdownRenderer.php
+
+		-
+			message: '#^Parameter \#1 \$name of static method Paith\\Notes\\Api\\Http\\Controller\\Export\\AttributeMarkdownRenderer\:\:safeFilename\(\) expects string, mixed given\.$#'
+			identifier: argument.type
+			count: 1
+			path: api/src/Http/Controller/Export/AttributeMarkdownRenderer.php
+
+		-
+			message: '#^Parameter \#1 \$noteTitle of static method Paith\\Notes\\Api\\Http\\Controller\\Export\\ExportHelpers\:\:buildFileZipPath\(\) expects string, mixed given\.$#'
+			identifier: argument.type
+			count: 1
+			path: api/src/Http/Controller/Export/AttributeMarkdownRenderer.php
+
+		-
+			message: '#^Parameter \#2 \$title of static method Paith\\Notes\\Api\\Http\\Controller\\Export\\AttributeMarkdownRenderer\:\:mermaidId\(\) expects string, mixed given\.$#'
+			identifier: argument.type
+			count: 2
+			path: api/src/Http/Controller/Export/AttributeMarkdownRenderer.php
+
+		-
+			message: '#^Parameter \#2 \$toPath of static method Paith\\Notes\\Api\\Http\\Controller\\Export\\AttributeMarkdownRenderer\:\:relativePath\(\) expects string, mixed given\.$#'
+			identifier: argument.type
+			count: 2
+			path: api/src/Http/Controller/Export/AttributeMarkdownRenderer.php
+
+		-
+			message: '#^Parameter \#3 \$config of static method Paith\\Notes\\Api\\Http\\Controller\\Export\\AttributeMarkdownRenderer\:\:render\(\) expects array\<string, mixed\>, array\<mixed\> given\.$#'
+			identifier: argument.type
+			count: 1
+			path: api/src/Http/Controller/Export/AttributeMarkdownRenderer.php
+
+		-
+			message: '#^Part \$name \(mixed\) of encapsed string cannot be cast to string\.$#'
+			identifier: encapsedStringPart.nonString
+			count: 1
+			path: api/src/Http/Controller/Export/AttributeMarkdownRenderer.php
+
+		-
+			message: '#^Part \$noteDir \(mixed\) of encapsed string cannot be cast to string\.$#'
+			identifier: encapsedStringPart.nonString
+			count: 1
+			path: api/src/Http/Controller/Export/AttributeMarkdownRenderer.php
+
+		-
+			message: '#^Part \$noteId \(mixed\) of encapsed string cannot be cast to string\.$#'
+			identifier: encapsedStringPart.nonString
+			count: 1
+			path: api/src/Http/Controller/Export/AttributeMarkdownRenderer.php
+
+		-
+			message: '#^Part \$predicate \(mixed\) of encapsed string cannot be cast to string\.$#'
+			identifier: encapsedStringPart.nonString
+			count: 3
+			path: api/src/Http/Controller/Export/AttributeMarkdownRenderer.php
+
+		-
+			message: '#^Part \$prefix \(mixed\) of encapsed string cannot be cast to string\.$#'
+			identifier: encapsedStringPart.nonString
+			count: 1
+			path: api/src/Http/Controller/Export/AttributeMarkdownRenderer.php
+
+		-
+			message: '#^Part \$suffix \(mixed\) of encapsed string cannot be cast to string\.$#'
+			identifier: encapsedStringPart.nonString
+			count: 1
+			path: api/src/Http/Controller/Export/AttributeMarkdownRenderer.php
+
+		-
+			message: '#^Part \$targetId \(mixed\) of encapsed string cannot be cast to string\.$#'
+			identifier: encapsedStringPart.nonString
+			count: 1
+			path: api/src/Http/Controller/Export/AttributeMarkdownRenderer.php
+
+		-
+			message: '#^Part \$title \(mixed\) of encapsed string cannot be cast to string\.$#'
+			identifier: encapsedStringPart.nonString
+			count: 4
+			path: api/src/Http/Controller/Export/AttributeMarkdownRenderer.php
+
+		-
+			message: '#^Part \$v \(mixed\) of encapsed string cannot be cast to string\.$#'
+			identifier: encapsedStringPart.nonString
+			count: 1
+			path: api/src/Http/Controller/Export/AttributeMarkdownRenderer.php
+
+		-
+			message: '#^Possibly invalid array key type mixed\.$#'
+			identifier: offsetAccess.invalidOffset
+			count: 1
+			path: api/src/Http/Controller/Export/AttributeMarkdownRenderer.php
+
+		-
+			message: '#^Argument of an invalid type mixed supplied for foreach, only iterables are supported\.$#'
+			identifier: foreach.nonIterable
+			count: 1
+			path: api/src/Http/Controller/Export/DashboardRenderer.php
+
+		-
+			message: '#^Cannot access offset ''id'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 5
+			path: api/src/Http/Controller/Export/DashboardRenderer.php
+
+		-
+			message: '#^Cannot access offset ''label'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 3
+			path: api/src/Http/Controller/Export/DashboardRenderer.php
+
+		-
+			message: '#^Cannot access offset ''parent_id'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 3
+			path: api/src/Http/Controller/Export/DashboardRenderer.php
+
+		-
+			message: '#^Cannot access offset ''path'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 3
+			path: api/src/Http/Controller/Export/DashboardRenderer.php
+
+		-
+			message: '#^Cannot access offset ''source_note_id'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: api/src/Http/Controller/Export/DashboardRenderer.php
+
+		-
+			message: '#^Cannot access offset ''target_note_id'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: api/src/Http/Controller/Export/DashboardRenderer.php
+
+		-
+			message: '#^Cannot access offset ''title'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 3
+			path: api/src/Http/Controller/Export/DashboardRenderer.php
+
+		-
+			message: '#^Parameter \#1 \$path of function basename expects string, mixed given\.$#'
+			identifier: argument.type
+			count: 1
+			path: api/src/Http/Controller/Export/DashboardRenderer.php
+
+		-
+			message: '#^Parameter \#1 \$raw of static method Paith\\Notes\\Api\\Http\\Controller\\Export\\ExportHelpers\:\:isoDate\(\) expects string, mixed given\.$#'
+			identifier: argument.type
+			count: 1
+			path: api/src/Http/Controller/Export/DashboardRenderer.php
+
+		-
+			message: '#^Parameter \#1 \$value of function count expects array\|Countable, mixed given\.$#'
+			identifier: argument.type
+			count: 3
+			path: api/src/Http/Controller/Export/DashboardRenderer.php
+
+		-
+			message: '#^Part \$cf \(mixed\) of encapsed string cannot be cast to string\.$#'
+			identifier: encapsedStringPart.nonString
+			count: 1
+			path: api/src/Http/Controller/Export/DashboardRenderer.php
+
+		-
+			message: '#^Part \$fn\[''title''\] \(mixed\) of encapsed string cannot be cast to string\.$#'
+			identifier: encapsedStringPart.nonString
+			count: 1
+			path: api/src/Http/Controller/Export/DashboardRenderer.php
+
+		-
+			message: '#^Part \$folder \(mixed\) of encapsed string cannot be cast to string\.$#'
+			identifier: encapsedStringPart.nonString
+			count: 1
+			path: api/src/Http/Controller/Export/DashboardRenderer.php
+
+		-
+			message: '#^Part \$n\[''path''\] \(mixed\) of encapsed string cannot be cast to string\.$#'
+			identifier: encapsedStringPart.nonString
+			count: 2
+			path: api/src/Http/Controller/Export/DashboardRenderer.php
+
+		-
+			message: '#^Part \$n\[''title''\] \(mixed\) of encapsed string cannot be cast to string\.$#'
+			identifier: encapsedStringPart.nonString
+			count: 2
+			path: api/src/Http/Controller/Export/DashboardRenderer.php
+
+		-
+			message: '#^Part \$rpath \(mixed\) of encapsed string cannot be cast to string\.$#'
+			identifier: encapsedStringPart.nonString
+			count: 1
+			path: api/src/Http/Controller/Export/DashboardRenderer.php
+
+		-
+			message: '#^Part \$rtitle \(mixed\) of encapsed string cannot be cast to string\.$#'
+			identifier: encapsedStringPart.nonString
+			count: 1
+			path: api/src/Http/Controller/Export/DashboardRenderer.php
+
+		-
+			message: '#^Part \$stats\[''attributes''\] \(mixed\) of encapsed string cannot be cast to string\.$#'
+			identifier: encapsedStringPart.nonString
+			count: 1
+			path: api/src/Http/Controller/Export/DashboardRenderer.php
+
+		-
+			message: '#^Part \$stats\[''files''\] \(mixed\) of encapsed string cannot be cast to string\.$#'
+			identifier: encapsedStringPart.nonString
+			count: 2
+			path: api/src/Http/Controller/Export/DashboardRenderer.php
+
+		-
+			message: '#^Part \$stats\[''links''\] \(mixed\) of encapsed string cannot be cast to string\.$#'
+			identifier: encapsedStringPart.nonString
+			count: 2
+			path: api/src/Http/Controller/Export/DashboardRenderer.php
+
+		-
+			message: '#^Part \$stats\[''notes''\] \(mixed\) of encapsed string cannot be cast to string\.$#'
+			identifier: encapsedStringPart.nonString
+			count: 2
+			path: api/src/Http/Controller/Export/DashboardRenderer.php
+
+		-
+			message: '#^Part \$stats\[''predicates''\] \(mixed\) of encapsed string cannot be cast to string\.$#'
+			identifier: encapsedStringPart.nonString
+			count: 1
+			path: api/src/Http/Controller/Export/DashboardRenderer.php
+
+		-
+			message: '#^Part \$stats\[''types''\] \(mixed\) of encapsed string cannot be cast to string\.$#'
+			identifier: encapsedStringPart.nonString
+			count: 2
+			path: api/src/Http/Controller/Export/DashboardRenderer.php
+
+		-
+			message: '#^Part \$t\[''label''\] \(mixed\) of encapsed string cannot be cast to string\.$#'
+			identifier: encapsedStringPart.nonString
+			count: 1
+			path: api/src/Http/Controller/Export/DashboardRenderer.php
+
+		-
+			message: '#^Part \$type\[''description''\] \(mixed\) of encapsed string cannot be cast to string\.$#'
+			identifier: encapsedStringPart.nonString
+			count: 1
+			path: api/src/Http/Controller/Export/DashboardRenderer.php
+
+		-
+			message: '#^Part \$type\[''label''\] \(mixed\) of encapsed string cannot be cast to string\.$#'
+			identifier: encapsedStringPart.nonString
+			count: 2
+			path: api/src/Http/Controller/Export/DashboardRenderer.php
+
+		-
+			message: '#^Possibly invalid array key type mixed\.$#'
+			identifier: offsetAccess.invalidOffset
+			count: 10
+			path: api/src/Http/Controller/Export/DashboardRenderer.php
+
+		-
+			message: '#^Cannot cast mixed to string\.$#'
+			identifier: cast.string
+			count: 1
+			path: api/src/Http/Controller/Export/ExportHelpers.php
+
+		-
+			message: '#^Method Paith\\Notes\\Api\\Http\\Controller\\Export\\ExportHelpers\:\:jsonEncode\(\) should return string but returns string\|false\.$#'
+			identifier: return.type
+			count: 1
+			path: api/src/Http/Controller/Export/ExportHelpers.php
+
+		-
+			message: '#^Parameter \#1 \$string of function trim expects string, string\|null given\.$#'
+			identifier: argument.type
+			count: 1
+			path: api/src/Http/Controller/Export/ExportHelpers.php
+
+		-
+			message: '#^Cannot cast mixed to string\.$#'
+			identifier: cast.string
+			count: 2
+			path: api/src/Http/Controller/Export/NoteLinker.php
+
+		-
+			message: '#^Offset 2 on array\{non\-empty\-string, non\-falsy\-string, non\-falsy\-string\} in empty\(\) always exists and is not falsy\.$#'
+			identifier: empty.offset
+			count: 1
+			path: api/src/Http/Controller/Export/NoteLinker.php
+
+		-
+			message: '#^Offset 5 on array\{non\-empty\-string, '''', '''', '''', non\-falsy\-string, non\-falsy\-string, non\-falsy\-string\} in empty\(\) always exists and is not falsy\.$#'
+			identifier: empty.offset
+			count: 1
+			path: api/src/Http/Controller/Export/NoteLinker.php
+
+		-
+			message: '#^Offset 6 on array\{non\-empty\-string, '''', '''', '''', non\-falsy\-string, non\-falsy\-string, non\-falsy\-string\} in empty\(\) always exists and is not falsy\.$#'
+			identifier: empty.offset
+			count: 1
+			path: api/src/Http/Controller/Export/NoteLinker.php
+
+		-
+			message: '#^Offset 8 on array\{non\-empty\-string, '''', '''', '''', '''', '''', '''', non\-falsy\-string, \.\.\.\} in empty\(\) always exists and is not falsy\.$#'
+			identifier: empty.offset
+			count: 1
+			path: api/src/Http/Controller/Export/NoteLinker.php
+
+		-
+			message: '#^Parameter \#1 \$name of static method Paith\\Notes\\Api\\Http\\Controller\\Export\\ExportHelpers\:\:safeFilename\(\) expects string, mixed given\.$#'
+			identifier: argument.type
+			count: 1
+			path: api/src/Http/Controller/Export/NoteLinker.php
+
+		-
+			message: '#^Parameter \#1 \$path of function dirname expects string, string\|null given\.$#'
+			identifier: argument.type
+			count: 1
+			path: api/src/Http/Controller/Export/NoteLinker.php
+
+		-
+			message: '#^Possibly invalid array key type mixed\.$#'
+			identifier: offsetAccess.invalidOffset
+			count: 2
+			path: api/src/Http/Controller/Export/NoteLinker.php
+
+		-
+			message: '#^Argument of an invalid type mixed supplied for foreach, only iterables are supported\.$#'
+			identifier: foreach.nonIterable
+			count: 2
+			path: api/src/Http/Controller/Export/NoteMarkdownWriter.php
+
+		-
+			message: '#^Cannot access offset ''attribute_id'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 2
+			path: api/src/Http/Controller/Export/NoteMarkdownWriter.php
+
+		-
+			message: '#^Cannot access offset ''extension'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: api/src/Http/Controller/Export/NoteMarkdownWriter.php
+
+		-
+			message: '#^Cannot access offset ''filename'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: api/src/Http/Controller/Export/NoteMarkdownWriter.php
+
+		-
+			message: '#^Cannot access offset ''filesize'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: api/src/Http/Controller/Export/NoteMarkdownWriter.php
+
+		-
+			message: '#^Cannot access offset ''kind'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: api/src/Http/Controller/Export/NoteMarkdownWriter.php
+
+		-
+			message: '#^Cannot access offset ''label'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: api/src/Http/Controller/Export/NoteMarkdownWriter.php
+
+		-
+			message: '#^Cannot access offset ''mime_type'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: api/src/Http/Controller/Export/NoteMarkdownWriter.php
+
+		-
+			message: '#^Cannot access offset ''name'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 2
+			path: api/src/Http/Controller/Export/NoteMarkdownWriter.php
+
+		-
+			message: '#^Cannot access offset ''predicate'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: api/src/Http/Controller/Export/NoteMarkdownWriter.php
+
+		-
+			message: '#^Cannot access offset ''target_id'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 2
+			path: api/src/Http/Controller/Export/NoteMarkdownWriter.php
+
+		-
+			message: '#^Cannot access offset ''type_id'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: api/src/Http/Controller/Export/NoteMarkdownWriter.php
+
+		-
+			message: '#^Cannot access offset mixed on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 5
+			path: api/src/Http/Controller/Export/NoteMarkdownWriter.php
+
+		-
+			message: '#^Cannot access offset string on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 4
+			path: api/src/Http/Controller/Export/NoteMarkdownWriter.php
+
+		-
+			message: '#^Cannot cast mixed to int\.$#'
+			identifier: cast.int
+			count: 2
+			path: api/src/Http/Controller/Export/NoteMarkdownWriter.php
+
+		-
+			message: '#^Cannot cast mixed to string\.$#'
+			identifier: cast.string
+			count: 6
+			path: api/src/Http/Controller/Export/NoteMarkdownWriter.php
+
+		-
+			message: '#^Parameter \#1 \$array of function array_filter expects array, mixed given\.$#'
+			identifier: argument.type
+			count: 1
+			path: api/src/Http/Controller/Export/NoteMarkdownWriter.php
+
+		-
+			message: '#^Parameter \#1 \$name of static method Paith\\Notes\\Api\\Http\\Controller\\Export\\ExportHelpers\:\:safeFilename\(\) expects string, mixed given\.$#'
+			identifier: argument.type
+			count: 1
+			path: api/src/Http/Controller/Export/NoteMarkdownWriter.php
+
+		-
+			message: '#^Parameter \#1 \$path of function dirname expects string, mixed given\.$#'
+			identifier: argument.type
+			count: 1
+			path: api/src/Http/Controller/Export/NoteMarkdownWriter.php
+
+		-
+			message: '#^Parameter \#1 \$raw of static method Paith\\Notes\\Api\\Http\\Controller\\Export\\ExportHelpers\:\:isoDate\(\) expects string, mixed given\.$#'
+			identifier: argument.type
+			count: 2
+			path: api/src/Http/Controller/Export/NoteMarkdownWriter.php
+
+		-
+			message: '#^Parameter \#1 \$rawAttrs of static method Paith\\Notes\\Api\\Http\\Controller\\Export\\AttributeMarkdownRenderer\:\:renderSplit\(\) expects array\<string, mixed\>, array\<mixed\> given\.$#'
+			identifier: argument.type
+			count: 1
+			path: api/src/Http/Controller/Export/NoteMarkdownWriter.php
+
+		-
+			message: '#^Parameter \#2 \$array of function array_map expects array, mixed given\.$#'
+			identifier: argument.type
+			count: 1
+			path: api/src/Http/Controller/Export/NoteMarkdownWriter.php
+
+		-
+			message: '#^Parameter \#2 \$attrById of static method Paith\\Notes\\Api\\Http\\Controller\\Export\\NoteMarkdownWriter\:\:buildFrontmatterAttrs\(\) expects array, mixed given\.$#'
+			identifier: argument.type
+			count: 1
+			path: api/src/Http/Controller/Export/NoteMarkdownWriter.php
+
+		-
+			message: '#^Parameter \#2 \$attrDefs of static method Paith\\Notes\\Api\\Http\\Controller\\Export\\AttributeMarkdownRenderer\:\:renderSplit\(\) expects list\<array\<string, mixed\>\>, list given\.$#'
+			identifier: argument.type
+			count: 1
+			path: api/src/Http/Controller/Export/NoteMarkdownWriter.php
+
+		-
+			message: '#^Parameter \#2 \$noteMap of static method Paith\\Notes\\Api\\Http\\Controller\\Export\\NoteLinker\:\:rewriteToRelative\(\) expects array\<string, string\>, mixed given\.$#'
+			identifier: argument.type
+			count: 1
+			path: api/src/Http/Controller/Export/NoteMarkdownWriter.php
+
+		-
+			message: '#^Parameter \#3 \$noteFiles of static method Paith\\Notes\\Api\\Http\\Controller\\Export\\NoteMarkdownWriter\:\:buildFrontmatterFiles\(\) expects array, mixed given\.$#'
+			identifier: argument.type
+			count: 1
+			path: api/src/Http/Controller/Export/NoteMarkdownWriter.php
+
+		-
+			message: '#^Parameter \#3 \$noteTitles of static method Paith\\Notes\\Api\\Http\\Controller\\Export\\NoteLinker\:\:rewriteToRelative\(\) expects array\<string, string\>, mixed given\.$#'
+			identifier: argument.type
+			count: 1
+			path: api/src/Http/Controller/Export/NoteMarkdownWriter.php
+
+		-
+			message: '#^Parameter \#4 \$attrById of static method Paith\\Notes\\Api\\Http\\Controller\\Export\\NoteMarkdownWriter\:\:buildFrontmatterFiles\(\) expects array, mixed given\.$#'
+			identifier: argument.type
+			count: 1
+			path: api/src/Http/Controller/Export/NoteMarkdownWriter.php
+
+		-
+			message: '#^Parameter \#5 \$noteFiles of static method Paith\\Notes\\Api\\Http\\Controller\\Export\\NoteLinker\:\:rewriteToRelative\(\) expects array\<string, list\<array\>\>, mixed given\.$#'
+			identifier: argument.type
+			count: 1
+			path: api/src/Http/Controller/Export/NoteMarkdownWriter.php
+
+		-
+			message: '#^Parameter \#6 \$attrById of static method Paith\\Notes\\Api\\Http\\Controller\\Export\\NoteLinker\:\:rewriteToRelative\(\) expects array\<string, array\>, mixed given\.$#'
+			identifier: argument.type
+			count: 1
+			path: api/src/Http/Controller/Export/NoteMarkdownWriter.php
+
+		-
+			message: '#^Parameter \#7 \$appBaseUrl of static method Paith\\Notes\\Api\\Http\\Controller\\Export\\NoteLinker\:\:rewriteToRelative\(\) expects string, mixed given\.$#'
+			identifier: argument.type
+			count: 1
+			path: api/src/Http/Controller/Export/NoteMarkdownWriter.php
+
+		-
+			message: '#^Possibly invalid array key type mixed\.$#'
+			identifier: offsetAccess.invalidOffset
+			count: 4
+			path: api/src/Http/Controller/Export/NoteMarkdownWriter.php
+
+		-
+			message: '#^Argument of an invalid type mixed supplied for foreach, only iterables are supported\.$#'
+			identifier: foreach.nonIterable
+			count: 1
+			path: api/src/Http/Controller/NookExportController.php
+
+		-
+			message: '#^Binary operation "\." between mixed and '' '' results in an error\.$#'
+			identifier: binaryOp.invalid
+			count: 1
+			path: api/src/Http/Controller/NookExportController.php
+
+		-
+			message: '#^Binary operation "\." between non\-falsy\-string and mixed results in an error\.$#'
+			identifier: binaryOp.invalid
+			count: 1
+			path: api/src/Http/Controller/NookExportController.php
+
+		-
+			message: '#^Cannot access offset ''attribute_id'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 2
+			path: api/src/Http/Controller/NookExportController.php
+
+		-
+			message: '#^Cannot access offset ''extension'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: api/src/Http/Controller/NookExportController.php
+
+		-
+			message: '#^Cannot access offset ''filename'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: api/src/Http/Controller/NookExportController.php
+
+		-
+			message: '#^Cannot access offset ''forward_label'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: api/src/Http/Controller/NookExportController.php
+
+		-
+			message: '#^Cannot access offset ''id'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 4
+			path: api/src/Http/Controller/NookExportController.php
+
+		-
+			message: '#^Cannot access offset ''name'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: api/src/Http/Controller/NookExportController.php
+
+		-
+			message: '#^Cannot access offset ''note_id'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: api/src/Http/Controller/NookExportController.php
+
+		-
+			message: '#^Cannot access offset ''object_key'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: api/src/Http/Controller/NookExportController.php
+
+		-
+			message: '#^Cannot access offset ''predicate_id'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: api/src/Http/Controller/NookExportController.php
+
+		-
+			message: '#^Cannot access offset ''source_note_id'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 2
+			path: api/src/Http/Controller/NookExportController.php
+
+		-
+			message: '#^Cannot access offset ''target_note_id'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 2
+			path: api/src/Http/Controller/NookExportController.php
+
+		-
+			message: '#^Cannot call method fetch\(\) on PDOStatement\|false\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: api/src/Http/Controller/NookExportController.php
+
+		-
+			message: '#^Cannot cast mixed to int\.$#'
+			identifier: cast.int
+			count: 2
+			path: api/src/Http/Controller/NookExportController.php
+
+		-
+			message: '#^Cannot cast mixed to string\.$#'
+			identifier: cast.string
+			count: 10
+			path: api/src/Http/Controller/NookExportController.php
+
+		-
+			message: '#^Expression on left side of \?\? is not nullable\.$#'
+			identifier: nullCoalesce.expr
+			count: 3
+			path: api/src/Http/Controller/NookExportController.php
+
+		-
+			message: '#^Parameter \#1 \$array of function array_flip expects array\<int\|string\>, list given\.$#'
+			identifier: argument.type
+			count: 1
+			path: api/src/Http/Controller/NookExportController.php
+
+		-
+			message: '#^Parameter \#1 \$name of static method Paith\\Notes\\Api\\Http\\Controller\\Export\\ExportHelpers\:\:safeFilename\(\) expects string, mixed given\.$#'
+			identifier: argument.type
+			count: 1
+			path: api/src/Http/Controller/NookExportController.php
+
+		-
+			message: '#^Parameter \#1 \$note of static method Paith\\Notes\\Api\\Http\\Controller\\Export\\NoteMarkdownWriter\:\:render\(\) expects array\<string, mixed\>, array\<mixed, mixed\> given\.$#'
+			identifier: argument.type
+			count: 1
+			path: api/src/Http/Controller/NookExportController.php
+
+		-
+			message: '#^Parameter \#1 \$type of static method Paith\\Notes\\Api\\Http\\Controller\\Export\\DashboardRenderer\:\:buildTypeIndex\(\) expects array, mixed given\.$#'
+			identifier: argument.type
+			count: 1
+			path: api/src/Http/Controller/NookExportController.php
+
+		-
+			message: '#^Parameter \#1 \$typeById of static method Paith\\Notes\\Api\\Http\\Controller\\Export\\ExportHelpers\:\:buildTypeFolders\(\) expects array\<string, array\{id\: string, label\: string, parent_id\: string\|null\}\>, array given\.$#'
+			identifier: argument.type
+			count: 1
+			path: api/src/Http/Controller/NookExportController.php
+
+		-
+			message: '#^Parameter \#1 \$value of function count expects array\|Countable, mixed given\.$#'
+			identifier: argument.type
+			count: 1
+			path: api/src/Http/Controller/NookExportController.php
+
+		-
+			message: '#^Part \$stats\[''attributes''\] \(mixed\) of encapsed string cannot be cast to string\.$#'
+			identifier: encapsedStringPart.nonString
+			count: 1
+			path: api/src/Http/Controller/NookExportController.php
+
+		-
+			message: '#^Part \$stats\[''files''\] \(mixed\) of encapsed string cannot be cast to string\.$#'
+			identifier: encapsedStringPart.nonString
+			count: 1
+			path: api/src/Http/Controller/NookExportController.php
+
+		-
+			message: '#^Part \$stats\[''links''\] \(mixed\) of encapsed string cannot be cast to string\.$#'
+			identifier: encapsedStringPart.nonString
+			count: 1
+			path: api/src/Http/Controller/NookExportController.php
+
+		-
+			message: '#^Part \$stats\[''notes''\] \(mixed\) of encapsed string cannot be cast to string\.$#'
+			identifier: encapsedStringPart.nonString
+			count: 1
+			path: api/src/Http/Controller/NookExportController.php
+
+		-
+			message: '#^Part \$stats\[''predicates''\] \(mixed\) of encapsed string cannot be cast to string\.$#'
+			identifier: encapsedStringPart.nonString
+			count: 1
+			path: api/src/Http/Controller/NookExportController.php
+
+		-
+			message: '#^Part \$stats\[''types''\] \(mixed\) of encapsed string cannot be cast to string\.$#'
+			identifier: encapsedStringPart.nonString
+			count: 1
+			path: api/src/Http/Controller/NookExportController.php
+
+		-
+			message: '#^Possibly invalid array key type mixed\.$#'
+			identifier: offsetAccess.invalidOffset
+			count: 17
+			path: api/src/Http/Controller/NookExportController.php
+
+		-
+			message: '#^Argument of an invalid type mixed supplied for foreach, only iterables are supported\.$#'
+			identifier: foreach.nonIterable
+			count: 2
+			path: api/src/Http/Controller/NookImportController.php
+
+		-
+			message: '#^Call to function is_array\(\) with array\<string, mixed\> will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: api/src/Http/Controller/NookImportController.php
+
+		-
+			message: '#^Cannot access offset ''id'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 2
+			path: api/src/Http/Controller/NookImportController.php
+
+		-
+			message: '#^Cannot access offset ''key'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: api/src/Http/Controller/NookImportController.php
+
+		-
+			message: '#^Cannot access offset ''name'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: api/src/Http/Controller/NookImportController.php
+
+		-
+			message: '#^Cannot access offset ''predicates'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: api/src/Http/Controller/NookImportController.php
+
+		-
+			message: '#^Cannot access offset ''rules'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: api/src/Http/Controller/NookImportController.php
+
+		-
+			message: '#^Cannot access offset ''type_id'' on mixed\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: api/src/Http/Controller/NookImportController.php
+
+		-
+			message: '#^Cannot access offset non\-falsy\-string on 0\|0\.0\|''''\|''0''\|array\<non\-falsy\-string, non\-empty\-string\>\|false\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: api/src/Http/Controller/NookImportController.php
+
+		-
+			message: '#^Cannot cast mixed to int\.$#'
+			identifier: cast.int
+			count: 1
+			path: api/src/Http/Controller/NookImportController.php
+
+		-
+			message: '#^Cannot cast mixed to string\.$#'
+			identifier: cast.string
+			count: 2
+			path: api/src/Http/Controller/NookImportController.php
+
+		-
+			message: '#^Method Paith\\Notes\\Api\\Http\\Controller\\NookImportController\:\:parseZip\(\) should return array\{version\: int, nook\: array, types\: list, attributes\: list, notes\: list, predicates\: list, predicate_rules\: list, links\: list\} but returns array\{version\: int, nook\: mixed, types\: mixed, attributes\: mixed, notes\: list\<non\-empty\-array\<mixed\>\>, predicates\: mixed, predicate_rules\: mixed, links\: mixed\}\.$#'
+			identifier: return.type
+			count: 1
+			path: api/src/Http/Controller/NookImportController.php
+
+		-
+			message: '#^Parameter \#1 \$array of function array_flip expects array\<int\|string\>, mixed given\.$#'
+			identifier: argument.type
+			count: 1
+			path: api/src/Http/Controller/NookImportController.php
+
+		-
+			message: '#^Parameter \#1 \$json of function json_decode expects string, string\|false given\.$#'
+			identifier: argument.type
+			count: 1
+			path: api/src/Http/Controller/NookImportController.php
+
+		-
+			message: '#^Parameter \#2 \$attrs of static method Paith\\Notes\\Api\\Http\\Controller\\NookImportController\:\:importAttributes\(\) expects list\<array\<string, mixed\>\>, mixed given\.$#'
+			identifier: argument.type
+			count: 1
+			path: api/src/Http/Controller/NookImportController.php
+
+		-
+			message: '#^Parameter \#2 \$links of static method Paith\\Notes\\Api\\Http\\Controller\\NookImportController\:\:importLinks\(\) expects list\<array\<string, mixed\>\>, mixed given\.$#'
+			identifier: argument.type
+			count: 1
+			path: api/src/Http/Controller/NookImportController.php
+
+		-
+			message: '#^Parameter \#2 \$notes of static method Paith\\Notes\\Api\\Http\\Controller\\NookImportController\:\:importNotes\(\) expects list\<array\<string, mixed\>\>, mixed given\.$#'
+			identifier: argument.type
+			count: 1
+			path: api/src/Http/Controller/NookImportController.php
+
+		-
+			message: '#^Parameter \#2 \$predicates of static method Paith\\Notes\\Api\\Http\\Controller\\NookImportController\:\:importPredicates\(\) expects list\<array\<string, mixed\>\>, mixed given\.$#'
+			identifier: argument.type
+			count: 1
+			path: api/src/Http/Controller/NookImportController.php
+
+		-
+			message: '#^Parameter \#2 \$rules of static method Paith\\Notes\\Api\\Http\\Controller\\NookImportController\:\:importPredicateRules\(\) expects list\<array\<string, mixed\>\>, mixed given\.$#'
+			identifier: argument.type
+			count: 1
+			path: api/src/Http/Controller/NookImportController.php
+
+		-
+			message: '#^Parameter \#2 \$types of static method Paith\\Notes\\Api\\Http\\Controller\\NookImportController\:\:importTypes\(\) expects list\<array\<string, mixed\>\>, mixed given\.$#'
+			identifier: argument.type
+			count: 1
+			path: api/src/Http/Controller/NookImportController.php
+
+		-
+			message: '#^Parameter \#3 \$items of closure expects array, mixed given\.$#'
+			identifier: argument.type
+			count: 5
+			path: api/src/Http/Controller/NookImportController.php
+
+		-
+			message: '#^Parameter \#3 \$pathToId of static method Paith\\Notes\\Api\\Http\\Controller\\NookImportController\:\:parseMdNote\(\) expects array\<string, string\>, array\<mixed, mixed\> given\.$#'
+			identifier: argument.type
+			count: 1
+			path: api/src/Http/Controller/NookImportController.php
+
+		-
+			message: '#^Parameter \#4 \$fileNoteIds of static method Paith\\Notes\\Api\\Http\\Controller\\Export\\NoteLinker\:\:rewriteToInternal\(\) expects array\<string, string\>, array given\.$#'
+			identifier: argument.type
+			count: 1
+			path: api/src/Http/Controller/NookImportController.php
+
+		-
+			message: '#^Parameter \#4 \$noteMap of static method Paith\\Notes\\Api\\Http\\Controller\\NookImportController\:\:parseMdNote\(\) expects array\<string, string\>, mixed given\.$#'
+			identifier: argument.type
+			count: 1
+			path: api/src/Http/Controller/NookImportController.php
+
+		-
+			message: '#^Parameter \#5 \$types of static method Paith\\Notes\\Api\\Http\\Controller\\NookImportController\:\:parseMdNote\(\) expects list\<array\>, mixed given\.$#'
+			identifier: argument.type
+			count: 1
+			path: api/src/Http/Controller/NookImportController.php
+
+		-
+			message: '#^Parameter \#6 \$attrNameToId of static method Paith\\Notes\\Api\\Http\\Controller\\NookImportController\:\:parseMdNote\(\) expects array\<string, array\<string, string\>\>, array\<array\<mixed\>\> given\.$#'
+			identifier: argument.type
+			count: 1
+			path: api/src/Http/Controller/NookImportController.php
+
+		-
+			message: '#^Parameter \#7 \$fileNoteIds of static method Paith\\Notes\\Api\\Http\\Controller\\NookImportController\:\:parseMdNote\(\) expects array, mixed given\.$#'
+			identifier: argument.type
+			count: 1
+			path: api/src/Http/Controller/NookImportController.php
+
+		-
+			message: '#^Possibly invalid array key type mixed\.$#'
+			identifier: offsetAccess.invalidOffset
+			count: 7
+			path: api/src/Http/Controller/NookImportController.php
+
+		-
+			message: '#^Cannot cast mixed to string\.$#'
+			identifier: cast.string
+			count: 17
+			path: api/src/Http/Controller/NoteTypesController.php
+
+		-
+			message: '#^Method Paith\\Notes\\Api\\Http\\Controller\\NoteTypesController\:\:decodeJsonObject\(\) should return array\<string, mixed\> but returns array\<mixed\>\.$#'
+			identifier: return.type
+			count: 1
+			path: api/src/Http/Controller/NoteTypesController.php
+
+		-
+			message: '#^Cannot cast mixed to int\.$#'
+			identifier: cast.int
+			count: 4
+			path: api/src/Http/Controller/NotesController.php
+
+		-
+			message: '#^Cannot cast mixed to string\.$#'
+			identifier: cast.string
+			count: 2
+			path: api/src/Http/Controller/NotesController.php
+
+		-
+			message: '#^Parameter \#4 \$values of static method Paith\\Notes\\Api\\Http\\Service\\AttributeValidator\:\:validateNoteAttributesForType\(\) expects array\<string, mixed\>, array\<mixed, mixed\> given\.$#'
+			identifier: argument.type
+			count: 1
+			path: api/src/Http/Controller/NotesController.php
+
+		-
+			message: '#^Parameter \#4 \$values of static method Paith\\Notes\\Api\\Http\\Service\\AttributeValidator\:\:validateNoteAttributesForType\(\) expects array\<string, mixed\>, array\<mixed\> given\.$#'
+			identifier: argument.type
+			count: 1
+			path: api/src/Http/Controller/NotesController.php
+
+		-
+			message: '#^Static method Paith\\Notes\\Api\\Http\\Controller\\NotesController\:\:encodeJsonObject\(\) is unused\.$#'
+			identifier: method.unused
+			count: 1
+			path: api/src/Http/Controller/NotesController.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between non\-empty\-list\<string\> and array\{\} will always evaluate to false\.$#'
+			identifier: identical.alwaysFalse
+			count: 1
+			path: api/src/Http/Controller/NotesController.php
+
+		-
+			message: '#^Argument of an invalid type mixed supplied for foreach, only iterables are supported\.$#'
+			identifier: foreach.nonIterable
+			count: 2
+			path: api/src/Http/Controller/TypeAttributesController.php
+
+		-
+			message: '#^Call to function is_array\(\) with array\{key\: string, position\: string, attributes\: list\<string\>\} will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: api/src/Http/Controller/TypeAttributesController.php
+
+		-
+			message: '#^Call to function is_string\(\) with string will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: api/src/Http/Controller/TypeAttributesController.php
+
+		-
+			message: '#^Cannot cast mixed to string\.$#'
+			identifier: cast.string
+			count: 1
+			path: api/src/Http/Controller/TypeAttributesController.php
+
+		-
+			message: '#^Method Paith\\Notes\\Api\\Http\\Controller\\TypeAttributesController\:\:optionalJsonObject\(\) should return array\<string, mixed\> but returns array\<mixed, mixed\>\.$#'
+			identifier: return.type
+			count: 1
+			path: api/src/Http/Controller/TypeAttributesController.php
+
+		-
+			message: '#^Method Paith\\Notes\\Api\\Http\\Controller\\TypeAttributesController\:\:resolveAttributeLayout\(\) should return array\{panels\: list\<array\{key\: string, position\: string, attributes\: list\<string\>\}\>\} but returns array\{panels\: list\<non\-empty\-array\<mixed\>\>\}\.$#'
+			identifier: return.type
+			count: 1
+			path: api/src/Http/Controller/TypeAttributesController.php
+
+		-
+			message: '#^Method Paith\\Notes\\Api\\Http\\Controller\\TypeAttributesController\:\:resolveAttributeLayout\(\) should return array\{panels\: list\<array\{key\: string, position\: string, attributes\: list\<string\>\}\>\} but returns non\-empty\-array\<mixed\>\.$#'
+			identifier: return.type
+			count: 1
+			path: api/src/Http/Controller/TypeAttributesController.php
+
+		-
+			message: '#^Offset ''key'' on array\{key\: string, position\: string, attributes\: list\<string\>\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: api/src/Http/Controller/TypeAttributesController.php
+
+		-
+			message: '#^Offset ''panels'' on array\{panels\: list\<array\{key\: string, position\: string, attributes\: list\<string\>\}\>\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: api/src/Http/Controller/TypeAttributesController.php
+
+		-
+			message: '#^Offset ''panels'' on non\-empty\-array\<mixed, mixed\> on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: api/src/Http/Controller/TypeAttributesController.php
+
+		-
+			message: '#^Parameter \#1 \$array \(list\<non\-empty\-array\<mixed\>\>\) of array_values is already a list, call has no effect\.$#'
+			identifier: arrayValues.list
+			count: 1
+			path: api/src/Http/Controller/TypeAttributesController.php
+
+		-
+			message: '#^Parameter \#1 \$string1 of function strcasecmp expects string, mixed given\.$#'
+			identifier: argument.type
+			count: 2
+			path: api/src/Http/Controller/TypeAttributesController.php
+
+		-
+			message: '#^Parameter \#2 \$config of static method Paith\\Notes\\Api\\Http\\Service\\AttributeValidator\:\:validateConfig\(\) expects array\<string, mixed\>, array given\.$#'
+			identifier: argument.type
+			count: 1
+			path: api/src/Http/Controller/TypeAttributesController.php
+
+		-
+			message: '#^Result of && is always true\.$#'
+			identifier: booleanAnd.alwaysTrue
+			count: 1
+			path: api/src/Http/Controller/TypeAttributesController.php
+
+		-
+			message: '#^Call to function is_string\(\) with string will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: api/src/Http/Service/AttributeValidator.php
+
+		-
+			message: '#^Cannot cast mixed to int\.$#'
+			identifier: cast.int
+			count: 1
+			path: api/src/Http/Service/AttributeValidator.php
+
+		-
+			message: '#^Cannot cast mixed to string\.$#'
+			identifier: cast.string
+			count: 2
+			path: api/src/Http/Service/AttributeValidator.php
+
+		-
+			message: '#^Parameter \#1 \$array of function array_unique expects an array of values castable to string, array\<mixed, mixed\> given\.$#'
+			identifier: argument.type
+			count: 1
+			path: api/src/Http/Service/AttributeValidator.php
+
+		-
+			message: '#^Parameter \#2 \$array of function implode expects array\<string\>, array\<mixed, mixed\> given\.$#'
+			identifier: argument.type
+			count: 1
+			path: api/src/Http/Service/AttributeValidator.php
+
+		-
+			message: '#^Parameter \#3 \$config of static method Paith\\Notes\\Api\\Http\\Service\\AttributeValidator\:\:validateValue\(\) expects array\<string, mixed\>, array\<mixed\> given\.$#'
+			identifier: argument.type
+			count: 1
+			path: api/src/Http/Service/AttributeValidator.php
+
+		-
+			message: '#^Possibly invalid array key type mixed\.$#'
+			identifier: offsetAccess.invalidOffset
+			count: 1
+			path: api/src/Http/Service/AttributeValidator.php

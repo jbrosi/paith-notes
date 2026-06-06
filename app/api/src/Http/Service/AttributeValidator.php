@@ -330,7 +330,9 @@ final class AttributeValidator
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
         $attrs = [];
         foreach ($rows as $r) {
-            if (!is_array($r)) continue;
+            if (!is_array($r)) {
+                continue;
+            }
             $id = is_scalar($r['id'] ?? null) ? (string)$r['id'] : '';
             $config = is_scalar($r['config'] ?? null) ? json_decode((string)$r['config'], true) : [];
             $attrs[] = [
