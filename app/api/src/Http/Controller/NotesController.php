@@ -16,6 +16,7 @@ use Paith\Notes\Api\Http\Request;
 use Paith\Notes\Api\Http\Response;
 use Paith\Notes\Shared\Db\Row;
 use Paith\Notes\Shared\Db\Rows\CreatedNoteRow;
+use Paith\Notes\Shared\Db\Rows\NoteHeadingRow;
 use PDO;
 use Throwable;
 
@@ -280,23 +281,10 @@ final class NotesController
         $note['files'] = $files === [] ? (object)[] : $files;
 
         // Include TOC (headings) for this note
-        $hStmt = $pdo->prepare(
-            'select level, text, position from global.note_headings where note_id = :note_id and nook_id = :nook_id order by position asc'
+        $note['headings'] = array_map(
+            static fn(NoteHeadingRow $h) => $h->toArray(),
+            self::fetchHeadingRows($pdo, $nookId, $noteId),
         );
-        $hStmt->execute([':note_id' => $noteId, ':nook_id' => $nookId]);
-        $hRows = $hStmt->fetchAll(PDO::FETCH_ASSOC);
-        $headings = [];
-        foreach ($hRows as $hr) {
-            if (!is_array($hr)) {
-                continue;
-            }
-            $headings[] = [
-                'level' => (int)($hr['level'] ?? 0),
-                'text' => (string)($hr['text'] ?? ''),
-                'position' => (int)($hr['position'] ?? 0),
-            ];
-        }
-        $note['headings'] = $headings;
 
         return JsonResponse::ok(['note' => $note]);
     }
@@ -333,21 +321,10 @@ final class NotesController
             throw new HttpError('note not found', 404);
         }
 
-        $hStmt = $pdo->prepare(
-            'select level, text, position from global.note_headings where note_id = :note_id and nook_id = :nook_id order by position asc'
+        $headings = array_map(
+            static fn(NoteHeadingRow $h) => $h->toArray(),
+            self::fetchHeadingRows($pdo, $nookId, $noteId),
         );
-        $hStmt->execute([':note_id' => $noteId, ':nook_id' => $nookId]);
-        $headings = [];
-        foreach ($hStmt->fetchAll(PDO::FETCH_ASSOC) as $hr) {
-            if (!is_array($hr)) {
-                continue;
-            }
-            $headings[] = [
-                'level' => (int)($hr['level'] ?? 0),
-                'text' => (string)($hr['text'] ?? ''),
-                'position' => (int)($hr['position'] ?? 0),
-            ];
-        }
 
         return JsonResponse::ok([
             'summary' => [
@@ -514,13 +491,18 @@ final class NotesController
         }
 
         // Merge incoming attribute values (if provided) into existing attributes
-        $incomingAttributes = $data['attributes'] ?? null;
-        $attributes = $existingAttributes;
-        if (is_array($incomingAttributes)) {
-            foreach ($incomingAttributes as $k => $v) {
-                if (!is_string($k)) {
-                    continue;
+        $incomingAttributes = null;
+        if (isset($data['attributes']) && is_array($data['attributes'])) {
+            $incomingAttributes = [];
+            foreach ($data['attributes'] as $k => $v) {
+                if (is_string($k)) {
+                    $incomingAttributes[$k] = $v;
                 }
+            }
+        }
+        $attributes = $existingAttributes;
+        if ($incomingAttributes !== null) {
+            foreach ($incomingAttributes as $k => $v) {
                 if ($v === null) {
                     unset($attributes[$k]);
                 } else {
@@ -550,7 +532,7 @@ final class NotesController
 
         // Validate incoming attribute values against type schema
         $effectiveTypeId = is_string($typeId) ? $typeId : $existingTypeId;
-        if (is_array($incomingAttributes) && $effectiveTypeId !== '') {
+        if ($incomingAttributes !== null && $effectiveTypeId !== '') {
             AttributeValidator::validateNoteAttributesForType($pdo, $nookId, $effectiveTypeId, $incomingAttributes);
         }
 
@@ -1129,6 +1111,27 @@ final class NotesController
         }
 
         return JsonResponse::ok(['history' => $history]);
+    }
+
+    /**
+     * Fetch the heading rows for a note as typed DTOs.
+     *
+     * @return list<NoteHeadingRow>
+     */
+    private static function fetchHeadingRows(PDO $pdo, string $nookId, string $noteId): array
+    {
+        $stmt = $pdo->prepare(
+            'select level, text, position from global.note_headings '
+            . 'where note_id = :note_id and nook_id = :nook_id order by position asc'
+        );
+        $stmt->execute([':note_id' => $noteId, ':nook_id' => $nookId]);
+        $out = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            if (is_array($r)) {
+                $out[] = NoteHeadingRow::fromRow($r);
+            }
+        }
+        return $out;
     }
 
     /**

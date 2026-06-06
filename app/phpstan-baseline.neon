@@ -985,24 +985,6 @@ parameters:
 			path: api/src/Http/Controller/NoteTypesController.php
 
 		-
-			message: '#^Cannot cast mixed to int\.$#'
-			identifier: cast.int
-			count: 4
-			path: api/src/Http/Controller/NotesController.php
-
-		-
-			message: '#^Cannot cast mixed to string\.$#'
-			identifier: cast.string
-			count: 2
-			path: api/src/Http/Controller/NotesController.php
-
-		-
-			message: '#^Parameter \#4 \$values of static method Paith\\Notes\\Api\\Http\\Service\\AttributeValidator\:\:validateNoteAttributesForType\(\) expects array\<string, mixed\>, array\<mixed, mixed\> given\.$#'
-			identifier: argument.type
-			count: 1
-			path: api/src/Http/Controller/NotesController.php
-
-		-
 			message: '#^Argument of an invalid type mixed supplied for foreach, only iterables are supported\.$#'
 			identifier: foreach.nonIterable
 			count: 2

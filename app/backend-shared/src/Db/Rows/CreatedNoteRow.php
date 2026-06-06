@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Paith\Notes\Shared\Db\Rows;
 
+use Paith\Notes\Shared\Db\Row;
+
 /**
  * Minimal projection of the columns returned from
  *   INSERT INTO global.notes ... RETURNING id, created_at
@@ -25,8 +27,8 @@ final readonly class CreatedNoteRow
     public static function fromRow(array $row): self
     {
         return new self(
-            id: RowReader::requireString($row, 'id'),
-            createdAt: RowReader::requireString($row, 'created_at'),
+            id: Row::requireStr($row, 'id'),
+            createdAt: Row::requireStr($row, 'created_at'),
         );
     }
 }
