@@ -123,6 +123,101 @@ it('rejects linking a note when the caller has no access to the notes nook', fun
     expect($count)->toBe(0);
 });
 
+it('appends a user + assistant turn and returns the saved block ids', function (): void {
+    [, $headers] = makeUser('cccccccccccc');
+    $convId = createConversation($headers, 'Append test');
+
+    $body = json_encode([
+        'messages' => [
+            ['role' => 'user', 'content' => [['type' => 'text', 'text' => 'hi']]],
+            [
+                'role' => 'assistant',
+                'model' => 'claude-sonnet-4-6',
+                'content' => [
+                    ['type' => 'text', 'text' => 'hello back'],
+                    ['type' => 'tool_use', 'id' => 'toolu_1', 'name' => 'write_memory', 'input' => (object)[]],
+                ],
+            ],
+        ],
+    ]);
+    $res = App::handle('POST', "/api/conversations/{$convId}/messages", $headers, $body);
+    expect($res['status'])->toBe(200);
+
+    $data = json_decode($res['body'], true);
+    expect($data['turns'])->toHaveCount(2);
+    expect($data['turns'][0]['role'])->toBe('user');
+    expect($data['turns'][1]['role'])->toBe('assistant');
+    expect($data['turns'][1]['blocks'])->toHaveCount(2);
+    // tool_use block exposes its tool_use_id
+    expect($data['turns'][1]['blocks'][1]['tool_use_id'])->toBe('toolu_1');
+});
+
+it('reads back appended messages as reconstructed turns', function (): void {
+    [, $headers] = makeUser('dddddddddddd');
+    $convId = createConversation($headers, 'Read test');
+
+    App::handle(
+        'POST',
+        "/api/conversations/{$convId}/messages",
+        $headers,
+        json_encode([
+            'messages' => [
+                ['role' => 'user', 'content' => [['type' => 'text', 'text' => 'first']]],
+            ],
+        ]),
+    );
+
+    $res = App::handle('GET', "/api/conversations/{$convId}/messages", $headers, '');
+    expect($res['status'])->toBe(200);
+    $data = json_decode($res['body'], true);
+    expect($data['messages'])->toHaveCount(1);
+    expect($data['messages'][0]['role'])->toBe('user');
+    // Blocks are decoded as stdClass objects so empty {} survives the round-trip
+    expect($data['messages'][0]['content'][0]['text'])->toBe('first');
+});
+
+it('rejects appending messages to someone elses conversation', function (): void {
+    [, $aHeaders] = makeUser('eeeeeeeeeeee');
+    [, $bHeaders] = makeUser('feeeeeeeeeee');
+    $aConv = createConversation($aHeaders, 'A');
+
+    $res = App::handle(
+        'POST',
+        "/api/conversations/{$aConv}/messages",
+        $bHeaders,
+        json_encode([
+            'messages' => [['role' => 'user', 'content' => [['type' => 'text', 'text' => 'hi']]]],
+        ]),
+    );
+    expect($res['status'])->toBe(404);
+});
+
+it('links a note when the caller has nook access', function (): void {
+    $pdo = test_pdo();
+    [, $headers] = makeUser('111111111112');
+
+    $nookRes = App::handle('POST', '/api/nooks', $headers, json_encode(['name' => 'NL test']));
+    $nookId = json_decode($nookRes['body'], true)['nook']['id'];
+    $noteRes = App::handle('POST', "/api/nooks/{$nookId}/notes", $headers, json_encode(['title' => 'A note']));
+    $noteId = json_decode($noteRes['body'], true)['note']['id'];
+
+    $convId = createConversation($headers, 'Linker');
+
+    $res = App::handle(
+        'POST',
+        "/api/conversations/{$convId}/note-links",
+        $headers,
+        json_encode(['note_id' => $noteId]),
+    );
+    expect($res['status'])->toBe(200);
+
+    $count = (int) $pdo->query(
+        "select count(*) from global.note_conversation_links where note_id = " . $pdo->quote($noteId)
+        . " and conversation_id = " . $pdo->quote($convId),
+    )->fetchColumn();
+    expect($count)->toBe(1);
+});
+
 it('exports the callers conversations as a zip', function (): void {
     [, $headers] = makeUser('888888888888');
     createConversation($headers, 'Export me');
