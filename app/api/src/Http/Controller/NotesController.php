@@ -10,6 +10,7 @@ use Paith\Notes\Api\Http\Service\HeadingsService;
 use Paith\Notes\Api\Http\Service\MentionsService;
 use Paith\Notes\Api\Http\Context;
 use Paith\Notes\Api\Http\Dto\CreateNoteRequest;
+use Paith\Notes\Api\Http\Dto\UpdateNoteRequest;
 use Paith\Notes\Api\Http\HttpError;
 use Paith\Notes\Api\Http\JsonResponse;
 use Paith\Notes\Api\Http\Request;
@@ -401,12 +402,7 @@ final class NotesController
 
         $membership = NookAccess::requireWriteAccess($pdo, $user, $nookId);
 
-        $data = $request->jsonBody();
-
-        $title = JsonReader::optionalTrimmedString($data, 'title');
-
-        $contentRaw = $data['content'] ?? '';
-        $content = is_string($contentRaw) ? $contentRaw : '';
+        $payload = UpdateNoteRequest::fromJson($request->jsonBody());
 
         $allowed = false;
         $role = Row::str($membership, 'role');
@@ -436,29 +432,18 @@ final class NotesController
         $existingAttributes = Row::decodeJsonObject($existingRow['attributes'] ?? null);
         $existingArchive = Row::decodeJsonObject($existingRow['archive'] ?? null);
 
-        $typeIdRaw = $data['type_id'] ?? null;
+        // Resolve type_id with tri-state semantics from the payload:
+        //   not provided → keep existing; provided as null/empty → clear; provided as UUID → set.
         $typeId = $existingTypeId !== '' ? $existingTypeId : null;
-        if ($typeIdRaw !== null) {
-            $typeIdStr = is_string($typeIdRaw) ? trim($typeIdRaw) : '';
-            if ($typeIdStr !== '' && !Uuid::isValid($typeIdStr)) {
-                throw new HttpError('type_id must be a UUID', 400);
-            }
-            $typeId = $typeIdStr !== '' ? $typeIdStr : null;
+        if ($payload->typeIdProvided) {
+            $typeId = $payload->typeId;
         }
 
-        // Merge incoming attribute values (if provided) into existing attributes
-        $incomingAttributes = null;
-        if (isset($data['attributes']) && is_array($data['attributes'])) {
-            $incomingAttributes = [];
-            foreach ($data['attributes'] as $k => $v) {
-                if (is_string($k)) {
-                    $incomingAttributes[$k] = $v;
-                }
-            }
-        }
+        // Merge incoming attribute values (if provided) into existing attributes.
+        // Values of null delete the key; other values overwrite.
         $attributes = $existingAttributes;
-        if ($incomingAttributes !== null) {
-            foreach ($incomingAttributes as $k => $v) {
+        if ($payload->attributes !== null) {
+            foreach ($payload->attributes as $k => $v) {
                 if ($v === null) {
                     unset($attributes[$k]);
                 } else {
@@ -468,7 +453,9 @@ final class NotesController
         }
         $archive = $existingArchive;
 
-        if ($title === '') {
+        // Title: payload provides a non-empty value, or we fall back to existing.
+        $title = $payload->title;
+        if ($title === null) {
             $existingTitleStmt = $pdo->prepare('select title from global.notes where id = :id and nook_id = :nook_id');
             $existingTitleStmt->execute([':id' => $noteId, ':nook_id' => $nookId]);
             $existingTitle = $existingTitleStmt->fetchColumn();
@@ -477,6 +464,8 @@ final class NotesController
                 throw new HttpError('title is required', 400);
             }
         }
+
+        $content = $payload->content ?? '';
 
         if ($typeId !== null) {
             $typeCheck = $pdo->prepare('select 1 from global.note_types where id = :id and nook_id = :nook_id');
@@ -487,9 +476,9 @@ final class NotesController
         }
 
         // Validate incoming attribute values against type schema
-        $effectiveTypeId = is_string($typeId) ? $typeId : $existingTypeId;
-        if ($incomingAttributes !== null && $effectiveTypeId !== '') {
-            AttributeValidator::validateNoteAttributesForType($pdo, $nookId, $effectiveTypeId, $incomingAttributes);
+        $effectiveTypeId = $typeId ?? $existingTypeId;
+        if ($payload->attributes !== null && $effectiveTypeId !== '') {
+            AttributeValidator::validateNoteAttributesForType($pdo, $nookId, $effectiveTypeId, $payload->attributes);
         }
 
         // Type switch: bidirectional archive/attributes swap
@@ -529,16 +518,15 @@ final class NotesController
         }
 
         // Optimistic locking: if expected_version is provided, check it matches current
-        $expectedVersion = $data['expected_version'] ?? null;
-        if ($expectedVersion !== null && is_numeric($expectedVersion)) {
+        if ($payload->expectedVersion !== null) {
             $vStmt = $pdo->prepare('select version from global.notes where id = :id and nook_id = :nook_id');
             $vStmt->execute([':id' => $noteId, ':nook_id' => $nookId]);
             $vCol = $vStmt->fetchColumn();
             $currentVersion = is_scalar($vCol) ? (int)$vCol : 0;
-            if ($currentVersion !== (int)$expectedVersion) {
+            if ($currentVersion !== $payload->expectedVersion) {
                 return JsonResponse::error('note was edited in the meantime', 409, [
                     'current_version' => $currentVersion,
-                    'expected_version' => (int)$expectedVersion,
+                    'expected_version' => $payload->expectedVersion,
                 ]);
             }
         }
