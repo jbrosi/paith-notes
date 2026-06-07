@@ -280,14 +280,24 @@ final class AiImagesController
     {
         $path = self::dataPath() . '/' . ltrim($objectKey, '/');
         $dir = dirname($path);
+
+        // @-prefix so PHP warnings (permission denied, etc.) don't leak
+        // into the response body before the exception turns into JSON;
+        // the actual reason gets surfaced via error_get_last() instead.
         if (!is_dir($dir)) {
-            if (!mkdir($dir, 0777, true) && !is_dir($dir)) {
-                throw new HttpError('failed to create image storage dir', 500);
+            if (!@mkdir($dir, 0777, true) && !is_dir($dir)) {
+                throw new HttpError('failed to create image storage dir: ' . self::lastErrorMessage(), 500);
             }
         }
-        if (file_put_contents($path, $bytes) === false) {
-            throw new HttpError('failed to write image bytes', 500);
+        if (@file_put_contents($path, $bytes) === false) {
+            throw new HttpError('failed to write image bytes: ' . self::lastErrorMessage(), 500);
         }
+    }
+
+    private static function lastErrorMessage(): string
+    {
+        $err = error_get_last();
+        return is_array($err) ? $err['message'] : 'unknown error';
     }
 
     private function buildTitle(string $source): string
