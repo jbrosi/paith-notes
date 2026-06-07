@@ -12,6 +12,8 @@ use Paith\Notes\Api\Http\JsonResponse;
 use Paith\Notes\Api\Http\Request;
 use Paith\Notes\Api\Http\Response;
 use Paith\Notes\Shared\Db\Row;
+use Paith\Notes\Shared\Db\Rows\NoteTypeRow;
+use Paith\Notes\Shared\Db\Rows\TypeAttributeRow;
 use Paith\Notes\Shared\Uuid;
 use PDO;
 use Throwable;
@@ -46,24 +48,13 @@ final class NoteTypesController
         $stmt->execute([':nook_id' => $nookId]);
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-        $types = [];
+        $typeRows = [];
         foreach ($rows as $r) {
             if (!is_array($r)) {
                 continue;
             }
-            $types[] = [
-                'id' => Row::str($r, 'id'),
-                'nook_id' => $nookId,
-                'key' => Row::str($r, 'key'),
-                'label' => Row::str($r, 'label'),
-                'description' => Row::str($r, 'description'),
-                'parent_id' => Row::str($r, 'parent_id'),
-                'attribute_layout' => Row::decodeJsonObject($r['attribute_layout'] ?? null) ?: null,
-                'config_overrides' => Row::decodeJsonObject($r['config_overrides'] ?? null) ?: (object)[],
-                'created_at' => Row::str($r, 'created_at'),
-                'updated_at' => Row::str($r, 'updated_at'),
-                'attributes' => [],
-            ];
+            $row = NoteTypeRow::fromRow($r);
+            $typeRows[$row->id] = $row;
         }
 
         // Bulk-load own attributes per type (frontend resolves inheritance via parent_id)
@@ -79,25 +70,16 @@ final class NoteTypesController
             if (!is_array($a)) {
                 continue;
             }
-            $tid = Row::str($a, 'type_id');
-            $config = Row::decodeJsonObject($a['config'] ?? null);
-            $attrsByType[$tid][] = [
-                'id' => Row::str($a, 'id'),
-                'type_id' => $tid,
-                'name' => Row::str($a, 'name'),
-                'key' => Row::str($a, 'key'),
-                'kind' => Row::str($a, 'kind'),
-                'config' => $config === [] ? (object)[] : $config,
-                'indexed' => (bool)($a['indexed'] ?? false),
-                'created_at' => Row::str($a, 'created_at'),
-                'updated_at' => Row::str($a, 'updated_at'),
-            ];
+            $attr = TypeAttributeRow::fromRow($a);
+            $attrsByType[$attr->typeId][] = $attr->toArray();
         }
 
-        foreach ($types as &$t) {
-            $t['attributes'] = $attrsByType[$t['id']] ?? [];
+        $types = [];
+        foreach ($typeRows as $id => $row) {
+            $types[] = ['nook_id' => $nookId] + $row->toArray() + [
+                'attributes' => $attrsByType[$id] ?? [],
+            ];
         }
-        unset($t);
 
         // Types version: max audit_meta id for type-related changes in this nook.
         // Used by frontend to skip redundant reloads when WS event carries

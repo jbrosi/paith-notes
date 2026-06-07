@@ -16,6 +16,8 @@ use Paith\Notes\Api\Http\Response;
 use Paith\Notes\Shared\Db\Row;
 use Paith\Notes\Shared\Db\Rows\LinkPredicateRow;
 use Paith\Notes\Shared\Db\Rows\NoteFileMetadataRow;
+use Paith\Notes\Shared\Db\Rows\NoteTypeRow;
+use Paith\Notes\Shared\Db\Rows\TypeAttributeRow;
 use PDO;
 use ZipArchive;
 
@@ -484,7 +486,8 @@ final class NookExportController
      */
     private static function queryTypes(PDO $pdo, string $nookId, ?string $excludeTypeId): array
     {
-        $sql = 'select id, key, label, description, parent_id, attribute_layout, config_overrides, created_at from global.note_types where nook_id = :nook_id';
+        // updated_at is harmless to select extra so we can share the NoteTypeRow projection.
+        $sql = 'select id, key, label, description, parent_id, attribute_layout, config_overrides, created_at, updated_at from global.note_types where nook_id = :nook_id';
         $params = [':nook_id' => $nookId];
         if ($excludeTypeId !== null && $excludeTypeId !== '') {
             $sql .= ' and id != :exclude_type';
@@ -499,27 +502,24 @@ final class NookExportController
             if (!is_array($t)) {
                 continue;
             }
+            $row = NoteTypeRow::fromRow($t);
+            // Export only emits the leading fields, and omits attribute_layout /
+            // config_overrides entirely when empty (vs the API which emits
+            // null / {}). That conditional is the only thing keeping us from
+            // using $row->toArray() directly.
             $entry = [
-                'id' => Row::requireStr($t, 'id'),
-                'key' => Row::str($t, 'key'),
-                'label' => Row::str($t, 'label'),
-                'description' => Row::str($t, 'description'),
-                'parent_id' => Row::nullStr($t, 'parent_id'),
-                'created_at' => Row::nullStr($t, 'created_at'),
+                'id' => $row->id,
+                'key' => $row->key,
+                'label' => $row->label,
+                'description' => $row->description,
+                'parent_id' => $row->parentId !== '' ? $row->parentId : null,
+                'created_at' => $row->createdAt !== '' ? $row->createdAt : null,
             ];
-            $layout = $t['attribute_layout'] ?? null;
-            if ($layout !== null && $layout !== '' && $layout !== '{}') {
-                $d = is_string($layout) ? json_decode($layout, true) : $layout;
-                if (is_array($d)) {
-                    $entry['attribute_layout'] = self::stringKeyed($d);
-                }
+            if ($row->attributeLayout !== []) {
+                $entry['attribute_layout'] = $row->attributeLayout;
             }
-            $overrides = $t['config_overrides'] ?? null;
-            if ($overrides !== null && $overrides !== '' && $overrides !== '{}') {
-                $d = is_string($overrides) ? json_decode($overrides, true) : $overrides;
-                if (is_array($d)) {
-                    $entry['config_overrides'] = self::stringKeyed($d);
-                }
+            if ($row->configOverrides !== []) {
+                $entry['config_overrides'] = $row->configOverrides;
             }
             $list[] = $entry;
         }
@@ -532,30 +532,27 @@ final class NookExportController
      */
     private static function queryAttributes(PDO $pdo, string $nookId, array $typeIdSet): array
     {
-        $stmt = $pdo->prepare('select id, type_id, key, name, kind, config, indexed from global.type_attributes where nook_id = :nook_id order by created_at');
+        // created_at/updated_at are harmless to select extra so we can share TypeAttributeRow.
+        $stmt = $pdo->prepare('select id, type_id, key, name, kind, config, indexed, created_at, updated_at from global.type_attributes where nook_id = :nook_id order by created_at');
         $stmt->execute([':nook_id' => $nookId]);
         $list = [];
         while ($a = $stmt->fetch(PDO::FETCH_ASSOC)) {
             if (!is_array($a)) {
                 continue;
             }
-            $typeId = Row::str($a, 'type_id');
-            if ($typeId === '' || !isset($typeIdSet[$typeId])) {
+            $attr = TypeAttributeRow::fromRow($a);
+            if ($attr->typeId === '' || !isset($typeIdSet[$attr->typeId])) {
                 continue;
             }
-            $configRaw = $a['config'] ?? null;
-            $configDecoded = is_string($configRaw) ? json_decode($configRaw, true) : $configRaw;
-            $config = is_array($configDecoded) && $configDecoded !== []
-                ? self::stringKeyed($configDecoded)
-                : new \stdClass();
             $list[] = [
-                'id' => Row::requireStr($a, 'id'),
-                'type_id' => $typeId,
-                'key' => Row::str($a, 'key'),
-                'name' => Row::str($a, 'name'),
-                'kind' => Row::str($a, 'kind'),
-                'config' => $config,
-                'indexed' => Row::bool($a, 'indexed'),
+                'id' => $attr->id,
+                'type_id' => $attr->typeId,
+                'key' => $attr->key,
+                'name' => $attr->name,
+                'kind' => $attr->kind,
+                // Empty config stays as a stdClass for stable JSON shape.
+                'config' => $attr->config === [] ? new \stdClass() : $attr->config,
+                'indexed' => $attr->indexed,
             ];
         }
         return $list;
