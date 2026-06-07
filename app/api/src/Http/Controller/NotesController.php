@@ -17,7 +17,10 @@ use Paith\Notes\Api\Http\Request;
 use Paith\Notes\Api\Http\Response;
 use Paith\Notes\Shared\Db\Row;
 use Paith\Notes\Shared\Db\Rows\CreatedNoteRow;
+use Paith\Notes\Shared\Db\Rows\NoteDetailRow;
 use Paith\Notes\Shared\Db\Rows\NoteHeadingRow;
+use Paith\Notes\Shared\Db\Rows\NoteListRow;
+use Paith\Notes\Shared\Db\Rows\NoteSummaryRow;
 use Paith\Notes\Shared\Uuid;
 use PDO;
 use Throwable;
@@ -88,18 +91,7 @@ final class NotesController
             if (!is_array($r)) {
                 continue;
             }
-
-            $notes[] = [
-                'id' => Row::str($r, 'id'),
-                'nook_id' => $nookId,
-                'title' => Row::str($r, 'title'),
-                'type_id' => Row::str($r, 'type_id'),
-                'created_at' => Row::str($r, 'created_at'),
-                'outgoing_mentions_count' => Row::int($r, 'outgoing_mentions_count'),
-                'incoming_mentions_count' => Row::int($r, 'incoming_mentions_count'),
-                'outgoing_links_count' => Row::int($r, 'outgoing_links_count'),
-                'incoming_links_count' => Row::int($r, 'incoming_links_count'),
-            ];
+            $notes[] = ['nook_id' => $nookId] + NoteListRow::fromRow($r)->toArray();
         }
 
         return JsonResponse::ok([
@@ -193,10 +185,7 @@ final class NotesController
             throw new HttpError('note not found', 404);
         }
 
-        $attributes = Row::decodeJsonObject($r['attributes'] ?? null);
-        $archive = Row::decodeJsonObject($r['archive'] ?? null);
-
-        $content = Row::str($r, 'content');
+        $detail = NoteDetailRow::fromRow($r);
 
         // Optional: extract a single section starting at a character offset.
         // Returns content from that position to the next heading of same or higher level.
@@ -204,7 +193,7 @@ final class NotesController
         $sectionContent = null;
         if ($sectionAt !== '' && ctype_digit($sectionAt)) {
             $pos = (int)$sectionAt;
-            $sectionContent = self::extractSection($content, $pos);
+            $sectionContent = self::extractSection($detail->content, $pos);
         }
 
         // Total view count for this note
@@ -213,19 +202,9 @@ final class NotesController
         $vcCol = $vcStmt->fetchColumn();
         $viewCount = is_scalar($vcCol) ? (int)$vcCol : 0;
 
-        $note = [
-            'id' => Row::str($r, 'id'),
+        $note = $detail->toArray() + [
             'nook_id' => $nookId,
-            'title' => Row::str($r, 'title'),
-            'content' => $content,
-            'type_id' => Row::str($r, 'type_id'),
-            'attributes' => $attributes === [] ? (object)[] : $attributes,
-            'archive' => $archive === [] ? (object)[] : $archive,
-            'version' => Row::int($r, 'version'),
             'view_count' => $viewCount,
-            'created_at' => Row::str($r, 'created_at'),
-            'updated_at' => Row::str($r, 'updated_at'),
-            'created_by_name' => Row::str($r, 'created_by_name'),
         ];
 
         if ($sectionContent !== null) {
@@ -301,16 +280,9 @@ final class NotesController
         );
 
         return JsonResponse::ok([
-            'summary' => [
-                'id' => Row::str($r, 'id'),
+            'summary' => NoteSummaryRow::fromRow($r)->toArray() + [
                 'nook_id' => $nookId,
-                'title' => Row::str($r, 'title'),
-                'type_id' => Row::str($r, 'type_id'),
-                'attributes' => Row::decodeJsonObject($r['attributes'] ?? null),
-                'version' => Row::int($r, 'version'),
                 'headings' => $headings,
-                'created_at' => Row::str($r, 'created_at'),
-                'updated_at' => Row::str($r, 'updated_at'),
             ],
         ]);
     }
