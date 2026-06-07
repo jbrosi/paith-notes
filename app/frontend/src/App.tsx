@@ -96,7 +96,7 @@ function AppContent(props: RouteSectionProps) {
 			</Show>
 			<div class={styles.appBody}>
 				<div class={styles.appContent}>{props.children}</div>
-				<Show when={ui.chatPanelOpen() && chatNookId() !== ""}>
+				<Show when={ui.chatPanelOpen()}>
 					<div
 						class={styles.chatSidebar}
 						style={{ width: `${chatWidth()}px` }}
