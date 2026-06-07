@@ -13,6 +13,7 @@ use PDO;
 use Throwable;
 use Paith\Notes\Shared\Uuid;
 use Paith\Notes\Shared\Db\Row;
+use Paith\Notes\Shared\Db\Rows\LinkPredicateRow;
 use Paith\Notes\Api\Http\Dto\JsonReader;
 use Paith\Notes\Api\Http\Dto\LinkPredicateRequest;
 use Paith\Notes\Api\Http\Auth\User;
@@ -43,17 +44,7 @@ final class LinkPredicatesController
             if (!is_array($r)) {
                 continue;
             }
-            $predicates[] = [
-                'id' => Row::str($r, 'id'),
-                'nook_id' => $nookId,
-                'key' => Row::str($r, 'key'),
-                'forward_label' => Row::str($r, 'forward_label'),
-                'reverse_label' => Row::str($r, 'reverse_label'),
-                'supports_start_date' => (bool)($r['supports_start_date'] ?? false),
-                'supports_end_date' => (bool)($r['supports_end_date'] ?? false),
-                'created_at' => Row::str($r, 'created_at'),
-                'updated_at' => Row::str($r, 'updated_at'),
-            ];
+            $predicates[] = ['nook_id' => $nookId] + LinkPredicateRow::fromRow($r)->toArray();
         }
 
         return JsonResponse::ok(['predicates' => $predicates]);

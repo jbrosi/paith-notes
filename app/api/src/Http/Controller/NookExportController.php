@@ -14,6 +14,8 @@ use Paith\Notes\Api\Http\FileResponse;
 use Paith\Notes\Api\Http\Request;
 use Paith\Notes\Api\Http\Response;
 use Paith\Notes\Shared\Db\Row;
+use Paith\Notes\Shared\Db\Rows\LinkPredicateRow;
+use Paith\Notes\Shared\Db\Rows\NoteFileMetadataRow;
 use PDO;
 use ZipArchive;
 
@@ -564,7 +566,9 @@ final class NookExportController
      */
     private static function queryPredicates(PDO $pdo, string $nookId): array
     {
-        $stmt = $pdo->prepare('select id, key, forward_label, reverse_label, supports_start_date, supports_end_date from global.link_predicates where nook_id = :nook_id order by created_at');
+        // created_at/updated_at are not part of the export shape but selecting
+        // them is harmless and lets us share the LinkPredicateRow projection.
+        $stmt = $pdo->prepare('select id, key, forward_label, reverse_label, supports_start_date, supports_end_date, created_at, updated_at from global.link_predicates where nook_id = :nook_id order by created_at');
         $stmt->execute([':nook_id' => $nookId]);
         $predList = [];
         $predIds = [];
@@ -572,15 +576,15 @@ final class NookExportController
             if (!is_array($p)) {
                 continue;
             }
-            $id = Row::requireStr($p, 'id');
-            $predIds[] = $id;
+            $row = LinkPredicateRow::fromRow($p);
+            $predIds[] = $row->id;
             $predList[] = [
-                'id' => $id,
-                'key' => Row::str($p, 'key'),
-                'forward_label' => Row::str($p, 'forward_label'),
-                'reverse_label' => Row::str($p, 'reverse_label'),
-                'supports_start_date' => Row::bool($p, 'supports_start_date'),
-                'supports_end_date' => Row::bool($p, 'supports_end_date'),
+                'id' => $row->id,
+                'key' => $row->key,
+                'forward_label' => $row->forwardLabel,
+                'reverse_label' => $row->reverseLabel,
+                'supports_start_date' => $row->supportsStartDate,
+                'supports_end_date' => $row->supportsEndDate,
             ];
         }
 
@@ -648,17 +652,7 @@ final class NookExportController
             if (!is_array($f)) {
                 continue;
             }
-            $list[] = [
-                'note_id' => Row::requireStr($f, 'note_id'),
-                'object_key' => Row::str($f, 'object_key'),
-                'filename' => Row::str($f, 'filename'),
-                'extension' => Row::str($f, 'extension'),
-                'mime_type' => Row::str($f, 'mime_type'),
-                'filesize' => Row::int($f, 'filesize'),
-                'checksum' => Row::str($f, 'checksum'),
-                'attribute_id' => Row::nullStr($f, 'attribute_id'),
-                'file_version' => Row::int($f, 'file_version', 1),
-            ];
+            $list[] = NoteFileMetadataRow::fromRow($f)->toExportEntry();
         }
         return $list;
     }

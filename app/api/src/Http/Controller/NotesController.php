@@ -18,6 +18,7 @@ use Paith\Notes\Api\Http\Response;
 use Paith\Notes\Shared\Db\Row;
 use Paith\Notes\Shared\Db\Rows\CreatedNoteRow;
 use Paith\Notes\Shared\Db\Rows\NoteDetailRow;
+use Paith\Notes\Shared\Db\Rows\NoteFileMetadataRow;
 use Paith\Notes\Shared\Db\Rows\NoteHeadingRow;
 use Paith\Notes\Shared\Db\Rows\NoteListRow;
 use Paith\Notes\Shared\Db\Rows\NoteSummaryRow;
@@ -223,19 +224,11 @@ final class NotesController
             if (!is_array($nf)) {
                 continue;
             }
-            $attrId = Row::str($nf, 'attribute_id');
-            if ($attrId === '') {
+            $file = NoteFileMetadataRow::fromRow($nf);
+            if ($file->attributeId === null || $file->attributeId === '') {
                 continue;
             }
-            $files[$attrId] = [
-                'filename' => Row::str($nf, 'filename'),
-                'extension' => Row::str($nf, 'extension'),
-                'filesize' => Row::int($nf, 'filesize'),
-                'mime_type' => Row::str($nf, 'mime_type'),
-                'checksum' => Row::str($nf, 'checksum'),
-                'file_version' => Row::int($nf, 'file_version'),
-                'object_key' => Row::str($nf, 'object_key'),
-            ];
+            $files[$file->attributeId] = $file->toNoteDetailEntry();
         }
         $note['files'] = $files === [] ? (object)[] : $files;
 
