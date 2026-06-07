@@ -19,6 +19,16 @@ final class CurlHttpTransport implements HttpTransport
 {
     public function postJson(string $url, array $headers, string $jsonBody, int $timeoutSeconds): array
     {
+        if ($url === '') {
+            throw new HttpError('image provider URL is empty', 502);
+        }
+        // CURLOPT_POSTFIELDS wants non-empty-string per phpstan;
+        // image generation never produces an empty body in practice
+        // but we still guard so the lint constraint holds.
+        if ($jsonBody === '') {
+            throw new HttpError('refusing to POST an empty body', 502);
+        }
+
         $ch = curl_init();
         if ($ch === false) {
             throw new HttpError('failed to initialize HTTP client', 502);
@@ -29,17 +39,8 @@ final class CurlHttpTransport implements HttpTransport
             $headerLines[] = $name . ': ' . $value;
         }
 
-        if ($url === '') {
-            throw new HttpError('image provider URL is empty', 502);
-        }
         curl_setopt($ch, CURLOPT_URL, $url);
         curl_setopt($ch, CURLOPT_POST, true);
-        // CURLOPT_POSTFIELDS wants non-empty-string per phpstan;
-        // image generation never produces an empty body in practice
-        // but we still guard so the lint constraint holds.
-        if ($jsonBody === '') {
-            throw new HttpError('refusing to POST an empty body', 502);
-        }
         curl_setopt($ch, CURLOPT_POSTFIELDS, $jsonBody);
         curl_setopt($ch, CURLOPT_HTTPHEADER, $headerLines);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
@@ -47,13 +48,13 @@ final class CurlHttpTransport implements HttpTransport
         curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
 
         $body = curl_exec($ch);
+        // NOTE: no curl_close($ch) — deprecated since PHP 8.0 and
+        // emits a notice on 8.5. CurlHandle is a normal object now;
+        // it's released when $ch goes out of scope at function exit.
         if ($body === false || $body === true) {
-            $err = curl_error($ch);
-            curl_close($ch);
-            throw new HttpError('image provider transport error: ' . $err, 502);
+            throw new HttpError('image provider transport error: ' . curl_error($ch), 502);
         }
         $status = curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
-        curl_close($ch);
 
         return ['status' => $status, 'body' => $body];
     }
