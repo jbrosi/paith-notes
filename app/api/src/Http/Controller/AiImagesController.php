@@ -48,6 +48,13 @@ final class AiImagesController
 
     public function generate(Request $request, Context $context): Response
     {
+        // gpt-image-1 routinely takes 20–60s for medium quality, and
+        // FrankenPHP's default max_execution_time of 30s aborts the
+        // request mid-generation. Bump just this endpoint to 180s —
+        // matches the 120s cURL timeout in CurlHttpTransport with a
+        // small buffer for storage + DB writes either side.
+        set_time_limit(180);
+
         $pdo = $context->pdo();
         $user = $context->user();
 
