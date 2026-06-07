@@ -14,6 +14,7 @@ use Throwable;
 use Paith\Notes\Shared\Uuid;
 use Paith\Notes\Shared\Db\Row;
 use Paith\Notes\Shared\Db\Rows\LinkPredicateRow;
+use Paith\Notes\Shared\Db\Rows\LinkPredicateRuleRow;
 use Paith\Notes\Api\Http\Dto\JsonReader;
 use Paith\Notes\Api\Http\Dto\LinkPredicateRequest;
 use Paith\Notes\Api\Http\Auth\User;
@@ -252,14 +253,7 @@ final class LinkPredicatesController
             if (!is_array($r)) {
                 continue;
             }
-            $rules[] = [
-                'id' => Row::int($r, 'id'),
-                'predicate_id' => $predicateId,
-                'source_type_id' => Row::str($r, 'source_type_id'),
-                'target_type_id' => Row::str($r, 'target_type_id'),
-                'include_source_subtypes' => (bool)($r['include_source_subtypes'] ?? true),
-                'include_target_subtypes' => (bool)($r['include_target_subtypes'] ?? true),
-            ];
+            $rules[] = LinkPredicateRuleRow::fromRow($r)->toArray();
         }
 
         return JsonResponse::ok(['rules' => $rules]);

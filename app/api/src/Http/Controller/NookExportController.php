@@ -15,9 +15,12 @@ use Paith\Notes\Api\Http\Request;
 use Paith\Notes\Api\Http\Response;
 use Paith\Notes\Shared\Db\Row;
 use Paith\Notes\Shared\Db\Rows\LinkPredicateRow;
+use Paith\Notes\Shared\Db\Rows\LinkPredicateRuleRow;
 use Paith\Notes\Shared\Db\Rows\NoteFileMetadataRow;
+use Paith\Notes\Shared\Db\Rows\NoteLinkExportRow;
 use Paith\Notes\Shared\Db\Rows\NoteTypeRow;
 use Paith\Notes\Shared\Db\Rows\TypeAttributeRow;
+use Paith\Notes\Shared\Db\Rows\UserNameRow;
 use PDO;
 use ZipArchive;
 
@@ -269,7 +272,7 @@ final class NookExportController
             $id = Row::requireStr($n, 'id');
 
             // Write .md
-            $md = NoteMarkdownWriter::render(self::stringKeyed($n), $lookups);
+            $md = NoteMarkdownWriter::render(Row::stringKeyed($n), $lookups);
             $zip->addFromString("notes/{$noteMap[$id]}", $md);
 
             // Add files to zip directly from disk
@@ -594,13 +597,7 @@ final class NookExportController
                 if (!is_array($r)) {
                     continue;
                 }
-                $ruleList[] = [
-                    'predicate_id' => Row::requireStr($r, 'predicate_id'),
-                    'source_type_id' => Row::nullStr($r, 'source_type_id'),
-                    'target_type_id' => Row::nullStr($r, 'target_type_id'),
-                    'include_source_subtypes' => Row::bool($r, 'include_source_subtypes', true),
-                    'include_target_subtypes' => Row::bool($r, 'include_target_subtypes', true),
-                ];
+                $ruleList[] = LinkPredicateRuleRow::fromRow($r)->toExportEntry();
             }
         }
         return [$predList, $ruleList];
@@ -618,21 +615,7 @@ final class NookExportController
             if (!is_array($l)) {
                 continue;
             }
-            $entry = [
-                'id' => Row::requireStr($l, 'id'),
-                'predicate_id' => Row::requireStr($l, 'predicate_id'),
-                'source_note_id' => Row::requireStr($l, 'source_note_id'),
-                'target_note_id' => Row::requireStr($l, 'target_note_id'),
-            ];
-            $start = Row::nullStr($l, 'start_date');
-            if ($start !== null && $start !== '') {
-                $entry['start_date'] = $start;
-            }
-            $end = Row::nullStr($l, 'end_date');
-            if ($end !== null && $end !== '') {
-                $entry['end_date'] = $end;
-            }
-            $list[] = $entry;
+            $list[] = NoteLinkExportRow::fromRow($l)->toExportEntry();
         }
         return $list;
     }
@@ -668,16 +651,11 @@ final class NookExportController
             if (!is_array($u)) {
                 continue;
             }
-            $id = Row::str($u, 'id');
-            if ($id === '') {
+            $user = UserNameRow::fromRow($u);
+            if ($user->id === '') {
                 continue;
             }
-            $name = trim(Row::str($u, 'first_name') . ' ' . Row::str($u, 'last_name'));
-            if ($name === '') {
-                $username = Row::str($u, 'username');
-                $name = $username !== '' ? $username : $id;
-            }
-            $names[$id] = $name;
+            $names[$user->id] = $user->displayName();
         }
         return $names;
     }
@@ -700,20 +678,5 @@ final class NookExportController
             }
         }
         return $map;
-    }
-
-    /**
-     * @param array<array-key, mixed> $arr
-     * @return array<string, mixed>
-     */
-    private static function stringKeyed(array $arr): array
-    {
-        $out = [];
-        foreach ($arr as $k => $v) {
-            if (is_string($k)) {
-                $out[$k] = $v;
-            }
-        }
-        return $out;
     }
 }
