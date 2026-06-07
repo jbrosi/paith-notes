@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Paith\Notes\Api\Http\Routes;
 
 use Paith\Notes\Api\Http\Controller\ActivityController;
+use Paith\Notes\Api\Http\Controller\AiImagesController;
 use Paith\Notes\Api\Http\Controller\AuthController;
 use Paith\Notes\Api\Http\Controller\SearchController;
 use Paith\Notes\Api\Http\Controller\ChatController;
@@ -123,6 +124,10 @@ final class ApiRoutes
         $r->get('/nooks/{nookId}/notes/{noteId}/history', [NotesController::class, 'history']);
         $r->get('/nooks/{nookId}/notes/{noteId}/diff', [NotesController::class, 'diff']);
         $r->get('/nooks/{nookId}/notes/{noteId}/history/{historyId}', [NotesController::class, 'historySnapshot']);
+
+        // AI-driven image generation. nookId may be a real UUID or
+        // the literal sentinel "ai-memory" (resolved server-side).
+        $r->post('/nooks/{nookId}/ai-images', [AiImagesController::class, 'generate']);
 
         $r->get('/nooks/{nookId}/notes/{noteId}/links', [NoteLinksController::class, 'list']);
         $r->post('/nooks/{nookId}/notes/{noteId}/links', [NoteLinksController::class, 'create']);

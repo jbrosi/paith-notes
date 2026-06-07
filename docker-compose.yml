@@ -58,6 +58,10 @@ services:
       KEYCLOAK_CLIENT_SECRET: ${KEYCLOAK_CLIENT_SECRET:-}
       SESSION_SECRET: ${SESSION_SECRET:-}
       DEBUG_AUTH: ${DEBUG_AUTH:-0}
+      # AI image generation — unset => factory falls back to a stub
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      IMAGE_PROVIDER: ${IMAGE_PROVIDER:-}
+      IMAGE_MODEL: ${IMAGE_MODEL:-}
     depends_on:
       - frontend
       - db

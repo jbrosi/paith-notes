@@ -315,6 +315,21 @@ export const TOOLS: Anthropic.Tool[] = [
       required: ['task'],
     },
   },
+  // ── Image generation (creates a file note in ai-memory by default) ──
+  {
+    name: 'generate_image',
+    description: 'Generate an image from a text prompt and store it as a file note in the user\'s AI memory nook (default) or a specific nook. Costs real money per call — the user is asked to approve. Returns the new note\'s id, title, and the model\'s revised_prompt so you can reference it in chat with [[note:id]]. Use this when the user explicitly asks for an image; do not generate proactively. To put the image in a specific nook instead of ai-memory, pass nook_id with that nook\'s UUID.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        prompt:      { type: 'string', description: 'What to generate. Be specific — the provider rewrites short prompts and you\'ll get a revised_prompt back showing what it actually drew.' },
+        nook_id:     { type: 'string', description: 'Target nook UUID. Omit to drop the image in ai-memory (the default and recommended behaviour).' },
+        size:        { type: 'string', enum: ['1024x1024', '1024x1536', '1536x1024', 'auto'], description: 'Output dimensions. Default 1024x1024.' },
+        transparent: { type: 'boolean', description: 'Generate with a transparent background (PNG with alpha). Default false.' },
+      },
+      required: ['prompt'],
+    },
+  },
   // ── User memory nook tools (cross-nook, auto-approved) ──
   {
     name: 'memory_search',
@@ -566,6 +581,20 @@ export async function executeTool(
           end_date:       input.end_date,
         }),
       );
+    }
+
+    // ── Image generation ──
+    case 'generate_image': {
+      // Sentinel "ai-memory" is resolved server-side; pass it through
+      // whenever the caller doesn't specify a nook so we don't have
+      // to round-trip GET /nooks/ai-memory from here.
+      const target = typeof input.nook_id === 'string' && input.nook_id.trim() !== ''
+        ? input.nook_id.trim()
+        : 'ai-memory';
+      const body: Record<string, unknown> = { prompt: String(input.prompt ?? '') };
+      if (input.size)         body.size = String(input.size);
+      if (input.transparent)  body.transparent = true;
+      return JSON.stringify(await api('POST', `/api/nooks/${target}/ai-images`, body));
     }
 
     // ── User memory nook tools ──
