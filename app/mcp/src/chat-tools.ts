@@ -400,8 +400,22 @@ export async function executeTool(
       body: body !== undefined ? JSON.stringify(body) : undefined,
     });
     const text = await res.text();
-    if (!res.ok) throw new Error(`API ${res.status}: ${text}`);
-    return text ? JSON.parse(text) : null;
+    if (!res.ok) {
+      throw new Error(`API ${res.status} ${method} ${path}: ${text.slice(0, 800)}`);
+    }
+    if (!text) return null;
+    try {
+      return JSON.parse(text);
+    } catch (e) {
+      // The API returned 2xx but non-JSON — typically PHP warning HTML
+      // leaking ahead of the JSON body. Include the first chunk of the
+      // raw response in the error so the upstream caller (and the AI
+      // surfacing it) can see what actually came back.
+      const snippet = text.slice(0, 800).replace(/\s+/g, ' ').trim();
+      throw new Error(
+        `API ${method} ${path} returned non-JSON (status ${res.status}, content-type ${res.headers.get('content-type') ?? 'unknown'}): ${snippet}`,
+      );
+    }
   };
   const noteId = String(input.note_id ?? '');
 
