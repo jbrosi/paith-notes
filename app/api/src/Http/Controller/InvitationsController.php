@@ -13,6 +13,10 @@ use Paith\Notes\Api\Http\Response;
 use PDO;
 use Throwable;
 use Paith\Notes\Shared\Db\Row;
+use Paith\Notes\Shared\Db\Rows\NookInvitationGuestRow;
+use Paith\Notes\Shared\Db\Rows\NookInvitationOwnerRow;
+use Paith\Notes\Shared\Db\Rows\NookMemberRow;
+use Paith\Notes\Shared\Db\Rows\NookRevocationRow;
 use Paith\Notes\Api\Http\Dto\InviteRequest;
 use Paith\Notes\Api\Http\Dto\JsonReader;
 
@@ -97,23 +101,7 @@ final class InvitationsController
             if (!is_array($r)) {
                 continue;
             }
-
-            $acceptedAt = $r['accepted_at'] ?? null;
-            $declinedAt = $r['declined_at'] ?? null;
-            $status = is_scalar($acceptedAt) ? 'accepted'
-                : (is_scalar($declinedAt) ? 'declined' : 'pending');
-
-            $firstName = Row::str($r, 'inviter_first_name');
-            $lastName = Row::str($r, 'inviter_last_name');
-
-            $invitations[] = [
-                'id' => Row::str($r, 'id'),
-                'invited_email' => Row::str($r, 'invited_email'),
-                'role' => Row::str($r, 'role'),
-                'status' => $status,
-                'inviter_name' => trim($firstName . ' ' . $lastName),
-                'created_at' => Row::str($r, 'created_at'),
-            ];
+            $invitations[] = NookInvitationOwnerRow::fromRow($r)->toArray();
         }
 
         return JsonResponse::ok(['invitations' => $invitations]);
@@ -225,17 +213,7 @@ final class InvitationsController
             if (!is_array($r)) {
                 continue;
             }
-
-            $firstName = Row::str($r, 'first_name');
-            $lastName = Row::str($r, 'last_name');
-
-            $members[] = [
-                'id' => Row::str($r, 'id'),
-                'name' => trim($firstName . ' ' . $lastName),
-                'email' => Row::str($r, 'email'),
-                'role' => Row::str($r, 'role'),
-                'joined_at' => Row::str($r, 'created_at'),
-            ];
+            $members[] = NookMemberRow::fromRow($r)->toArray();
         }
 
         return JsonResponse::ok(['members' => $members]);
@@ -290,18 +268,7 @@ final class InvitationsController
             if (!is_array($r)) {
                 continue;
             }
-
-            $firstName = Row::str($r, 'inviter_first_name');
-            $lastName = Row::str($r, 'inviter_last_name');
-
-            $invitations[] = [
-                'id' => Row::str($r, 'id'),
-                'nook_id' => Row::str($r, 'nook_id'),
-                'nook_name' => Row::str($r, 'nook_name'),
-                'role' => Row::str($r, 'role'),
-                'inviter_name' => trim($firstName . ' ' . $lastName),
-                'created_at' => Row::str($r, 'created_at'),
-            ];
+            $invitations[] = NookInvitationGuestRow::fromRow($r)->toArray();
         }
 
         return JsonResponse::ok(['invitations' => $invitations]);
@@ -332,16 +299,7 @@ final class InvitationsController
             if (!is_array($r)) {
                 continue;
             }
-
-            $firstName = Row::str($r, 'revoker_first_name');
-            $lastName = Row::str($r, 'revoker_last_name');
-
-            $revocations[] = [
-                'id' => Row::str($r, 'id'),
-                'nook_name' => Row::str($r, 'nook_name'),
-                'revoked_by_name' => trim($firstName . ' ' . $lastName),
-                'created_at' => Row::str($r, 'created_at'),
-            ];
+            $revocations[] = NookRevocationRow::fromRow($r)->toArray();
         }
 
         return JsonResponse::ok(['revocations' => $revocations]);
