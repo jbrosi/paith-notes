@@ -96,7 +96,7 @@ function AppContent(props: RouteSectionProps) {
 			</Show>
 			<div class={styles.appBody}>
 				<div class={styles.appContent}>{props.children}</div>
-				<Show when={ui.chatPanelOpen() && chatNookId() !== ""}>
+				<Show when={ui.chatPanelOpen()}>
 					<div
 						class={styles.chatSidebar}
 						style={{ width: `${chatWidth()}px` }}
@@ -131,7 +131,8 @@ function AppContent(props: RouteSectionProps) {
 							contextNookId={store()?.nookId() ?? ""}
 							currentNoteId={store()?.selectedId() || undefined}
 							currentNoteTitle={store()?.title() || undefined}
-							currentNoteType={store()?.type() || undefined}
+							currentNoteType={undefined}
+							currentPath={window.location.pathname}
 							onClose={() => ui.toggleChatPanel()}
 							onNavigateToNote={(id) => {
 								void store()?.onNoteLinkClick(id);

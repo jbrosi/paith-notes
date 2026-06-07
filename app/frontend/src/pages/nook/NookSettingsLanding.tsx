@@ -650,6 +650,20 @@ export function NookSettingsLanding(props: NookSettingsLandingProps) {
 				</Show>
 			</div>
 
+			{/* Export section — owner only */}
+			<Show when={isOwner()}>
+				<div class={styles.section}>
+					<div class={styles.sectionTitle}>Backup & Export</div>
+					<p class={styles.hint}>
+						Download a full backup of this nook as a ZIP archive. Notes are
+						exported as readable Markdown files with frontmatter, organized by
+						type hierarchy. A backup note is also stored in this nook for easy
+						access later.
+					</p>
+					<ExportButton nookId={props.nookId} />
+				</div>
+			</Show>
+
 			{/* Sharing section — owner only */}
 			<Show when={isOwner()}>
 				<div class={styles.section}>
@@ -743,6 +757,59 @@ export function NookSettingsLanding(props: NookSettingsLandingProps) {
 						</For>
 					</Show>
 				</div>
+			</Show>
+		</div>
+	);
+}
+
+function ExportButton(props: { nookId: string }) {
+	const [exporting, setExporting] = createSignal(false);
+	const [error, setError] = createSignal("");
+
+	const doExport = async () => {
+		setExporting(true);
+		setError("");
+		try {
+			const res = await apiFetch(
+				`/api/nooks/${encodeURIComponent(props.nookId)}/export`,
+			);
+			if (!res.ok) {
+				const body = (await res.json().catch(() => ({}))) as {
+					error?: string;
+				};
+				throw new Error(body?.error || `Export failed: ${res.status}`);
+			}
+			// Trigger download from the response blob
+			const blob = await res.blob();
+			const disposition = res.headers.get("Content-Disposition") ?? "";
+			const filenameMatch = disposition.match(/filename="([^"]+)"/);
+			const filename = filenameMatch ? filenameMatch[1] : "export.zip";
+
+			const url = URL.createObjectURL(blob);
+			const a = document.createElement("a");
+			a.href = url;
+			a.download = filename;
+			a.click();
+			URL.revokeObjectURL(url);
+		} catch (e) {
+			setError(e instanceof Error ? e.message : String(e));
+		} finally {
+			setExporting(false);
+		}
+	};
+
+	return (
+		<div>
+			<Button
+				variant="secondary"
+				size="small"
+				onClick={() => void doExport()}
+				disabled={exporting()}
+			>
+				{exporting() ? "Exporting..." : "Export nook"}
+			</Button>
+			<Show when={error()}>
+				<div class={styles.sharingError}>{error()}</div>
 			</Show>
 		</div>
 	);

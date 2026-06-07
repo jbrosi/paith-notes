@@ -84,6 +84,50 @@
 	padding: 8px 8px 4px;
 }
 
+.listHeader {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	padding-right: 8px;
+}
+
+.listHeaderActions {
+	display: flex;
+	gap: 4px;
+}
+
+.listAction,
+.listActionDanger {
+	font-size: 0.75rem;
+	font-weight: 600;
+	text-transform: uppercase;
+	letter-spacing: 0.05em;
+	color: var(--color-text-faint);
+	background: none;
+	border: none;
+	padding: 4px 8px;
+	border-radius: 4px;
+	cursor: pointer;
+	font-family: inherit;
+}
+
+.listAction:hover {
+	background: var(--color-bg-hover);
+	color: var(--color-text);
+}
+
+.listActionDanger:hover {
+	background: var(--color-bg-hover);
+	color: #c0392b;
+}
+
+.convItemRow {
+	display: flex;
+	align-items: stretch;
+	gap: 2px;
+}
+
 .convItem {
 	display: flex;
 	flex-direction: column;
@@ -94,12 +138,36 @@
 	border: none;
 	background: none;
 	text-align: left;
-	width: 100%;
+	flex: 1;
+	min-width: 0;
 	font-family: inherit;
 }
 
 .convItem:hover {
 	background: var(--color-bg-hover);
+}
+
+.convDelete {
+	flex-shrink: 0;
+	width: 28px;
+	border: none;
+	background: none;
+	color: var(--color-text-faint);
+	cursor: pointer;
+	border-radius: 6px;
+	font-size: 1.25rem;
+	line-height: 1;
+	opacity: 0;
+	transition: opacity 0.1s ease;
+}
+
+.convDelete:hover {
+	color: #c0392b;
+	background: var(--color-bg-hover);
+}
+
+.convItemRow:hover .convDelete {
+	opacity: 1;
 }
 
 .convTitle {
@@ -159,39 +227,35 @@
 	flex-shrink: 0;
 }
 
-.thinkingDots {
-	display: inline-flex;
-	gap: 3px;
-	align-items: center;
+.thinkingBar {
+	height: 2px;
+	border-radius: 1px;
+	background: var(--color-border-light, #e5e5e5);
+	overflow: hidden;
+	width: 100%;
 }
 
-.thinkingDots span {
-	width: 5px;
-	height: 5px;
-	border-radius: 50%;
-	background: currentcolor;
-	opacity: 0.4;
-	animation: thinking-pulse 1.2s infinite;
+.thinkingBar::after {
+	content: "";
+	display: block;
+	height: 100%;
+	width: 40%;
+	border-radius: 1px;
+	background: var(--color-primary, #6366f1);
+	opacity: 0.6;
+	animation: thinking-slide 1.4s ease-in-out infinite;
 }
 
-.thinkingDots span:nth-child(2) {
-	animation-delay: 0.2s;
-}
-
-.thinkingDots span:nth-child(3) {
-	animation-delay: 0.4s;
-}
-
-@keyframes thinking-pulse {
-	0%,
-	60%,
-	100% {
-		opacity: 0.4;
-		transform: scale(1);
+@keyframes thinking-slide {
+	0% {
+		transform: translateX(-100%);
 	}
 
-	30% {
-		opacity: 1;
-		transform: scale(1.2);
+	50% {
+		transform: translateX(200%);
+	}
+
+	100% {
+		transform: translateX(-100%);
 	}
 }

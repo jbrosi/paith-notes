@@ -21,6 +21,7 @@ import {
 	NoteLinksListResponseSchema,
 	NoteResponseSchema,
 	serializeGraphProperties,
+	TypeAttributesListResponseSchema,
 } from "./types";
 
 export type NookGraphPanelProps = {
@@ -62,24 +63,16 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 	const store = () => props.store;
 	const nookId = () => store().nookId();
 	const embedded = () => Boolean(props.embedded);
-	const isGraphNote = () =>
-		store().type() === "graph" && !!store().graphProperties()?.rootNoteId;
 	const noteId = () => {
 		if (embedded()) return props.rootNoteId ?? "";
-		// For graph notes, the sidebar graph shows the rootNoteId, not the graph note itself
-		if (isGraphNote()) return store().graphProperties()?.rootNoteId ?? "";
 		return store().selectedId();
 	};
-	const excludeNoteId = () =>
-		isGraphNote() && !embedded() ? store().selectedId() : "";
+	const excludeNoteId = () => "";
 	const fullscreen = () => Boolean(props.fullscreen);
 
 	// Seed signals from initialConfig (embedded/graph note mode)
 	const ic = props.initialConfig;
 	const [depth, setDepth] = createSignal<number>(ic?.depth ?? 2);
-	const [includeFiles, setIncludeFiles] = createSignal(
-		ic?.includeFiles ?? false,
-	);
 	const [filterTypeIds, setFilterTypeIds] = createSignal(
 		ic?.filterTypeIds?.length ? new Set(ic.filterTypeIds) : new Set<string>(),
 	);
@@ -147,7 +140,6 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 	const clearAllFilters = () => {
 		setFilterTypeIds(new Set<string>());
 		setFilterPredicateIds(new Set<string>());
-		setIncludeFiles(false);
 		markDirty();
 	};
 
@@ -168,7 +160,6 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 	const currentConfig = (): GraphViewProperties => ({
 		rootNoteId: noteId().trim(),
 		depth: depth(),
-		includeFiles: includeFiles(),
 		filterTypeIds: [...filterTypeIds()],
 		filterPredicateIds: [...filterPredicateIds()],
 		hiddenNodeIds: [...hiddenNodeIds()],
@@ -189,15 +180,36 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 		const n = nookId().trim();
 		if (n === "") return;
 		try {
+			// Find the graph type and its graph attribute
+			const types = store().noteTypes();
+			const graphType = types.find((t) => t.key === "graph");
+			if (!graphType) return;
+
+			let graphAttrId = "";
+			const attrRes = await apiFetch(
+				`/api/nooks/${n}/note-types/${graphType.id}/attributes`,
+			);
+			if (attrRes.ok) {
+				const attrJson = await attrRes.json();
+				const attrs =
+					TypeAttributesListResponseSchema.parse(attrJson).attributes;
+				const graphAttr = attrs.find((a) => a.kind === "graph");
+				if (graphAttr) graphAttrId = graphAttr.id;
+			}
+			if (!graphAttrId) return;
+
 			const centerTitle = titleById().get(config.rootNoteId) ?? "";
+			const attributes: Record<string, unknown> = {
+				[graphAttrId]: serializeGraphProperties(config),
+			};
 			const res = await apiFetch(`/api/nooks/${n}/notes`, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({
 					title: centerTitle ? `Graph: ${centerTitle}` : "Untitled Graph View",
 					content: "",
-					type: "graph",
-					properties: serializeGraphProperties(config),
+					type_id: graphType.id,
+					attributes,
 				}),
 			});
 			if (!res.ok) return;
@@ -270,17 +282,7 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 
 	const labelFor = (id: string) => titleById().get(id) ?? id;
 
-	const noteTypeById = createMemo(() => {
-		const m = new Map<string, string>();
-		for (const l of links()) {
-			if (l.sourceNoteId.trim() !== "" && l.sourceNoteType)
-				m.set(l.sourceNoteId, l.sourceNoteType);
-			if (l.targetNoteId.trim() !== "" && l.targetNoteType)
-				m.set(l.targetNoteId, l.targetNoteType);
-		}
-		return m;
-	});
-	const noteTypeFor = (id: string) => noteTypeById().get(id) ?? "anything";
+	const noteTypeFor = (_id: string) => "anything";
 
 	const loadLinks = async () => {
 		if (nookId().trim() === "") return;
@@ -289,7 +291,6 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 			return;
 		}
 		const d = depth();
-		const excludeTypes = includeFiles() ? "" : "file";
 		const typeIds = [...filterTypeIds()].join(",");
 		const predIds = [...filterPredicateIds()].join(",");
 		setLoading(true);
@@ -299,7 +300,6 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 				direction: "both",
 				depth: String(d),
 			});
-			if (excludeTypes) params.set("exclude_note_types", excludeTypes);
 			if (typeIds) params.set("node_type_ids", typeIds);
 			if (typeIds && strictTypeFilter()) params.set("strict_type_filter", "1");
 			if (predIds) params.set("predicate_ids", predIds);
@@ -341,9 +341,7 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 		if (centerId === "") return { nodes: [], edges: [] };
 		const centerTitle = embedded()
 			? labelFor(centerId)
-			: isGraphNote()
-				? labelFor(centerId)
-				: store().title().trim();
+			: store().title().trim();
 		const hidden = hiddenNodeIds();
 		const exclude = excludeNoteId();
 
@@ -518,11 +516,6 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 					onTogglePredicateId={toggleFilterPredicateId}
 					onClearAll={clearAllFilters}
 					disabled={noteId().trim() === ""}
-					includeFiles={includeFiles()}
-					onIncludeFilesChange={(v) => {
-						setIncludeFiles(v);
-						markDirty();
-					}}
 					layout={layout()}
 					onLayoutChange={(v) => {
 						setLayout(v);

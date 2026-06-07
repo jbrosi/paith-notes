@@ -1,6 +1,7 @@
 import { useNavigate } from "@solidjs/router";
-import { createEffect, createMemo, createSignal, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import { Button } from "../../components/Button";
+import { TypeAttributeEditor } from "./components/TypeAttributeEditor";
 import type { NookStore } from "./store";
 
 export type NookTypeEditPanelProps = {
@@ -25,6 +26,7 @@ export function NookTypeEditPanel(props: NookTypeEditPanelProps) {
 	const [key, setKey] = createSignal<string>("");
 	const [label, setLabel] = createSignal<string>("");
 	const [description, setDescription] = createSignal<string>("");
+	const [parentId, setParentId] = createSignal<string>("");
 
 	createEffect(() => {
 		const t = type();
@@ -32,6 +34,25 @@ export function NookTypeEditPanel(props: NookTypeEditPanelProps) {
 		setKey(t.key);
 		setLabel(t.label);
 		setDescription(t.description);
+		setParentId(t.parentId);
+	});
+
+	// Types that can be a parent: any type except self and own descendants
+	const availableParents = createMemo(() => {
+		const tid = props.typeId.trim();
+		const types = store().noteTypes();
+		// Collect all descendant IDs to prevent circular parent
+		const descendants = new Set<string>();
+		const collectDescendants = (id: string) => {
+			for (const t of types) {
+				if (t.parentId === id && !descendants.has(t.id)) {
+					descendants.add(t.id);
+					collectDescendants(t.id);
+				}
+			}
+		};
+		collectDescendants(tid);
+		return types.filter((t) => t.id !== tid && !descendants.has(t.id));
 	});
 
 	const goBack = () => {
@@ -45,8 +66,7 @@ export function NookTypeEditPanel(props: NookTypeEditPanelProps) {
 			key: key(),
 			label: label(),
 			description: description(),
-			parentId: t.parentId,
-			appliesTo: t.appliesTo,
+			parentId: parentId(),
 		});
 		if (updated) goBack();
 	};
@@ -127,6 +147,36 @@ export function NookTypeEditPanel(props: NookTypeEditPanelProps) {
 						/>
 					</label>
 
+					<label>
+						<div
+							style={{
+								"font-size": "12px",
+								color: "#666",
+								"margin-bottom": "4px",
+							}}
+						>
+							Parent type
+						</div>
+						<select
+							value={parentId()}
+							onChange={(e) => setParentId(e.currentTarget.value)}
+							style={{
+								width: "100%",
+								padding: "8px",
+								"box-sizing": "border-box",
+							}}
+						>
+							<option value="">(none — root type)</option>
+							<For each={availableParents()}>
+								{(t) => (
+									<option value={t.id}>
+										{t.label} ({t.key})
+									</option>
+								)}
+							</For>
+						</select>
+					</label>
+
 					<Show when={store().error() !== ""}>
 						<pre
 							style={{ margin: 0, color: "#b00020", "white-space": "pre-wrap" }}
@@ -144,6 +194,12 @@ export function NookTypeEditPanel(props: NookTypeEditPanelProps) {
 						</Button>
 					</div>
 				</div>
+
+				<TypeAttributeEditor
+					nookId={store().nookId()}
+					typeId={props.typeId}
+					store={store()}
+				/>
 			</Show>
 		</div>
 	);

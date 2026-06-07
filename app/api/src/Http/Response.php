@@ -8,6 +8,7 @@ interface Response
 {
     public function statusCode(): int;
 
+    /** @return array<string, string> */
     public function headers(): array;
 
     public function body(): string;

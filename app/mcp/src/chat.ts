@@ -50,14 +50,14 @@ const CONTEXT_CRITICAL_THRESHOLD = 0.9; // 90% — strongly encourage new chat
 // Tools that are always safe to auto-execute (read-only / non-destructive)
 const ALWAYS_AUTO_TOOLS = new Set([
   'list_note_types',
+  'list_type_attributes',
   'list_link_predicates',
-  'search_notes',
-  'explore_notes',
   'get_note_mentions',
   'memory_search',
   'memory_get',
   'memory_create',
   'memory_update',
+  'ask_user',
 ]);
 
 function sse(res: express.Response, event: string, data: unknown): void {
@@ -261,6 +261,31 @@ async function resolveMemoryNookId(cookie: string, apiBase: string): Promise<str
   }
 }
 
+// ─── Handbook nook ────────────────────────────────────────────────────────────
+
+async function resolveHandbookNookId(cookie: string, apiBase: string): Promise<string | null> {
+  try {
+    const data = await phpApi('GET', '/api/nooks/handbook', cookie, apiBase) as { nook?: { id?: string } };
+    return data?.nook?.id ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function fetchHandbookNotes(handbookNookId: string, cookie: string, apiBase: string): Promise<InstructionNote[]> {
+  try {
+    const data = await phpApi(
+      'GET',
+      `/api/nooks/${encodeURIComponent(handbookNookId)}/note-types/all/notes?limit=50&sort=updated_newest`,
+      cookie,
+      apiBase,
+    ) as { notes?: Array<{ id: string; title: string }> };
+    return (data?.notes ?? []).map(n => ({ id: n.id, title: n.title }));
+  } catch {
+    return [];
+  }
+}
+
 // ─── AI Instructions ─────────────────────────────────────────────────────────
 
 type InstructionNote = { id: string; title: string };
@@ -313,21 +338,70 @@ async function fetchMemoryInstructionNotes(
   }
 }
 
+// ─── Message metadata helpers ─────────────────────────────────────────────────
+
+const CONTEXT_NOTE_RE = /\[Note: "[^"]*" \(([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/;
+
+function findPreviousContextNoteId(messages: Anthropic.MessageParam[]): string | undefined {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i];
+    if (msg.role !== 'user') continue;
+    const blocks = Array.isArray(msg.content) ? msg.content : [{ type: 'text', text: String(msg.content) }];
+    for (const block of blocks) {
+      if (typeof block === 'object' && block !== null && 'type' in block && block.type === 'text' && 'text' in block) {
+        const match = CONTEXT_NOTE_RE.exec(String((block as { text: string }).text));
+        if (match) return match[1];
+      }
+    }
+  }
+  return undefined;
+}
+
+function buildMessageText(
+  message: string,
+  contextNote?: { id: string; title: string; type?: string },
+  prevContextNoteId?: string,
+): string {
+  const ts = new Date().toISOString().slice(0, 16) + 'Z';
+  let meta = `[${ts}]`;
+  if (contextNote && contextNote.id !== prevContextNoteId) {
+    meta += ` [Note: "${contextNote.title}" (${contextNote.id}, type: ${contextNote.type ?? 'note'})]`;
+  }
+  return `${meta}\n${message}`;
+}
+
+function addCacheBreakpoint(msgs: Anthropic.MessageParam[]): Anthropic.MessageParam[] {
+  if (msgs.length === 0) return msgs;
+  const lastIdx = msgs.length - 1;
+  const lastMsg = msgs[lastIdx];
+  const content = Array.isArray(lastMsg.content)
+    ? [...lastMsg.content]
+    : [{ type: 'text' as const, text: String(lastMsg.content) }];
+  if (content.length > 0) {
+    content[content.length - 1] = {
+      ...(content[content.length - 1] as unknown as Record<string, unknown>),
+      cache_control: { type: 'ephemeral' },
+    } as (typeof content)[number];
+  }
+  return [...msgs.slice(0, lastIdx), { ...lastMsg, content }];
+}
+
 // ─── System prompt ────────────────────────────────────────────────────────────
 
 function buildSystemPrompt(
   nookId: string,
   nookName: string,
   nookRole: string,
-  contextNote?: { id: string; title: string; type?: string },
   memoryNookId?: string | null,
   nookInstructions?: InstructionNote[],
   memoryNotes?: InstructionNote[],
+  handbookNookId?: string | null,
+  handbookNotes?: InstructionNote[],
 ): string {
   const nookDisplay = nookName ? `"${nookName}" (${nookId})` : `"${nookId}"`;
   const roleInfo = nookRole ? ` The user's role in this nook is "${nookRole}".` : '';
   const parts = [
-    `You are an assistant integrated into paith notes. You are operating in nook ${nookDisplay}.${roleInfo} Current date: ${new Date().toISOString().slice(0, 10)}.
+    `You are an assistant integrated into paith notes. You are operating in nook ${nookDisplay}.${roleInfo}
 
 CRITICAL — Note link format:
 Every time you mention a note by name in your response text, you MUST use the [[note:...]] syntax. The UI automatically replaces this with a clickable link showing the note's title — the user never sees the UUID. NEVER write bare UUIDs, shortened IDs, or note titles as plain text when you know the note's ID. NEVER truncate UUIDs. Always use the complete UUID.
@@ -344,6 +418,15 @@ Examples:
 - WRONG: "I found relevant context in the note 'Meeting Notes'."
 To embed a file note as an image: ![alt text](note:<full_uuid>) or ![alt text](note:<nookId>/<noteId>)
 
+Page links — when you want to link users to specific app pages (not note content), use standard markdown links with these URL patterns:
+- Nook dashboard: [Nook Name](/nooks/{nookId})
+- Note: [Note Title](/nooks/{nookId}/notes/{noteId})
+- Note at version: [v3](/nooks/{nookId}/notes/{noteId}/v/{version})
+- Version diff: [compare v2→v5](/nooks/{nookId}/notes/{noteId}/compare/{fromVersion}/{toVersion})
+- Diff with current: [compare v2→current](/nooks/{nookId}/notes/{noteId}/compare/{fromVersion})
+- Note history: [history](/nooks/{nookId}/notes/{noteId}/history)
+Use [[note:...]] for referencing notes by name, but use page links when directing users to specific views like diffs, versions, or dashboards.
+
 General rules:
 - You have access to the user's notes via tools — never ask for a nook ID or note ID, use the IDs from tool results directly.
 - Only use tools when the user explicitly asks. Always tell the user what you are about to do before calling a tool.
@@ -357,7 +440,7 @@ General rules:
 - When context usage is high and you need to search
 For simple, targeted lookups (one search + one note read), use search_notes/get_note directly — the search agent adds overhead for trivial queries.
 
-**Tool approval:** The following tools auto-execute without user approval: search_notes, explore_notes, get_note_mentions, list_note_types, list_link_predicates, and all memory_* tools (memory_search, memory_get, memory_create, memory_update). All other tools (get_note, create_note, update_note, delete_note, create_note_link, open_note, create_note_type, update_note_type, search_agent) require user confirmation.
+**Tool approval:** The following tools auto-execute without user approval: get_note_mentions, list_note_types, list_type_attributes, list_link_predicates, and all memory_* tools (memory_search, memory_get, memory_create, memory_update). All other tools (get_note, create_note, update_note, delete_note, create_note_link, open_note, create_note_type, update_note_type, search_agent) require user confirmation.
 
 **Mermaid diagrams:** Both note content and your chat responses support mermaid diagrams via fenced code blocks (\`\`\`mermaid). Use them when visualizing relationships, flows, timelines, or architectures would help the user. The UI renders them as interactive SVGs.`,
     memoryNookId
@@ -369,16 +452,31 @@ At the start of each conversation, proactively search user memory with memory_se
 
 When you create or update a memory note, the system automatically links it to the current conversation — this builds a knowledge trail showing why each memory exists and which conversations contributed to it.`
       : '',
-    `**Note type taxonomy:** You can help the user manage their note taxonomy. Use list_note_types to see the full hierarchy before suggesting or creating types. When creating a type, always tell the user where in the hierarchy it will appear (e.g. "Creating 'Employee' as a subtype of 'Person'"). You can update a type's label or description with update_note_type. Never create a type without showing the user what you're about to create and where it fits.`,
-    `**Graph view notes:** You can create saved graph views as notes with type "graph". These render as interactive graph visualizations in the UI. To create one:
-1. Identify or create the root note (the center of the graph)
-2. Use create_note with type: "graph" and properties: { rootNoteId: "<root_note_uuid>" }
-3. Optional properties: depth (1-5, default 2), layout ("force"|"tree"|"radial"), includeFiles (boolean), linkDistance, chargeStrength, nodeSize, linkWidth, filterTypeIds, filterPredicateIds, hiddenNodeIds
+    `**Note type taxonomy:** You can help the user manage their note taxonomy. Use list_note_types to see the full hierarchy before suggesting or creating types. When creating a type, always tell the user where in the hierarchy it will appear (e.g. "Creating 'Employee' as a subtype of 'Person'"). You can update a type's label or description with update_note_type. Never create a type without showing the user what you're about to create and where it fits.
 
-Example: To create a family tree graph centered on a note:
-- create_note({ title: "Family Tree: Smith Family", type: "graph", properties: { rootNoteId: "<root_note_id>", layout: "tree", depth: 3 } })
+**IMPORTANT — Always assign a type when creating notes:** Every note MUST have a type_id. Before creating a note, call list_note_types (auto-approved) to see available types and pick the best fit. If a matching type exists (e.g. "meeting", "person", "recipe"), use it. If nothing specific fits, use the base type (key: "base" — you can pass the key string "base" as type_id). Never create a note without type_id.`,
+    `**Type attributes:** Each type can have structured attributes (text, number, boolean, date, date_range, select, file, graph, view, multi_select, url, linked_notes, mentions, history, toc, metadata, content). Use list_type_attributes to see what a type supports — this returns attribute IDs, names, kinds, config, and inheritance info. When creating or updating notes, pass attribute values in the "attributes" field as { "<attribute_uuid>": value }. Example workflow:
+1. list_note_types to find the type
+2. list_type_attributes to see its attributes and their UUIDs
+3. create_note with type_id and attributes: { "<rating_attr_id>": 5, "<author_attr_id>": "Le Guin" }
 
-Graph notes appear as purple hexagons when shown in other graphs, and clicking them navigates into that saved view. They can be linked to other notes and described with content like any other note.`,
+Attribute kinds and value formats:
+- text: string value
+- number: numeric value
+- boolean: true/false
+- date: "YYYY-MM-DD" string
+- date_range: { "from": "YYYY-MM-DD", "to": "YYYY-MM-DD" }
+- select: string matching one of the configured options
+- multi_select: array of strings matching configured options
+- url: string URL
+- file: managed by the file upload system (don't set directly)
+- graph: { rootNoteId: "<uuid>", depth?: 2, layout?: "force"|"tree"|"radial", ... }
+- linked_notes, mentions, history, toc, metadata, content: presentational — rendered by the UI based on type config, no note-level value needed
+
+**Attribute inheritance:** Attributes are inherited from parent types down the type hierarchy. When you call list_type_attributes, each attribute includes:
+- "inherited": true/false — whether it comes from an ancestor type
+- "overridden": true/false — whether this type has customized the inherited attribute's config
+Sub-types can override inherited attribute config (e.g. change display settings), hide inherited attributes entirely, or reorder them. Hidden attributes won't appear in list_type_attributes results — so only write to attributes that are listed. Only write values for data-bearing kinds (text, number, boolean, date, date_range, select, multi_select, url, graph). Presentational kinds (linked_notes, mentions, history, toc, metadata, content) are rendered automatically by the UI.`,
     `**Conversation hygiene:** When you notice the user switching to a completely different topic, gently suggest starting a new chat — this keeps conversations focused and searchable. Before they do, offer to:
 - Save nook-specific outcomes/decisions as a note in the current nook (using create_note)
 - Save personal preferences or cross-nook context to memory (using memory_create/memory_update)
@@ -399,11 +497,16 @@ The more context has been used, the more you should encourage this. After saving
     );
   }
 
-  if (contextNote) {
+  if (handbookNookId && handbookNotes && handbookNotes.length > 0) {
+    const list = handbookNotes.map(n => `- "${n.title}" (ID: ${n.id})`).join('\n');
     parts.push(
-      `\nThe user currently has a note open in their editor. When they say "this note", "the current note", "my note", "here", or anything similar, they are referring to this note — use its ID directly without asking which note they mean:\nTitle: ${contextNote.title}\nID: ${contextNote.id}\nType: ${contextNote.type ?? 'note'}\n\nTo read the full content of this note, use the get_note tool (the user will be asked to confirm).\n\n**When asked about context related to this note:** (1) call explore_notes(note_id="${contextNote.id}", direction="both") — free, surfaces all linked notes, (2) call get_note_mentions to find [[note:id]] text references (free), (3) check user memory with memory_search for relevant context. Issue independent calls in parallel.`,
+      `**Application Handbook** (nook ID: ${handbookNookId}): A read-only handbook is available with documentation about this application. Reading these notes via get_note is FREE (auto-approved, pass nook_id="${handbookNookId}"). Consult these when the user asks about how the application works, features, or capabilities:\n${list}\n\nUse the cross-nook link format [[note:${handbookNookId}/<noteId>]] when referencing handbook notes in your responses.`,
     );
   }
+
+  parts.push(
+    `**User message metadata:** Each user message starts with a timestamp in brackets, and when the viewed note changes, a [Note: "title" (id, type: kind)] tag. When the user says "this note", "the current note", "my note", "here", or similar, they mean the note from the most recent [Note: ...] tag in the conversation. Use its ID directly without asking.\n\nTo read the current note, use get_note (user confirms). When asked about context: (1) call explore_notes(note_id="<id from latest Note tag>", direction="both") — free, (2) call get_note_mentions — free, (3) memory_search. Issue independent calls in parallel.`,
+  );
 
   return parts.join('\n\n');
 }
@@ -423,16 +526,22 @@ async function streamConversation(
 ): Promise<void> {
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-  // Resolve nook name, role, and instruction notes in parallel
+  // Resolve nook name, role, instruction notes, and handbook in parallel
   let nookName = '';
   let nookRole = '';
   let nookInstructions: InstructionNote[] = [];
   let memoryNotes: InstructionNote[] = [];
+  let handbookNookId: string | null = null;
+  let handbookNotes: InstructionNote[] = [];
 
   const [nooksData] = await Promise.all([
     phpApi('GET', '/api/nooks', cookie, apiBase).catch(() => null) as Promise<{ nooks?: Array<{ id: string; name: string; role: string }> } | null>,
     fetchInstructionNotes(nookId, cookie, apiBase).then(r => { nookInstructions = r; }),
     memoryNookId ? fetchMemoryInstructionNotes(memoryNookId, cookie, apiBase).then(r => { memoryNotes = r; }) : Promise.resolve(),
+    resolveHandbookNookId(cookie, apiBase).then(async (id) => {
+      handbookNookId = id;
+      if (id) handbookNotes = await fetchHandbookNotes(id, cookie, apiBase);
+    }),
   ]);
 
   if (nooksData?.nooks) {
@@ -441,14 +550,14 @@ async function streamConversation(
     nookRole = found?.role ?? '';
   }
 
-  const baseSystemPrompt = buildSystemPrompt(nookId, nookName, nookRole, contextNote, memoryNookId, nookInstructions, memoryNotes);
-  let systemPrompt = baseSystemPrompt;
+  const baseSystemPrompt = buildSystemPrompt(nookId, nookName, nookRole, memoryNookId, nookInstructions, memoryNotes, handbookNookId, handbookNotes);
   const contextLimit = MODEL_CONTEXT_LIMITS[model] ?? DEFAULT_CONTEXT_LIMIT;
 
   // IDs of instruction notes that can be auto-read without user approval
   const instructionNoteIds = new Set([
     ...nookInstructions.map(n => n.id),
     ...memoryNotes.map(n => n.id),
+    ...handbookNotes.map(n => n.id),
   ]);
 
   // mutable copy we extend on each auto-execute loop
@@ -457,17 +566,26 @@ async function streamConversation(
 
   try {
     for (let depth = 0; depth <= MAX_AUTO_DEPTH; depth++) {
-      // Add context pressure hint based on actual token count from previous iteration
+      // Build system blocks — base prompt is cached, pressure hint is a separate uncached block
+      const systemBlocks: Anthropic.TextBlockParam[] = [
+        { type: 'text', text: baseSystemPrompt, cache_control: { type: 'ephemeral' } },
+      ];
       if (lastInputTokens > 0) {
         const ratio = lastInputTokens / contextLimit;
+        let pressureHint = '';
         if (ratio > CONTEXT_CRITICAL_THRESHOLD) {
-          systemPrompt = baseSystemPrompt + '\n\n**CRITICAL — Context window is ' + Math.round(ratio * 100) + '% full.** You MUST:\n1. Keep responses very concise\n2. Strongly encourage the user to start a new chat\n3. Offer to summarize key outcomes/decisions into a memory note before they do\n4. After saving to memory, tell the user to click "New chat" to continue fresh';
+          pressureHint = '**CRITICAL — Context window is ' + Math.round(ratio * 100) + '% full.** You MUST:\n1. Keep responses very concise\n2. Strongly encourage the user to start a new chat\n3. Offer to summarize key outcomes/decisions into a memory note before they do\n4. After saving to memory, tell the user to click "New chat" to continue fresh';
         } else if (ratio > CONTEXT_WARNING_THRESHOLD) {
-          systemPrompt = baseSystemPrompt + '\n\n**Context window is ' + Math.round(ratio * 100) + '% full.** Suggest starting a new chat soon. Offer to summarize outcomes to memory first. Keep responses concise.';
+          pressureHint = '**Context window is ' + Math.round(ratio * 100) + '% full.** Suggest starting a new chat soon. Offer to summarize outcomes to memory first. Keep responses concise.';
         } else if (ratio > CONTEXT_SOFT_THRESHOLD) {
-          systemPrompt = baseSystemPrompt + '\n\n**Context note:** Window is ' + Math.round(ratio * 100) + '% full. If the user switches topics or you sense a natural break, gently suggest starting a new chat. No need to force it.';
+          pressureHint = '**Context note:** Window is ' + Math.round(ratio * 100) + '% full. If the user switches topics or you sense a natural break, gently suggest starting a new chat. No need to force it.';
         }
+        if (pressureHint) systemBlocks.push({ type: 'text', text: pressureHint });
       }
+
+      // Add cache breakpoint to last message for conversation history caching
+      const cachedMsgs = addCacheBreakpoint(msgs);
+
       type StoredBlock = Anthropic.TextBlockParam | Anthropic.ToolUseBlockParam;
       const contentBlocks: StoredBlock[] = [];
       let currentText = '';
@@ -478,17 +596,22 @@ async function streamConversation(
         model,
         max_tokens: MAX_TOKENS,
         tools: TOOLS,
-        messages: msgs,
-        system: systemPrompt,
+        messages: cachedMsgs,
+        system: systemBlocks,
         stream: true,
       });
 
       let inputTokens = 0;
       let outputTokens = 0;
+      let cacheCreationTokens = 0;
+      let cacheReadTokens = 0;
 
       for await (const event of stream) {
         if (event.type === 'message_start') {
-          inputTokens = (event as unknown as { message?: { usage?: { input_tokens?: number } } }).message?.usage?.input_tokens ?? 0;
+          const usage = (event as unknown as { message?: { usage?: Record<string, number> } }).message?.usage;
+          inputTokens = usage?.input_tokens ?? 0;
+          cacheCreationTokens = usage?.cache_creation_input_tokens ?? 0;
+          cacheReadTokens = usage?.cache_read_input_tokens ?? 0;
           lastInputTokens = inputTokens;
         }
         if (event.type === 'content_block_start') {
@@ -496,6 +619,8 @@ async function streamConversation(
             currentText = '';
           } else if (event.content_block.type === 'tool_use') {
             currentTool = { id: event.content_block.id, name: event.content_block.name, partialInput: '' };
+            // Immediately tell the client a tool call is starting so it can show progress
+            sse(res, 'tool_use_start', { id: event.content_block.id, name: event.content_block.name });
           }
         }
 
@@ -505,6 +630,7 @@ async function streamConversation(
             sse(res, 'text_delta', { delta: event.delta.text });
           } else if (event.delta.type === 'input_json_delta' && currentTool) {
             currentTool.partialInput += event.delta.partial_json;
+            sse(res, 'tool_input_delta', { id: currentTool.id, delta: event.delta.partial_json });
           }
         }
 
@@ -544,7 +670,13 @@ async function streamConversation(
             const totalTokens = inputTokens + outputTokens;
             sse(res, 'done', {
               conversation_id: conversationId,
-              usage: { input_tokens: inputTokens, output_tokens: outputTokens, context_limit: contextLimit },
+              usage: {
+                input_tokens: inputTokens,
+                output_tokens: outputTokens,
+                cache_creation_input_tokens: cacheCreationTokens,
+                cache_read_input_tokens: cacheReadTokens,
+                context_limit: contextLimit,
+              },
             });
 
             // If context is critically full, append a system hint for next turn
@@ -714,11 +846,13 @@ export function createChatRouter(apiBase: string): Router {
           }
         : undefined;
 
-      // Load history and append new user message
+      // Load history and append new user message with metadata prefix
       const history = await loadHistory(convId, cookieHeader, apiBase);
+      const prevContextNoteId = findPreviousContextNoteId(history);
+      const messageText = buildMessageText(message as string, contextNote, prevContextNoteId);
       const userMessage: Anthropic.MessageParam = {
         role: 'user',
-        content: [{ type: 'text', text: message }],
+        content: [{ type: 'text', text: messageText }],
       };
       await saveMessages(convId, [{ role: 'user', content: userMessage.content }], cookieHeader, apiBase);
       history.push(userMessage);

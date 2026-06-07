@@ -19,6 +19,7 @@ final class RequireGroup implements Middleware
         return (string)getenv('DEBUG_AUTH') === '1';
     }
 
+    /** @param array<string, mixed> $data */
     private static function debugLog(string $message, array $data = []): void
     {
         if (!self::debugEnabled()) {
@@ -49,20 +50,12 @@ final class RequireGroup implements Middleware
     {
         $groups = [];
         if ((string)getenv('KEYCLOAK_ENABLED') === '1') {
-            $user = $context->user();
-            $rawGroups = $user['groups'] ?? null;
-            if (is_array($rawGroups)) {
-                foreach ($rawGroups as $g) {
-                    if (is_string($g) && $g !== '') {
-                        $groups[] = $g;
-                    }
-                }
-            }
+            // User->groups is already filtered to non-empty strings in RequireUser.
+            $groups = $context->user()->groups;
 
             self::debugLog('RequireGroup (keycloak) extracted groups', [
                 'required_raw' => $this->group,
                 'required_normalized' => self::normalizeGroupPath($this->group),
-                'raw_groups_type' => gettype($rawGroups),
                 'groups_count' => count($groups),
                 'groups_sample' => array_slice($groups, 0, 10),
             ]);

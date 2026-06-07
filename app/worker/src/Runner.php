@@ -6,6 +6,7 @@ namespace Paith\Notes\Worker;
 
 use Paith\Notes\Shared\Db\DatabaseUrl;
 use Paith\Notes\Shared\Db\GlobalSchema;
+use Paith\Notes\Shared\Db\Row;
 use Paith\Notes\Shared\Env;
 use PDO;
 use Throwable;
@@ -147,12 +148,9 @@ final class Runner
                     continue;
                 }
 
-                $id = is_scalar($r['id'] ?? null) ? (string)$r['id'] : '';
-                $key = is_scalar($r['temp_object_key'] ?? null) ? (string)$r['temp_object_key'] : '';
-                if ($id === '' || $key === '') {
-                    continue;
-                }
-                if (!str_starts_with($key, 'tmp/')) {
+                $id = Row::str($r, 'id');
+                $key = Row::str($r, 'temp_object_key');
+                if ($id === '' || $key === '' || !str_starts_with($key, 'tmp/')) {
                     continue;
                 }
 
