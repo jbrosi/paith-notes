@@ -487,6 +487,15 @@ final class GlobalSchema
                 end if;
             end $$;");
 
+            // Backfill: the original two-role enum ('owner', 'member')
+            // was replaced by ('owner', 'readwrite', 'readonly'), but
+            // 'member' rows persisted in the table and the
+            // application-side NookRole enum no longer accepts them.
+            // Promote any remaining 'member' rows to 'readwrite' to
+            // match the role's historical semantics (non-owner with
+            // edit access).
+            $pdo->exec("update global.nook_members set role = 'readwrite' where role = 'member'");
+
             // Nook sharing invitations (by email, since invitee may not have an account yet)
             $pdo->exec("
                 create table if not exists global.nook_invitations (
