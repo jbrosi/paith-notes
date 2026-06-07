@@ -46,7 +46,7 @@ final class SearchController
         $searchRank = '(' . $search['rank'] . ' + ln(1 + least(coalesce(ns.view_count, 0), 1000)) * 0.5)';
 
         $stmt = $pdo->prepare(
-            "select n.id, n.title, n.nook_id, nk.name as nook_name, n.type, n.type_id, n.created_at,
+            "select n.id, n.title, n.nook_id, nk.name as nook_name, n.type_id, n.created_at,
                     coalesce(ns.outgoing_mentions, 0) as outgoing_mentions_count,
                     coalesce(ns.incoming_mentions, 0) as incoming_mentions_count,
                     coalesce(ns.outgoing_links, 0) as outgoing_links_count,
@@ -79,7 +79,6 @@ final class SearchController
                 'title' => Row::str($r, 'title'),
                 'nook_id' => Row::str($r, 'nook_id'),
                 'nook_name' => Row::str($r, 'nook_name'),
-                'type' => Row::str($r, 'type', 'anything'),
                 'type_id' => Row::str($r, 'type_id'),
                 'outgoing_mentions_count' => Row::int($r, 'outgoing_mentions_count'),
                 'incoming_mentions_count' => Row::int($r, 'incoming_mentions_count'),
