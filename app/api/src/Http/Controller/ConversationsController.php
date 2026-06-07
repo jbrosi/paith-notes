@@ -13,6 +13,8 @@ use Paith\Notes\Api\Http\JsonResponse;
 use Paith\Notes\Api\Http\Request;
 use Paith\Notes\Api\Http\Response;
 use Paith\Notes\Shared\Db\Row;
+use Paith\Notes\Shared\Db\Rows\ConversationBlockRow;
+use Paith\Notes\Shared\Db\Rows\ConversationRow;
 use Paith\Notes\Shared\Uuid;
 use PDO;
 use ZipArchive;
@@ -82,13 +84,7 @@ final class ConversationsController
             if (!is_array($row)) {
                 continue;
             }
-            $conversations[] = [
-                'id'         => Row::str($row, 'id'),
-                'title'      => Row::str($row, 'title'),
-                'model'      => Row::str($row, 'model'),
-                'created_at' => Row::str($row, 'created_at'),
-                'updated_at' => Row::str($row, 'updated_at'),
-            ];
+            $conversations[] = ConversationRow::fromRow($row)->toArray();
         }
 
         return JsonResponse::ok(['conversations' => $conversations]);
@@ -229,27 +225,28 @@ final class ConversationsController
             if (!is_array($row)) {
                 continue;
             }
-            $turnId = Row::str($row, 'turn_id');
-            if ($turnId === '') {
+            $block = ConversationBlockRow::fromRow($row);
+            if ($block->turnId === '') {
                 continue;
             }
-            if (!isset($turns[$turnId])) {
-                $createdAt = $row['turn_started_at'] ?? $row['created_at'] ?? null;
-                $turns[$turnId] = [
-                    'id'              => $turnId,
+            if (!isset($turns[$block->turnId])) {
+                $turns[$block->turnId] = [
+                    'id'              => $block->turnId,
                     'conversation_id' => $conversationId,
-                    'role'            => Row::str($row, 'role'),
-                    'model'           => isset($row['model']) && is_string($row['model']) ? $row['model'] : null,
+                    'role'            => $block->role,
+                    'model'           => $block->model,
                     'content'         => [],
-                    'created_at'      => is_scalar($createdAt) ? (string)$createdAt : '',
+                    'created_at'      => $block->turnCreatedAt(),
                 ];
-                $turnOrder[] = $turnId;
+                $turnOrder[] = $block->turnId;
             }
+            // Re-decode without associative flag so empty objects like
+            // tool_use input:{} stay as stdClass and re-serialize to {}.
             $blockContent = json_decode(is_string($row['content']) ? $row['content'] : 'null');
             if ($blockContent !== null) {
-                $content = is_array($turns[$turnId]['content'] ?? null) ? $turns[$turnId]['content'] : [];
+                $content = is_array($turns[$block->turnId]['content'] ?? null) ? $turns[$block->turnId]['content'] : [];
                 $content[] = $blockContent;
-                $turns[$turnId]['content'] = $content;
+                $turns[$block->turnId]['content'] = $content;
             }
         }
 
@@ -431,13 +428,7 @@ final class ConversationsController
             if (!is_array($row)) {
                 continue;
             }
-            $out[] = [
-                'id' => Row::str($row, 'id'),
-                'title' => Row::str($row, 'title'),
-                'model' => Row::str($row, 'model'),
-                'created_at' => Row::str($row, 'created_at'),
-                'updated_at' => Row::str($row, 'updated_at'),
-            ];
+            $out[] = ConversationRow::fromRow($row)->toArray();
         }
         return $out;
     }
@@ -466,19 +457,7 @@ final class ConversationsController
             if ($convId === '') {
                 continue;
             }
-            $rawContent = $row['content'] ?? null;
-            $content = is_string($rawContent) ? json_decode($rawContent, true) : $rawContent;
-
-            $out[$convId][] = [
-                'id' => Row::str($row, 'id'),
-                'turn_id' => Row::str($row, 'turn_id'),
-                'role' => Row::str($row, 'role'),
-                'block_index' => Row::int($row, 'block_index'),
-                'block_type' => Row::str($row, 'block_type'),
-                'content' => $content,
-                'model' => Row::nullStr($row, 'model'),
-                'created_at' => Row::str($row, 'created_at'),
-            ];
+            $out[$convId][] = ConversationBlockRow::fromRow($row)->toBlockArray();
         }
         return $out;
     }
