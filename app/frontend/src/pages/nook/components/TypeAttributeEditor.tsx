@@ -55,6 +55,7 @@ export function TypeAttributeEditor(props: TypeAttributeEditorProps) {
 		"date",
 		"date_range",
 		"select",
+		"dimension",
 	]);
 
 	const getType = (): NoteType | undefined =>

@@ -24,6 +24,9 @@ export function AttributeKindConfig(props: {
 			: "",
 	);
 	const [max, setMax] = createSignal(String(props.config.max ?? ""));
+	const [currency, setCurrency] = createSignal(
+		String(props.config.currency ?? "USD"),
+	);
 
 	// ── Linked notes / mentions ──────────────────────────────────────────
 	const [lnDirection, setLnDirection] = createSignal(
@@ -71,6 +74,9 @@ export function AttributeKindConfig(props: {
 		}
 		if (display()) c.display = display();
 		if (k === "number" && max()) c.max = Number(max());
+		if (k === "number" && display() === "currency") {
+			c.currency = currency().toUpperCase();
+		}
 		if (k === "linked_notes" || k === "mentions") {
 			c.direction = lnDirection();
 		}
@@ -122,6 +128,8 @@ export function AttributeKindConfig(props: {
 					>
 						<option value="">Plain number (default)</option>
 						<option value="rating">Rating</option>
+						<option value="duration">Duration (ms → human)</option>
+						<option value="currency">Currency</option>
 					</select>
 					<Show when={display() === "rating"}>
 						<input
@@ -130,6 +138,19 @@ export function AttributeKindConfig(props: {
 							onInput={(e) => setMax(e.currentTarget.value)}
 							placeholder="Max (e.g. 5)"
 							style={{ width: "80px", ...s }}
+						/>
+					</Show>
+					<Show when={display() === "currency"}>
+						<input
+							type="text"
+							value={currency()}
+							onInput={(e) =>
+								setCurrency(e.currentTarget.value.toUpperCase().slice(0, 3))
+							}
+							placeholder="USD"
+							maxLength={3}
+							style={{ width: "70px", "text-transform": "uppercase", ...s }}
+							aria-label="ISO 4217 currency code"
 						/>
 					</Show>
 				</div>

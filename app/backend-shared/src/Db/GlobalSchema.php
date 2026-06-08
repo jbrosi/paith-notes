@@ -182,7 +182,7 @@ final class GlobalSchema
                 do \$\$ begin
                     alter table global.type_attributes drop constraint if exists type_attributes_kind_check;
                     alter table global.type_attributes add constraint type_attributes_kind_check
-                        check (kind in ('text', 'number', 'boolean', 'date', 'date_range', 'select', 'multi_select', 'url', 'file', 'graph', 'view', 'linked_notes', 'mentions', 'history', 'toc', 'metadata', 'content', 'source'));
+                        check (kind in ('text', 'number', 'boolean', 'date', 'date_range', 'select', 'multi_select', 'url', 'file', 'graph', 'view', 'linked_notes', 'mentions', 'history', 'toc', 'metadata', 'content', 'source', 'dimension'));
                 end \$\$;
             ");
             $pdo->exec('create index if not exists type_attributes_type_id_idx on global.type_attributes (type_id)');
