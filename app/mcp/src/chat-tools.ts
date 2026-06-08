@@ -64,7 +64,7 @@ export const TOOLS: Anthropic.Tool[] = [
   },
   {
     name: 'create_note_type',
-    description: 'Create a new note type in the current nook\'s taxonomy. Always call list_note_types first so you can see the existing hierarchy and choose the right parent. Show the user a summary like "Creating type \'Employee\' under \'Person\'" before proceeding. The key must be a unique lowercase slug (e.g. "employee", "project-phase").',
+    description: 'Create a new note type in the current nook\'s taxonomy. Always call list_note_types first so you can see the existing hierarchy and choose the right parent. Show the user a summary like "Creating type \'Employee\' under \'Person\'" before proceeding. The key must be a unique lowercase slug (e.g. "employee", "project-phase"). Schema mutations (create/update/delete on note types and their attributes) require the user to be the nook owner — this will 403 in nooks the user only collaborates on (including ai-memory, which is system-owned). Don\'t suggest schema changes in those nooks.',
     input_schema: {
       type: 'object',
       properties: {
@@ -78,7 +78,7 @@ export const TOOLS: Anthropic.Tool[] = [
   },
   {
     name: 'update_note_type',
-    description: 'Update the label or description of an existing note type. Use this to rename a type or improve its description. Does not change the key or parent — those are structural changes that should be done in settings.',
+    description: 'Update the label or description of an existing note type. Use this to rename a type or improve its description. Does not change the key or parent — those are structural changes that should be done in settings. Owner-only: will 403 in shared nooks where the user isn\'t the nook owner.',
     input_schema: {
       type: 'object',
       properties: {

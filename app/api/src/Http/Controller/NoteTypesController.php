@@ -101,7 +101,11 @@ final class NoteTypesController
 
         $nookId = $request->requireUuidRouteParam('nookId');
 
-        NookAccess::requireWriteAccess($pdo, $user, $nookId);
+        // Schema mutations (type create/update/delete + attribute
+        // create/update/delete) are owner-only. readwrite members
+        // can edit notes and attach files but can't reshape the
+        // schema they depend on.
+        NookAccess::requireOwner($pdo, $user, $nookId);
 
         $payload = NoteTypeRequest::fromJson($request->jsonBody());
 
@@ -166,7 +170,7 @@ final class NoteTypesController
 
         $typeId = $request->requireUuidRouteParam('typeId');
 
-        NookAccess::requireWriteAccess($pdo, $user, $nookId);
+        NookAccess::requireOwner($pdo, $user, $nookId);
 
         $keyCheck = $pdo->prepare('select key from global.note_types where id = :id and nook_id = :nook_id');
         $keyCheck->execute([':id' => $typeId, ':nook_id' => $nookId]);
@@ -256,7 +260,7 @@ final class NoteTypesController
 
         $typeId = $request->requireUuidRouteParam('typeId');
 
-        NookAccess::requireWriteAccess($pdo, $user, $nookId);
+        NookAccess::requireOwner($pdo, $user, $nookId);
 
         $typeCheck = $pdo->prepare('select 1 from global.note_types where id = :id and nook_id = :nook_id');
         $typeCheck->execute([':id' => $typeId, ':nook_id' => $nookId]);

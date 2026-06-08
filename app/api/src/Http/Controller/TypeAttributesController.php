@@ -51,7 +51,7 @@ final class TypeAttributesController
         $nookId = self::requireUuid($request->routeParam('nookId'), 'nookId');
         $typeId = self::requireUuid($request->routeParam('typeId'), 'typeId');
 
-        NookAccess::requireWriteAccess($pdo, $user, $nookId);
+        NookAccess::requireOwner($pdo, $user, $nookId);
         $this->requireType($pdo, $nookId, $typeId);
 
         $payload = TypeAttributeRequest::fromJson($request->jsonBody(), self::VALID_KINDS);
@@ -135,7 +135,7 @@ final class TypeAttributesController
         $typeId = self::requireUuid($request->routeParam('typeId'), 'typeId');
         $attrId = self::requireUuid($request->routeParam('attributeId'), 'attributeId');
 
-        NookAccess::requireWriteAccess($pdo, $user, $nookId);
+        NookAccess::requireOwner($pdo, $user, $nookId);
         $this->requireType($pdo, $nookId, $typeId);
 
         // Verify attribute belongs to this type (not inherited)
@@ -222,7 +222,7 @@ final class TypeAttributesController
         $typeId = self::requireUuid($request->routeParam('typeId'), 'typeId');
         $attrId = self::requireUuid($request->routeParam('attributeId'), 'attributeId');
 
-        NookAccess::requireWriteAccess($pdo, $user, $nookId);
+        NookAccess::requireOwner($pdo, $user, $nookId);
         $this->requireType($pdo, $nookId, $typeId);
 
         $stmt = $pdo->prepare(
