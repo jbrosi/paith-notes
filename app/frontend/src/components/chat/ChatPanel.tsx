@@ -1,5 +1,6 @@
 import {
 	type Accessor,
+	createEffect,
 	createResource,
 	createSignal,
 	For,
@@ -203,6 +204,44 @@ export function ChatPanel(props: Props) {
 		createSignal<PendingApproval | null>(null);
 	const [error, setError] = createSignal<string | null>(null);
 	const [quickReplyDismissed, setQuickReplyDismissed] = createSignal(false);
+
+	// L1 progress indicator for image generation: tracks the wall-clock
+	// start of an approved generate_image call so the UI can show
+	// "Generating image…" + elapsed seconds while the backend waits on
+	// OpenAI. Cleared the moment the next assistant turn starts
+	// streaming (or completes).
+	const [imageGenStartedAt, setImageGenStartedAt] = createSignal<number | null>(
+		null,
+	);
+	const [nowMs, setNowMs] = createSignal(Date.now());
+	let nowTimer: ReturnType<typeof setInterval> | undefined;
+	const clearImageGenIndicator = () => {
+		setImageGenStartedAt(null);
+		if (nowTimer !== undefined) {
+			clearInterval(nowTimer);
+			nowTimer = undefined;
+		}
+	};
+	const startImageGenIndicator = () => {
+		setImageGenStartedAt(Date.now());
+		setNowMs(Date.now());
+		if (nowTimer === undefined) {
+			nowTimer = setInterval(() => setNowMs(Date.now()), 500);
+		}
+	};
+	// Belt-and-braces clear: any path that turns streaming off (done,
+	// errors, aborts, awaiting_approval) drops the indicator too. The
+	// explicit early-clears in text_delta / tool_use_start give a
+	// snappier UI when text starts streaming, but this guarantees no
+	// stuck banner.
+	createEffect(() => {
+		if (!streaming() && imageGenStartedAt() !== null) {
+			clearImageGenIndicator();
+		}
+	});
+	onCleanup(() => {
+		if (nowTimer !== undefined) clearInterval(nowTimer);
+	});
 
 	let chatInputEl: HTMLTextAreaElement | undefined;
 
@@ -475,8 +514,13 @@ export function ChatPanel(props: Props) {
 					const cid = data.conversation_id as string;
 					setConversationId(cid);
 				} else if (event === "text_delta") {
+					// First post-approval token from the AI's reply — the
+					// image must already be persisted, so the "generating
+					// image…" banner has served its purpose.
+					clearImageGenIndicator();
 					appendDelta(data.delta as string);
 				} else if (event === "tool_use_start") {
+					clearImageGenIndicator();
 					addToolUseStart(data.id as string, data.name as string);
 				} else if (event === "tool_input_delta") {
 					appendToolInputDelta(data.id as string, data.delta as string);
@@ -710,6 +754,14 @@ export function ChatPanel(props: Props) {
 		setStreaming(true);
 		setError(null);
 
+		// If any of the approved tools is generate_image, start the
+		// "Generating image…" indicator — the wait is long enough
+		// (20–60s with OpenAI) that a generic spinner doesn't tell
+		// the user anything useful about what's happening.
+		if (approved && pa.tools.some((t) => t.name === "generate_image")) {
+			startImageGenIndicator();
+		}
+
 		abortCtrl?.abort();
 		abortCtrl = new AbortController();
 
@@ -932,8 +984,41 @@ export function ChatPanel(props: Props) {
 				</div>
 
 				<div class={styles.inputArea}>
-					<Show when={streaming()}>
+					<Show when={streaming() && imageGenStartedAt() === null}>
 						<div class={styles.thinkingBar} />
+					</Show>
+					<Show when={imageGenStartedAt() !== null}>
+						<div
+							style={{
+								display: "flex",
+								"align-items": "center",
+								gap: "8px",
+								padding: "8px 10px",
+								"font-size": "0.8125rem",
+								color: "var(--color-text-secondary)",
+								background: "var(--color-primary-bg, #eff6ff)",
+								border: "1px solid var(--color-primary-border, #bae6fd)",
+								"border-radius": "6px",
+								"margin-bottom": "6px",
+							}}
+						>
+							<span class={styles.toolSpinner} aria-hidden="true" />
+							<span>Generating image…</span>
+							<span
+								style={{
+									"margin-left": "auto",
+									"font-variant-numeric": "tabular-nums",
+									color: "var(--color-text-muted)",
+								}}
+							>
+								{(() => {
+									const started = imageGenStartedAt();
+									if (started === null) return "";
+									const sec = Math.floor((nowMs() - started) / 1000);
+									return `${sec}s`;
+								})()}
+							</span>
+						</div>
 					</Show>
 					<Show when={streaming()}>
 						<button
