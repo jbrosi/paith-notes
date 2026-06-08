@@ -242,3 +242,115 @@ it('falls back to the plain file type for non ai-memory nooks', function (): voi
     $count = $pdo->query("select count(*)::int from global.note_types where nook_id = " . $pdo->quote($nookId) . " and key = 'generated_image'")->fetchColumn();
     expect((int)$count)->toBe(0);
 });
+
+it('refines an existing generated_image: same note id, bumped file_version, appended summary', function (): void {
+    $pdo = test_pdo();
+    [$headers] = aiImagesSetup('000000000005');
+
+    // Initial generation
+    $first = App::handle('POST', '/api/nooks/ai-memory/ai-images', $headers, json_encode([
+        'prompt' => 'a serene mountain at dawn',
+        'size' => '1024x1536',
+        'quality' => 'medium',
+        'summary' => 'First take of the dawn scene.',
+    ]));
+    expect($first['status'])->toBe(200, $first['body']);
+    $firstBody = json_decode($first['body'], true);
+    $noteId = $firstBody['note']['id'];
+
+    // Refinement — only prompt + summary change. Size/quality are omitted
+    // so should inherit '1024x1536' / 'medium'.
+    $second = App::handle('POST', '/api/nooks/ai-memory/ai-images', $headers, json_encode([
+        'prompt' => 'same scene but with golden hour light and more clouds',
+        'refine_note_id' => $noteId,
+        'summary' => 'Switched to golden hour per user request.',
+    ]));
+    expect($second['status'])->toBe(200, $second['body']);
+    $secondBody = json_decode($second['body'], true);
+
+    // Same note id, refined flag set, file_version bumped
+    expect($secondBody['note']['id'])->toBe($noteId);
+    expect($secondBody['note']['refined'])->toBeTrue();
+    expect($secondBody['file']['file_version'])->toBe(2);
+
+    // Content body should hold both v1 and v2 sections
+    $note = $pdo->query("select content from global.notes where id = " . $pdo->quote($noteId))->fetch(PDO::FETCH_ASSOC);
+    expect($note['content'])->toContain('## v1');
+    expect($note['content'])->toContain('First take');
+    expect($note['content'])->toContain('## v2');
+    expect($note['content'])->toContain('golden hour');
+
+    // Attributes by key — size inherited, quality inherited, prompt updated
+    $byKey = [];
+    foreach ($pdo->query("select key, id from global.type_attributes where type_id = " . $pdo->quote($firstBody['note']['type_id']))->fetchAll(PDO::FETCH_ASSOC) as $r) {
+        $byKey[$r['key']] = $r['id'];
+    }
+    $attrs = json_decode($pdo->query("select attributes from global.notes where id = " . $pdo->quote($noteId))->fetchColumn(), true);
+    expect($attrs[$byKey['size']])->toBe(['width' => 1024, 'height' => 1536]);
+    expect($attrs[$byKey['quality']])->toBe('medium');
+    expect($attrs[$byKey['prompt']])->toBe('same scene but with golden hour light and more clouds');
+
+    // note_files row updated in place, pointing at the v2 object key
+    $fileRow = $pdo->query("select object_key, file_version from global.note_files where note_id = " . $pdo->quote($noteId))->fetch(PDO::FETCH_ASSOC);
+    expect((int)$fileRow['file_version'])->toBe(2);
+    expect($fileRow['object_key'])->toEndWith('/v2');
+});
+
+it('refining lets the AI override individual inherited fields (quality bump)', function (): void {
+    $pdo = test_pdo();
+    [$headers] = aiImagesSetup('000000000006');
+
+    $first = App::handle('POST', '/api/nooks/ai-memory/ai-images', $headers, json_encode([
+        'prompt' => 'a fox',
+        'quality' => 'low',
+        'summary' => 'Quick sketch of a fox.',
+    ]));
+    $noteId = json_decode($first['body'], true)['note']['id'];
+
+    $second = App::handle('POST', '/api/nooks/ai-memory/ai-images', $headers, json_encode([
+        'prompt' => 'the same fox but as a finished printable poster',
+        'refine_note_id' => $noteId,
+        'quality' => 'high',
+        'summary' => 'Final poster-quality version.',
+    ]));
+    expect($second['status'])->toBe(200, $second['body']);
+
+    $typeId = json_decode($first['body'], true)['note']['type_id'];
+    $byKey = [];
+    foreach ($pdo->query("select key, id from global.type_attributes where type_id = " . $pdo->quote($typeId))->fetchAll(PDO::FETCH_ASSOC) as $r) {
+        $byKey[$r['key']] = $r['id'];
+    }
+    $attrs = json_decode($pdo->query("select attributes from global.notes where id = " . $pdo->quote($noteId))->fetchColumn(), true);
+    expect($attrs[$byKey['quality']])->toBe('high');
+});
+
+it('rejects a refine_note_id that targets a note in a different nook', function (): void {
+    [$ownerHeaders, $ownerNookId] = aiImagesSetup('000000000007');
+    // Create a note in the owner's nook
+    $note = App::handle('POST', "/api/nooks/{$ownerNookId}/notes", $ownerHeaders, json_encode(['title' => 'unrelated']));
+    $ownerNoteId = json_decode($note['body'], true)['note']['id'];
+
+    $res = App::handle('POST', '/api/nooks/ai-memory/ai-images', $ownerHeaders, json_encode([
+        'prompt' => 'should fail — note is in another nook',
+        'refine_note_id' => $ownerNoteId,
+        'summary' => 'x',
+    ]));
+    expect($res['status'])->toBe(404);
+});
+
+it('rejects refining a note that is not a generated_image', function (): void {
+    [$headers, $nookId] = aiImagesSetup('000000000008');
+    // Create a plain note in ai-memory by hand-crafting the row (not via
+    // generate_image), so its type is whatever the default is, not
+    // generated_image.
+    $note = App::handle('POST', "/api/nooks/{$nookId}/notes", $headers, json_encode(['title' => 'plain']));
+    $plainNoteId = json_decode($note['body'], true)['note']['id'];
+
+    $res = App::handle('POST', "/api/nooks/{$nookId}/ai-images", $headers, json_encode([
+        'prompt' => 'should fail',
+        'refine_note_id' => $plainNoteId,
+        'summary' => 'x',
+    ]));
+    expect($res['status'])->toBe(400);
+    expect(json_decode($res['body'], true)['error'])->toContain('generated_image');
+});

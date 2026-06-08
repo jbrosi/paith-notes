@@ -315,20 +315,22 @@ export const TOOLS: Anthropic.Tool[] = [
       required: ['task'],
     },
   },
-  // ── Image generation (creates a file note in ai-memory by default) ──
+  // ── Image generation (creates or refines a generated_image note in ai-memory) ──
   {
     name: 'generate_image',
-    description: 'Generate an image from a text prompt and store it as a file note in the user\'s AI memory nook (default) or a specific nook. Costs real money per call — the user is asked to approve. Returns the new note\'s id, title, the model\'s revised_prompt, and the call\'s usage/cost so you can mention it in chat (cite the note as [[note:id]]). Use this when the user explicitly asks for an image; do not generate proactively. To put the image in a specific nook instead of ai-memory, pass nook_id with that nook\'s UUID. Default quality is "low" — fast and cheap (~$0.01–0.02), great for prompt iteration. Only escalate to medium (~$0.04–0.06) or high (~$0.17–0.25) when the user explicitly asks for a finished/printable image or confirms the prompt is right.',
+    description: 'Generate an image from a text prompt and store it as a generated_image note in the user\'s AI memory nook (default) or a specific nook. Costs real money per call — the user is asked to approve. Returns the new note\'s id, the model\'s revised_prompt, and the call\'s usage/cost.\n\nRefinement vs new note: when the user says something like "make it darker" or "the same one but with a sunset" they\'re refining the LAST image you generated in this chat — pass that note id as refine_note_id so we update the existing note, bump the file version, and append the new summary to its body. When the user says something like "for the birthday party, the invitation needs..." referring to an older image, FIRST use memory_search to find the matching prior generated_image note, then refine that one. When in doubt about which note to refine, use ask_user to confirm — never silently guess between candidates.\n\nFor a brand-new topic (no prior image referenced), omit refine_note_id and a fresh note is created.\n\nDefault quality is "low" — fast and cheap (~$0.01–0.02), great for prompt iteration. Only escalate to medium (~$0.04–0.06) or high (~$0.17–0.25) when the user explicitly asks for a finished/printable image. On a refinement, omitted size/quality/transparent inherit from the prior note.\n\nThe summary field is required: write a short (1–2 sentence) human-readable description of what this iteration is about; it seeds the note body and, on refinements, gets appended as a versioned changelog so the user has a chronological narrative of how the image evolved.',
     input_schema: {
       type: 'object',
       properties: {
-        prompt:      { type: 'string', description: 'What to generate. Be specific — the provider rewrites short prompts and you\'ll get a revised_prompt back showing what it actually drew.' },
-        nook_id:     { type: 'string', description: 'Target nook UUID. Omit to drop the image in ai-memory (the default and recommended behaviour).' },
-        size:        { type: 'string', enum: ['1024x1024', '1024x1536', '1536x1024', 'auto'], description: 'Output dimensions. Default 1024x1024.' },
-        quality:     { type: 'string', enum: ['low', 'medium', 'high', 'auto'], description: 'Rendering quality. Default "low" — fast, cheap (~$0.01–0.02), good enough to iterate on prompts. medium ~$0.04–0.06, high ~$0.17–0.25 (~4–6× the cost). Escalate only when the user explicitly asks for a finished/printable image.' },
-        transparent: { type: 'boolean', description: 'Generate with a transparent background (PNG with alpha). Default false.' },
+        prompt:         { type: 'string', description: 'What to generate. Be specific — the provider rewrites short prompts and you\'ll get a revised_prompt back showing what it actually drew.' },
+        summary:        { type: 'string', description: 'A 1–2 sentence human-readable description of this iteration ("first take of the birthday invitation in pastels" / "swapped the pink for lavender per user request"). Seeds the note body; on refinements becomes a versioned changelog entry.' },
+        nook_id:        { type: 'string', description: 'Target nook UUID. Omit to drop the image in ai-memory (the default and recommended behaviour).' },
+        refine_note_id: { type: 'string', description: 'UUID of an existing generated_image note to refine. When provided, the existing note is updated (file_version bumped, attributes overwritten, summary appended) instead of creating a new note. The note must be a generated_image in the same target nook. Inherit-default: any of size/quality/transparent you omit will reuse the prior note\'s values.' },
+        size:           { type: 'string', enum: ['1024x1024', '1024x1536', '1536x1024', 'auto'], description: 'Output dimensions. New-note default: 1024x1024. Refinement: inherits prior note\'s size when omitted.' },
+        quality:        { type: 'string', enum: ['low', 'medium', 'high', 'auto'], description: 'Rendering quality. New-note default: "low". Refinement: inherits prior note\'s quality when omitted. low ~$0.01–0.02, medium ~$0.04–0.06, high ~$0.17–0.25 (~4–6× the cost). Escalate only when the user explicitly asks for a finished/printable image.' },
+        transparent:    { type: 'boolean', description: 'Generate with a transparent background (PNG with alpha). New-note default: false. Refinement: inherits prior value when omitted.' },
       },
-      required: ['prompt'],
+      required: ['prompt', 'summary'],
     },
   },
   // ── User memory nook tools (cross-nook, auto-approved) ──
@@ -607,9 +609,11 @@ export async function executeTool(
         ? input.nook_id.trim()
         : 'ai-memory';
       const body: Record<string, unknown> = { prompt: String(input.prompt ?? '') };
-      if (input.size)         body.size = String(input.size);
-      if (input.quality)      body.quality = String(input.quality);
-      if (input.transparent)  body.transparent = true;
+      if (input.summary)        body.summary = String(input.summary);
+      if (input.refine_note_id) body.refine_note_id = String(input.refine_note_id);
+      if (input.size)           body.size = String(input.size);
+      if (input.quality)        body.quality = String(input.quality);
+      if (input.transparent)    body.transparent = true;
       return JSON.stringify(await api('POST', `/api/nooks/${target}/ai-images`, body));
     }
 

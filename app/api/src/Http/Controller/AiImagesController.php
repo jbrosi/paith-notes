@@ -12,8 +12,10 @@ use Paith\Notes\Api\Http\JsonResponse;
 use Paith\Notes\Api\Http\Request;
 use Paith\Notes\Api\Http\Response;
 use Paith\Notes\Api\Http\Service\ImageGeneration\GeneratedImage;
+use Paith\Notes\Api\Http\Service\ImageGeneration\ImageGenerationOptions;
 use Paith\Notes\Api\Http\Service\ImageGeneration\ImageGenerator;
 use Paith\Notes\Api\Http\Service\ImageGeneration\ImageGeneratorFactory;
+use Paith\Notes\Api\Http\Service\ImageGeneration\PriorImageGeneration;
 use Paith\Notes\Shared\Db\Row;
 use PDO;
 use Throwable;
@@ -93,6 +95,19 @@ final class AiImagesController
         $payload = GenerateImageRequest::fromJson($request->jsonBody());
 
         $generator = self::$generatorOverride ?? ImageGeneratorFactory::fromEnv();
+
+        // Refinement vs. new-note branching. Refinement loads the
+        // prior note's options and merges them with what the AI
+        // explicitly passed; the generation call itself is identical.
+        if ($payload->refineNoteId !== null) {
+            $existing = $this->loadGeneratedImageForRefinement($pdo, $nookId, $payload->refineNoteId);
+            $options = $this->mergeOptionsForRefinement($payload, $existing);
+            $startMs = (int)(microtime(true) * 1000);
+            $image = $generator->generate($payload->prompt, $options);
+            $durationMs = max(0, (int)(microtime(true) * 1000) - $startMs);
+            return $this->persistAsRefinement($pdo, $user, $nookId, $payload, $existing, $options, $image, $durationMs);
+        }
+
         $startMs = (int)(microtime(true) * 1000);
         $image = $generator->generate($payload->prompt, $payload->toOptions());
         $durationMs = max(0, (int)(microtime(true) * 1000) - $startMs);
@@ -151,7 +166,11 @@ final class AiImagesController
             $filename = 'generated.' . $extension;
             $title = $this->buildTitle($payload->summary ?? $image->revisedPrompt ?? $payload->prompt);
 
-            $attributes = $this->buildAttributesPayload($ctx, $payload, $image, $durationMs, $fileVersion);
+            // Use the effective options that were actually sent to
+            // the generator (after toOptions() defaults applied) so
+            // the stored attributes reflect what was produced.
+            $effective = $payload->toOptions();
+            $attributes = $this->buildAttributesPayload($ctx, $payload->prompt, $effective, $image, $durationMs, $fileVersion);
             $content = $this->buildInitialContent($payload, $ctx['isGeneratedImage']);
 
             // INSERT note first so a UUID collision fails before we
@@ -244,7 +263,7 @@ final class AiImagesController
      * } $ctx
      * @return array<string, mixed>
      */
-    private function buildAttributesPayload(array $ctx, GenerateImageRequest $payload, GeneratedImage $image, int $durationMs, int $fileVersion): array
+    private function buildAttributesPayload(array $ctx, string $prompt, ImageGenerationOptions $effective, GeneratedImage $image, int $durationMs, int $fileVersion): array
     {
         $attributes = [$ctx['fileAttributeId'] => ['file_version' => $fileVersion]];
 
@@ -253,12 +272,11 @@ final class AiImagesController
         }
 
         $byKey = $ctx['attributes'];
-        // Use the controller-resolved size (the dimension we sent to
-        // OpenAI) for the dimension attribute, splitting "WxH" into
-        // ints. When the AI passed size="auto" we fall back to a
-        // square 1024 because we can't infer the real generated size
+        // Use the effective size that was sent to OpenAI for the
+        // dimension attribute. When size="auto" we fall back to
+        // 1024x1024 because we can't infer the real generated size
         // from a base64 PNG without decoding it.
-        $sizeStr = $payload->size ?? '1024x1024';
+        $sizeStr = $effective->size ?? '1024x1024';
         if ($sizeStr === 'auto' || !str_contains($sizeStr, 'x')) {
             $width = 1024;
             $height = 1024;
@@ -280,11 +298,11 @@ final class AiImagesController
         // the ternaries below stay readable instead of repeated nullsafe.
         $usage = $image->usage;
 
-        $set('prompt', $payload->prompt);
+        $set('prompt', $prompt);
         $set('revised_prompt', $image->revisedPrompt ?? '');
         $set('size', ['width' => $width, 'height' => $height]);
-        $set('quality', $payload->quality);
-        $set('transparent', $payload->transparent);
+        $set('quality', $effective->quality ?? 'low');
+        $set('transparent', $effective->transparent);
         $set('model', $image->providerModel);
         $set('cost_usd', $usage !== null ? $usage->estimatedCostUsd : 0);
         $set('input_tokens', $usage !== null ? $usage->inputTokens : 0);
@@ -305,9 +323,255 @@ final class AiImagesController
         if (!$isGeneratedImage || $payload->summary === null || $payload->summary === '') {
             return '';
         }
-        // Refinements (task #42) will append `\n\n## v{N} — ...` blocks
-        // to this; the header anchors the document.
         return "## v1\n\n" . $payload->summary . "\n";
+    }
+
+    // ─── Refinement path ──────────────────────────────────────────────
+
+    /**
+     * Load the prior note and validate it's eligible for refinement
+     * (exists in this nook, type is generated_image). Returns the
+     * fields we need to merge args and write back.
+     */
+    private function loadGeneratedImageForRefinement(PDO $pdo, string $nookId, string $noteId): PriorImageGeneration
+    {
+        // LEFT JOIN on note_types so we can still match notes with a
+        // null/orphan type_id and surface a clean 400 ("not a
+        // generated_image") rather than a confusing 404.
+        $stmt = $pdo->prepare(
+            "select n.id, n.type_id, n.content, n.attributes, t.key as type_key "
+            . "from global.notes n "
+            . "left join global.note_types t on t.id = n.type_id "
+            . "where n.id = :id and n.nook_id = :nook_id"
+        );
+        $stmt->execute([':id' => $noteId, ':nook_id' => $nookId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!is_array($row)) {
+            throw new HttpError('note to refine not found in this nook', 404);
+        }
+        if (Row::str($row, 'type_key') !== self::GENERATED_IMAGE_TYPE_KEY) {
+            throw new HttpError('refinement only supported on generated_image notes', 400);
+        }
+
+        $typeId = Row::str($row, 'type_id');
+        $byKey = $this->ensureGeneratedImageAttributes($pdo, $nookId, $typeId);
+
+        // The file attribute id lives on the parent `file` type
+        // (inherited), so it's not in the type_attributes rows for
+        // generated_image. The note's own note_files row is the
+        // authoritative source — read it directly.
+        $fileRowStmt = $pdo->prepare(
+            'select attribute_id, file_version from global.note_files where note_id = :nid limit 1'
+        );
+        $fileRowStmt->execute([':nid' => $noteId]);
+        $fileRow = $fileRowStmt->fetch(PDO::FETCH_ASSOC);
+        if (!is_array($fileRow)) {
+            throw new HttpError('refinement target has no associated file', 500);
+        }
+        $fileAttributeId = Row::str($fileRow, 'attribute_id');
+        $priorFileVersion = Row::int($fileRow, 'file_version', 1);
+
+        $priorAttrs = Row::decodeJsonObject($row['attributes'] ?? null);
+
+        return new PriorImageGeneration(
+            noteId: Row::str($row, 'id'),
+            typeId: $typeId,
+            fileAttributeId: $fileAttributeId,
+            attributesByKey: $byKey,
+            priorOptions: $this->extractPriorOptions($priorAttrs, $byKey),
+            priorAttributes: $priorAttrs,
+            priorContent: Row::str($row, 'content'),
+            priorFileVersion: $priorFileVersion,
+        );
+    }
+
+    /**
+     * Reconstruct the ImageGenerationOptions that were used for the
+     * prior generation so we can inherit unspecified args.
+     *
+     * @param array<string, mixed> $priorAttrs
+     * @param array<string, string> $byKey
+     */
+    private function extractPriorOptions(array $priorAttrs, array $byKey): ImageGenerationOptions
+    {
+        $get = static function (string $key) use ($priorAttrs, $byKey): mixed {
+            $attrId = $byKey[$key] ?? null;
+            return is_string($attrId) ? ($priorAttrs[$attrId] ?? null) : null;
+        };
+
+        $sizeAttr = $get('size');
+        $sizeStr = null;
+        if (is_array($sizeAttr)) {
+            $w = $sizeAttr['width'] ?? null;
+            $h = $sizeAttr['height'] ?? null;
+            if (is_int($w) && is_int($h)) {
+                $sizeStr = $w . 'x' . $h;
+            }
+        }
+
+        $quality = $get('quality');
+        $transparent = $get('transparent');
+
+        return new ImageGenerationOptions(
+            size: $sizeStr,
+            transparent: is_bool($transparent) ? $transparent : false,
+            quality: is_string($quality) ? $quality : null,
+        );
+    }
+
+    /**
+     * Merge what the AI explicitly passed with the prior note's
+     * options — fields the AI provided override; fields it omitted
+     * fall back to what was used last time.
+     */
+    private function mergeOptionsForRefinement(GenerateImageRequest $payload, PriorImageGeneration $existing): ImageGenerationOptions
+    {
+        $prior = $existing->priorOptions;
+        return new ImageGenerationOptions(
+            size: $payload->size ?? $prior->size,
+            transparent: $payload->transparent ?? $prior->transparent,
+            quality: $payload->quality ?? $prior->quality,
+        );
+    }
+
+    /**
+     * Apply the regenerated image to the existing note: write the
+     * new bytes to a fresh versioned path, bump file_version, update
+     * typed attributes (audit_meta captures the old values for the
+     * existing version-history UI), and append a `## v{N}` block to
+     * the content body.
+     */
+    private function persistAsRefinement(PDO $pdo, User $user, string $nookId, GenerateImageRequest $payload, PriorImageGeneration $existing, ImageGenerationOptions $effective, GeneratedImage $image, int $durationMs): Response
+    {
+        $userId = $user->id;
+        $noteId = $existing->noteId;
+        $fileAttributeId = $existing->fileAttributeId;
+        $fileVersion = $existing->priorFileVersion + 1;
+
+        try {
+            $pdo->beginTransaction();
+
+            $objectKey = sprintf('notes/%s/files/%s/%s/v%d', $nookId, $noteId, $fileAttributeId, $fileVersion);
+            $extension = $this->extensionFor($image->mimeType);
+            $filename = 'generated.' . $extension;
+
+            // Build the rich-attributes payload from the existing
+            // attribute id map (saves re-querying the type).
+            $ctx = [
+                'typeId' => $existing->typeId,
+                'fileAttributeId' => $fileAttributeId,
+                'attributes' => $existing->attributesByKey,
+                'isGeneratedImage' => true,
+            ];
+            $newAttributes = $this->buildAttributesPayload($ctx, $payload->prompt, $effective, $image, $durationMs, $fileVersion);
+            // Note: bumping file_version on note_files (below) keeps
+            // the row keyed by note_id but moves the pointer forward.
+            // The prior v{N} file stays on disk so a future history-
+            // browse UI can resurrect it; we don't reference it.
+
+            $newContent = $this->appendVersionedSummary($existing->priorContent, $payload, $fileVersion);
+
+            $this->writeBytesToDisk($objectKey, $image->bytes);
+            $checksum = hash('sha256', $image->bytes);
+            $filesize = strlen($image->bytes);
+
+            // Update the note row — increments version + emits audit
+            // trail via the existing triggers, so the prior values
+            // are preserved for history compare.
+            $update = $pdo->prepare(
+                "update global.notes "
+                . "set attributes = :attributes::jsonb, content = :content, updated_at = now() "
+                . "where id = :id and nook_id = :nook_id "
+                . "returning version, updated_at, created_at"
+            );
+            $update->execute([
+                ':id' => $noteId,
+                ':nook_id' => $nookId,
+                ':attributes' => json_encode($newAttributes),
+                ':content' => $newContent,
+            ]);
+            $noteRow = $update->fetch(PDO::FETCH_ASSOC);
+            if (!is_array($noteRow)) {
+                throw new HttpError('failed to update note for refinement', 500);
+            }
+
+            // Update note_files in place — file_version bumped, new
+            // object_key + bytes metadata.
+            $pdo->prepare(
+                "update global.note_files set "
+                . "  object_key = :object_key, "
+                . "  filename = :filename, "
+                . "  extension = :extension, "
+                . "  filesize = :filesize, "
+                . "  mime_type = :mime_type, "
+                . "  checksum = :checksum, "
+                . "  file_version = :file_version, "
+                . "  uploaded_by = :uploaded_by, "
+                . "  updated_at = now() "
+                . "where note_id = :note_id and attribute_id = :attribute_id"
+            )->execute([
+                ':object_key' => $objectKey,
+                ':filename' => $filename,
+                ':extension' => $extension,
+                ':filesize' => $filesize,
+                ':mime_type' => $image->mimeType,
+                ':checksum' => $checksum,
+                ':file_version' => $fileVersion,
+                ':uploaded_by' => $userId,
+                ':note_id' => $noteId,
+                ':attribute_id' => $fileAttributeId,
+            ]);
+
+            $pdo->commit();
+
+            return JsonResponse::ok([
+                'note' => [
+                    'id' => $noteId,
+                    'nook_id' => $nookId,
+                    'type_id' => $existing->typeId,
+                    'version' => Row::int($noteRow, 'version'),
+                    'attributes' => $newAttributes,
+                    'refined' => true,
+                ],
+                'file' => [
+                    'attribute_id' => $fileAttributeId,
+                    'object_key' => $objectKey,
+                    'filename' => $filename,
+                    'extension' => $extension,
+                    'filesize' => $filesize,
+                    'mime_type' => $image->mimeType,
+                    'file_version' => $fileVersion,
+                ],
+                'revised_prompt' => $image->revisedPrompt,
+                'provider_model' => $image->providerModel,
+                'usage' => $image->usage?->toArray(),
+                'duration_ms' => $durationMs,
+            ]);
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            throw $e;
+        }
+    }
+
+    /**
+     * Append a versioned summary block to the existing note body.
+     * Format mirrors buildInitialContent's "## v1" header so the
+     * combined output reads as a single chronological log.
+     */
+    private function appendVersionedSummary(string $priorContent, GenerateImageRequest $payload, int $newVersion): string
+    {
+        $summary = $payload->summary ?? '';
+        if ($summary === '') {
+            $summary = '(no summary provided)';
+        }
+        $stamp = gmdate('Y-m-d\TH:i:s\Z');
+        $header = "## v{$newVersion} — {$stamp}";
+        $block = "{$header}\n\n{$summary}\n";
+
+        $trimmed = rtrim($priorContent);
+        return $trimmed === '' ? $block : $trimmed . "\n\n" . $block;
     }
 
     /**

@@ -23,11 +23,17 @@ final readonly class GenerateImageRequest
     /** Default quality for AI-initiated generation — keeps cost bounded for iteration. */
     public const DEFAULT_QUALITY = 'low';
 
+    /**
+     * Note: size/quality/transparent are nullable to preserve the
+     * "AI explicitly chose vs. didn't say" distinction — refinements
+     * inherit any omitted field from the prior note, and new-note
+     * generation falls back to controller-level defaults.
+     */
     public function __construct(
         public string $prompt,
         public ?string $size,
-        public bool $transparent,
-        public string $quality,
+        public ?bool $transparent,
+        public ?string $quality,
         public ?string $summary,
         public ?string $refineNoteId,
     ) {
@@ -59,7 +65,9 @@ final readonly class GenerateImageRequest
             throw new HttpError('quality must be one of: ' . implode(', ', self::ALLOWED_QUALITIES), 400);
         }
 
-        $transparent = ($data['transparent'] ?? false) === true;
+        // transparent stays null when not provided so the controller
+        // can inherit it from the prior note during refinement.
+        $transparent = array_key_exists('transparent', $data) ? ($data['transparent'] === true) : null;
 
         // Summary is the human-readable narrative the AI writes per
         // generation — seeds the note body. Optional in the API (older
@@ -72,18 +80,24 @@ final readonly class GenerateImageRequest
             prompt: $prompt,
             size: $size !== '' ? $size : null,
             transparent: $transparent,
-            quality: $quality !== '' ? $quality : self::DEFAULT_QUALITY,
+            quality: $quality !== '' ? $quality : null,
             summary: $summary !== '' ? $summary : null,
             refineNoteId: $refineNoteId !== '' ? $refineNoteId : null,
         );
     }
 
+    /**
+     * Apply new-note defaults when fields are absent. Used for the
+     * non-refinement path; refinements inherit from the prior note
+     * instead and call ImageGenerationOptions directly with merged
+     * values.
+     */
     public function toOptions(): ImageGenerationOptions
     {
         return new ImageGenerationOptions(
             size: $this->size,
-            transparent: $this->transparent,
-            quality: $this->quality,
+            transparent: $this->transparent ?? false,
+            quality: $this->quality ?? self::DEFAULT_QUALITY,
         );
     }
 }
