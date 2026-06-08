@@ -28,6 +28,8 @@ final readonly class GenerateImageRequest
         public ?string $size,
         public bool $transparent,
         public string $quality,
+        public ?string $summary,
+        public ?string $refineNoteId,
     ) {
     }
 
@@ -59,11 +61,20 @@ final readonly class GenerateImageRequest
 
         $transparent = ($data['transparent'] ?? false) === true;
 
+        // Summary is the human-readable narrative the AI writes per
+        // generation — seeds the note body. Optional in the API (older
+        // callers stay valid); the AI tool description will mark it as
+        // recommended.
+        $summary = JsonReader::optionalTrimmedString($data, 'summary');
+        $refineNoteId = JsonReader::optionalTrimmedString($data, 'refine_note_id');
+
         return new self(
             prompt: $prompt,
             size: $size !== '' ? $size : null,
             transparent: $transparent,
             quality: $quality !== '' ? $quality : self::DEFAULT_QUALITY,
+            summary: $summary !== '' ? $summary : null,
+            refineNoteId: $refineNoteId !== '' ? $refineNoteId : null,
         );
     }
 

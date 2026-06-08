@@ -39,6 +39,30 @@ final class AiImagesController
     private const FILE_ATTRIBUTE_KIND = 'file';
     private const TITLE_MAX_LEN = 80;
 
+    private const GENERATED_IMAGE_TYPE_KEY = 'generated_image';
+
+    /**
+     * Attribute schema for the generated_image type — the rich metadata
+     * we capture per AI-generated image when storing in ai-memory. Each
+     * entry is [name, key, kind, config, indexed?]. Inserts use the key
+     * for lookup so renames of the display name don't break attribute
+     * resolution.
+     *
+     * @var list<array{name: string, key: string, kind: string, config: array<string, mixed>, indexed: bool}>
+     */
+    private const GENERATED_IMAGE_ATTRIBUTES = [
+        ['name' => 'Prompt',         'key' => 'prompt',         'kind' => 'text',      'config' => ['display' => 'paragraph'], 'indexed' => true],
+        ['name' => 'Revised prompt', 'key' => 'revised_prompt', 'kind' => 'text',      'config' => ['display' => 'paragraph'], 'indexed' => true],
+        ['name' => 'Size',           'key' => 'size',           'kind' => 'dimension', 'config' => [], 'indexed' => true],
+        ['name' => 'Quality',        'key' => 'quality',        'kind' => 'text',      'config' => [], 'indexed' => true],
+        ['name' => 'Transparent',    'key' => 'transparent',    'kind' => 'boolean',   'config' => [], 'indexed' => false],
+        ['name' => 'Model',          'key' => 'model',          'kind' => 'text',      'config' => [], 'indexed' => true],
+        ['name' => 'Cost',           'key' => 'cost_usd',       'kind' => 'number',    'config' => ['display' => 'currency', 'currency' => 'USD'], 'indexed' => true],
+        ['name' => 'Input tokens',   'key' => 'input_tokens',   'kind' => 'number',    'config' => [], 'indexed' => true],
+        ['name' => 'Output tokens',  'key' => 'output_tokens',  'kind' => 'number',    'config' => [], 'indexed' => true],
+        ['name' => 'Duration',       'key' => 'duration_ms',    'kind' => 'number',    'config' => ['display' => 'duration'], 'indexed' => true],
+    ];
+
     /**
      * Override hook for tests — set IMAGE_PROVIDER=fake via env
      * instead in production; this static lets feature tests inject a
@@ -69,9 +93,11 @@ final class AiImagesController
         $payload = GenerateImageRequest::fromJson($request->jsonBody());
 
         $generator = self::$generatorOverride ?? ImageGeneratorFactory::fromEnv();
+        $startMs = (int)(microtime(true) * 1000);
         $image = $generator->generate($payload->prompt, $payload->toOptions());
+        $durationMs = max(0, (int)(microtime(true) * 1000) - $startMs);
 
-        return $this->persistAsNote($pdo, $user, $nookId, $payload->prompt, $image);
+        return $this->persistAsNote($pdo, $user, $nookId, $payload, $image, $durationMs);
     }
 
     private function resolveNookId(PDO $pdo, User $user, string $nookIdOrAlias): string
@@ -95,20 +121,20 @@ final class AiImagesController
     }
 
     /**
-     * Ensure the nook has a `file` type with a file-kind attribute,
-     * insert the note row, write the bytes to disk, insert the
-     * note_files pointer — same shape as AttributeFilesController's
-     * upload path, just sourcing bytes from the generator instead of
-     * an HTTP upload.
+     * Ensure the right type is bootstrapped, insert the note row,
+     * write the bytes to disk, insert the note_files pointer. For
+     * ai-memory we use the rich `generated_image` type with all
+     * typed telemetry attributes; for other nooks we fall back to
+     * the plain `file` type with just the file pointer.
      */
-    private function persistAsNote(PDO $pdo, User $user, string $nookId, string $originalPrompt, GeneratedImage $image): Response
+    private function persistAsNote(PDO $pdo, User $user, string $nookId, GenerateImageRequest $payload, GeneratedImage $image, int $durationMs): Response
     {
         $userId = $user->id;
 
         try {
             $pdo->beginTransaction();
 
-            [$typeId, $attributeId] = $this->ensureFileTypeAndAttribute($pdo, $nookId);
+            $ctx = $this->resolveTargetTypeAndAttributes($pdo, $nookId);
 
             // Pre-generate the note id so the object key can include
             // it (same pattern as AttributeFilesController).
@@ -120,17 +146,19 @@ final class AiImagesController
             }
 
             $fileVersion = 1;
-            $objectKey = sprintf('notes/%s/files/%s/%s/v%d', $nookId, $noteId, $attributeId, $fileVersion);
+            $objectKey = sprintf('notes/%s/files/%s/%s/v%d', $nookId, $noteId, $ctx['fileAttributeId'], $fileVersion);
             $extension = $this->extensionFor($image->mimeType);
             $filename = 'generated.' . $extension;
-            $title = $this->buildTitle($image->revisedPrompt ?? $originalPrompt);
-            $attributes = [$attributeId => ['file_version' => $fileVersion]];
+            $title = $this->buildTitle($payload->summary ?? $image->revisedPrompt ?? $payload->prompt);
+
+            $attributes = $this->buildAttributesPayload($ctx, $payload, $image, $durationMs, $fileVersion);
+            $content = $this->buildInitialContent($payload, $ctx['isGeneratedImage']);
 
             // INSERT note first so a UUID collision fails before we
             // touch disk.
             $noteStmt = $pdo->prepare(
                 "insert into global.notes (id, nook_id, created_by, title, content, type_id, attributes) "
-                . "values (:id, :nook_id, :created_by, :title, '', :type_id, :attributes::jsonb) "
+                . "values (:id, :nook_id, :created_by, :title, :content, :type_id, :attributes::jsonb) "
                 . "returning created_at"
             );
             $noteStmt->execute([
@@ -138,7 +166,8 @@ final class AiImagesController
                 ':nook_id' => $nookId,
                 ':created_by' => $userId,
                 ':title' => $title,
-                ':type_id' => $typeId,
+                ':content' => $content,
+                ':type_id' => $ctx['typeId'],
                 ':attributes' => json_encode($attributes),
             ]);
             $noteRow = $noteStmt->fetch(PDO::FETCH_ASSOC);
@@ -157,7 +186,7 @@ final class AiImagesController
                 . "values (:note_id, :attribute_id, :object_key, :filename, :extension, :filesize, :mime_type, :checksum, :file_version, :uploaded_by, :nook_id, now())"
             )->execute([
                 ':note_id' => $noteId,
-                ':attribute_id' => $attributeId,
+                ':attribute_id' => $ctx['fileAttributeId'],
                 ':object_key' => $objectKey,
                 ':filename' => $filename,
                 ':extension' => $extension,
@@ -176,12 +205,12 @@ final class AiImagesController
                     'id' => $noteId,
                     'nook_id' => $nookId,
                     'title' => $title,
-                    'type_id' => $typeId,
+                    'type_id' => $ctx['typeId'],
                     'attributes' => $attributes,
                     'created_at' => $createdAt,
                 ],
                 'file' => [
-                    'attribute_id' => $attributeId,
+                    'attribute_id' => $ctx['fileAttributeId'],
                     'object_key' => $objectKey,
                     'filename' => $filename,
                     'extension' => $extension,
@@ -192,6 +221,7 @@ final class AiImagesController
                 'revised_prompt' => $image->revisedPrompt,
                 'provider_model' => $image->providerModel,
                 'usage' => $image->usage?->toArray(),
+                'duration_ms' => $durationMs,
             ]);
         } catch (Throwable $e) {
             if ($pdo->inTransaction()) {
@@ -199,6 +229,85 @@ final class AiImagesController
             }
             throw $e;
         }
+    }
+
+    /**
+     * Assemble the attributes JSONB for the new note. Always sets
+     * the file pointer; for generated_image type, also fills in the
+     * rich telemetry attributes by key lookup.
+     *
+     * @param array{
+     *     typeId: string,
+     *     fileAttributeId: string,
+     *     attributes: array<string, string>,
+     *     isGeneratedImage: bool,
+     * } $ctx
+     * @return array<string, mixed>
+     */
+    private function buildAttributesPayload(array $ctx, GenerateImageRequest $payload, GeneratedImage $image, int $durationMs, int $fileVersion): array
+    {
+        $attributes = [$ctx['fileAttributeId'] => ['file_version' => $fileVersion]];
+
+        if (!$ctx['isGeneratedImage']) {
+            return $attributes;
+        }
+
+        $byKey = $ctx['attributes'];
+        // Use the controller-resolved size (the dimension we sent to
+        // OpenAI) for the dimension attribute, splitting "WxH" into
+        // ints. When the AI passed size="auto" we fall back to a
+        // square 1024 because we can't infer the real generated size
+        // from a base64 PNG without decoding it.
+        $sizeStr = $payload->size ?? '1024x1024';
+        if ($sizeStr === 'auto' || !str_contains($sizeStr, 'x')) {
+            $width = 1024;
+            $height = 1024;
+        } else {
+            // str_contains guard above means explode always returns 2 parts.
+            $parts = explode('x', $sizeStr, 2);
+            $width = (int)$parts[0];
+            $height = (int)$parts[1];
+        }
+
+        $set = static function (string $key, mixed $value) use (&$attributes, $byKey): void {
+            $attrId = $byKey[$key] ?? null;
+            if (is_string($attrId) && $attrId !== '') {
+                $attributes[$attrId] = $value;
+            }
+        };
+
+        // Pull usage out into a local so phpstan can narrow it once;
+        // the ternaries below stay readable instead of repeated nullsafe.
+        $usage = $image->usage;
+
+        $set('prompt', $payload->prompt);
+        $set('revised_prompt', $image->revisedPrompt ?? '');
+        $set('size', ['width' => $width, 'height' => $height]);
+        $set('quality', $payload->quality);
+        $set('transparent', $payload->transparent);
+        $set('model', $image->providerModel);
+        $set('cost_usd', $usage !== null ? $usage->estimatedCostUsd : 0);
+        $set('input_tokens', $usage !== null ? $usage->inputTokens : 0);
+        $set('output_tokens', $usage !== null ? $usage->outputTokens : 0);
+        $set('duration_ms', $durationMs);
+
+        return $attributes;
+    }
+
+    /**
+     * Build the initial note body. For generated_image notes we
+     * seed with a versioned header so future refinements can append
+     * subsequent v{N} sections — gives the user a chronological
+     * narrative of how the image evolved.
+     */
+    private function buildInitialContent(GenerateImageRequest $payload, bool $isGeneratedImage): string
+    {
+        if (!$isGeneratedImage || $payload->summary === null || $payload->summary === '') {
+            return '';
+        }
+        // Refinements (task #42) will append `\n\n## v{N} — ...` blocks
+        // to this; the header anchors the document.
+        return "## v1\n\n" . $payload->summary . "\n";
     }
 
     /**
@@ -271,6 +380,138 @@ final class AiImagesController
         $stmt->execute([':nook_id' => $nookId]);
         $id = $stmt->fetchColumn();
         return is_string($id) ? $id : '';
+    }
+
+    /**
+     * Resolve the note type + attribute id map to use when storing
+     * a generated image in this nook. AI-memory gets the rich
+     * `generated_image` type with all telemetry attributes; other
+     * nooks fall back to the plain `file` type (no rich metadata,
+     * just the file pointer) so generation still works there without
+     * polluting the nook with AI-specific schema.
+     *
+     * @return array{
+     *     typeId: string,
+     *     fileAttributeId: string,
+     *     attributes: array<string, string>,
+     *     isGeneratedImage: bool,
+     * }
+     */
+    private function resolveTargetTypeAndAttributes(PDO $pdo, string $nookId): array
+    {
+        $isAiMemory = $this->isAiMemoryNook($pdo, $nookId);
+        // Ensure the parent `file` type exists either way — it carries
+        // the file attribute that the generated image actually points
+        // at (inherited from parent in the ai-memory case).
+        [$fileTypeId, $fileAttributeId] = $this->ensureFileTypeAndAttribute($pdo, $nookId);
+
+        if (!$isAiMemory) {
+            return [
+                'typeId' => $fileTypeId,
+                'fileAttributeId' => $fileAttributeId,
+                'attributes' => [],
+                'isGeneratedImage' => false,
+            ];
+        }
+
+        $typeId = $this->ensureGeneratedImageType($pdo, $nookId, $fileTypeId);
+        $attributes = $this->ensureGeneratedImageAttributes($pdo, $nookId, $typeId);
+
+        return [
+            'typeId' => $typeId,
+            'fileAttributeId' => $fileAttributeId,
+            'attributes' => $attributes,
+            'isGeneratedImage' => true,
+        ];
+    }
+
+    private function isAiMemoryNook(PDO $pdo, string $nookId): bool
+    {
+        $stmt = $pdo->prepare("select purpose from global.nooks where id = :id");
+        $stmt->execute([':id' => $nookId]);
+        $purpose = $stmt->fetchColumn();
+        return $purpose === 'ai-memory';
+    }
+
+    private function ensureGeneratedImageType(PDO $pdo, string $nookId, string $fileTypeId): string
+    {
+        $stmt = $pdo->prepare('select id from global.note_types where nook_id = :nook_id and key = :key');
+        $stmt->execute([':nook_id' => $nookId, ':key' => self::GENERATED_IMAGE_TYPE_KEY]);
+        $id = $stmt->fetchColumn();
+        if (is_string($id) && $id !== '') {
+            return $id;
+        }
+
+        $insert = $pdo->prepare(
+            'insert into global.note_types (nook_id, key, label, description, parent_id) '
+            . 'values (:nook_id, :key, :label, :description, :parent_id) '
+            . 'on conflict (nook_id, key) do nothing '
+            . 'returning id'
+        );
+        $insert->execute([
+            ':nook_id' => $nookId,
+            ':key' => self::GENERATED_IMAGE_TYPE_KEY,
+            ':label' => 'Generated Image',
+            ':description' => 'An AI-generated image, with the prompt, model, cost, and dimensions captured as typed attributes.',
+            ':parent_id' => $fileTypeId !== '' ? $fileTypeId : null,
+        ]);
+        $newId = $insert->fetchColumn();
+        if (is_string($newId) && $newId !== '') {
+            return $newId;
+        }
+        // Race fallback — another request landed the row first; re-read.
+        $stmt->execute([':nook_id' => $nookId, ':key' => self::GENERATED_IMAGE_TYPE_KEY]);
+        $id = $stmt->fetchColumn();
+        if (!is_string($id) || $id === '') {
+            throw new HttpError('failed to bootstrap generated_image note type', 500);
+        }
+        return $id;
+    }
+
+    /**
+     * Idempotently seed the GENERATED_IMAGE_ATTRIBUTES on the given
+     * type. Returns key → attribute_id for every attribute (existing
+     * ones included).
+     *
+     * @return array<string, string>
+     */
+    private function ensureGeneratedImageAttributes(PDO $pdo, string $nookId, string $typeId): array
+    {
+        $insert = $pdo->prepare(
+            'insert into global.type_attributes (nook_id, type_id, name, key, kind, config, indexed) '
+            . 'values (:nook_id, :type_id, :name, :key, :kind, :config::jsonb, :indexed) '
+            . 'on conflict (type_id, key) do nothing'
+        );
+        foreach (self::GENERATED_IMAGE_ATTRIBUTES as $attr) {
+            $insert->execute([
+                ':nook_id' => $nookId,
+                ':type_id' => $typeId,
+                ':name' => $attr['name'],
+                ':key' => $attr['key'],
+                ':kind' => $attr['kind'],
+                ':config' => json_encode($attr['config']),
+                ':indexed' => $attr['indexed'] ? 't' : 'f',
+            ]);
+        }
+
+        // Read back the id of every key we expect, so callers can
+        // index by key without needing the seed config.
+        $lookup = $pdo->prepare(
+            'select key, id from global.type_attributes where type_id = :type_id'
+        );
+        $lookup->execute([':type_id' => $typeId]);
+        $result = [];
+        while ($row = $lookup->fetch(PDO::FETCH_ASSOC)) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $key = Row::str($row, 'key');
+            $id = Row::str($row, 'id');
+            if ($key !== '' && $id !== '') {
+                $result[$key] = $id;
+            }
+        }
+        return $result;
     }
 
     private function lookupFileAttribute(PDO $pdo, string $nookId, string $typeId): string

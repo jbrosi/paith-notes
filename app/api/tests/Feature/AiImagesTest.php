@@ -176,3 +176,69 @@ it('bubbles provider-rejected prompts as 400 so the AI sees the failure cleanly'
     expect($res['status'])->toBe(400);
     expect(json_decode($res['body'], true)['error'])->toContain('fake-rejected');
 });
+
+it('uses the generated_image type and populates typed attributes in ai-memory', function (): void {
+    $pdo = test_pdo();
+    [$headers] = aiImagesSetup('000000000003');
+
+    $res = App::handle('POST', '/api/nooks/ai-memory/ai-images', $headers, json_encode([
+        'prompt' => 'a serene mountain at dawn',
+        'size' => '1024x1536',
+        'quality' => 'medium',
+        'summary' => 'First take of the dawn mountain scene for the calendar cover.',
+    ]));
+    expect($res['status'])->toBe(200, $res['body']);
+    $body = json_decode($res['body'], true);
+
+    // Type should be generated_image, not plain `file`
+    $typeRow = $pdo->query("select key from global.note_types where id = " . $pdo->quote($body['note']['type_id']))->fetch(PDO::FETCH_ASSOC);
+    expect($typeRow['key'])->toBe('generated_image');
+
+    // All 10 telemetry attributes should be present on the type
+    $expectedKeys = ['prompt', 'revised_prompt', 'size', 'quality', 'transparent', 'model', 'cost_usd', 'input_tokens', 'output_tokens', 'duration_ms'];
+    $attrRows = $pdo->query(
+        "select key from global.type_attributes where type_id = " . $pdo->quote($body['note']['type_id']) . " order by key"
+    )->fetchAll(PDO::FETCH_COLUMN);
+    foreach ($expectedKeys as $k) {
+        expect($attrRows)->toContain($k);
+    }
+
+    // Inspect the stored note row to verify attribute values landed
+    $note = $pdo->query("select content, attributes from global.notes where id = " . $pdo->quote($body['note']['id']))->fetch(PDO::FETCH_ASSOC);
+    $attrs = json_decode($note['attributes'], true);
+
+    // Key the response by attribute key for assertions
+    $byKey = [];
+    foreach ($pdo->query("select key, id from global.type_attributes where type_id = " . $pdo->quote($body['note']['type_id']))->fetchAll(PDO::FETCH_ASSOC) as $r) {
+        $byKey[$r['key']] = $r['id'];
+    }
+
+    expect($attrs[$byKey['prompt']])->toBe('a serene mountain at dawn');
+    expect($attrs[$byKey['size']])->toBe(['width' => 1024, 'height' => 1536]);
+    expect($attrs[$byKey['quality']])->toBe('medium');
+    expect($attrs[$byKey['model']])->toBe('fake/static-png');
+    // duration_ms is wall-clock and >= 0 (could be 0 if very fast)
+    expect($attrs[$byKey['duration_ms']])->toBeGreaterThanOrEqual(0);
+
+    // Content body should carry the v1 summary header
+    expect($note['content'])->toContain('## v1');
+    expect($note['content'])->toContain('dawn mountain scene');
+});
+
+it('falls back to the plain file type for non ai-memory nooks', function (): void {
+    $pdo = test_pdo();
+    [$headers, $nookId] = aiImagesSetup('000000000004');
+
+    $res = App::handle('POST', "/api/nooks/{$nookId}/ai-images", $headers, json_encode([
+        'prompt' => 'a fox',
+    ]));
+    expect($res['status'])->toBe(200, $res['body']);
+    $body = json_decode($res['body'], true);
+
+    $typeRow = $pdo->query("select key from global.note_types where id = " . $pdo->quote($body['note']['type_id']))->fetch(PDO::FETCH_ASSOC);
+    expect($typeRow['key'])->toBe('file');
+
+    // No generated_image type should have been seeded in this nook
+    $count = $pdo->query("select count(*)::int from global.note_types where nook_id = " . $pdo->quote($nookId) . " and key = 'generated_image'")->fetchColumn();
+    expect((int)$count)->toBe(0);
+});
