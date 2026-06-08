@@ -26,6 +26,7 @@ final readonly class GeneratedImage
         public string $mimeType,
         public ?string $revisedPrompt,
         public string $providerModel,
+        public ?ImageUsage $usage = null,
     ) {
     }
 }

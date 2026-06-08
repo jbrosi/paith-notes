@@ -183,6 +183,44 @@ it('errors when the success body has no image bytes', function (): void {
         ->toThrow(HttpError::class, 'no image bytes');
 });
 
+it('parses usage and computes a USD estimate from gpt-image-1 token rates', function (): void {
+    // text input 100 tok @ $5/M = $0.0005
+    // image output 1000 tok @ $40/M = $0.04
+    // total = $0.0405
+    $stub = stubTransport([
+        'status' => 200,
+        'body' => json_encode([
+            'data' => [['b64_json' => base64_encode('X')]],
+            'usage' => [
+                'input_tokens' => 100,
+                'output_tokens' => 1000,
+                'total_tokens' => 1100,
+                'input_tokens_details' => ['text_tokens' => 100, 'image_tokens' => 0],
+            ],
+        ]),
+    ]);
+    $gen = new OpenAiImageGenerator('sk-test', 'gpt-image-1', $stub['transport']);
+    $img = $gen->generate('hello', new ImageGenerationOptions());
+
+    expect($img->usage)->not->toBeNull();
+    expect($img->usage->inputTokens)->toBe(100);
+    expect($img->usage->outputTokens)->toBe(1000);
+    expect($img->usage->totalTokens)->toBe(1100);
+    expect($img->usage->estimatedCostUsd)->toBeGreaterThan(0.040);
+    expect($img->usage->estimatedCostUsd)->toBeLessThan(0.041);
+});
+
+it('returns null usage when the provider omits the usage block', function (): void {
+    $stub = stubTransport([
+        'status' => 200,
+        'body' => json_encode(['data' => [['b64_json' => base64_encode('X')]]]),
+    ]);
+    $gen = new OpenAiImageGenerator('sk-test', 'gpt-image-1', $stub['transport']);
+    $img = $gen->generate('hello', new ImageGenerationOptions());
+
+    expect($img->usage)->toBeNull();
+});
+
 it('clamps a giant non-JSON error body so it does not flood the response', function (): void {
     $huge = str_repeat('x', 5000);
     $stub = stubTransport(['status' => 500, 'body' => $huge]);

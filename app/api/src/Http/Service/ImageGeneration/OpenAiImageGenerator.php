@@ -27,6 +27,14 @@ final class OpenAiImageGenerator implements ImageGenerator
     private const DEFAULT_SIZE = '1024x1024';
     private const TIMEOUT_SECONDS = 120;
 
+    // gpt-image-1 token rates in USD per million tokens.
+    // Text input is what we send in `prompt`; image input only
+    // applies on the edit endpoint (zero for us). Image output is
+    // what dominates the bill.
+    private const RATE_TEXT_INPUT_PER_M = 5.0;
+    private const RATE_IMAGE_INPUT_PER_M = 10.0;
+    private const RATE_IMAGE_OUTPUT_PER_M = 40.0;
+
     public function __construct(
         private readonly string $apiKey,
         private readonly string $model,
@@ -127,6 +135,51 @@ final class OpenAiImageGenerator implements ImageGenerator
             mimeType: 'image/png',
             revisedPrompt: $revisedPrompt,
             providerModel: 'openai/' . $this->model,
+            usage: $this->parseUsage($decoded['usage'] ?? null),
+        );
+    }
+
+    /**
+     * Hydrate ImageUsage from the response's `usage` block + compute
+     * the USD estimate from gpt-image-1 token rates. Returns null
+     * when the field is missing or malformed — we'd rather degrade
+     * to "no telemetry" than fail the whole call over a parse glitch.
+     */
+    private function parseUsage(mixed $raw): ?ImageUsage
+    {
+        if (!is_array($raw)) {
+            return null;
+        }
+        $usage = Row::stringKeyed($raw);
+
+        $inputTokens = Row::int($usage, 'input_tokens');
+        $outputTokens = Row::int($usage, 'output_tokens');
+        $totalTokens = Row::int($usage, 'total_tokens', $inputTokens + $outputTokens);
+
+        // Breakdown is text-vs-image for the input side. Generations
+        // endpoint has no image input so all input tokens are text;
+        // accept the breakdown if provided, otherwise fall back to
+        // "all input is text".
+        $textInput = $inputTokens;
+        $imageInput = 0;
+        $details = $usage['input_tokens_details'] ?? null;
+        if (is_array($details)) {
+            $details = Row::stringKeyed($details);
+            $textInput = Row::int($details, 'text_tokens', $inputTokens);
+            $imageInput = Row::int($details, 'image_tokens');
+        }
+
+        $costUsd = (
+            $textInput   * self::RATE_TEXT_INPUT_PER_M
+            + $imageInput  * self::RATE_IMAGE_INPUT_PER_M
+            + $outputTokens * self::RATE_IMAGE_OUTPUT_PER_M
+        ) / 1_000_000.0;
+
+        return new ImageUsage(
+            inputTokens: $inputTokens,
+            outputTokens: $outputTokens,
+            totalTokens: $totalTokens,
+            estimatedCostUsd: $costUsd,
         );
     }
 

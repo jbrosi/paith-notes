@@ -191,6 +191,7 @@ final class AiImagesController
                 ],
                 'revised_prompt' => $image->revisedPrompt,
                 'provider_model' => $image->providerModel,
+                'usage' => $image->usage?->toArray(),
             ]);
         } catch (Throwable $e) {
             if ($pdo->inTransaction()) {
