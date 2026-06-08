@@ -144,6 +144,17 @@ it('rejects an unsupported size whitelist value', function (): void {
     expect(json_decode($res['body'], true)['error'])->toContain('size');
 });
 
+it('rejects an unsupported quality value', function (): void {
+    [$headers] = aiImagesSetup('111111111111');
+
+    $res = App::handle('POST', '/api/nooks/ai-memory/ai-images', $headers, json_encode([
+        'prompt' => 'x',
+        'quality' => 'ultra',
+    ]));
+    expect($res['status'])->toBe(400);
+    expect(json_decode($res['body'], true)['error'])->toContain('quality');
+});
+
 it('returns 403 when targeting a nook the caller does not belong to', function (): void {
     [, $ownerNookId] = aiImagesSetup('000000000001');
 

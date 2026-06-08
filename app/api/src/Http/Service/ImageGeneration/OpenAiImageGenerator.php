@@ -51,6 +51,9 @@ final class OpenAiImageGenerator implements ImageGenerator
             'size' => $options->size !== null && $options->size !== '' ? $options->size : self::DEFAULT_SIZE,
             'background' => $options->transparent ? 'transparent' : 'opaque',
         ];
+        if ($options->quality !== null && $options->quality !== '') {
+            $payload['quality'] = $options->quality;
+        }
 
         $jsonBody = json_encode($payload);
         if ($jsonBody === false) {

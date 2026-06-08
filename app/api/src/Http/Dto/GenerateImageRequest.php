@@ -18,11 +18,16 @@ use Paith\Notes\Api\Http\Service\ImageGeneration\ImageGenerationOptions;
 final readonly class GenerateImageRequest
 {
     private const ALLOWED_SIZES = ['1024x1024', '1024x1536', '1536x1024', 'auto'];
+    private const ALLOWED_QUALITIES = ['low', 'medium', 'high', 'auto'];
+
+    /** Default quality for AI-initiated generation — keeps cost bounded for iteration. */
+    public const DEFAULT_QUALITY = 'low';
 
     public function __construct(
         public string $prompt,
         public ?string $size,
         public bool $transparent,
+        public string $quality,
     ) {
     }
 
@@ -47,17 +52,27 @@ final readonly class GenerateImageRequest
             throw new HttpError('size must be one of: ' . implode(', ', self::ALLOWED_SIZES), 400);
         }
 
+        $quality = JsonReader::optionalTrimmedString($data, 'quality');
+        if ($quality !== '' && !in_array($quality, self::ALLOWED_QUALITIES, true)) {
+            throw new HttpError('quality must be one of: ' . implode(', ', self::ALLOWED_QUALITIES), 400);
+        }
+
         $transparent = ($data['transparent'] ?? false) === true;
 
         return new self(
             prompt: $prompt,
             size: $size !== '' ? $size : null,
             transparent: $transparent,
+            quality: $quality !== '' ? $quality : self::DEFAULT_QUALITY,
         );
     }
 
     public function toOptions(): ImageGenerationOptions
     {
-        return new ImageGenerationOptions(size: $this->size, transparent: $this->transparent);
+        return new ImageGenerationOptions(
+            size: $this->size,
+            transparent: $this->transparent,
+            quality: $this->quality,
+        );
     }
 }

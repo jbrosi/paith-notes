@@ -65,7 +65,7 @@ it('posts model+prompt+size+background and an auth header', function (): void {
     ]);
     $gen = new OpenAiImageGenerator('sk-test', 'gpt-image-1', $stub['transport']);
 
-    $img = $gen->generate('a cat', new ImageGenerationOptions(size: '512x512', transparent: true));
+    $img = $gen->generate('a cat', new ImageGenerationOptions(size: '512x512', transparent: true, quality: 'high'));
 
     expect($stub['calls'])->toHaveCount(1);
     $call = $stub['calls'][0];
@@ -80,12 +80,26 @@ it('posts model+prompt+size+background and an auth header', function (): void {
         'n' => 1,
         'size' => '512x512',
         'background' => 'transparent',
+        'quality' => 'high',
     ]);
 
     expect($img->bytes)->toBe('PNGDATA');
     expect($img->mimeType)->toBe('image/png');
     expect($img->revisedPrompt)->toBe('A revised version');
     expect($img->providerModel)->toBe('openai/gpt-image-1');
+});
+
+it('omits the quality field when not requested so OpenAI uses its own default', function (): void {
+    $stub = stubTransport([
+        'status' => 200,
+        'body' => json_encode(['data' => [['b64_json' => base64_encode('X')]]]),
+    ]);
+    $gen = new OpenAiImageGenerator('sk-test', 'gpt-image-1', $stub['transport']);
+
+    $gen->generate('a cat', new ImageGenerationOptions(quality: null));
+
+    $body = json_decode($stub['calls'][0]['body'], true);
+    expect($body)->not->toHaveKey('quality');
 });
 
 it('falls back to defaults when no options are supplied', function (): void {
@@ -100,6 +114,7 @@ it('falls back to defaults when no options are supplied', function (): void {
     $body = json_decode($stub['calls'][0]['body'], true);
     expect($body['size'])->toBe('1024x1024');
     expect($body['background'])->toBe('opaque');
+    expect($body)->not->toHaveKey('quality');
 });
 
 it('leaves revised_prompt as null when the provider does not return one', function (): void {

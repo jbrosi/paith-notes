@@ -318,13 +318,14 @@ export const TOOLS: Anthropic.Tool[] = [
   // ── Image generation (creates a file note in ai-memory by default) ──
   {
     name: 'generate_image',
-    description: 'Generate an image from a text prompt and store it as a file note in the user\'s AI memory nook (default) or a specific nook. Costs real money per call — the user is asked to approve. Returns the new note\'s id, title, and the model\'s revised_prompt so you can reference it in chat with [[note:id]]. Use this when the user explicitly asks for an image; do not generate proactively. To put the image in a specific nook instead of ai-memory, pass nook_id with that nook\'s UUID.',
+    description: 'Generate an image from a text prompt and store it as a file note in the user\'s AI memory nook (default) or a specific nook. Costs real money per call — the user is asked to approve. Returns the new note\'s id, title, the model\'s revised_prompt, and the call\'s usage/cost so you can mention it in chat (cite the note as [[note:id]]). Use this when the user explicitly asks for an image; do not generate proactively. To put the image in a specific nook instead of ai-memory, pass nook_id with that nook\'s UUID. Default quality is "low" — fast and cheap (~$0.01–0.02), great for prompt iteration. Only escalate to medium (~$0.04–0.06) or high (~$0.17–0.25) when the user explicitly asks for a finished/printable image or confirms the prompt is right.',
     input_schema: {
       type: 'object',
       properties: {
         prompt:      { type: 'string', description: 'What to generate. Be specific — the provider rewrites short prompts and you\'ll get a revised_prompt back showing what it actually drew.' },
         nook_id:     { type: 'string', description: 'Target nook UUID. Omit to drop the image in ai-memory (the default and recommended behaviour).' },
         size:        { type: 'string', enum: ['1024x1024', '1024x1536', '1536x1024', 'auto'], description: 'Output dimensions. Default 1024x1024.' },
+        quality:     { type: 'string', enum: ['low', 'medium', 'high', 'auto'], description: 'Rendering quality. Default "low" — fast, cheap (~$0.01–0.02), good enough to iterate on prompts. medium ~$0.04–0.06, high ~$0.17–0.25 (~4–6× the cost). Escalate only when the user explicitly asks for a finished/printable image.' },
         transparent: { type: 'boolean', description: 'Generate with a transparent background (PNG with alpha). Default false.' },
       },
       required: ['prompt'],
@@ -607,6 +608,7 @@ export async function executeTool(
         : 'ai-memory';
       const body: Record<string, unknown> = { prompt: String(input.prompt ?? '') };
       if (input.size)         body.size = String(input.size);
+      if (input.quality)      body.quality = String(input.quality);
       if (input.transparent)  body.transparent = true;
       return JSON.stringify(await api('POST', `/api/nooks/${target}/ai-images`, body));
     }
