@@ -16,9 +16,17 @@ export function GraphAttributeField(props: {
 	store: NookStore;
 	fullscreen?: boolean;
 }) {
+	// Default the graph to the current note as root when the
+	// attribute has no value yet — without this the schema rejects
+	// the empty config and the whole field renders nothing (not
+	// even the label), so the user couldn't tell the attribute
+	// was there.
 	const graphProps = (): GraphViewProperties | null => {
-		if (!props.value) return null;
-		return parseGraphProperties(props.value as Record<string, unknown>);
+		const raw = (props.value as Record<string, unknown> | undefined) ?? {};
+		if (typeof raw.rootNoteId !== "string" || raw.rootNoteId === "") {
+			raw.rootNoteId = props.store.selectedId();
+		}
+		return parseGraphProperties(raw);
 	};
 
 	const handleConfigChange = (config: GraphViewProperties) => {
@@ -32,28 +40,51 @@ export function GraphAttributeField(props: {
 	};
 
 	return (
-		<Show when={graphProps()}>
-			{(gp) => (
-				<div>
-					<Show when={!props.fullscreen}>
-						<div
-							style={{
-								display: "flex",
-								"justify-content": "flex-end",
-								padding: "4px 0",
-							}}
-						>
-							<FullscreenButton attr={props.attr} store={props.store} />
-						</div>
-					</Show>
+		<div>
+			<div
+				style={{
+					display: "flex",
+					"align-items": "center",
+					"justify-content": "space-between",
+					padding: "4px 0",
+				}}
+			>
+				<div
+					style={{
+						"font-size": "12px",
+						color: "var(--color-text-secondary)",
+					}}
+				>
+					{props.attr.name}
+				</div>
+				<Show when={!props.fullscreen}>
+					<FullscreenButton attr={props.attr} store={props.store} />
+				</Show>
+			</div>
+			<Show
+				when={graphProps()}
+				fallback={
+					<div
+						style={{
+							padding: "12px",
+							"font-size": "13px",
+							color: "var(--color-text-muted)",
+							"font-style": "italic",
+						}}
+					>
+						Open a note to see its graph here.
+					</div>
+				}
+			>
+				{(gp) => (
 					<NookEmbeddedGraph
 						store={props.store}
 						graphProps={gp()}
 						onConfigChange={handleConfigChange}
 						onSave={handleSave}
 					/>
-				</div>
-			)}
-		</Show>
+				)}
+			</Show>
+		</div>
 	);
 }
