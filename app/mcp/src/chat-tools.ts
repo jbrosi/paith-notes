@@ -166,7 +166,7 @@ export const TOOLS: Anthropic.Tool[] = [
   },
   {
     name: 'search_notes',
-    description: 'Search notes by title, content, or attribute values. Use type_id to filter by note type, or "all" for all types. Use attribute_filters for structured queries like "rating >= 4" or "date between X and Y". When a search query is provided, results also include heading_matches — headings (h1-h6) extracted from notes that match the query, with note_id, note_title, level, text, and position (character offset for jump-to-section).',
+    description: 'Search notes by title, content, or attribute values. Returns a LEAN list — each result is just {id, title, type_id, timestamps, mention/link counts}.\n\nSearch is cheap and lean. When the user\'s ask can be approached from multiple angles (synonyms, related concepts, sibling categories, different attribute_filters), issue SEVERAL search_notes calls in PARALLEL in the same turn — one per angle. Then dedupe results by id and decide which ones are worth a deep read. This is much faster and more thorough than a single search with a vague query.\n\nTo read a note\'s full content/attributes, follow up with get_note(id) — also parallelize those calls when investigating multiple candidates (they\'re independent).\n\nUse type_id to filter by note type. Use attribute_filters for structured queries like "rating >= 4" or "date between X and Y" — those filter server-side without you needing to read the values. When a search query is provided, results also include heading_matches — headings (h1-h6) extracted from notes that match the query, with note_id, note_title, level, text, and position (character offset for jump-to-section).',
     input_schema: {
       type: 'object',
       properties: {
@@ -213,7 +213,7 @@ export const TOOLS: Anthropic.Tool[] = [
   },
   {
     name: 'search_all_nooks',
-    description: 'Search notes across ALL nooks the user has access to. Only use this when the user explicitly asks to search globally, or when a local search_notes returned no results and you want to ask the user if they\'d like to search more broadly. Prefer search_notes (local to current nook) first. Also returns heading_matches for headings matching the query.',
+    description: 'Search notes across ALL nooks the user has access to. Only use this when the user explicitly asks to search globally, or when a local search_notes returned no results and you want to ask the user if they\'d like to search more broadly. Prefer search_notes (local to current nook) first. Also returns heading_matches for headings matching the query.\n\nLike search_notes, this is cheap and lean — when you go broad you can fan out several search_all_nooks calls in parallel with different angles in the same turn and dedupe results by id before deciding which notes to deep-read via get_note.',
     input_schema: {
       type: 'object',
       properties: {
@@ -336,7 +336,7 @@ export const TOOLS: Anthropic.Tool[] = [
   // ── User memory nook tools (cross-nook, auto-approved) ──
   {
     name: 'memory_search',
-    description: 'Search the user\'s personal AI memory nook. Use this to recall cross-nook information about the user (preferences, facts, patterns). Auto-approved.',
+    description: 'Search the user\'s personal AI memory nook. Use this to recall cross-nook information about the user (preferences, facts, patterns). Returns LEAN results (id + title + type_id only).\n\nMemory recall is cheap and auto-approved — issue several memory_search calls in PARALLEL with different keywords/angles when the topic is broad (e.g. for a meeting-prep task, you might search "meeting", "agenda", the project name, and the attendees in parallel). Dedupe by id, then memory_get(id) — also in parallel — for the ones you actually need to read.',
     input_schema: {
       type: 'object',
       properties: {
@@ -547,8 +547,12 @@ export async function executeTool(
     case 'search_notes': {
       const typeId = String(input.type_id ?? '');
       const params = new URLSearchParams();
-      // MCP/AI needs the typed attribute values to reason about results.
-      params.set('include', 'attributes');
+      // Lean by default — id/title/type_id + counts. The AI inspects
+      // titles to pick which notes are worth a follow-up get_note
+      // call (which it can parallelize across the candidates it
+      // cares about). attribute_filters still works because that's a
+      // server-side WHERE — the AI doesn't need to read the values
+      // to filter by them.
       if (typeId !== '' && typeId !== 'all') {
         params.set('type_id', typeId);
         params.set('include_subtypes', '1');
@@ -626,7 +630,8 @@ export async function executeTool(
     case 'memory_search': {
       if (!memoryNookId) throw new Error('AI memory nook not available');
       const params = new URLSearchParams();
-      params.set('include', 'attributes');
+      // Lean — title/id only. Follow up with memory_get(id) for any
+      // memory whose content/attributes you actually need to read.
       if (input.q) params.set('q', String(input.q));
       return JSON.stringify(await api('GET', `/api/nooks/${memoryNookId}/notes?${params.toString()}`));
     }
