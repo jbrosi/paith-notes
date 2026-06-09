@@ -1304,7 +1304,7 @@ it('attribute filters work on notes list', function (): void {
 
     // Filter: score >= 5
     $filters = json_encode([['attribute_id' => $attrId, 'op' => 'gte', 'value' => 5]]);
-    $res = App::handle('GET', '/api/nooks/' . $nookId . '/note-types/' . $typeId . '/notes?attribute_filters=' . urlencode($filters), $headers, '');
+    $res = App::handle('GET', '/api/nooks/' . $nookId . '/notes?type_id=' . $typeId . '&attribute_filters=' . urlencode($filters), $headers, '');
     expect($res['status'])->toBe(200);
     $notes = json_decode($res['body'], true)['notes'] ?? [];
     $titles = array_map(fn($n) => $n['title'], $notes);
@@ -1313,7 +1313,7 @@ it('attribute filters work on notes list', function (): void {
 
     // Filter: score < 5
     $filters2 = json_encode([['attribute_id' => $attrId, 'op' => 'lt', 'value' => 5]]);
-    $res2 = App::handle('GET', '/api/nooks/' . $nookId . '/note-types/' . $typeId . '/notes?attribute_filters=' . urlencode($filters2), $headers, '');
+    $res2 = App::handle('GET', '/api/nooks/' . $nookId . '/notes?type_id=' . $typeId . '&attribute_filters=' . urlencode($filters2), $headers, '');
     $notes2 = json_decode($res2['body'], true)['notes'] ?? [];
     expect(count($notes2))->toBe(1);
     expect($notes2[0]['title'])->toBe('Low');

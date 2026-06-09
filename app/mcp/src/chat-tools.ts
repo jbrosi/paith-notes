@@ -545,15 +545,20 @@ export async function executeTool(
     }
 
     case 'search_notes': {
-      const typeId = String(input.type_id ?? 'all');
+      const typeId = String(input.type_id ?? '');
       const params = new URLSearchParams();
+      // MCP/AI needs the typed attribute values to reason about results.
+      params.set('include', 'attributes');
+      if (typeId !== '' && typeId !== 'all') {
+        params.set('type_id', typeId);
+        params.set('include_subtypes', '1');
+      }
       if (input.q) params.set('q', String(input.q));
       if (input.attribute_filters) params.set('attribute_filters', String(input.attribute_filters));
       if (input.search_mode) params.set('search_mode', String(input.search_mode));
       if (input.sort) params.set('sort', String(input.sort));
       if (input.cursor) params.set('cursor', String(input.cursor));
-      const qs = params.toString() ? `?${params}` : '';
-      return JSON.stringify(await api('GET', `/api/nooks/${nookId}/note-types/${typeId}/notes${qs}`));
+      return JSON.stringify(await api('GET', `/api/nooks/${nookId}/notes?${params.toString()}`));
     }
 
     case 'start_new_chat': {
@@ -621,9 +626,9 @@ export async function executeTool(
     case 'memory_search': {
       if (!memoryNookId) throw new Error('AI memory nook not available');
       const params = new URLSearchParams();
+      params.set('include', 'attributes');
       if (input.q) params.set('q', String(input.q));
-      const qs = params.toString() ? `?${params}` : '';
-      return JSON.stringify(await api('GET', `/api/nooks/${memoryNookId}/note-types/all/notes${qs}`));
+      return JSON.stringify(await api('GET', `/api/nooks/${memoryNookId}/notes?${params.toString()}`));
     }
 
     case 'memory_get': {

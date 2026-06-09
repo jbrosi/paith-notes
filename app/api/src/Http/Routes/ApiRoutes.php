@@ -99,7 +99,7 @@ final class ApiRoutes
         $r->post('/nooks/{nookId}/note-types', [NoteTypesController::class, 'create']);
         $r->add('PUT', '/nooks/{nookId}/note-types/{typeId}', [NoteTypesController::class, 'update']);
         $r->add('DELETE', '/nooks/{nookId}/note-types/{typeId}', [NoteTypesController::class, 'delete']);
-        $r->get('/nooks/{nookId}/note-types/{typeId}/notes', [NoteTypesController::class, 'notes']);
+        // /note-types/{typeId}/notes consolidated into /notes?type_id=X — the type filter is now a query param.
 
         $r->get('/nooks/{nookId}/note-types/{typeId}/attributes', [TypeAttributesController::class, 'list']);
         $r->post('/nooks/{nookId}/note-types/{typeId}/attributes', [TypeAttributesController::class, 'create']);

@@ -28,12 +28,35 @@ export function NookNotesSearchDropdown(props: NookNotesSearchDropdownProps) {
 	// loading 50 full notes on every nook open via the store.
 	const [titles, setTitles] = createSignal<NoteTitle[]>([]);
 	const [titlesLoaded, setTitlesLoaded] = createSignal(false);
-	const loadTitles = async (q: string) => {
-		const nookId = store()?.nookId() ?? "";
+	const loadTitles = async (rawQuery: string) => {
+		const s = store();
+		const nookId = s?.nookId() ?? "";
 		if (nookId === "") return;
+
+		// Honour type:foo prefix syntax (and the explicit-no-type
+		// marker): resolve the type key to its UUID by walking the
+		// loaded types, then pass type_id+include_subtypes to the
+		// lean endpoint. Falls back to no type filter when the term
+		// doesn't match anything or there's no type: prefix.
+		const parsed = parseTypedSearch(rawQuery);
+		let typeId = "";
+		if (parsed.typeTerm.trim() !== "" && s) {
+			const term = normalizeToken(parsed.typeTerm);
+			const match =
+				s.noteTypes().find((t) => normalizeToken(t.key) === term) ??
+				s.noteTypes().find((t) => normalizeToken(t.label) === term);
+			if (match) typeId = match.id;
+		}
+
 		const qs = new URLSearchParams();
 		qs.set("limit", "20");
-		if (q.trim() !== "") qs.set("q", q.trim());
+		if (typeId !== "") {
+			qs.set("type_id", typeId);
+			qs.set("include_subtypes", "1");
+		}
+		const textTerm = parsed.textTerm.trim();
+		if (textTerm !== "") qs.set("q", textTerm);
+
 		try {
 			const res = await apiFetch(
 				`/api/nooks/${nookId}/notes/titles?${qs.toString()}`,
