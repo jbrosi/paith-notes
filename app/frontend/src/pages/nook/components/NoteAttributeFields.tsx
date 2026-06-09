@@ -24,6 +24,7 @@ const SIMPLE_KINDS = new Set([
 	"multi_select",
 	"url",
 	"file",
+	"dimension",
 ]);
 
 export function NoteAttributeFields(props: {
