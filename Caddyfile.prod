@@ -37,7 +37,7 @@
             # Worker mode for the front controller
             worker {
                 file /app/api/index.php
-                num 5
+                num 20
             }
         }
     }
