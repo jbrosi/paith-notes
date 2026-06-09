@@ -73,10 +73,7 @@ export function Nav() {
 		/^\/nooks\/[^/]+\/settings(\/|$)/.test(location.pathname),
 	);
 
-	const isMarkdownPanel = createMemo(() => ui.activePanel() === "markdown");
-
 	const store = createMemo(() => nook.store());
-	const storeReady = createMemo(() => store() !== null);
 
 	// Side-panel toggle buttons only make sense when the current note's
 	// type actually has panels on that side. Otherwise clicking them
@@ -1046,27 +1043,6 @@ export function Nav() {
 									<NookTypeFilterDropdown store={store()} />
 								</div>
 								<div class={styles.nookBarGroup}>
-									<span class={styles.hideOnMobile}>
-										<Button
-											variant={isMarkdownPanel() ? "primary" : "secondary"}
-											size="small"
-											disabled={
-												!storeReady() ||
-												(store()?.selectedId().trim() ?? "") === ""
-											}
-											onClick={() =>
-												ui.setActivePanel(
-													isMarkdownPanel() ? "content" : "markdown",
-												)
-											}
-											aria-pressed={isMarkdownPanel()}
-											title={
-												isMarkdownPanel() ? "Hide markdown" : "Show markdown"
-											}
-										>
-											Markdown
-										</Button>
-									</span>
 									<Show when={hasLeftPanels()}>
 										<span class={styles.hideOnMobile}>
 											<Button
