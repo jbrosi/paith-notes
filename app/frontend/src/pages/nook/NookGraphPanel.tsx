@@ -257,7 +257,7 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 		void store().onNoteLinkClick(id);
 	};
 
-	const [_loading, setLoading] = createSignal<boolean>(false);
+	const [loading, setLoading] = createSignal<boolean>(false);
 	const [error, setError] = createSignal<string>("");
 	const [links, setLinks] = createSignal<NoteLink[]>([]);
 
@@ -600,12 +600,24 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 
 			<Show when={noteId().trim() !== ""} fallback={<div>Select a note</div>}>
 				<Show when={error() === ""} fallback={<pre>{error()}</pre>}>
-					<svg
-						ref={(el) => {
-							svgEl = el;
-						}}
-						class={`${styles.svgCanvas} ${fullscreen() ? styles.svgCanvasFullscreen : ""}`}
-					/>
+					<div class={styles.canvasWrap}>
+						<svg
+							ref={(el) => {
+								svgEl = el;
+							}}
+							class={`${styles.svgCanvas} ${fullscreen() ? styles.svgCanvasFullscreen : ""}`}
+						/>
+						<Show when={loading()}>
+							<div
+								class={styles.loadingOverlay}
+								role="status"
+								aria-label="Loading graph"
+							>
+								<span class={styles.loadingSpinner} />
+								<span class={styles.loadingLabel}>Loading…</span>
+							</div>
+						</Show>
+					</div>
 				</Show>
 			</Show>
 		</div>

@@ -141,6 +141,16 @@
 	background: var(--color-bg-hover);
 }
 
+/* Wraps the SVG + loading overlay so the spinner can sit on top
+ * without disrupting the SVG's flex sizing. */
+.canvasWrap {
+	position: relative;
+	flex: 1;
+	min-height: 0;
+	display: flex;
+	flex-direction: column;
+}
+
 .svgCanvas {
 	width: 100%;
 	flex: 1;
@@ -150,4 +160,37 @@
 
 .svgCanvasFullscreen {
 	/* same as default — flex: 1 fills available space */
+}
+
+.loadingOverlay {
+	position: absolute;
+	inset: 0;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 8px;
+	background: color-mix(in srgb, var(--color-bg) 70%, transparent);
+	pointer-events: none;
+	z-index: 2;
+}
+
+.loadingSpinner {
+	width: 20px;
+	height: 20px;
+	border: 2px solid var(--color-border-medium);
+	border-top-color: var(--color-primary, #3b82f6);
+	border-radius: 50%;
+	animation: graph-spin 0.8s linear infinite;
+}
+
+.loadingLabel {
+	font-size: 0.75rem;
+	color: var(--color-text-muted);
+}
+
+@keyframes graph-spin {
+	to {
+		transform: rotate(360deg);
+	}
 }
