@@ -202,6 +202,17 @@ final class GlobalSchema
                 \$\$ language sql immutable;
             ");
 
+            // safe_date function for date attribute indexes — text::date
+            // and to_date(text, fmt) are both STABLE (not IMMUTABLE) in
+            // PG and can't be used in an index expression. Wrap an
+            // ISO-format check in a SQL function we explicitly mark
+            // IMMUTABLE so it works as an indexable expression.
+            $pdo->exec("
+                create or replace function global.safe_date(text) returns date as \$\$
+                    select case when \$1 ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}\$' then \$1::date end
+                \$\$ language sql immutable;
+            ");
+
             // Remove legacy ai-memory note type (replaced by dedicated AI memory nook)
             $pdo->exec("delete from global.note_types where key = 'ai-memory'");
 

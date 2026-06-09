@@ -78,6 +78,22 @@ export function Nav() {
 	const store = createMemo(() => nook.store());
 	const storeReady = createMemo(() => store() !== null);
 
+	// Side-panel toggle buttons only make sense when the current note's
+	// type actually has panels on that side. Otherwise clicking them
+	// would just toggle a sidebar that has nothing to render.
+	const hasLeftPanels = createMemo(() => {
+		const s = store();
+		const tid = s?.typeId() ?? "";
+		if (!s || tid === "") return false;
+		return s.resolveTypeLayout(tid).some((p) => p.position === "side-left");
+	});
+	const hasRightPanels = createMemo(() => {
+		const s = store();
+		const tid = s?.typeId() ?? "";
+		if (!s || tid === "") return false;
+		return s.resolveTypeLayout(tid).some((p) => p.position === "side-right");
+	});
+
 	const nookDisplayName = (n: NookListItem) => n.name || "Unnamed nook";
 
 	const currentNookLabel = createMemo(() => {
@@ -1051,64 +1067,70 @@ export function Nav() {
 											Markdown
 										</Button>
 									</span>
-									<span class={styles.hideOnMobile}>
-										<Button
-											variant={ui.sidebarLeftOpen() ? "primary" : "secondary"}
-											size="small"
-											class={styles.iconButton}
-											onClick={() => ui.toggleSidebarLeft()}
-											aria-pressed={ui.sidebarLeftOpen()}
-											title={
-												ui.sidebarLeftOpen()
-													? "Hide left sidebar"
-													: "Show left sidebar"
-											}
-										>
-											<svg
-												aria-hidden="true"
-												width="16"
-												height="16"
-												viewBox="0 0 24 24"
-												fill="none"
-												stroke="currentColor"
-												stroke-width="2"
-												stroke-linecap="round"
-												stroke-linejoin="round"
+									<Show when={hasLeftPanels()}>
+										<span class={styles.hideOnMobile}>
+											<Button
+												variant={ui.sidebarLeftOpen() ? "primary" : "secondary"}
+												size="small"
+												class={styles.iconButton}
+												onClick={() => ui.toggleSidebarLeft()}
+												aria-pressed={ui.sidebarLeftOpen()}
+												title={
+													ui.sidebarLeftOpen()
+														? "Hide left sidebar"
+														: "Show left sidebar"
+												}
 											>
-												<rect x="3" y="3" width="18" height="18" rx="2" />
-												<path d="M9 3 L9 21" />
-											</svg>
-										</Button>
-									</span>
-									<span class={styles.hideOnMobile}>
-										<Button
-											variant={ui.sidebarRightOpen() ? "primary" : "secondary"}
-											size="small"
-											class={styles.iconButton}
-											onClick={() => ui.toggleSidebarRight()}
-											aria-pressed={ui.sidebarRightOpen()}
-											title={
-												ui.sidebarRightOpen()
-													? "Hide right sidebar"
-													: "Show right sidebar"
-											}
-										>
-											<svg
-												aria-hidden="true"
-												width="16"
-												height="16"
-												viewBox="0 0 24 24"
-												fill="none"
-												stroke="currentColor"
-												stroke-width="2"
-												stroke-linecap="round"
-												stroke-linejoin="round"
+												<svg
+													aria-hidden="true"
+													width="16"
+													height="16"
+													viewBox="0 0 24 24"
+													fill="none"
+													stroke="currentColor"
+													stroke-width="2"
+													stroke-linecap="round"
+													stroke-linejoin="round"
+												>
+													<rect x="3" y="3" width="18" height="18" rx="2" />
+													<path d="M9 3 L9 21" />
+												</svg>
+											</Button>
+										</span>
+									</Show>
+									<Show when={hasRightPanels()}>
+										<span class={styles.hideOnMobile}>
+											<Button
+												variant={
+													ui.sidebarRightOpen() ? "primary" : "secondary"
+												}
+												size="small"
+												class={styles.iconButton}
+												onClick={() => ui.toggleSidebarRight()}
+												aria-pressed={ui.sidebarRightOpen()}
+												title={
+													ui.sidebarRightOpen()
+														? "Hide right sidebar"
+														: "Show right sidebar"
+												}
 											>
-												<rect x="3" y="3" width="18" height="18" rx="2" />
-												<path d="M15 3 L15 21" />
-											</svg>
-										</Button>
-									</span>
+												<svg
+													aria-hidden="true"
+													width="16"
+													height="16"
+													viewBox="0 0 24 24"
+													fill="none"
+													stroke="currentColor"
+													stroke-width="2"
+													stroke-linecap="round"
+													stroke-linejoin="round"
+												>
+													<rect x="3" y="3" width="18" height="18" rx="2" />
+													<path d="M15 3 L15 21" />
+												</svg>
+											</Button>
+										</span>
+									</Show>
 									{/* Overflow menu — visible on mobile only */}
 									<span class={styles.showOnMobile}>
 										<div class={styles.overflowMenu}>

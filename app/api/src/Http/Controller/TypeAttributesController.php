@@ -527,10 +527,17 @@ final class TypeAttributesController
         $pdo->exec("drop index if exists global.{$idxName}_from");
         $pdo->exec("drop index if exists global.{$idxName}_to");
 
+        // PG requires every non-column item in a CREATE INDEX column
+        // list to be wrapped in its own set of parens. Casts and
+        // built-in `to_date` are NOT marked IMMUTABLE, so we route
+        // date parsing through global.safe_date — a SQL function
+        // we explicitly mark IMMUTABLE — same pattern as
+        // global.safe_numeric for the number indexes.
+
         // date_range: two indexes on from/to for overlap queries
         if ($kind === 'date_range') {
-            $fromExpr = "(attributes->'{$attrId}'->>'from')::date";
-            $toExpr = "(attributes->'{$attrId}'->>'to')::date";
+            $fromExpr = "global.safe_date(attributes->'{$attrId}'->>'from')";
+            $toExpr = "global.safe_date(attributes->'{$attrId}'->>'to')";
             $fromWhere = "attributes->'{$attrId}'->>'from' IS NOT NULL";
             $toWhere = "attributes->'{$attrId}'->>'to' IS NOT NULL";
             $pdo->exec("create index {$idxName}_from on global.notes (nook_id, {$fromExpr}) where {$fromWhere}");
@@ -541,9 +548,9 @@ final class TypeAttributesController
         // Single expression index for other kinds
         $expr = match ($kind) {
             'number' => "global.safe_numeric(attributes->>'{$attrId}')",
-            'date' => "(attributes->>'{$attrId}')::date",
-            'text' => "attributes->>'{$attrId}'",
-            'select' => "attributes->>'{$attrId}'",
+            'date' => "global.safe_date(attributes->>'{$attrId}')",
+            'text' => "(attributes->>'{$attrId}')",
+            'select' => "(attributes->>'{$attrId}')",
             default => null,
         };
 
