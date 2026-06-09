@@ -94,17 +94,22 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 	const [linkWidth, setLinkWidth] = createSignal(ic?.linkWidth ?? 1);
 	const [strictTypeFilter, setStrictTypeFilter] = createSignal(true);
 
-	// When the root note changes (user navigated to a different note),
-	// re-seed all the internal signals from that note's saved config.
-	// Gated on rootNoteId so the user's in-flight edits to depth/
-	// filters/etc. on the CURRENT note don't get clobbered by their
-	// own change going round-trip through props.
-	let prevRootForSync = ic?.rootNoteId ?? "";
+	// Re-seed all internal signals on every initialConfig change.
+	// This catches both note-switch (rootNoteId changes) and the
+	// follow-up "note attributes just finished loading" update —
+	// the second one used to be skipped by a rootNoteId guard, which
+	// meant clicking a graph node navigated to the new note but
+	// rendered with the previous note's settings until something
+	// else forced a refresh.
+	//
+	// Safe to re-seed unconditionally because the user's own edits
+	// propagate INTO the signals first, then cycle out through
+	// onConfigChange → store → props.initialConfig; by the time the
+	// new value arrives back here, the internal signals already
+	// match, and Solid's setSignal is a no-op when the value is
+	// equal — no spurious re-renders.
 	createEffect(() => {
 		const next = props.initialConfig;
-		const nextRoot = next?.rootNoteId ?? "";
-		if (nextRoot === prevRootForSync) return;
-		prevRootForSync = nextRoot;
 		setDepth(next?.depth ?? 2);
 		setFilterTypeIds(
 			next?.filterTypeIds?.length
