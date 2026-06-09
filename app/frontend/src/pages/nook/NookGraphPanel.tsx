@@ -94,6 +94,40 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 	const [linkWidth, setLinkWidth] = createSignal(ic?.linkWidth ?? 1);
 	const [strictTypeFilter, setStrictTypeFilter] = createSignal(true);
 
+	// When the root note changes (user navigated to a different note),
+	// re-seed all the internal signals from that note's saved config.
+	// Gated on rootNoteId so the user's in-flight edits to depth/
+	// filters/etc. on the CURRENT note don't get clobbered by their
+	// own change going round-trip through props.
+	let prevRootForSync = ic?.rootNoteId ?? "";
+	createEffect(() => {
+		const next = props.initialConfig;
+		const nextRoot = next?.rootNoteId ?? "";
+		if (nextRoot === prevRootForSync) return;
+		prevRootForSync = nextRoot;
+		setDepth(next?.depth ?? 2);
+		setFilterTypeIds(
+			next?.filterTypeIds?.length
+				? new Set(next.filterTypeIds)
+				: new Set<string>(),
+		);
+		setFilterPredicateIds(
+			next?.filterPredicateIds?.length
+				? new Set(next.filterPredicateIds)
+				: new Set<string>(),
+		);
+		setHiddenNodeIds(
+			next?.hiddenNodeIds?.length
+				? new Set(next.hiddenNodeIds)
+				: new Set<string>(),
+		);
+		setLayout(next?.layout ?? "force");
+		setLinkDistance(next?.linkDistance ?? 90);
+		setChargeStrength(next?.chargeStrength ?? -280);
+		setNodeSize(next?.nodeSize ?? 6);
+		setLinkWidth(next?.linkWidth ?? 1);
+	});
+
 	const [predicates, setPredicates] = createSignal<LinkPredicate[]>([]);
 
 	const loadPredicates = async () => {
@@ -257,7 +291,7 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 		void store().onNoteLinkClick(id);
 	};
 
-	const [loading, setLoading] = createSignal<boolean>(false);
+	const [_loading, setLoading] = createSignal<boolean>(false);
 	const [error, setError] = createSignal<string>("");
 	const [links, setLinks] = createSignal<NoteLink[]>([]);
 
@@ -600,24 +634,12 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 
 			<Show when={noteId().trim() !== ""} fallback={<div>Select a note</div>}>
 				<Show when={error() === ""} fallback={<pre>{error()}</pre>}>
-					<div class={styles.canvasWrap}>
-						<svg
-							ref={(el) => {
-								svgEl = el;
-							}}
-							class={`${styles.svgCanvas} ${fullscreen() ? styles.svgCanvasFullscreen : ""}`}
-						/>
-						<Show when={loading()}>
-							<div
-								class={styles.loadingOverlay}
-								role="status"
-								aria-label="Loading graph"
-							>
-								<span class={styles.loadingSpinner} />
-								<span class={styles.loadingLabel}>Loading…</span>
-							</div>
-						</Show>
-					</div>
+					<svg
+						ref={(el) => {
+							svgEl = el;
+						}}
+						class={`${styles.svgCanvas} ${fullscreen() ? styles.svgCanvasFullscreen : ""}`}
+					/>
 				</Show>
 			</Show>
 		</div>
