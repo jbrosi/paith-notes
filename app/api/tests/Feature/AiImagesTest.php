@@ -225,6 +225,61 @@ it('uses the generated_image type and populates typed attributes in ai-memory', 
     expect($note['content'])->toContain('dawn mountain scene');
 });
 
+it('seeds a default attribute_layout on generated_image: main = [file, content], side-right = telemetry', function (): void {
+    $pdo = test_pdo();
+    [$headers] = aiImagesSetup('aaaa00000001');
+
+    $res = App::handle('POST', '/api/nooks/ai-memory/ai-images', $headers, json_encode([
+        'prompt' => 'layout test',
+        'summary' => 'layout test',
+    ]));
+    expect($res['status'])->toBe(200, $res['body']);
+    $typeId = json_decode($res['body'], true)['note']['type_id'];
+
+    $layoutRaw = $pdo->query("select attribute_layout from global.note_types where id = " . $pdo->quote($typeId))->fetchColumn();
+    expect($layoutRaw)->toBeString();
+    $layout = json_decode($layoutRaw, true);
+    expect($layout)->toHaveKey('panels');
+
+    $panels = $layout['panels'];
+    $byKey = [];
+    foreach ($panels as $p) {
+        $byKey[$p['key']] = $p;
+    }
+    expect($byKey)->toHaveKey('main');
+    expect($byKey)->toHaveKey('details');
+    expect($byKey['main']['position'])->toBe('main');
+    expect($byKey['details']['position'])->toBe('side-right');
+    // No side-left panel — generated_image only uses the right rail.
+    foreach ($panels as $p) {
+        expect($p['position'])->not->toBe('side-left');
+    }
+
+    // Resolve attribute keys back to their ids so we can assert order
+    $attrIdByKey = [];
+    foreach ($pdo->query("select key, id from global.type_attributes where type_id = " . $pdo->quote($typeId))->fetchAll(PDO::FETCH_ASSOC) as $r) {
+        $attrIdByKey[$r['key']] = $r['id'];
+    }
+
+    // The inherited file attribute lives on the parent (file) type;
+    // grab its id via the actual note_files row to verify ordering.
+    $fileAttrId = $pdo->query("select attribute_id from global.note_files where note_id = " . $pdo->quote(json_decode($res['body'], true)['note']['id']))->fetchColumn();
+
+    expect($byKey['main']['attributes'])->toBe([$fileAttrId, $attrIdByKey['content']]);
+    expect($byKey['details']['attributes'])->toBe([
+        $attrIdByKey['prompt'],
+        $attrIdByKey['revised_prompt'],
+        $attrIdByKey['size'],
+        $attrIdByKey['quality'],
+        $attrIdByKey['transparent'],
+        $attrIdByKey['model'],
+        $attrIdByKey['cost_usd'],
+        $attrIdByKey['input_tokens'],
+        $attrIdByKey['output_tokens'],
+        $attrIdByKey['duration_ms'],
+    ]);
+});
+
 it('falls back to the plain file type for non ai-memory nooks', function (): void {
     $pdo = test_pdo();
     [$headers, $nookId] = aiImagesSetup('000000000004');

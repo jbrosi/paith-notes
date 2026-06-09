@@ -63,6 +63,10 @@ final class AiImagesController
         ['name' => 'Input tokens',   'key' => 'input_tokens',   'kind' => 'number',    'config' => [], 'indexed' => true],
         ['name' => 'Output tokens',  'key' => 'output_tokens',  'kind' => 'number',    'config' => [], 'indexed' => true],
         ['name' => 'Duration',       'key' => 'duration_ms',    'kind' => 'number',    'config' => ['display' => 'duration'], 'indexed' => true],
+        // 'content' kind is the note body rendered as a placeable
+        // attribute — lets the layout decide where the markdown
+        // changelog appears relative to the file and the telemetry.
+        ['name' => 'Content',        'key' => 'content',        'kind' => 'content',   'config' => ['mode' => 'markdown'], 'indexed' => false],
     ];
 
     /**
@@ -680,6 +684,7 @@ final class AiImagesController
 
         $typeId = $this->ensureGeneratedImageType($pdo, $nookId, $fileTypeId);
         $attributes = $this->ensureGeneratedImageAttributes($pdo, $nookId, $typeId);
+        $this->ensureGeneratedImageLayout($pdo, $typeId, $fileAttributeId, $attributes);
 
         return [
             'typeId' => $typeId,
@@ -687,6 +692,81 @@ final class AiImagesController
             'attributes' => $attributes,
             'isGeneratedImage' => true,
         ];
+    }
+
+    /**
+     * Set the default layout on the generated_image type if it
+     * doesn't have one yet: file + content body share the main
+     * panel; everything else (the 10 typed telemetry attrs) goes
+     * into a single side-right panel.
+     *
+     * Only writes when attribute_layout is null / empty — if a user
+     * has customised the layout via the UI (rare given the type is
+     * system-owned, but possible), we leave their version alone.
+     *
+     * @param array<string, string> $attributesByKey  key → attribute id
+     */
+    private function ensureGeneratedImageLayout(PDO $pdo, string $typeId, string $fileAttributeId, array $attributesByKey): void
+    {
+        $check = $pdo->prepare("select attribute_layout from global.note_types where id = :id");
+        $check->execute([':id' => $typeId]);
+        $raw = $check->fetchColumn();
+        if (is_string($raw) && $raw !== '' && $raw !== 'null' && $raw !== '{}') {
+            // A non-empty layout already exists; respect it.
+            return;
+        }
+
+        $contentAttrId = $attributesByKey['content'] ?? null;
+        if (!is_string($contentAttrId) || $contentAttrId === '' || $fileAttributeId === '') {
+            // Missing the anchor attributes — bail rather than write a
+            // half-built layout that the validator would later reject.
+            return;
+        }
+
+        // Side panel order mirrors the human reading order: what the
+        // user asked for first, then the model's read of it, then the
+        // dimensions, then the runtime telemetry.
+        $sideKeys = [
+            'prompt',
+            'revised_prompt',
+            'size',
+            'quality',
+            'transparent',
+            'model',
+            'cost_usd',
+            'input_tokens',
+            'output_tokens',
+            'duration_ms',
+        ];
+        $sideAttrs = [];
+        foreach ($sideKeys as $k) {
+            $id = $attributesByKey[$k] ?? null;
+            if (is_string($id) && $id !== '') {
+                $sideAttrs[] = $id;
+            }
+        }
+
+        $layout = [
+            'panels' => [
+                [
+                    'key' => 'main',
+                    'position' => 'main',
+                    'attributes' => [$fileAttributeId, $contentAttrId],
+                ],
+                [
+                    'key' => 'details',
+                    'label' => 'Details',
+                    'position' => 'side-right',
+                    'attributes' => $sideAttrs,
+                ],
+            ],
+        ];
+
+        $update = $pdo->prepare(
+            "update global.note_types set attribute_layout = :layout::jsonb, updated_at = now() "
+            . "where id = :id"
+        );
+        $update->execute([':id' => $typeId, ':layout' => json_encode($layout)]);
     }
 
     private function isAiMemoryNook(PDO $pdo, string $nookId): bool
