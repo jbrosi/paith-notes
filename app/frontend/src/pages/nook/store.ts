@@ -1287,12 +1287,13 @@ export function createNookStore(nookId: () => string) {
 		}
 	});
 
-	createEffect(() => {
-		void nookId();
-		void selectedTypeIds();
-		void notesQuery();
-		void loadNotes({ reset: true });
-	});
+	// (Previously: eager createEffect that called loadNotes on every
+	// nookId / selectedTypeIds / notesQuery change. Removed because
+	// the only consumer was the global notes-search dropdown, which
+	// now lazy-fetches its own lean titles list on focus via the
+	// /notes/titles endpoint. loadNotes stays available for callers
+	// that explicitly want the full notes list — e.g. NookUnlinkedNotes
+	// has its own state and never used this effect.)
 
 	const uploadFile = async (_file: File) => {};
 

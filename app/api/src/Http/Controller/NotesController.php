@@ -39,6 +39,68 @@ final class NotesController
         $this->headings = new HeadingsService();
     }
 
+    /**
+     * GET /nooks/{nookId}/notes/titles?q=...&limit=20
+     *
+     * Lean projection for the global notes-search dropdown. Returns
+     * only id + title + type_id, no mention/link counts, no joins.
+     * Replaces the heavier /note-types/all/notes prefetch the dropdown
+     * used to do on every nook open — now it fetches on focus, with
+     * a tighter cap (max 50, default 20) and an optional case-
+     * insensitive title-substring filter.
+     */
+    public function titles(Request $request, Context $context): Response
+    {
+        $pdo = $context->pdo();
+        $user = $context->user();
+
+        $nookId = $request->requireUuidRouteParam('nookId');
+
+        NookAccess::requireMember($pdo, $user, $nookId);
+
+        $q = strtolower(trim($request->queryParam('q')));
+        $limitRaw = $request->queryParam('limit');
+        $limit = min(50, max(1, $limitRaw !== '' ? (int)$limitRaw : 20));
+
+        if ($q === '') {
+            $stmt = $pdo->prepare(
+                'select id, title, type_id from global.notes '
+                . 'where nook_id = :nook_id '
+                . 'order by created_at desc '
+                . 'limit :limit'
+            );
+            $stmt->bindValue(':nook_id', $nookId);
+            $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
+        } else {
+            // Title-substring only — the dropdown wants suggestions,
+            // not full-content search. Full search is /api/search.
+            $stmt = $pdo->prepare(
+                'select id, title, type_id from global.notes '
+                . 'where nook_id = :nook_id and lower(title) like :q '
+                . 'order by created_at desc '
+                . 'limit :limit'
+            );
+            $stmt->bindValue(':nook_id', $nookId);
+            $stmt->bindValue(':q', '%' . $q . '%');
+            $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
+        }
+        $stmt->execute();
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $notes = [];
+        foreach ($rows as $r) {
+            if (!is_array($r)) {
+                continue;
+            }
+            $notes[] = [
+                'id' => Row::str($r, 'id'),
+                'title' => Row::str($r, 'title'),
+                'type_id' => Row::str($r, 'type_id'),
+            ];
+        }
+        return JsonResponse::ok(['notes' => $notes]);
+    }
+
     public function list(Request $request, Context $context): Response
     {
         $pdo = $context->pdo();

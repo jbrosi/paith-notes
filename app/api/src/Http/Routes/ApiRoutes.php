@@ -114,6 +114,9 @@ final class ApiRoutes
         $r->add('PUT', '/nooks/{nookId}/link-predicates/{predicateId}/rules', [LinkPredicatesController::class, 'replaceRules']);
 
         $r->get('/nooks/{nookId}/notes', [NotesController::class, 'list']);
+        // Must precede /notes/{noteId} so the literal `titles` isn't
+        // parsed as a note id by the parameterized route.
+        $r->get('/nooks/{nookId}/notes/titles', [NotesController::class, 'titles']);
         $r->get('/nooks/{nookId}/notes/{noteId}', [NotesController::class, 'get']);
         $r->post('/nooks/{nookId}/notes', [NotesController::class, 'create']);
         $r->add('PUT', '/nooks/{nookId}/notes/{noteId}', [NotesController::class, 'update']);

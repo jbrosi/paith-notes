@@ -1,8 +1,11 @@
-import { createMemo, createSignal, For, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
+import { apiFetch } from "../../auth/keycloak";
 import { normalizeToken, parseTypedSearch } from "../../noteSearch";
 import type { NookStore } from "../../pages/nook/store";
 import { SEARCH_DEBOUNCE_MS } from "../../settings";
 import styles from "../Nav.module.css";
+
+type NoteTitle = { id: string; title: string; type_id: string };
 
 export type NookNotesSearchDropdownProps = {
 	store: NookStore | null;
@@ -20,11 +23,32 @@ export function NookNotesSearchDropdown(props: NookNotesSearchDropdownProps) {
 	let inputRef: HTMLInputElement | undefined;
 	let panelInputRef: HTMLInputElement | undefined;
 
-	const noteResults = createMemo(() => {
-		const s = store();
-		if (!s) return [];
-		return s.notes().slice(0, 12);
-	});
+	// Lean lazy fetch — only id+title+type_id, only when the dropdown
+	// actually gets focused. Replaces the previous behavior of eagerly
+	// loading 50 full notes on every nook open via the store.
+	const [titles, setTitles] = createSignal<NoteTitle[]>([]);
+	const [titlesLoaded, setTitlesLoaded] = createSignal(false);
+	const loadTitles = async (q: string) => {
+		const nookId = store()?.nookId() ?? "";
+		if (nookId === "") return;
+		const qs = new URLSearchParams();
+		qs.set("limit", "20");
+		if (q.trim() !== "") qs.set("q", q.trim());
+		try {
+			const res = await apiFetch(
+				`/api/nooks/${nookId}/notes/titles?${qs.toString()}`,
+				{ method: "GET" },
+			);
+			if (!res.ok) return;
+			const body = (await res.json()) as { notes?: NoteTitle[] };
+			setTitles(body.notes ?? []);
+			setTitlesLoaded(true);
+		} catch {
+			// best-effort — dropdown stays empty rather than throwing
+		}
+	};
+
+	const noteResults = createMemo(() => titles().slice(0, 12));
 
 	const query = createMemo(() => store()?.notesQuery() ?? "");
 
@@ -76,11 +100,23 @@ export function NookNotesSearchDropdown(props: NookNotesSearchDropdownProps) {
 
 	const onSearchInput = (val: string) => {
 		if (debounceTimer) clearTimeout(debounceTimer);
-		debounceTimer = setTimeout(
-			() => store()?.setNotesQuery(val),
-			SEARCH_DEBOUNCE_MS,
-		);
+		debounceTimer = setTimeout(() => {
+			// Keep store's notesQuery in sync so things like the
+			// "active filter" label memo stay accurate; the actual
+			// fetch now happens locally so we don't depend on the
+			// store's reactive effect for it.
+			store()?.setNotesQuery(val);
+			void loadTitles(val);
+		}, SEARCH_DEBOUNCE_MS);
 	};
+
+	// Reset cache when the user switches nooks — the next focus will
+	// fetch fresh titles for the new nook.
+	createEffect(() => {
+		store()?.nookId();
+		setTitlesLoaded(false);
+		setTitles([]);
+	});
 
 	const applyTypeSuggestion = (key: string) => {
 		const fill = `${key}: `;
@@ -96,6 +132,11 @@ export function NookNotesSearchDropdown(props: NookNotesSearchDropdownProps) {
 			closeTimeout = undefined;
 		}
 		setOpen(true);
+		// Lazy fetch: first focus per nook triggers the load. Reopens
+		// reuse the cached list until the user types or switches nooks.
+		if (!titlesLoaded()) {
+			void loadTitles(query());
+		}
 	};
 
 	const handleBlur = () => {
