@@ -1,20 +1,11 @@
 import { z } from "zod";
 
-const NoteTypeEnum = z
-	.string()
-	.transform((v) => {
-		if (v === "file" || v === "graph") return v;
-		return "anything" as const;
-	})
-	.pipe(z.enum(["anything", "file", "graph"]));
-
 export const GraphLayoutEnum = z.enum(["force", "tree", "radial"]);
 export type GraphLayout = z.infer<typeof GraphLayoutEnum>;
 
 export const GraphViewPropertiesSchema = z.object({
 	rootNoteId: z.string(),
 	depth: z.number().int().min(1).max(5).optional(),
-	includeFiles: z.boolean().optional(),
 	filterTypeIds: z.array(z.string()).optional(),
 	filterPredicateIds: z.array(z.string()).optional(),
 	hiddenNodeIds: z.array(z.string()).optional(),
@@ -42,7 +33,6 @@ export function serializeGraphProperties(
 		rootNoteId: props.rootNoteId,
 	};
 	if (props.depth !== undefined && props.depth !== 2) out.depth = props.depth;
-	if (props.includeFiles) out.includeFiles = true;
 	if (props.filterTypeIds?.length) out.filterTypeIds = props.filterTypeIds;
 	if (props.filterPredicateIds?.length)
 		out.filterPredicateIds = props.filterPredicateIds;
@@ -68,7 +58,6 @@ const NoteSummaryApiSchema = z
 		incoming_mentions_count: z.number().int().optional(),
 		outgoing_links_count: z.number().int().optional(),
 		incoming_links_count: z.number().int().optional(),
-		type: NoteTypeEnum.optional(),
 		created_at: z.string().optional(),
 	})
 	.transform((n) => ({
@@ -79,9 +68,28 @@ const NoteSummaryApiSchema = z
 		incomingMentionsCount: n.incoming_mentions_count ?? 0,
 		outgoingLinksCount: n.outgoing_links_count ?? 0,
 		incomingLinksCount: n.incoming_links_count ?? 0,
-		type: n.type ?? "anything",
 		createdAt: n.created_at,
 	}));
+
+const NoteHeadingSchema = z.object({
+	level: z.number().int(),
+	text: z.string(),
+	position: z.number().int(),
+});
+
+export type NoteHeading = z.infer<typeof NoteHeadingSchema>;
+
+const NoteFileSchema = z.object({
+	filename: z.string(),
+	extension: z.string(),
+	filesize: z.number().int(),
+	mime_type: z.string(),
+	checksum: z.string(),
+	file_version: z.number().int(),
+	object_key: z.string(),
+});
+
+export type NoteFile = z.infer<typeof NoteFileSchema>;
 
 const NoteDetailApiSchema = z
 	.object({
@@ -89,23 +97,29 @@ const NoteDetailApiSchema = z
 		title: z.string(),
 		content: z.string(),
 		type_id: z.string().optional(),
-		type: NoteTypeEnum.optional(),
-		properties: z.record(z.string(), z.unknown()).optional(),
-		former_properties: z.record(z.string(), z.unknown()).optional(),
+		attributes: z.record(z.string(), z.unknown()).optional(),
+		archive: z.record(z.string(), z.unknown()).optional(),
 		version: z.number().int().optional(),
 		view_count: z.number().int().optional(),
+		headings: z.array(NoteHeadingSchema).optional(),
+		files: z.record(z.string(), NoteFileSchema).optional(),
 		created_at: z.string().optional(),
+		updated_at: z.string().optional(),
+		created_by_name: z.string().optional(),
 	})
 	.transform((n) => ({
 		id: n.id,
 		title: n.title,
 		content: n.content,
 		typeId: n.type_id ?? "",
-		type: n.type ?? "anything",
-		properties: n.properties ?? {},
-		formerProperties: n.former_properties ?? {},
+		attributes: n.attributes ?? {},
+		archive: n.archive ?? {},
 		version: n.version ?? 0,
 		viewCount: n.view_count ?? 0,
+		files: n.files ?? {},
+		updatedAt: n.updated_at ?? "",
+		createdByName: n.created_by_name ?? "",
+		headings: n.headings ?? [],
 		createdAt: n.created_at,
 	}));
 
@@ -117,14 +131,34 @@ export const NotesListResponseSchema = z
 		notes: r.notes,
 	}));
 
+const HeadingMatchSchema = z
+	.object({
+		note_id: z.string(),
+		note_title: z.string(),
+		level: z.number().int(),
+		text: z.string(),
+		position: z.number().int(),
+	})
+	.transform((h) => ({
+		noteId: h.note_id,
+		noteTitle: h.note_title,
+		level: h.level,
+		text: h.text,
+		position: h.position,
+	}));
+
+export type HeadingMatch = z.infer<typeof HeadingMatchSchema>;
+
 export const NoteTypeNotesResponseSchema = z
 	.object({
 		notes: z.array(NoteSummaryApiSchema),
 		next_cursor: z.string().optional(),
+		heading_matches: z.array(HeadingMatchSchema).optional(),
 	})
 	.transform((r) => ({
 		notes: r.notes,
 		nextCursor: r.next_cursor ?? "",
+		headingMatches: r.heading_matches ?? [],
 	}));
 
 export const NoteResponseSchema = z
@@ -161,6 +195,88 @@ export const MentionsResponseSchema = z
 		incoming: r.incoming,
 	}));
 
+// ─── Type Attributes ────────────────────────────────────────────────────────
+
+export const TypeAttributeKinds = [
+	"text",
+	"number",
+	"boolean",
+	"date",
+	"date_range",
+	"select",
+	"file",
+	"graph",
+	"view",
+	"multi_select",
+	"url",
+	"linked_notes",
+	"mentions",
+	"history",
+	"toc",
+	"metadata",
+	"content",
+	"source",
+] as const;
+export type TypeAttributeKind = (typeof TypeAttributeKinds)[number];
+
+const TypeAttributeApiSchema = z
+	.object({
+		id: z.string(),
+		type_id: z.string(),
+		name: z.string(),
+		key: z.string().optional(),
+		kind: z.string(),
+		config: z.record(z.string(), z.unknown()).optional(),
+		indexed: z.boolean().optional(),
+		inherited: z.boolean().optional(),
+		overridden: z.boolean().optional(),
+		created_at: z.string().optional(),
+		updated_at: z.string().optional(),
+	})
+	.transform((a) => ({
+		id: a.id,
+		typeId: a.type_id,
+		name: a.name,
+		key: a.key ?? "",
+		kind: a.kind as TypeAttributeKind,
+		config: (a.config ?? {}) as Record<string, unknown>,
+		indexed: a.indexed ?? false,
+		inherited: a.inherited ?? false,
+		overridden: a.overridden ?? false,
+		createdAt: a.created_at,
+		updatedAt: a.updated_at,
+	}));
+
+export type TypeAttribute = z.infer<typeof TypeAttributeApiSchema>;
+
+// ─── Panels & Layout ────────────────────────────────────────────────────────
+
+export const PanelPositions = ["main", "side-right", "side-left"] as const;
+export type PanelPosition = (typeof PanelPositions)[number];
+
+const PanelSchema = z.object({
+	key: z.string(),
+	label: z.string().optional(),
+	position: z.enum(PanelPositions),
+	collapsible: z.boolean().optional(),
+	hidden: z.boolean().optional(),
+	order: z.number().int().optional(),
+	attributes: z.array(z.string()),
+});
+
+export type Panel = z.infer<typeof PanelSchema>;
+
+const AttributeLayoutSchema = z
+	.object({
+		panels: z.array(PanelSchema),
+	})
+	.nullable()
+	.optional();
+
+export type AttributeLayout = { panels: Panel[] } | null;
+
+// ─── Note Types ─────────────────────────────────────────────────────────────
+
 const NoteTypeApiSchema = z
 	.object({
 		id: z.string(),
@@ -169,7 +285,9 @@ const NoteTypeApiSchema = z
 		label: z.string(),
 		description: z.string().optional(),
 		parent_id: z.string().optional(),
-		applies_to: z.string().optional(),
+		attribute_layout: AttributeLayoutSchema.optional(),
+		config_overrides: z.record(z.string(), z.unknown()).optional(),
+		attributes: z.array(TypeAttributeApiSchema).optional(),
 		created_at: z.string().optional(),
 		updated_at: z.string().optional(),
 	})
@@ -180,7 +298,12 @@ const NoteTypeApiSchema = z
 		label: t.label,
 		description: t.description ?? "",
 		parentId: t.parent_id ?? "",
-		appliesTo: (t.applies_to ?? "notes") as "notes" | "files",
+		attributeLayout: (t.attribute_layout ?? null) as AttributeLayout,
+		configOverrides: (t.config_overrides ?? {}) as Record<
+			string,
+			Record<string, unknown>
+		>,
+		attributes: t.attributes ?? [],
 		createdAt: t.created_at,
 		updatedAt: t.updated_at,
 	}));
@@ -188,9 +311,11 @@ const NoteTypeApiSchema = z
 export const NoteTypesListResponseSchema = z
 	.object({
 		types: z.array(NoteTypeApiSchema),
+		version: z.number().int().optional(),
 	})
 	.transform((r) => ({
 		types: r.types,
+		version: r.version ?? 0,
 	}));
 
 export const NoteTypeResponseSchema = z
@@ -200,6 +325,18 @@ export const NoteTypeResponseSchema = z
 	.transform((r) => ({
 		type: r.type,
 	}));
+
+export const TypeAttributesListResponseSchema = z
+	.object({
+		attributes: z.array(TypeAttributeApiSchema),
+	})
+	.transform((r) => ({ attributes: r.attributes }));
+
+export const TypeAttributeResponseSchema = z
+	.object({
+		attribute: TypeAttributeApiSchema,
+	})
+	.transform((r) => ({ attribute: r.attribute }));
 
 const LinkPredicateApiSchema = z
 	.object({
@@ -280,11 +417,9 @@ const NoteLinkApiSchema = z
 		source_note_id: z.string(),
 		source_note_title: z.string().optional(),
 		source_type_id: z.string().optional(),
-		source_note_type: NoteTypeEnum.optional(),
 		target_note_id: z.string(),
 		target_note_title: z.string().optional(),
 		target_type_id: z.string().optional(),
-		target_note_type: NoteTypeEnum.optional(),
 		start_date: z.string().optional(),
 		end_date: z.string().optional(),
 		former: z.record(z.string(), z.unknown()).optional(),
@@ -305,11 +440,9 @@ const NoteLinkApiSchema = z
 		sourceNoteId: l.source_note_id,
 		sourceNoteTitle: l.source_note_title ?? "",
 		sourceTypeId: l.source_type_id ?? "",
-		sourceNoteType: l.source_note_type ?? "anything",
 		targetNoteId: l.target_note_id,
 		targetNoteTitle: l.target_note_title ?? "",
 		targetTypeId: l.target_type_id ?? "",
-		targetNoteType: l.target_note_type ?? "anything",
 		startDate: l.start_date ?? "",
 		endDate: l.end_date ?? "",
 		former: l.former ?? {},
@@ -345,6 +478,9 @@ const NoteHistoryEntrySchema = z
 		linked_note_id: z.string().optional(),
 		linked_note_title: z.string().optional(),
 		link_label: z.string().optional(),
+		filename: z.string().optional(),
+		filesize: z.number().optional(),
+		mime_type: z.string().optional(),
 		user_id: z.string(),
 		user_name: z.string(),
 		created_at: z.string(),
@@ -358,6 +494,9 @@ const NoteHistoryEntrySchema = z
 		linkedNoteId: h.linked_note_id ?? "",
 		linkedNoteTitle: h.linked_note_title ?? "",
 		linkLabel: h.link_label ?? "",
+		filename: h.filename ?? "",
+		filesize: h.filesize ?? 0,
+		mimeType: h.mime_type ?? "",
 		userId: h.user_id,
 		userName: h.user_name,
 		createdAt: h.created_at,

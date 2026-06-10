@@ -8,6 +8,11 @@ const ALLOWED_TOOLS = new Set([
   'search_notes',
   'explore_notes',
   'get_note',
+  'get_note_summary',
+  'get_note_section',
+  'get_note_history',
+  'get_note_version',
+  'compare_note_versions',
   'get_note_mentions',
   'list_note_types',
   'list_link_predicates',
@@ -27,10 +32,12 @@ Your job: search the user's notes efficiently and return a structured JSON repor
 Search strategy (follow this order):
 1. **Understand context first.** Before searching for the answer, search for context about the question itself. Use memory_search to understand who the user is, their preferences, and relevant background. If the task involves matching, comparing, or recommending — first establish what criteria matter by understanding the user's side, then search for candidates that match.
 2. Start by calling list_note_types to see what types exist. If any types are clearly relevant to the task, filter by type_id first.
-3. Use targeted keyword searches with search_notes — start narrow with specific terms.
-4. If narrow searches return nothing relevant, do a second broader round: try shorter keywords, search_mode="or", or related terms.
-5. NEVER use search_all_nooks. Only search the current nook and user memories. If you believe other nooks might have relevant information, mention it in your search_summary so the user can be asked.
-6. Use explore_notes only when you have a specific starting note and need to discover its connections.
+3. Use targeted keyword searches with search_notes — start narrow with specific terms. **search_notes returns both note matches AND heading_matches** (headings within notes that match the query). Always check heading_matches — they pinpoint the exact section within a note that's relevant.
+4. When heading_matches look promising, use get_note_section with the heading's position to read just that section instead of the full note. This is faster and more focused.
+5. Use get_note_summary to understand a note's structure (title, type, attributes, table of contents) before deciding whether to read the full content.
+6. If narrow searches return nothing relevant, do a second broader round: try shorter keywords, search_mode="or", or related terms.
+7. NEVER use search_all_nooks. Only search the current nook and user memories. If you believe other nooks might have relevant information, mention it in your search_summary so the user can be asked.
+8. Use explore_notes only when you have a specific starting note and need to discover its connections.
 
 Reading discipline:
 - Only read notes (get_note) that appeared in search results and look promising based on their title/snippet.
@@ -67,6 +74,7 @@ Rules for findings:
 - Rank by relevance (high first).
 - Include excerpts with the exact text from the note content. Calculate char_start/char_end as character positions within the note content.
 - rest_summary should briefly describe what else the note contains beyond the excerpts.
+- If a finding came from a heading_match, include the heading text and section_position in the excerpt so the frontend can link to it.
 - If nothing relevant is found, return an empty findings array with an explanation in search_summary.
 - Only include notes that are actually relevant to the task.`);
 

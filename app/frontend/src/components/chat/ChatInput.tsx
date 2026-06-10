@@ -12,6 +12,7 @@ type Props = {
 	disabled: boolean;
 	model: string;
 	onModelChange: (model: string) => void;
+	inputRef?: (el: HTMLTextAreaElement) => void;
 };
 
 export function ChatInput(props: Props) {
@@ -42,6 +43,7 @@ export function ChatInput(props: Props) {
 					disabled={props.disabled}
 					placeholder="Ask about your notes… (Enter to send)"
 					rows={1}
+					ref={props.inputRef}
 				/>
 				<button
 					class={styles.sendBtn}

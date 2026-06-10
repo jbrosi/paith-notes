@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Paith\Notes\Api\Http\Service;
 
 use PDO;
+use Paith\Notes\Shared\Uuid;
 
 final class MentionsService
 {
@@ -41,13 +42,13 @@ final class MentionsService
             $targetNookId = $m['target_nook_id'];
             $title = $m['link_title'];
             $offset = $m['offset'];
-            if (!self::isUuid($target)) {
+            if (!Uuid::isValid($target)) {
                 continue;
             }
 
             if ($targetNookId !== '' && $targetNookId !== $nookId) {
                 // Cross-nook mention: verify note exists in that nook AND user has access
-                if ($userId === '' || !self::isUuid($targetNookId)) {
+                if ($userId === '' || !Uuid::isValid($targetNookId)) {
                     continue;
                 }
                 $existsCrossNook->execute([':id' => $target, ':nook_id' => $targetNookId, ':user_id' => $userId]);
@@ -139,13 +140,5 @@ final class MentionsService
 
         usort($deduped, static fn (array $a, array $b): int => $a['offset'] <=> $b['offset']);
         return $deduped;
-    }
-
-    private static function isUuid(string $value): bool
-    {
-        return (bool)preg_match(
-            '/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i',
-            $value
-        );
     }
 }

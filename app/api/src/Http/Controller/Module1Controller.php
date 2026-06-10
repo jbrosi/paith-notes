@@ -18,7 +18,7 @@ final class Module1Controller
         return JsonResponse::ok([
             'module' => 'module_1',
             'pong' => true,
-            'user_id' => $user['id'] ?? '',
+            'user_id' => $user->id,
         ]);
     }
 }

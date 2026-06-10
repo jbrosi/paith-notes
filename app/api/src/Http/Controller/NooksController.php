@@ -11,6 +11,8 @@ use Paith\Notes\Api\Http\Request;
 use Paith\Notes\Api\Http\Response;
 use PDO;
 use Throwable;
+use Paith\Notes\Shared\Db\Row;
+use Paith\Notes\Api\Http\Dto\JsonReader;
 
 final class NooksController
 {
@@ -35,13 +37,13 @@ final class NooksController
             left join global.user_nook_preferences unp on unp.nook_id = n.id and unp.user_id = nm.user_id
             where
                 nm.user_id = :user_id
-                and n.purpose = 'general'
+                and n.purpose in ('general', 'handbook')
             order by n.created_at desc;
         ");
-        $stmt->execute([':user_id' => $user['id']]);
+        $stmt->execute([':user_id' => $user->id]);
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-        $userId = is_scalar($user['id'] ?? null) ? (string)$user['id'] : '';
+        $userId = $user->id;
 
         $nooks = [];
         foreach ($rows as $r) {
@@ -55,8 +57,8 @@ final class NooksController
             $ownerId = $r['owner_id'] ?? null;
 
             $isOwned = is_scalar($ownerId) && (string)$ownerId === $userId;
-            $ownerFirst = is_scalar($r['owner_first_name'] ?? null) ? (string)$r['owner_first_name'] : '';
-            $ownerLast = is_scalar($r['owner_last_name'] ?? null) ? (string)$r['owner_last_name'] : '';
+            $ownerFirst = Row::str($r, 'owner_first_name');
+            $ownerLast = Row::str($r, 'owner_last_name');
             $ownerName = trim($ownerFirst . ' ' . $ownerLast);
 
             $userSettings = [];
@@ -86,7 +88,7 @@ final class NooksController
     {
         $pdo = $context->pdo();
         $user = $context->user();
-        $userId = is_scalar($user['id'] ?? null) ? (string)$user['id'] : '';
+        $userId = $user->id;
 
         $stmt = $pdo->prepare(
             "select n.id, n.name from global.nooks n join global.nook_members nm on nm.nook_id = n.id where nm.user_id = :user_id and n.purpose = 'ai-memory' limit 1"
@@ -99,9 +101,33 @@ final class NooksController
 
         return JsonResponse::ok([
             'nook' => [
-                'id' => is_scalar($row['id'] ?? null) ? (string)$row['id'] : '',
-                'name' => is_scalar($row['name'] ?? null) ? (string)$row['name'] : '',
+                'id' => Row::str($row, 'id'),
+                'name' => Row::str($row, 'name'),
                 'purpose' => 'ai-memory',
+            ],
+        ]);
+    }
+
+    public function handbook(Request $request, Context $context): Response
+    {
+        $pdo = $context->pdo();
+        $user = $context->user();
+        $userId = $user->id;
+
+        $stmt = $pdo->prepare(
+            "select n.id, n.name from global.nooks n join global.nook_members nm on nm.nook_id = n.id where nm.user_id = :user_id and n.purpose = 'handbook' limit 1"
+        );
+        $stmt->execute([':user_id' => $userId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!is_array($row)) {
+            throw new HttpError('Handbook nook not found', 404);
+        }
+
+        return JsonResponse::ok([
+            'nook' => [
+                'id' => Row::str($row, 'id'),
+                'name' => Row::str($row, 'name'),
+                'purpose' => 'handbook',
             ],
         ]);
     }
@@ -113,8 +139,7 @@ final class NooksController
 
         $data = $request->jsonBody();
 
-        $nameRaw = $data['name'] ?? '';
-        $name = is_string($nameRaw) ? trim($nameRaw) : '';
+        $name = JsonReader::optionalTrimmedString($data, 'name');
         if ($name === '') {
             throw new HttpError('name is required', 400);
         }
@@ -129,15 +154,15 @@ final class NooksController
             ");
             $create->execute([
                 ':name' => $name,
-                ':created_by' => $user['id'],
-                ':owner_id' => $user['id'],
+                ':created_by' => $user->id,
+                ':owner_id' => $user->id,
             ]);
             $nookId = (string)$create->fetchColumn();
 
             $member = $pdo->prepare("\n                insert into global.nook_members (nook_id, user_id, role)\n                values (:nook_id, :user_id, 'owner')\n                on conflict (nook_id, user_id) do update set role = excluded.role\n            ");
             $member->execute([
                 ':nook_id' => $nookId,
-                ':user_id' => $user['id'],
+                ':user_id' => $user->id,
             ]);
 
             $pdo->commit();
@@ -172,8 +197,7 @@ final class NooksController
 
         $data = $request->jsonBody();
 
-        $nameRaw = $data['name'] ?? '';
-        $name = is_string($nameRaw) ? trim($nameRaw) : '';
+        $name = JsonReader::optionalTrimmedString($data, 'name');
         if ($name === '') {
             throw new HttpError('name is required', 400);
         }
@@ -187,8 +211,8 @@ final class NooksController
 
         return JsonResponse::ok([
             'nook' => [
-                'id' => is_scalar($row['id'] ?? null) ? (string)$row['id'] : '',
-                'name' => is_scalar($row['name'] ?? null) ? (string)$row['name'] : '',
+                'id' => Row::str($row, 'id'),
+                'name' => Row::str($row, 'name'),
             ],
         ]);
     }
@@ -197,7 +221,7 @@ final class NooksController
     {
         $pdo = $context->pdo();
         $user = $context->user();
-        $userId = is_scalar($user['id'] ?? null) ? (string)$user['id'] : '';
+        $userId = $user->id;
         $nookId = trim($request->routeParam('nookId'));
 
         $stmt = $pdo->prepare(
@@ -221,7 +245,7 @@ final class NooksController
     {
         $pdo = $context->pdo();
         $user = $context->user();
-        $userId = is_scalar($user['id'] ?? null) ? (string)$user['id'] : '';
+        $userId = $user->id;
         $nookId = trim($request->routeParam('nookId'));
 
         $data = $request->jsonBody();

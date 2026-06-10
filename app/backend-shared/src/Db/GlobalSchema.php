@@ -108,14 +108,13 @@ final class GlobalSchema
             $pdo->exec("alter table global.notes add column if not exists actor text not null default 'user'");
             $pdo->exec('create index if not exists notes_updated_at_idx on global.notes (nook_id, updated_at desc)');
 
-            $pdo->exec(" 
+            $pdo->exec("
                 create table if not exists global.note_types (
                     id uuid primary key default gen_random_uuid(),
                     nook_id uuid not null references global.nooks(id) on delete cascade,
                     key text not null,
                     label text not null,
                     parent_id uuid null references global.note_types(id) on delete set null,
-                    applies_to text not null default 'notes' check (applies_to in ('notes', 'files')),
                     created_at timestamptz not null default now(),
                     updated_at timestamptz not null default now()
                 );
@@ -126,38 +125,82 @@ final class GlobalSchema
             // Remove former soft-delete column (we prefer hard deletes; history can be added later).
             $pdo->exec('alter table global.note_types drop column if exists archived_at');
 
-            // Migrate: replace applies_to_files + applies_to_notes booleans with applies_to enum.
-            $pdo->exec("
-                do \$\$ begin
-                    if exists (
-                        select 1 from information_schema.columns
-                        where table_schema = 'global' and table_name = 'note_types' and column_name = 'applies_to_files'
-                    ) then
-                        alter table global.note_types add column if not exists applies_to text not null default 'notes';
-                        update global.note_types set applies_to = case when applies_to_files then 'files' else 'notes' end;
-                        alter table global.note_types drop column applies_to_files;
-                        alter table global.note_types drop column applies_to_notes;
-                    end if;
-                end \$\$;
-            ");
-            $pdo->exec("
-                do \$\$ begin
-                    if not exists (
-                        select 1 from pg_constraint
-                        where conname = 'note_types_applies_to_check'
-                        and conrelid = 'global.note_types'::regclass
-                    ) then
-                        alter table global.note_types add constraint note_types_applies_to_check
-                            check (applies_to in ('notes', 'files'));
-                    end if;
-                end \$\$;
-            ");
+            // Drop legacy columns
+            $pdo->exec('alter table global.note_types drop column if exists applies_to');
+            $pdo->exec('alter table global.note_types drop column if exists applies_to_files');
+            $pdo->exec('alter table global.note_types drop column if exists applies_to_notes');
 
             $pdo->exec('drop index if exists global.note_types_nook_key_uidx');
             $pdo->exec('drop index if exists note_types_nook_key_uidx');
             $pdo->exec('create unique index if not exists note_types_nook_key_uidx on global.note_types (nook_id, key)');
             $pdo->exec('create index if not exists note_types_nook_id_idx on global.note_types (nook_id)');
             $pdo->exec('create index if not exists note_types_parent_id_idx on global.note_types (parent_id)');
+
+            // Drop legacy card_attributes column (unused)
+            $pdo->exec("alter table global.note_types drop column if exists card_attributes");
+
+            // attribute_layout: panel-based layout for attributes
+            // Format: { "panels": [ { "key": "main", "position": "main", "attributes": ["uuid", ...] }, ... ] }
+            $pdo->exec("alter table global.note_types add column if not exists attribute_layout jsonb");
+
+            // Drop legacy attribute_order column (replaced by attribute_layout)
+            $pdo->exec("alter table global.note_types drop column if exists attribute_order");
+
+            // Config overrides: sub-types can override inherited attribute config
+            // Format: { "<attr_id>": { ...config overrides... } }
+            // Special key "hidden": true hides the inherited attribute from this type
+            $pdo->exec("alter table global.note_types add column if not exists config_overrides jsonb not null default '{}'::jsonb");
+
+            // ─── Type Attributes ────────────────────────────────────────────────────────
+            $pdo->exec("
+                create table if not exists global.type_attributes (
+                    id uuid primary key default gen_random_uuid(),
+                    nook_id uuid not null references global.nooks(id) on delete cascade,
+                    type_id uuid not null references global.note_types(id) on delete cascade,
+                    name text not null,
+                    kind text not null check (kind in ('text', 'number', 'boolean', 'date', 'date_range', 'select', 'multi_select', 'url', 'file', 'graph', 'view', 'linked_notes', 'mentions', 'history', 'toc', 'metadata', 'content')),
+                    config jsonb not null default '{}'::jsonb,
+                    indexed boolean not null default false,
+                    created_at timestamptz not null default now(),
+                    updated_at timestamptz not null default now()
+                );
+            ");
+
+            $pdo->exec('create index if not exists type_attributes_nook_id_idx on global.type_attributes (nook_id)');
+
+            // Add key (slug) column to type_attributes — URL-safe identifier
+            $pdo->exec("alter table global.type_attributes add column if not exists key text");
+            // Backfill: generate key from name for existing rows that have no key
+            $pdo->exec("update global.type_attributes set key = lower(regexp_replace(name, '[^a-zA-Z0-9]+', '-', 'g')) where key is null or key = ''");
+            $pdo->exec("alter table global.type_attributes alter column key set not null");
+            $pdo->exec("alter table global.type_attributes alter column key set default ''");
+            $pdo->exec('drop index if exists global.type_attributes_type_key_uidx');
+            $pdo->exec('create unique index if not exists type_attributes_type_key_uidx on global.type_attributes (type_id, key)');
+
+            // Update kind constraint to include all kinds
+            $pdo->exec("
+                do \$\$ begin
+                    alter table global.type_attributes drop constraint if exists type_attributes_kind_check;
+                    alter table global.type_attributes add constraint type_attributes_kind_check
+                        check (kind in ('text', 'number', 'boolean', 'date', 'date_range', 'select', 'multi_select', 'url', 'file', 'graph', 'view', 'linked_notes', 'mentions', 'history', 'toc', 'metadata', 'content', 'source'));
+                end \$\$;
+            ");
+            $pdo->exec('create index if not exists type_attributes_type_id_idx on global.type_attributes (type_id)');
+            $pdo->exec('create unique index if not exists type_attributes_type_name_uidx on global.type_attributes (type_id, name)');
+
+            // Drop legacy saved_views table (views are now notes with a view attribute)
+            $pdo->exec('drop table if exists global.saved_views');
+
+            // Add attributes + archive JSONB columns on notes
+            $pdo->exec("alter table global.notes add column if not exists attributes jsonb not null default '{}'::jsonb");
+            $pdo->exec("alter table global.notes add column if not exists archive jsonb not null default '{}'::jsonb");
+
+            // safe_numeric function for number attribute indexes
+            $pdo->exec("
+                create or replace function global.safe_numeric(text) returns numeric as \$\$
+                    select case when \$1 ~ '^-?[0-9]+(\.[0-9]+)?\$' then \$1::numeric end
+                \$\$ language sql immutable;
+            ");
 
             // Remove legacy ai-memory note type (replaced by dedicated AI memory nook)
             $pdo->exec("delete from global.note_types where key = 'ai-memory'");
@@ -184,15 +227,13 @@ final class GlobalSchema
                 );
             ");
 
-            $pdo->exec("alter table global.notes add column if not exists type text not null default 'anything'");
-            $pdo->exec("alter table global.notes add column if not exists properties jsonb not null default '{}'::jsonb");
-            $pdo->exec("alter table global.notes add column if not exists former_properties jsonb not null default '{}'::jsonb");
+            // Drop legacy columns
+            $pdo->exec('alter table global.notes drop column if exists type');
+            $pdo->exec('alter table global.notes drop column if exists properties');
+            $pdo->exec('alter table global.notes drop column if exists former_properties');
 
             $pdo->exec('alter table global.notes add column if not exists type_id uuid null references global.note_types(id) on delete set null');
             $pdo->exec('create index if not exists notes_type_id_idx on global.notes (type_id)');
-
-            // Migrate "person" type to "anything" — person is no longer a built-in type
-            $pdo->exec("update global.notes set type = 'anything' where type = 'person'");
 
 
             $pdo->exec(" 
@@ -210,6 +251,30 @@ final class GlobalSchema
             ");
 
             $pdo->exec('create index if not exists note_files_object_key_idx on global.note_files (object_key)');
+
+            // Add attribute_id to note_files for attribute-based file storage
+            $pdo->exec('alter table global.note_files add column if not exists attribute_id uuid null');
+            $pdo->exec('create index if not exists note_files_note_attr_idx on global.note_files (note_id, attribute_id)');
+
+            // File versioning
+            $pdo->exec('alter table global.note_files add column if not exists file_version int not null default 1');
+            $pdo->exec('alter table global.note_files add column if not exists uploaded_by uuid null');
+            $pdo->exec('alter table global.note_files add column if not exists nook_id uuid null');
+
+            // ─── Note Headings (extracted from markdown on save) ────────────────
+            $pdo->exec("
+                create table if not exists global.note_headings (
+                    id bigserial primary key,
+                    nook_id uuid not null references global.nooks(id) on delete cascade,
+                    note_id uuid not null references global.notes(id) on delete cascade,
+                    level smallint not null,
+                    text text not null,
+                    position int not null default 0
+                )
+            ");
+            $pdo->exec('create index if not exists note_headings_note_nook_idx on global.note_headings (note_id, nook_id)');
+            $pdo->exec('create index if not exists note_headings_nook_id_idx on global.note_headings (nook_id)');
+            $pdo->exec("create index if not exists note_headings_text_trgm_idx on global.note_headings using gin (text gin_trgm_ops)");
 
             $pdo->exec(" 
                 create table if not exists global.file_uploads (
@@ -361,7 +426,6 @@ final class GlobalSchema
             $pdo->exec("
                 create table if not exists global.conversations (
                     id          uuid        primary key default gen_random_uuid(),
-                    nook_id     uuid        not null references global.nooks(id) on delete cascade,
                     user_id     uuid        not null references global.users(id) on delete cascade,
                     title       text        not null default '',
                     model       text        not null,
@@ -370,13 +434,11 @@ final class GlobalSchema
                 );
             ");
 
-            $pdo->exec('create index if not exists conversations_nook_user_idx on global.conversations (nook_id, user_id)');
-
-            // Wipe conversations from general nooks (chats now live in AI memory nook)
-            $pdo->exec("
-                delete from global.conversations
-                where nook_id in (select id from global.nooks where purpose = 'general')
-            ");
+            // Conversations were originally per-(nook, user); they are now user-scoped only.
+            // The frontend tracks "current nook" as ephemeral UI state.
+            $pdo->exec('alter table global.conversations drop column if exists nook_id');
+            $pdo->exec('drop index if exists global.conversations_nook_user_idx');
+            $pdo->exec('create index if not exists conversations_user_idx on global.conversations (user_id)');
 
             // Drop legacy conversation_messages table (replaced by conversation_blocks)
             $pdo->exec('drop table if exists global.conversation_messages');
@@ -667,7 +729,7 @@ final class GlobalSchema
                     prev_id bigint null,
                     nook_id uuid null,
                     table_name text not null,
-                    table_id uuid not null,
+                    entity_id uuid not null,
                     action global.audit_action not null,
                     user_id uuid not null,
                     trx_id bigint not null default txid_current(),
@@ -677,13 +739,24 @@ final class GlobalSchema
 
             $pdo->exec('alter table global.audit_meta add column if not exists nook_id uuid null');
             $pdo->exec("alter table global.audit_meta add column if not exists actor text not null default 'user'");
-
             $pdo->exec('alter table global.audit_meta add column if not exists version int not null default 1');
 
-            $pdo->exec('create index if not exists audit_meta_table_id_idx on global.audit_meta (table_name, table_id, id desc)');
+            // Rename table_id → entity_id
+            $pdo->exec("do \$\$ begin
+                if exists (select 1 from information_schema.columns where table_schema = 'global' and table_name = 'audit_meta' and column_name = 'table_id') then
+                    alter table global.audit_meta rename column table_id to entity_id;
+                end if;
+            end \$\$");
+
+            $pdo->exec('drop index if exists global.audit_meta_table_id_idx');
+            $pdo->exec('drop index if exists global.audit_meta_table_version_idx');
+            $pdo->exec('drop index if exists global.audit_meta_table_id_version_idx');
+            $pdo->exec('create index if not exists audit_meta_entity_idx on global.audit_meta (table_name, entity_id, id desc)');
+            $pdo->exec('create index if not exists audit_meta_entity_version_idx on global.audit_meta (table_name, entity_id, version)');
             $pdo->exec('create index if not exists audit_meta_user_id_idx on global.audit_meta (user_id, id desc)');
             $pdo->exec('create index if not exists audit_meta_created_at_idx on global.audit_meta (created_at desc)');
             $pdo->exec('create index if not exists audit_meta_nook_id_idx on global.audit_meta (nook_id, id desc)');
+            $pdo->exec('create index if not exists audit_meta_nook_table_idx on global.audit_meta (nook_id, table_name, id desc)');
 
             // Data table: holds the full row snapshot. Can be pruned for older entries.
             $pdo->exec("
@@ -707,7 +780,7 @@ final class GlobalSchema
 
             // Add history_id to all audited tables
             // Tables with uuid primary key that get full audit tracking.
-            $auditedTables = ['notes', 'note_types', 'note_links', 'note_cross_links', 'link_predicates', 'nooks', 'note_files', 'nook_invitations', 'users'];
+            $auditedTables = ['notes', 'note_types', 'type_attributes', 'note_links', 'note_cross_links', 'link_predicates', 'nooks', 'note_files', 'nook_invitations', 'users'];
 
             // nook_members: add uuid id column so it can be audited
             $pdo->exec("alter table global.nook_members add column if not exists id uuid default gen_random_uuid()");
@@ -752,7 +825,7 @@ final class GlobalSchema
                     v_prev_id bigint;
                     v_meta_id bigint;
                     v_nook_id uuid;
-                    v_table_id uuid;
+                    v_entity_id uuid;
                     v_version int;
                     v_row jsonb;
                 begin
@@ -785,18 +858,18 @@ final class GlobalSchema
 
                     -- Extract table_id (the uuid identifying this row)
                     if TG_TABLE_NAME = 'note_files' then
-                        v_table_id := (v_row ->> 'note_id')::uuid;
+                        v_entity_id := (v_row ->> 'note_id')::uuid;
                     elsif TG_TABLE_NAME = 'link_predicate_rules' then
-                        v_table_id := (v_row ->> 'uuid_id')::uuid;
+                        v_entity_id := (v_row ->> 'uuid_id')::uuid;
                     else
-                        v_table_id := (v_row ->> 'id')::uuid;
+                        v_entity_id := (v_row ->> 'id')::uuid;
                     end if;
 
                     -- Extract nook_id
                     if TG_TABLE_NAME = 'nooks' then
                         v_nook_id := (v_row ->> 'id')::uuid;
                     elsif TG_TABLE_NAME = 'note_files' then
-                        select nook_id into v_nook_id from global.notes where id = v_table_id;
+                        select nook_id into v_nook_id from global.notes where id = v_entity_id;
                     elsif TG_TABLE_NAME = 'link_predicate_rules' then
                         select nook_id into v_nook_id from global.link_predicates where id = (v_row ->> 'predicate_id')::uuid;
                     elsif TG_TABLE_NAME = 'note_cross_links' then
@@ -814,12 +887,12 @@ final class GlobalSchema
                         v_version := OLD.version + 1;
                     end if;
 
-                    insert into global.audit_meta (prev_id, nook_id, table_name, table_id, action, user_id, actor, version)
+                    insert into global.audit_meta (prev_id, nook_id, table_name, entity_id, action, user_id, actor, version)
                     values (
                         v_prev_id,
                         v_nook_id,
                         TG_TABLE_NAME,
-                        v_table_id,
+                        v_entity_id,
                         TG_OP::global.audit_action,
                         v_user_id,
                         v_actor,
@@ -835,7 +908,7 @@ final class GlobalSchema
 
                     -- Populate audit_meta_refs for note-related changes
                     if TG_TABLE_NAME = 'notes' then
-                        insert into global.audit_meta_refs (meta_id, note_id) values (v_meta_id, v_table_id);
+                        insert into global.audit_meta_refs (meta_id, note_id) values (v_meta_id, v_entity_id);
                     elsif TG_TABLE_NAME = 'note_links' then
                         insert into global.audit_meta_refs (meta_id, note_id)
                         values (v_meta_id, (v_row ->> 'source_note_id')::uuid);
@@ -879,6 +952,56 @@ final class GlobalSchema
                         end if;
                     end \$\$;
                 ");
+            }
+            // ── Nook real-time event triggers (pg_notify) ──────────────────────
+            // A single reusable function that fires pg_notify('nook_events', ...)
+            // with the nook_id, event name (passed as trigger arg), table, and row id.
+            $pdo->exec("
+                create or replace function global.notify_nook_event()
+                    returns trigger language plpgsql as \$fn\$
+                begin
+                    perform pg_notify('nook_events', json_build_object(
+                        'nook_id', coalesce(NEW.nook_id, OLD.nook_id),
+                        'event',   TG_ARGV[0],
+                        'table',   TG_TABLE_NAME,
+                        'id',      coalesce(NEW.id, OLD.id),
+                        'version', coalesce(NEW.history_id, OLD.history_id, 0)
+                    )::text);
+                    return coalesce(NEW, OLD);
+                end;
+                \$fn\$;
+            ");
+
+            $nookEventTriggers = [
+                ['notes',           'note_changed',  'notify_notes_nook_event'],
+                ['note_types',      'types_changed',  'notify_note_types_nook_event'],
+                ['type_attributes', 'types_changed',  'notify_type_attrs_nook_event'],
+                ['note_links',      'links_changed',  'notify_note_links_nook_event'],
+            ];
+            foreach ($nookEventTriggers as [$table, $event, $triggerName]) {
+                $pdo->exec("
+                    do \$\$ begin
+                        if not exists (
+                            select 1 from pg_trigger where tgname = '{$triggerName}'
+                            and tgrelid = 'global.{$table}'::regclass
+                        ) then
+                            create trigger {$triggerName}
+                                after insert or update or delete on global.{$table}
+                                for each row execute function global.notify_nook_event('{$event}');
+                        end if;
+                    end \$\$;
+                ");
+            }
+            // ─── Handbook nook seeding ──────────────────────────────────────────────────
+            // Seed/update the handbook nook from the shipped JSON file (if present).
+            // Runs inside the advisory lock so concurrent requests don't race.
+            $handbookPath = __DIR__ . '/../../handbook.zip';
+            if (file_exists($handbookPath)) {
+                try {
+                    \Paith\Notes\Api\Http\Controller\NookImportController::seedHandbook($pdo, $handbookPath);
+                } catch (\Throwable) {
+                    // Non-fatal: app works without handbook
+                }
             }
         } finally {
             $pdo->exec("select pg_advisory_unlock(hashtext('paith_notes_global_schema_ensure'))");

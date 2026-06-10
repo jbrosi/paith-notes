@@ -10,7 +10,6 @@ type SearchResult = {
 	title: string;
 	nook_id: string;
 	nook_name: string;
-	type: string;
 };
 
 export function GlobalSearchDropdown() {

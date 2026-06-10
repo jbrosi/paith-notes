@@ -86,6 +86,27 @@ services:
     expose:
       - "5173"
 
+  events:
+    image: ${EVENTS_IMAGE:-notes-events}
+    build:
+      context: ./app/events
+      target: dev
+    volumes:
+      - ./app/events/src:/app/src
+    ports:
+      - "3002:3002"
+    environment:
+      DATABASE_URL: "postgresql://paith:paith@db:5432/paith"
+      SESSION_SECRET: ${SESSION_SECRET:-}
+      KEYCLOAK_ENABLED: ${KEYCLOAK_ENABLED:-0}
+      KEYCLOAK_BASE_URL: ${KEYCLOAK_BASE_URL:-}
+      KEYCLOAK_REALM: ${KEYCLOAK_REALM:-master}
+      EVENTS_PORT: 3002
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
   worker:
     image: ${WORKER_IMAGE:-notes-worker}
     build:

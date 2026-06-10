@@ -11,6 +11,7 @@ use Paith\Notes\Api\Http\Request;
 use Paith\Notes\Api\Http\Response;
 use Paith\Notes\Shared\Db\Row;
 use PDO;
+use Paith\Notes\Api\Http\Auth\User;
 
 final class NookStatsController
 {
@@ -19,12 +20,9 @@ final class NookStatsController
         $pdo = $context->pdo();
         $user = $context->user();
 
-        $nookId = trim($request->routeParam('nookId'));
-        if ($nookId === '' || !self::isUuid($nookId)) {
-            throw new HttpError('nookId must be a UUID', 400);
-        }
+        $nookId = $request->requireUuidRouteParam('nookId');
 
-        $this->requireMember($pdo, $user, $nookId);
+        NookAccess::requireMember($pdo, $user, $nookId);
 
         $stats = [];
 
@@ -52,11 +50,6 @@ final class NookStatsController
         $stmt->execute([':nook_id' => $nookId]);
         $col = $stmt->fetchColumn();
         $stats['total_mentions'] = is_scalar($col) ? (int) $col : 0;
-
-        $stmt = $pdo->prepare('SELECT count(*) FROM global.conversations WHERE nook_id = :nook_id');
-        $stmt->execute([':nook_id' => $nookId]);
-        $col = $stmt->fetchColumn();
-        $stats['total_conversations'] = is_scalar($col) ? (int) $col : 0;
 
         $stmt = $pdo->prepare(
             'SELECT COALESCE(SUM(nf.filesize), 0)
@@ -131,7 +124,7 @@ final class NookStatsController
         $stats['most_mentioned'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
         // Most viewed by this user (personal frequency)
-        $userId = is_scalar($user['id'] ?? null) ? (string)$user['id'] : '';
+        $userId = $user->id;
         $stmt = $pdo->prepare(
             'SELECT n.id, n.title, SUM(nv.count) AS view_count
              FROM global.note_views nv
@@ -152,14 +145,11 @@ final class NookStatsController
         $pdo = $context->pdo();
         $user = $context->user();
 
-        $nookId = trim($request->routeParam('nookId'));
-        if ($nookId === '' || !self::isUuid($nookId)) {
-            throw new HttpError('nookId must be a UUID', 400);
-        }
+        $nookId = $request->requireUuidRouteParam('nookId');
 
-        $this->requireMember($pdo, $user, $nookId);
+        NookAccess::requireMember($pdo, $user, $nookId);
 
-        $userId = is_scalar($user['id'] ?? null) ? (string)$user['id'] : '';
+        $userId = $user->id;
 
         $stmt = $pdo->prepare(
             'SELECT n.id, n.title, nv.last_seen_at
@@ -192,12 +182,9 @@ final class NookStatsController
         $pdo = $context->pdo();
         $user = $context->user();
 
-        $nookId = trim($request->routeParam('nookId'));
-        if ($nookId === '' || !self::isUuid($nookId)) {
-            throw new HttpError('nookId must be a UUID', 400);
-        }
+        $nookId = $request->requireUuidRouteParam('nookId');
 
-        $this->requireMember($pdo, $user, $nookId);
+        NookAccess::requireMember($pdo, $user, $nookId);
 
         $limitRaw = $request->queryParam('limit');
         $limit = min(50, max(1, $limitRaw !== '' ? (int)$limitRaw : 30));
@@ -236,24 +223,5 @@ final class NookStatsController
         }
 
         return JsonResponse::ok(['notes' => $notes]);
-    }
-
-    private static function isUuid(string $value): bool
-    {
-        return (bool) preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $value);
-    }
-
-    private function requireMember(PDO $pdo, array $user, string $nookId): void
-    {
-        $userId = is_scalar($user['id'] ?? null) ? (string) $user['id'] : '';
-        if ($userId === '') {
-            throw new HttpError('invalid user', 500);
-        }
-        $stmt = $pdo->prepare('SELECT role FROM global.nook_members WHERE nook_id = :nook_id AND user_id = :user_id');
-        $stmt->execute([':nook_id' => $nookId, ':user_id' => $userId]);
-        $role = $stmt->fetchColumn();
-        if (!is_string($role) || $role === '') {
-            throw new HttpError('forbidden', 403);
-        }
     }
 }

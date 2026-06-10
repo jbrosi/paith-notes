@@ -8,10 +8,15 @@ final class JsonResponse implements Response
 {
     private int $statusCode;
 
+    /** @var array<string, string> */
     private array $headers;
 
     private string $body;
 
+    /**
+     * @param array<string, mixed> $payload
+     * @param array<string, string> $headers
+     */
     public function __construct(int $statusCode, array $payload, array $headers = [])
     {
         $this->statusCode = $statusCode;
@@ -20,6 +25,9 @@ final class JsonResponse implements Response
         $this->body = (string)json_encode($payload, JSON_UNESCAPED_SLASHES);
     }
 
+    /**
+     * @param array<string, mixed> $payload
+     */
     public static function ok(array $payload, int $statusCode = 200): self
     {
         if (!array_key_exists('status', $payload)) {
@@ -28,6 +36,9 @@ final class JsonResponse implements Response
         return new self($statusCode, $payload);
     }
 
+    /**
+     * @param array<string, mixed> $extra
+     */
     public static function error(string $message, int $statusCode = 500, array $extra = []): self
     {
         $payload = ['status' => 'error', 'error' => $message] + $extra;
@@ -39,6 +50,7 @@ final class JsonResponse implements Response
         return $this->statusCode;
     }
 
+    /** @return array<string, string> */
     public function headers(): array
     {
         return $this->headers;
