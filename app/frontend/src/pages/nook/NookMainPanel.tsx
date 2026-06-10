@@ -12,16 +12,16 @@ import { Button } from "../../components/Button";
 import { MarkdownView } from "../../components/MarkdownView";
 import { useUi } from "../../ui/UiContext";
 import notesStyles from "../Notes.module.css";
-import { EditorSection } from "./components/EditorSection";
-import { FilePanel } from "./components/FilePanel";
+import { NoteAttributeFields } from "./components/NoteAttributeFields";
 import { TitleSection } from "./components/TitleSection";
-import { NookEmbeddedGraph } from "./NookEmbeddedGraph";
 import { NookToolbar } from "./NookToolbar";
 import type { NookStore } from "./store";
 import { UnsavedChangesDialog } from "./UnsavedChangesDialog";
 
 export type NookMainPanelProps = {
 	store: NookStore;
+	/** When set, only render attributes assigned to this panel key */
+	panelFilter?: string;
 };
 
 export function NookMainPanel(props: NookMainPanelProps) {
@@ -121,21 +121,39 @@ export function NookMainPanel(props: NookMainPanelProps) {
 									(read-only)
 								</span>
 							</div>
-							<Button
-								variant="secondary"
-								size="small"
-								onClick={() => {
-									const nook = store().nookId();
-									const noteId = store().selectedId();
-									if (nook && noteId) {
-										navigate(
-											`/nooks/${encodeURIComponent(nook)}/notes/${encodeURIComponent(noteId)}`,
-										);
-									}
-								}}
-							>
-								Back to current
-							</Button>
+							<div style={{ display: "flex", gap: "4px" }}>
+								<Button
+									variant="secondary"
+									size="small"
+									onClick={() => {
+										const nook = store().nookId();
+										const noteId = store().selectedId();
+										if (nook && noteId) {
+											navigate(
+												`/nooks/${encodeURIComponent(nook)}/notes/${encodeURIComponent(noteId)}`,
+											);
+										}
+									}}
+								>
+									Back to current
+								</Button>
+								<Button
+									variant="secondary"
+									size="small"
+									onClick={() => {
+										const nook = store().nookId();
+										const noteId = store().selectedId();
+										const ver = snapshot()?.version;
+										if (nook && noteId && ver) {
+											navigate(
+												`/nooks/${encodeURIComponent(nook)}/notes/${encodeURIComponent(noteId)}/compare/${ver}`,
+											);
+										}
+									}}
+								>
+									Compare with current
+								</Button>
+							</div>
 						</div>
 						<h1
 							style={{
@@ -147,7 +165,19 @@ export function NookMainPanel(props: NookMainPanelProps) {
 						>
 							{snapshot()?.title || "(untitled)"}
 						</h1>
-						<MarkdownView content={snapshot()?.content ?? ""} />
+						<NoteAttributeFields
+							store={store()}
+							typeIdOverride={snapshot()?.typeId}
+							valuesOverride={snapshot()?.attributes}
+							readonly
+							panelFilter={props.panelFilter}
+						/>
+						<MarkdownView
+							content={snapshot()?.content ?? ""}
+							resolveEmbeddedImageSrc={(id) =>
+								store().resolveEmbeddedImageSrc(id)
+							}
+						/>
 					</div>
 				}
 			>
@@ -194,7 +224,12 @@ export function NookMainPanel(props: NookMainPanelProps) {
 							</div>
 						</div>
 					</Show>
-					<Show when={store().noteHasUpdate() && !conflict()}>
+					<Show
+						when={
+							(store().noteHasUpdate() || store().remoteNoteChanged()) &&
+							!conflict()
+						}
+					>
 						<div
 							style={{
 								padding: "8px 12px",
@@ -208,14 +243,25 @@ export function NookMainPanel(props: NookMainPanelProps) {
 								"justify-content": "space-between",
 							}}
 						>
-							<span>This note has been updated.</span>
-							<Button
-								variant="secondary"
-								size="small"
-								onClick={() => store().refreshCurrentNote()}
-							>
-								Reload
-							</Button>
+							<span>This note has been updated by someone else.</span>
+							<div style={{ display: "flex", gap: "4px" }}>
+								<Button
+									variant="secondary"
+									size="small"
+									onClick={() => store().refreshCurrentNote()}
+								>
+									Reload
+								</Button>
+								<Show when={store().remoteNoteChanged()}>
+									<Button
+										variant="secondary"
+										size="small"
+										onClick={() => store().dismissRemoteNoteChanged()}
+									>
+										Dismiss
+									</Button>
+								</Show>
+							</div>
 						</div>
 					</Show>
 					<Show when={store().noteViewers().length > 0}>
@@ -267,11 +313,10 @@ export function NookMainPanel(props: NookMainPanelProps) {
 					</div>
 
 					<TitleSection store={store()} />
-					<FilePanel store={store()} />
-					<Show when={store().type() === "graph"}>
-						<NookEmbeddedGraph store={store()} />
-					</Show>
-					<EditorSection store={store()} />
+					<NoteAttributeFields
+						store={store()}
+						panelFilter={props.panelFilter}
+					/>
 				</div>
 			</Show>
 		</>

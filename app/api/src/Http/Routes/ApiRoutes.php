@@ -9,7 +9,6 @@ use Paith\Notes\Api\Http\Controller\AuthController;
 use Paith\Notes\Api\Http\Controller\SearchController;
 use Paith\Notes\Api\Http\Controller\ChatController;
 use Paith\Notes\Api\Http\Controller\ConversationsController;
-use Paith\Notes\Api\Http\Controller\FileNotesController;
 use Paith\Notes\Api\Http\Controller\FilesController;
 use Paith\Notes\Api\Http\Controller\HealthController;
 use Paith\Notes\Api\Http\Controller\LinkPredicatesController;
@@ -17,8 +16,11 @@ use Paith\Notes\Api\Http\Controller\MeController;
 use Paith\Notes\Api\Http\Controller\Module1Controller;
 use Paith\Notes\Api\Http\Controller\InvitationsController;
 use Paith\Notes\Api\Http\Controller\NookStatsController;
+use Paith\Notes\Api\Http\Controller\AttributeFilesController;
 use Paith\Notes\Api\Http\Controller\NoteTypesController;
+use Paith\Notes\Api\Http\Controller\TypeAttributesController;
 use Paith\Notes\Api\Http\Controller\NoteLinksController;
+use Paith\Notes\Api\Http\Controller\NookExportController;
 use Paith\Notes\Api\Http\Controller\NooksController;
 use Paith\Notes\Api\Http\Controller\NotesController;
 use Paith\Notes\Api\Http\Middleware\RequireGroup;
@@ -64,8 +66,10 @@ final class ApiRoutes
         $r->get('/search', [SearchController::class, 'search']);
         $r->get('/me/activity', [ActivityController::class, 'myActivity']);
         $r->get('/me/events', [ActivityController::class, 'myEvents']);
+        $r->get('/me/conversations/export', [ConversationsController::class, 'exportMine']);
         $r->get('/nooks', [NooksController::class, 'list']);
         $r->get('/nooks/ai-memory', [NooksController::class, 'aiMemory']);
+        $r->get('/nooks/handbook', [NooksController::class, 'handbook']);
         $r->post('/nooks', [NooksController::class, 'create']);
         $r->add('PUT', '/nooks/{nookId}', [NooksController::class, 'update']);
         $r->get('/nooks/{nookId}/preferences', [NooksController::class, 'getPreferences']);
@@ -85,6 +89,7 @@ final class ApiRoutes
         $r->post('/me/invitations/{invId}/decline', [InvitationsController::class, 'declineInvitation']);
         $r->post('/me/revocations/{revId}/dismiss', [InvitationsController::class, 'dismissRevocation']);
 
+        $r->get('/nooks/{nookId}/export', [NookExportController::class, 'export']);
         $r->get('/nooks/{nookId}/activity', [ActivityController::class, 'nookActivity']);
         $r->get('/nooks/{nookId}/stats', [NookStatsController::class, 'stats']);
         $r->get('/nooks/{nookId}/unlinked-notes', [NookStatsController::class, 'unlinkedNotes']);
@@ -94,6 +99,11 @@ final class ApiRoutes
         $r->add('PUT', '/nooks/{nookId}/note-types/{typeId}', [NoteTypesController::class, 'update']);
         $r->add('DELETE', '/nooks/{nookId}/note-types/{typeId}', [NoteTypesController::class, 'delete']);
         $r->get('/nooks/{nookId}/note-types/{typeId}/notes', [NoteTypesController::class, 'notes']);
+
+        $r->get('/nooks/{nookId}/note-types/{typeId}/attributes', [TypeAttributesController::class, 'list']);
+        $r->post('/nooks/{nookId}/note-types/{typeId}/attributes', [TypeAttributesController::class, 'create']);
+        $r->add('PUT', '/nooks/{nookId}/note-types/{typeId}/attributes/{attributeId}', [TypeAttributesController::class, 'update']);
+        $r->add('DELETE', '/nooks/{nookId}/note-types/{typeId}/attributes/{attributeId}', [TypeAttributesController::class, 'delete']);
 
         $r->get('/nooks/{nookId}/link-predicates', [LinkPredicatesController::class, 'list']);
         $r->post('/nooks/{nookId}/link-predicates', [LinkPredicatesController::class, 'create']);
@@ -107,9 +117,11 @@ final class ApiRoutes
         $r->post('/nooks/{nookId}/notes', [NotesController::class, 'create']);
         $r->add('PUT', '/nooks/{nookId}/notes/{noteId}', [NotesController::class, 'update']);
         $r->add('DELETE', '/nooks/{nookId}/notes/{noteId}', [NotesController::class, 'delete']);
+        $r->get('/nooks/{nookId}/notes/{noteId}/summary', [NotesController::class, 'summary']);
         $r->get('/nooks/{nookId}/notes/{noteId}/mentions', [NotesController::class, 'mentions']);
         $r->get('/nooks/{nookId}/notes/{noteId}/presence', [NotesController::class, 'presence']);
         $r->get('/nooks/{nookId}/notes/{noteId}/history', [NotesController::class, 'history']);
+        $r->get('/nooks/{nookId}/notes/{noteId}/diff', [NotesController::class, 'diff']);
         $r->get('/nooks/{nookId}/notes/{noteId}/history/{historyId}', [NotesController::class, 'historySnapshot']);
 
         $r->get('/nooks/{nookId}/notes/{noteId}/links', [NoteLinksController::class, 'list']);
@@ -117,18 +129,20 @@ final class ApiRoutes
         $r->add('DELETE', '/nooks/{nookId}/notes/{noteId}/links/{linkId}', [NoteLinksController::class, 'delete']);
 
 
-        $r->post('/nooks/{nookId}/notes/{noteId}/file/upload-url', [FileNotesController::class, 'fileUploadUrl']);
-        $r->post('/nooks/{nookId}/notes/{noteId}/file/finalize', [FileNotesController::class, 'fileFinalize']);
-        $r->get('/nooks/{nookId}/notes/{noteId}/file/download-url', [FileNotesController::class, 'fileDownloadUrl']);
-
-        $r->post('/nooks/{nookId}/file/upload-url', [FileNotesController::class, 'fileUploadUrlInit']);
-        $r->post('/nooks/{nookId}/file/finalize', [FileNotesController::class, 'fileFinalizeCreateNote']);
+        // Attribute-based file endpoints
+        $r->post('/nooks/{nookId}/notes/{noteId}/attributes/{attributeId}/file/upload-url', [AttributeFilesController::class, 'uploadUrl']);
+        $r->post('/nooks/{nookId}/notes/{noteId}/attributes/{attributeId}/file/finalize', [AttributeFilesController::class, 'finalize']);
+        $r->get('/nooks/{nookId}/notes/{noteId}/attributes/{attributeId}/file/download-url', [AttributeFilesController::class, 'downloadUrl']);
+        $r->post('/nooks/{nookId}/file/attr-upload-url', [AttributeFilesController::class, 'uploadUrlInit']);
+        $r->post('/nooks/{nookId}/file/attr-finalize', [AttributeFilesController::class, 'finalizeCreateNote']);
 
         $r->use('/conversations', new RequireUser());
         $r->use('/conversations', new RequireGroup('paith/notes/'));
 
         $r->get('/conversations', [ConversationsController::class, 'list']);
         $r->post('/conversations', [ConversationsController::class, 'create']);
+        $r->add('DELETE', '/conversations', [ConversationsController::class, 'deleteAll']);
+        $r->add('DELETE', '/conversations/{conversationId}', [ConversationsController::class, 'delete']);
         $r->get('/conversations/{conversationId}/messages', [ConversationsController::class, 'listMessages']);
         $r->post('/conversations/{conversationId}/messages', [ConversationsController::class, 'appendMessages']);
         $r->post('/conversations/{conversationId}/note-links', [ConversationsController::class, 'createNoteLink']);

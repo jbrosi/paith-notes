@@ -11,6 +11,7 @@ use Paith\Notes\Api\Http\Auth\KeycloakOAuth;
 use Paith\Notes\Api\Http\Auth\OAuthTokenRefresher;
 use Paith\Notes\Api\Http\Auth\SessionCrypto;
 use Paith\Notes\Api\Http\Auth\SessionStore;
+use Paith\Notes\Api\Http\Auth\User;
 use Paith\Notes\Api\Http\Context;
 use Paith\Notes\Api\Http\HttpError;
 use Paith\Notes\Api\Http\Middleware;
@@ -19,6 +20,8 @@ use Paith\Notes\Api\Http\Response;
 use PDO;
 use RuntimeException;
 use Throwable;
+use Paith\Notes\Shared\Uuid;
+use Paith\Notes\Shared\Db\Row;
 
 final class RequireUser implements Middleware
 {
@@ -55,6 +58,7 @@ final class RequireUser implements Middleware
         return (string)getenv('DEBUG_AUTH') === '1';
     }
 
+    /** @param array<string, mixed> $data */
     private static function debugLog(string $message, array $data = []): void
     {
         if (!self::debugEnabled()) {
@@ -74,6 +78,7 @@ final class RequireUser implements Middleware
             ]);
             $jwt = '';
             $sid = '';
+            /** @var array<string, mixed>|null $sessionPayload */
             $sessionPayload = null;
 
             $cookieHeader = $request->header('Cookie');
@@ -89,8 +94,8 @@ final class RequireUser implements Middleware
                         $payloadJson = $crypto->decrypt($session['token_encrypted']);
                         $payload = json_decode($payloadJson, true);
                         if (is_array($payload)) {
-                            $sessionPayload = $payload;
-                            $access = $payload['access_token'] ?? '';
+                            $sessionPayload = Row::stringKeyed($payload);
+                            $access = $sessionPayload['access_token'] ?? '';
                             if (is_string($access) && trim($access) !== '') {
                                 $jwt = trim($access);
                                 SessionStore::touchSession($pdo, $sid);
@@ -246,7 +251,7 @@ final class RequireUser implements Middleware
                 throw new HttpError('X-Nook-User header is required', 401);
             }
 
-            if (!self::isUuid($id)) {
+            if (!Uuid::isValid($id)) {
                 throw new HttpError('X-Nook-User must be a UUID', 400);
             }
 
@@ -271,7 +276,8 @@ final class RequireUser implements Middleware
      * endpoint simultaneously. If another request already refreshed the token while we
      * were waiting for the lock, we use the already-fresh token without calling Keycloak again.
      *
-     * @return array The verified JWT claims from the (possibly refreshed) access token.
+     * @param  array<string, mixed> $sessionPayload
+     * @return array<string, mixed>  The verified JWT claims from the (possibly refreshed) access token.
      * @throws RuntimeException|\Throwable on any unrecoverable error (caller converts to HttpError).
      */
     private function refreshIfNeeded(PDO $pdo, string $sid, array $sessionPayload): array
@@ -344,7 +350,10 @@ final class RequireUser implements Middleware
         }
     }
 
-    public function findOrCreateUserFromKeycloak(PDO $pdo, array $claims): array
+    /**
+     * @param array<string, mixed> $claims
+     */
+    public function findOrCreateUserFromKeycloak(PDO $pdo, array $claims): User
     {
         $sub = $claims['sub'] ?? '';
         if (!is_string($sub) || $sub === '') {
@@ -463,7 +472,7 @@ final class RequireUser implements Middleware
                     $existing = $created;
                 }
 
-                $userId = is_scalar($existing['id'] ?? null) ? (string)$existing['id'] : '';
+                $userId = Row::str($existing, 'id');
                 if ($didCreate && $userId !== '') {
                     $this->ensurePersonalNook($pdo, $userId);
                 }
@@ -482,7 +491,7 @@ final class RequireUser implements Middleware
         }
 
         // Ensure AI memory nook exists for all users (idempotent, runs outside user-creation transaction)
-        $existingUserId = is_scalar($existing['id'] ?? null) ? (string)$existing['id'] : '';
+        $existingUserId = Row::str($existing, 'id');
         if ($existingUserId !== '') {
             if (!$pdo->inTransaction()) {
                 $pdo->beginTransaction();
@@ -500,11 +509,20 @@ final class RequireUser implements Middleware
             }
         }
 
-        $dbId = is_scalar($existing['id'] ?? null) ? (string)$existing['id'] : '';
-        $dbFirst = is_scalar($existing['first_name'] ?? null) ? (string)$existing['first_name'] : '';
-        $dbLast = is_scalar($existing['last_name'] ?? null) ? (string)$existing['last_name'] : '';
-        $dbUsername = is_scalar($existing['username'] ?? null) ? (string)$existing['username'] : '';
-        $dbEmail = is_scalar($existing['email'] ?? null) ? (string)$existing['email'] : '';
+        // Ensure handbook nook membership (idempotent, non-fatal)
+        if ($existingUserId !== '') {
+            try {
+                \Paith\Notes\Api\Http\Controller\NookImportController::ensureHandbookMember($pdo, $existingUserId);
+            } catch (Throwable) {
+                // Non-fatal: user can still proceed without handbook access
+            }
+        }
+
+        $dbId = Row::str($existing, 'id');
+        $dbFirst = Row::str($existing, 'first_name');
+        $dbLast = Row::str($existing, 'last_name');
+        $dbUsername = Row::str($existing, 'username');
+        $dbEmail = Row::str($existing, 'email');
         $dbEmailVerified = (bool)($existing['email_verified'] ?? false);
 
         $newFirst = $firstName !== '' ? $firstName : $dbFirst;
@@ -531,33 +549,29 @@ final class RequireUser implements Middleware
             ':sub' => $sub,
         ]);
 
-        return [
-            'id' => $dbId,
-            'first_name' => $newFirst,
-            'last_name' => $newLast,
-            'username' => $newUsername,
-            'email' => $newEmail,
-            'email_verified' => $newEmailVerified,
-            'keycloak_sub' => $sub,
-            'groups' => $groups,
-        ];
+        return new User(
+            id: $dbId,
+            firstName: $newFirst,
+            lastName: $newLast,
+            username: $newUsername,
+            email: $newEmail,
+            emailVerified: $newEmailVerified,
+            keycloakSub: $sub,
+            groups: $groups,
+        );
     }
 
-    private function findOrCreateUser(PDO $pdo, string $id): array
+    private function findOrCreateUser(PDO $pdo, string $id): User
     {
         $stmt = $pdo->prepare('select id, first_name, last_name from global.users where id = :id');
         $stmt->execute([':id' => $id]);
         $user = $stmt->fetch(PDO::FETCH_ASSOC);
         if (is_array($user)) {
-            $dbId = $user['id'] ?? '';
-            $dbFirst = $user['first_name'] ?? '';
-            $dbLast = $user['last_name'] ?? '';
-
-            return [
-                'id' => is_scalar($dbId) ? (string)$dbId : '',
-                'first_name' => is_scalar($dbFirst) ? (string)$dbFirst : '',
-                'last_name' => is_scalar($dbLast) ? (string)$dbLast : '',
-            ];
+            return new User(
+                id: Row::str($user, 'id'),
+                firstName: Row::str($user, 'first_name'),
+                lastName: Row::str($user, 'last_name'),
+            );
         }
 
         [$first, $last] = self::randomName();
@@ -599,11 +613,11 @@ final class RequireUser implements Middleware
 
             $pdo->commit();
 
-            return [
-                'id' => $id,
-                'first_name' => is_scalar($created['first_name'] ?? null) ? (string)$created['first_name'] : '',
-                'last_name' => is_scalar($created['last_name'] ?? null) ? (string)$created['last_name'] : '',
-            ];
+            return new User(
+                id: $id,
+                firstName: Row::str($created, 'first_name'),
+                lastName: Row::str($created, 'last_name'),
+            );
         } catch (Throwable $e) {
             if ($pdo->inTransaction()) {
                 $pdo->rollBack();
@@ -612,14 +626,7 @@ final class RequireUser implements Middleware
         }
     }
 
-    private static function isUuid(string $value): bool
-    {
-        return (bool)preg_match(
-            '/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i',
-            $value
-        );
-    }
-
+    /** @return array{0: string, 1: string} */
     private static function randomName(): array
     {
         $first = [

@@ -778,6 +778,50 @@ export function Nav() {
 					</Show>
 				</div>
 				<Show when={auth.ready() && auth.authenticated()}>
+					<button
+						type="button"
+						onClick={() => ui.toggleDebugMode()}
+						aria-pressed={ui.debugMode()}
+						title={ui.debugMode() ? "Disable debug mode" : "Enable debug mode"}
+						style={{
+							background: "none",
+							border: "none",
+							cursor: "pointer",
+							padding: "4px",
+							"border-radius": "4px",
+							opacity: ui.debugMode() ? "1" : "0.35",
+							color: ui.debugMode()
+								? "var(--color-warning, #f59e0b)"
+								: "currentColor",
+							display: "flex",
+							"align-items": "center",
+							transition: "opacity 0.15s, color 0.15s",
+						}}
+					>
+						<svg
+							width="16"
+							height="16"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="2"
+							stroke-linecap="round"
+							stroke-linejoin="round"
+							role="img"
+							aria-labelledby="nav-debug-toggle-title"
+						>
+							<title id="nav-debug-toggle-title">Debug mode</title>
+							<path d="M12 2a4 4 0 0 0-4 4v2H6a2 2 0 0 0-2 2v1h4" />
+							<path d="M18 8h-2V6a4 4 0 0 0-4-4" />
+							<path d="M20 10a2 2 0 0 0-2-2h0v1" />
+							<rect x="8" y="10" width="8" height="10" rx="4" />
+							<path d="M2 14h4" />
+							<path d="M18 14h4" />
+							<path d="M2 18h4" />
+							<path d="M18 18h4" />
+							<path d="M12 10v10" />
+						</svg>
+					</button>
 					<Button
 						variant={ui.chatPanelOpen() ? "primary" : "secondary"}
 						size="small"
@@ -1009,12 +1053,16 @@ export function Nav() {
 									</span>
 									<span class={styles.hideOnMobile}>
 										<Button
-											variant={ui.graphPanelOpen() ? "primary" : "secondary"}
+											variant={ui.sidebarLeftOpen() ? "primary" : "secondary"}
 											size="small"
 											class={styles.iconButton}
-											onClick={() => ui.toggleGraphPanel()}
-											aria-pressed={ui.graphPanelOpen()}
-											title={ui.graphPanelOpen() ? "Hide graph" : "Show graph"}
+											onClick={() => ui.toggleSidebarLeft()}
+											aria-pressed={ui.sidebarLeftOpen()}
+											title={
+												ui.sidebarLeftOpen()
+													? "Hide left sidebar"
+													: "Show left sidebar"
+											}
 										>
 											<svg
 												aria-hidden="true"
@@ -1027,12 +1075,37 @@ export function Nav() {
 												stroke-linecap="round"
 												stroke-linejoin="round"
 											>
-												<circle cx="6" cy="6" r="2" />
-												<circle cx="18" cy="6" r="2" />
-												<circle cx="12" cy="18" r="2" />
-												<path d="M8 7.5 L16 7.5" />
-												<path d="M7 8.5 L11 16" />
-												<path d="M17 8.5 L13 16" />
+												<rect x="3" y="3" width="18" height="18" rx="2" />
+												<path d="M9 3 L9 21" />
+											</svg>
+										</Button>
+									</span>
+									<span class={styles.hideOnMobile}>
+										<Button
+											variant={ui.sidebarRightOpen() ? "primary" : "secondary"}
+											size="small"
+											class={styles.iconButton}
+											onClick={() => ui.toggleSidebarRight()}
+											aria-pressed={ui.sidebarRightOpen()}
+											title={
+												ui.sidebarRightOpen()
+													? "Hide right sidebar"
+													: "Show right sidebar"
+											}
+										>
+											<svg
+												aria-hidden="true"
+												width="16"
+												height="16"
+												viewBox="0 0 24 24"
+												fill="none"
+												stroke="currentColor"
+												stroke-width="2"
+												stroke-linecap="round"
+												stroke-linejoin="round"
+											>
+												<rect x="3" y="3" width="18" height="18" rx="2" />
+												<path d="M15 3 L15 21" />
 											</svg>
 										</Button>
 									</span>
@@ -1044,39 +1117,21 @@ export function Nav() {
 												size="small"
 												title="Switch panel"
 											>
-												{
-													{
-														content: "Note",
-														links: "Links",
-														history: "History",
-														graph: "Graph",
-														markdown: "MD",
-													}[ui.activePanel()]
-												}{" "}
+												{ui.activePanel()}{" "}
 												<span style={{ "font-size": "0.6rem", opacity: "0.6" }}>
 													▾
 												</span>
 											</Button>
 											<div class={styles.overflowContent}>
-												{(
-													[
-														["content", "Note"],
-														["links", "Links & Mentions"],
-														["history", "History"],
-														["graph", "Graph"],
-														["markdown", "Markdown Source"],
-													] as const
-												).map(([panel, label]) => (
+												{ui.mobilePanels().map((panel) => (
 													<button
 														type="button"
 														class={`${styles.overflowItem} ${ui.activePanel() === panel ? styles.overflowItemActive : ""}`}
 														onClick={() => {
-															if (panel === "graph") ui.setGraphPanelOpen(true);
-
 															ui.setActivePanel(panel);
 														}}
 													>
-														{label}
+														{panel}
 													</button>
 												))}
 											</div>

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Paith\Notes\Api\Http\Controller;
 
+use Paith\Notes\Api\Http\Auth\User;
 use Paith\Notes\Api\Http\Context;
 use Paith\Notes\Api\Http\HttpError;
 use Paith\Notes\Api\Http\JsonResponse;
@@ -11,6 +12,13 @@ use Paith\Notes\Api\Http\Request;
 use Paith\Notes\Api\Http\Response;
 use PDO;
 use Throwable;
+use Paith\Notes\Shared\Db\Row;
+use Paith\Notes\Shared\Db\Rows\NookInvitationGuestRow;
+use Paith\Notes\Shared\Db\Rows\NookInvitationOwnerRow;
+use Paith\Notes\Shared\Db\Rows\NookMemberRow;
+use Paith\Notes\Shared\Db\Rows\NookRevocationRow;
+use Paith\Notes\Api\Http\Dto\InviteRequest;
+use Paith\Notes\Api\Http\Dto\JsonReader;
 
 final class InvitationsController
 {
@@ -21,23 +29,11 @@ final class InvitationsController
         $pdo = $context->pdo();
         $user = $context->user();
 
-        $nookId = trim($request->routeParam('nookId'));
-        if ($nookId === '' || !NookAccess::isUuid($nookId)) {
-            throw new HttpError('nookId must be a UUID', 400);
-        }
+        $nookId = $request->requireUuidRouteParam('nookId');
 
         NookAccess::requireOwner($pdo, $user, $nookId);
 
-        $data = $request->jsonBody();
-        $email = is_string($data['email'] ?? null) ? trim(strtolower($data['email'])) : '';
-        if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
-            throw new HttpError('a valid email is required', 400);
-        }
-
-        $roleRaw = is_string($data['role'] ?? null) ? trim($data['role']) : 'readonly';
-        if (!in_array($roleRaw, ['readonly', 'readwrite'], true)) {
-            throw new HttpError('role must be readonly or readwrite', 400);
-        }
+        $payload = InviteRequest::fromJson($request->jsonBody());
 
         // Check if email is already a member
         $memberCheck = $pdo->prepare("
@@ -46,7 +42,7 @@ final class InvitationsController
             where nm.nook_id = :nook_id and lower(u.email) = :email
             limit 1
         ");
-        $memberCheck->execute([':nook_id' => $nookId, ':email' => $email]);
+        $memberCheck->execute([':nook_id' => $nookId, ':email' => $payload->email]);
         if ($memberCheck->fetch()) {
             throw new HttpError('this user is already a member of this nook', 409);
         }
@@ -59,9 +55,9 @@ final class InvitationsController
         ");
         $stmt->execute([
             ':nook_id' => $nookId,
-            ':email' => $email,
-            ':role' => $roleRaw,
-            ':invited_by' => $user['id'],
+            ':email' => $payload->email,
+            ':role' => $payload->role,
+            ':invited_by' => $user->id,
         ]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
         if (!is_array($row)) {
@@ -70,11 +66,11 @@ final class InvitationsController
 
         return JsonResponse::ok([
             'invitation' => [
-                'id' => is_scalar($row['id'] ?? null) ? (string) $row['id'] : '',
+                'id' => Row::str($row, 'id'),
                 'nook_id' => $nookId,
-                'invited_email' => $email,
-                'role' => $roleRaw,
-                'created_at' => is_scalar($row['created_at'] ?? null) ? (string) $row['created_at'] : '',
+                'invited_email' => $payload->email,
+                'role' => $payload->role,
+                'created_at' => Row::str($row, 'created_at'),
             ],
         ]);
     }
@@ -84,10 +80,7 @@ final class InvitationsController
         $pdo = $context->pdo();
         $user = $context->user();
 
-        $nookId = trim($request->routeParam('nookId'));
-        if ($nookId === '' || !NookAccess::isUuid($nookId)) {
-            throw new HttpError('nookId must be a UUID', 400);
-        }
+        $nookId = $request->requireUuidRouteParam('nookId');
 
         NookAccess::requireOwner($pdo, $user, $nookId);
 
@@ -108,23 +101,7 @@ final class InvitationsController
             if (!is_array($r)) {
                 continue;
             }
-
-            $acceptedAt = $r['accepted_at'] ?? null;
-            $declinedAt = $r['declined_at'] ?? null;
-            $status = is_scalar($acceptedAt) ? 'accepted'
-                : (is_scalar($declinedAt) ? 'declined' : 'pending');
-
-            $firstName = is_scalar($r['inviter_first_name'] ?? null) ? (string) $r['inviter_first_name'] : '';
-            $lastName = is_scalar($r['inviter_last_name'] ?? null) ? (string) $r['inviter_last_name'] : '';
-
-            $invitations[] = [
-                'id' => is_scalar($r['id'] ?? null) ? (string) $r['id'] : '',
-                'invited_email' => is_scalar($r['invited_email'] ?? null) ? (string) $r['invited_email'] : '',
-                'role' => is_scalar($r['role'] ?? null) ? (string) $r['role'] : '',
-                'status' => $status,
-                'inviter_name' => trim($firstName . ' ' . $lastName),
-                'created_at' => is_scalar($r['created_at'] ?? null) ? (string) $r['created_at'] : '',
-            ];
+            $invitations[] = NookInvitationOwnerRow::fromRow($r)->toArray();
         }
 
         return JsonResponse::ok(['invitations' => $invitations]);
@@ -135,14 +112,10 @@ final class InvitationsController
         $pdo = $context->pdo();
         $user = $context->user();
 
-        $nookId = trim($request->routeParam('nookId'));
-        $invId = trim($request->routeParam('invId'));
-        if ($nookId === '' || !NookAccess::isUuid($nookId)) {
-            throw new HttpError('nookId must be a UUID', 400);
-        }
-        if ($invId === '' || !NookAccess::isUuid($invId)) {
-            throw new HttpError('invId must be a UUID', 400);
-        }
+        $nookId = $request->requireUuidRouteParam('nookId');
+
+
+        $invId = $request->requireUuidRouteParam('invId');
 
         NookAccess::requireOwner($pdo, $user, $nookId);
 
@@ -157,18 +130,14 @@ final class InvitationsController
         $pdo = $context->pdo();
         $user = $context->user();
 
-        $nookId = trim($request->routeParam('nookId'));
-        $memberId = trim($request->routeParam('userId'));
-        if ($nookId === '' || !NookAccess::isUuid($nookId)) {
-            throw new HttpError('nookId must be a UUID', 400);
-        }
-        if ($memberId === '' || !NookAccess::isUuid($memberId)) {
-            throw new HttpError('userId must be a UUID', 400);
-        }
+        $nookId = $request->requireUuidRouteParam('nookId');
+
+
+        $memberId = $request->requireUuidRouteParam('userId');
 
         NookAccess::requireOwner($pdo, $user, $nookId);
 
-        $userId = is_scalar($user['id'] ?? null) ? (string) $user['id'] : '';
+        $userId = $user->id;
         if ($memberId === $userId) {
             throw new HttpError('you cannot revoke your own access', 400);
         }
@@ -190,7 +159,7 @@ final class InvitationsController
             $nookStmt = $pdo->prepare('select name from global.nooks where id = :id');
             $nookStmt->execute([':id' => $nookId]);
             $nookRow = $nookStmt->fetch(PDO::FETCH_ASSOC);
-            $nookName = is_array($nookRow) && is_scalar($nookRow['name'] ?? null) ? (string) $nookRow['name'] : '';
+            $nookName = is_array($nookRow) ? Row::str($nookRow, 'name') : '';
 
             // Remove membership
             $del = $pdo->prepare('delete from global.nook_members where nook_id = :nook_id and user_id = :user_id');
@@ -224,10 +193,7 @@ final class InvitationsController
         $pdo = $context->pdo();
         $user = $context->user();
 
-        $nookId = trim($request->routeParam('nookId'));
-        if ($nookId === '' || !NookAccess::isUuid($nookId)) {
-            throw new HttpError('nookId must be a UUID', 400);
-        }
+        $nookId = $request->requireUuidRouteParam('nookId');
 
         NookAccess::requireOwner($pdo, $user, $nookId);
 
@@ -247,17 +213,7 @@ final class InvitationsController
             if (!is_array($r)) {
                 continue;
             }
-
-            $firstName = is_scalar($r['first_name'] ?? null) ? (string) $r['first_name'] : '';
-            $lastName = is_scalar($r['last_name'] ?? null) ? (string) $r['last_name'] : '';
-
-            $members[] = [
-                'id' => is_scalar($r['id'] ?? null) ? (string) $r['id'] : '',
-                'name' => trim($firstName . ' ' . $lastName),
-                'email' => is_scalar($r['email'] ?? null) ? (string) $r['email'] : '',
-                'role' => is_scalar($r['role'] ?? null) ? (string) $r['role'] : '',
-                'joined_at' => is_scalar($r['created_at'] ?? null) ? (string) $r['created_at'] : '',
-            ];
+            $members[] = NookMemberRow::fromRow($r)->toArray();
         }
 
         return JsonResponse::ok(['members' => $members]);
@@ -265,16 +221,15 @@ final class InvitationsController
 
     // ── User endpoints (me-scoped) ──
 
-    private function getUserEmail(PDO $pdo, array $user): string
+    private function getUserEmail(PDO $pdo, User $user): string
     {
-        // The user array from dev-header auth may not include email,
-        // so always look it up from the DB.
-        $userId = is_scalar($user['id'] ?? null) ? (string) $user['id'] : '';
-        if ($userId === '') {
+        // The User from dev-header auth has no email field, so look it up
+        // from the DB by id either way.
+        if ($user->id === '') {
             return '';
         }
         $stmt = $pdo->prepare('select email from global.users where id = :id');
-        $stmt->execute([':id' => $userId]);
+        $stmt->execute([':id' => $user->id]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
         if (!is_array($row)) {
             return '';
@@ -313,18 +268,7 @@ final class InvitationsController
             if (!is_array($r)) {
                 continue;
             }
-
-            $firstName = is_scalar($r['inviter_first_name'] ?? null) ? (string) $r['inviter_first_name'] : '';
-            $lastName = is_scalar($r['inviter_last_name'] ?? null) ? (string) $r['inviter_last_name'] : '';
-
-            $invitations[] = [
-                'id' => is_scalar($r['id'] ?? null) ? (string) $r['id'] : '',
-                'nook_id' => is_scalar($r['nook_id'] ?? null) ? (string) $r['nook_id'] : '',
-                'nook_name' => is_scalar($r['nook_name'] ?? null) ? (string) $r['nook_name'] : '',
-                'role' => is_scalar($r['role'] ?? null) ? (string) $r['role'] : '',
-                'inviter_name' => trim($firstName . ' ' . $lastName),
-                'created_at' => is_scalar($r['created_at'] ?? null) ? (string) $r['created_at'] : '',
-            ];
+            $invitations[] = NookInvitationGuestRow::fromRow($r)->toArray();
         }
 
         return JsonResponse::ok(['invitations' => $invitations]);
@@ -335,7 +279,7 @@ final class InvitationsController
         $pdo = $context->pdo();
         $user = $context->user();
 
-        $userId = is_scalar($user['id'] ?? null) ? (string) $user['id'] : '';
+        $userId = $user->id;
 
         $stmt = $pdo->prepare("
             select
@@ -355,16 +299,7 @@ final class InvitationsController
             if (!is_array($r)) {
                 continue;
             }
-
-            $firstName = is_scalar($r['revoker_first_name'] ?? null) ? (string) $r['revoker_first_name'] : '';
-            $lastName = is_scalar($r['revoker_last_name'] ?? null) ? (string) $r['revoker_last_name'] : '';
-
-            $revocations[] = [
-                'id' => is_scalar($r['id'] ?? null) ? (string) $r['id'] : '',
-                'nook_name' => is_scalar($r['nook_name'] ?? null) ? (string) $r['nook_name'] : '',
-                'revoked_by_name' => trim($firstName . ' ' . $lastName),
-                'created_at' => is_scalar($r['created_at'] ?? null) ? (string) $r['created_at'] : '',
-            ];
+            $revocations[] = NookRevocationRow::fromRow($r)->toArray();
         }
 
         return JsonResponse::ok(['revocations' => $revocations]);
@@ -375,10 +310,7 @@ final class InvitationsController
         $pdo = $context->pdo();
         $user = $context->user();
 
-        $invId = trim($request->routeParam('invId'));
-        if ($invId === '' || !NookAccess::isUuid($invId)) {
-            throw new HttpError('invId must be a UUID', 400);
-        }
+        $invId = $request->requireUuidRouteParam('invId');
 
         $email = $this->getUserEmail($pdo, $user);
         if ($email === '') {
@@ -400,8 +332,8 @@ final class InvitationsController
             throw new HttpError('invitation not found or already processed', 404);
         }
 
-        $nookId = is_scalar($inv['nook_id'] ?? null) ? (string) $inv['nook_id'] : '';
-        $role = is_scalar($inv['role'] ?? null) ? (string) $inv['role'] : 'readonly';
+        $nookId = Row::str($inv, 'nook_id');
+        $role = Row::str($inv, 'role', 'readonly');
 
         try {
             $pdo->beginTransaction();
@@ -413,7 +345,7 @@ final class InvitationsController
             ");
             $member->execute([
                 ':nook_id' => $nookId,
-                ':user_id' => $user['id'],
+                ':user_id' => $user->id,
                 ':role' => $role,
             ]);
 
@@ -436,10 +368,7 @@ final class InvitationsController
         $pdo = $context->pdo();
         $user = $context->user();
 
-        $invId = trim($request->routeParam('invId'));
-        if ($invId === '' || !NookAccess::isUuid($invId)) {
-            throw new HttpError('invId must be a UUID', 400);
-        }
+        $invId = $request->requireUuidRouteParam('invId');
 
         $email = $this->getUserEmail($pdo, $user);
         if ($email === '') {
@@ -464,12 +393,9 @@ final class InvitationsController
         $pdo = $context->pdo();
         $user = $context->user();
 
-        $revId = trim($request->routeParam('revId'));
-        if ($revId === '' || !NookAccess::isUuid($revId)) {
-            throw new HttpError('revId must be a UUID', 400);
-        }
+        $revId = $request->requireUuidRouteParam('revId');
 
-        $userId = is_scalar($user['id'] ?? null) ? (string) $user['id'] : '';
+        $userId = $user->id;
 
         $stmt = $pdo->prepare("
             update global.nook_access_revocations

@@ -1,4 +1,12 @@
-import { For, Match, Show, Switch } from "solid-js";
+import {
+	type Accessor,
+	createSignal,
+	For,
+	Match,
+	onCleanup,
+	Show,
+	Switch,
+} from "solid-js";
 import type { NotePreviewController } from "../../pages/nook/NookContext";
 import { MarkdownView } from "../MarkdownView";
 import styles from "./ChatMessage.module.css";
@@ -10,13 +18,22 @@ export type ToolUse = {
 	progress?: string;
 };
 
+export type MessageUsage = {
+	input_tokens: number;
+	output_tokens: number;
+	cache_creation_input_tokens: number;
+	cache_read_input_tokens: number;
+	context_limit: number;
+};
+
 export type ChatMessageData =
-	| { role: "user"; text: string }
+	| { role: "user"; text: string; sentAt?: number }
 	| {
 			role: "assistant";
 			text: string;
 			toolUses?: ToolUse[];
 			streaming?: boolean;
+			usage?: MessageUsage;
 	  };
 
 /** Keys in tool input that typically hold note IDs */
@@ -33,7 +50,154 @@ type Props = {
 	notePreview?: NotePreviewController;
 	onNavigateToNote?: (noteId: string) => void;
 	memoryNookId?: string;
+	debugMode?: boolean;
+	/** Returns a reactive signal for the streaming partial input of a tool */
+	getToolInputStream?: (toolId: string) => Accessor<string>;
+	/** Send a message on behalf of the user (for quick-reply buttons) */
+	onQuickReply?: (text: string) => void;
+	/** Focus the chat input for free-form reply (dismisses quick-reply buttons) */
+	onQuickReplyOther?: () => void;
+	/** Whether input is disabled (streaming/etc) — hides quick-reply buttons */
+	inputDisabled?: boolean;
 };
+
+/** Strip the metadata prefix added by the backend (timestamp + optional note context). */
+const META_RE =
+	/^\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}Z\](?: \[Note: "[^"]*" \([^)]+\)])?\n/;
+
+function stripMeta(text: string): string {
+	return text.replace(META_RE, "");
+}
+
+function formatTimeAgo(ms: number): string {
+	const seconds = Math.floor((Date.now() - ms) / 1000);
+	if (seconds < 60) return "just now";
+	const minutes = Math.floor(seconds / 60);
+	if (minutes < 60) return `${minutes}m ago`;
+	const hours = Math.floor(minutes / 60);
+	if (hours < 24) return `${hours}h ago`;
+	const days = Math.floor(hours / 24);
+	return `${days}d ago`;
+}
+
+/** Self-updating relative timestamp. Only renders when > 1 minute old. */
+function TimeAgo(props: { epoch: number }) {
+	const [now, setNow] = createSignal(Date.now());
+	const timer = setInterval(() => setNow(Date.now()), 30_000);
+	onCleanup(() => clearInterval(timer));
+	const age = () => now() - props.epoch;
+	return (
+		<Show when={age() >= 60_000}>
+			<span
+				title={new Date(props.epoch).toLocaleString()}
+				style={{
+					"font-size": "0.6rem",
+					color: "var(--color-text-faint, #999)",
+				}}
+			>
+				{formatTimeAgo(props.epoch)}
+			</span>
+		</Show>
+	);
+}
+
+/** Friendly labels for tool names */
+const TOOL_LABELS: Record<string, string> = {
+	create_note: "Writing note",
+	update_note: "Updating note",
+	get_note: "Reading note",
+	search_notes: "Searching notes",
+	explore_notes: "Exploring notes",
+	delete_note: "Deleting note",
+	create_note_link: "Linking notes",
+	create_note_type: "Creating type",
+	update_note_type: "Updating type",
+	memory_create: "Saving to memory",
+	memory_update: "Updating memory",
+	memory_search: "Searching memory",
+	memory_get: "Reading memory",
+	search_agent: "Researching",
+};
+
+/** Unescape JSON string escapes for display */
+function unescapeJson(s: string): string {
+	return s
+		.replace(/\\n/g, "\n")
+		.replace(/\\t/g, "\t")
+		.replace(/\\"/g, '"')
+		.replace(/\\\\/g, "\\");
+}
+
+/** Extract a preview snippet from partial JSON input */
+function extractPreview(partialInput: string): {
+	title?: string;
+	body: string;
+} {
+	const titleMatch = partialInput.match(/"title"\s*:\s*"([^"]*)/);
+	const contentMatch = partialInput.match(/"content"\s*:\s*"([\s\S]*?)(?:"|$)/);
+	const taskMatch = partialInput.match(/"task"\s*:\s*"([\s\S]*?)(?:"|$)/);
+	const qMatch = partialInput.match(/"q"\s*:\s*"([^"]*)/);
+
+	if (taskMatch) return { body: unescapeJson(taskMatch[1]) };
+	if (qMatch) return { body: unescapeJson(qMatch[1]) };
+	if (contentMatch) {
+		return {
+			title: titleMatch ? titleMatch[1] : undefined,
+			body: unescapeJson(contentMatch[1]),
+		};
+	}
+	if (titleMatch) return { body: `"${titleMatch[1]}"` };
+	return { body: "" };
+}
+
+/** Shows streaming preview of a tool being built, auto-scrolling to bottom */
+function ToolStreamPreview(props: {
+	tool: ToolUse;
+	partialInput: Accessor<string>;
+}) {
+	const label = () => TOOL_LABELS[props.tool.name] ?? props.tool.name;
+	const preview = () => {
+		const raw = props.partialInput();
+		if (!raw) return null;
+		return extractPreview(raw);
+	};
+
+	let previewEl: HTMLDivElement | undefined;
+
+	const scrollPreview = () => {
+		if (previewEl) previewEl.scrollTop = previewEl.scrollHeight;
+	};
+
+	return (
+		<div class={styles.toolStream}>
+			<div class={styles.toolStreamHeader}>
+				<span class={styles.toolSpinner} />
+				<span class={styles.toolStreamLabel}>
+					{label()}
+					<Show when={preview()?.title}>
+						{" — "}
+						{preview()?.title}
+					</Show>
+					…
+				</span>
+			</div>
+			<Show when={preview()?.body}>
+				<div
+					class={styles.toolStreamPreview}
+					ref={(el) => {
+						previewEl = el;
+						queueMicrotask(scrollPreview);
+					}}
+				>
+					{(() => {
+						queueMicrotask(scrollPreview);
+						return preview()?.body;
+					})()}
+				</div>
+			</Show>
+		</div>
+	);
+}
 
 export function ChatMessage(props: Props) {
 	const m = () => props.message;
@@ -41,7 +205,14 @@ export function ChatMessage(props: Props) {
 	return (
 		<div class={`${styles.message} ${styles[m().role]}`}>
 			<Show when={m().role === "user"}>
-				<div class={styles.bubble}>{(m() as { text: string }).text}</div>
+				<div class={styles.bubble}>
+					{stripMeta((m() as { text: string }).text)}
+				</div>
+				<Show when={(m() as { sentAt?: number }).sentAt}>
+					<div style={{ "text-align": "right", "margin-top": "2px" }}>
+						<TimeAgo epoch={(m() as { sentAt: number }).sentAt} />
+					</div>
+				</Show>
 			</Show>
 			<Show when={m().role === "assistant"}>
 				<Show when={(m() as { text: string }).text.trim() !== ""}>
@@ -51,85 +222,205 @@ export function ChatMessage(props: Props) {
 						class={`${styles.bubble} ${(m() as { streaming?: boolean }).streaming ? styles.streaming : ""}`}
 					/>
 				</Show>
-				<For each={(m() as { toolUses?: ToolUse[] }).toolUses ?? []}>
+				<For
+					each={
+						(m() as { toolUses?: ToolUse[] }).toolUses?.filter(
+							(t) => t.name !== "ask_user",
+						) ?? []
+					}
+				>
 					{(t) => (
-						<div class={styles.toolChip}>
-							<Switch fallback={<span>⚙</span>}>
-								<Match when={t.name === "search_agent" && t.progress}>
-									<span class={styles.searchAgentSpinner} />
-								</Match>
-								<Match when={t.name === "search_agent"}>
-									<span>🔍</span>
-								</Match>
-							</Switch>
-							<span>
-								<Switch
-									fallback={
-										<>
-											{t.name}(
-											<For each={Object.entries(t.input)}>
-												{([key, value], i) => {
-													const isNoteId = NOTE_ID_KEYS.has(key);
-													const val = String(value ?? "");
-													return (
-														<>
-															{i() > 0 && ", "}
-															{key}=
-															{isNoteId && props.notePreview ? (
-																// biome-ignore lint/a11y/noStaticElementInteractions: hover preview is mouse-only
-																<span
-																	class={styles.noteIdValue}
-																	onMouseEnter={(e) => {
-																		const rect = (
-																			e.currentTarget as HTMLElement
-																		).getBoundingClientRect();
-																		const previewOpts =
-																			MEMORY_TOOLS.has(t.name) &&
-																			props.memoryNookId
-																				? { nookId: props.memoryNookId }
-																				: undefined;
-																		props.notePreview?.show(
-																			val,
-																			rect.left,
-																			rect.bottom,
-																			previewOpts,
-																		);
-																	}}
-																	onMouseLeave={() => props.notePreview?.hide()}
-																>
-																	{val.slice(0, 8)}...
-																</span>
-															) : (
-																JSON.stringify(value)
-															)}
-														</>
-													);
-												}}
-											</For>
-											)
-										</>
-									}
-								>
+						<Show
+							when={t.progress !== "running"}
+							fallback={
+								<ToolStreamPreview
+									tool={t}
+									partialInput={props.getToolInputStream?.(t.id) ?? (() => "")}
+								/>
+							}
+						>
+							<div class={styles.toolChip}>
+								<Switch fallback={<span>⚙</span>}>
+									<Match when={t.name === "search_agent" && t.progress}>
+										<span class={styles.toolSpinner} />
+									</Match>
 									<Match when={t.name === "search_agent"}>
-										search_agent: {String(t.input.task ?? "").slice(0, 80)}
-										{String(t.input.task ?? "").length > 80 ? "..." : ""}
-										<Show when={t.progress}>
-											<span
-												style={{
-													"margin-left": "6px",
-													opacity: 0.7,
-													"font-style": "italic",
-												}}
-											>
-												— {t.progress}
-											</span>
-										</Show>
+										<span>🔍</span>
 									</Match>
 								</Switch>
-							</span>
-						</div>
+								<span>
+									<Switch
+										fallback={
+											<>
+												{t.name}(
+												<For each={Object.entries(t.input)}>
+													{([key, value], i) => {
+														const isNoteId = NOTE_ID_KEYS.has(key);
+														const val = String(value ?? "");
+														return (
+															<>
+																{i() > 0 && ", "}
+																{key}=
+																{isNoteId && props.notePreview ? (
+																	// biome-ignore lint/a11y/noStaticElementInteractions: hover preview is mouse-only
+																	<span
+																		class={styles.noteIdValue}
+																		onMouseEnter={(e) => {
+																			const rect = (
+																				e.currentTarget as HTMLElement
+																			).getBoundingClientRect();
+																			const previewOpts =
+																				MEMORY_TOOLS.has(t.name) &&
+																				props.memoryNookId
+																					? { nookId: props.memoryNookId }
+																					: undefined;
+																			props.notePreview?.show(
+																				val,
+																				rect.left,
+																				rect.bottom,
+																				previewOpts,
+																			);
+																		}}
+																		onMouseLeave={() =>
+																			props.notePreview?.hide()
+																		}
+																	>
+																		{val.slice(0, 8)}...
+																	</span>
+																) : (
+																	JSON.stringify(value)
+																)}
+															</>
+														);
+													}}
+												</For>
+												)
+											</>
+										}
+									>
+										<Match when={t.name === "search_agent"}>
+											search_agent: {String(t.input.task ?? "").slice(0, 80)}
+											{String(t.input.task ?? "").length > 80 ? "..." : ""}
+											<Show when={t.progress}>
+												<span
+													style={{
+														"margin-left": "6px",
+														opacity: 0.7,
+														"font-style": "italic",
+													}}
+												>
+													— {t.progress}
+												</span>
+											</Show>
+										</Match>
+									</Switch>
+								</span>
+							</div>
+						</Show>
 					)}
 				</For>
+				{/* Quick-reply buttons from ask_user tool */}
+				<Show
+					when={
+						!props.inputDisabled &&
+						props.onQuickReply &&
+						(m() as { toolUses?: ToolUse[] }).toolUses?.find(
+							(t) => t.name === "ask_user",
+						)
+					}
+				>
+					{(askTool) => (
+						<div class={styles.quickReplyRow}>
+							<For
+								each={((askTool().input.options as string[]) ?? []).slice(0, 5)}
+							>
+								{(option) => (
+									<button
+										type="button"
+										class={styles.quickReplyBtn}
+										onClick={() => props.onQuickReply?.(option)}
+									>
+										{option}
+									</button>
+								)}
+							</For>
+							<button
+								type="button"
+								class={`${styles.quickReplyBtn} ${styles.quickReplyOther}`}
+								onClick={() => props.onQuickReplyOther?.()}
+							>
+								{(askTool().input.other_label as string) || "Other…"}
+							</button>
+						</div>
+					)}
+				</Show>
+			</Show>
+			<Show
+				when={
+					props.debugMode &&
+					m().role === "assistant" &&
+					(m() as { usage?: MessageUsage }).usage
+				}
+			>
+				{(() => {
+					// biome-ignore lint/style/noNonNullAssertion: guarded by Show when={...usage}
+					const u = () => (m() as { usage?: MessageUsage }).usage!;
+					const fmt = (n: number) =>
+						n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
+					const totalInput = () =>
+						u().input_tokens +
+						u().cache_creation_input_tokens +
+						u().cache_read_input_tokens;
+					const cacheHitPct = () =>
+						totalInput() > 0
+							? Math.round((u().cache_read_input_tokens / totalInput()) * 100)
+							: 0;
+					return (
+						<div
+							style={{
+								"font-size": "0.6rem",
+								"font-family": "monospace",
+								color: "var(--color-text-faint, #999)",
+								padding: "2px 6px",
+								"margin-top": "2px",
+								display: "flex",
+								gap: "8px",
+								"flex-wrap": "wrap",
+							}}
+						>
+							<span>in:{fmt(totalInput())}</span>
+							<span>out:{fmt(u().output_tokens)}</span>
+							<span
+								style={{
+									color:
+										u().cache_read_input_tokens > 0
+											? "var(--color-success, #22c55e)"
+											: undefined,
+								}}
+							>
+								cache↓{fmt(u().cache_read_input_tokens)}
+							</span>
+							<span
+								style={{
+									color:
+										u().cache_creation_input_tokens > 0
+											? "var(--color-warning, #f59e0b)"
+											: undefined,
+								}}
+							>
+								cache↑{fmt(u().cache_creation_input_tokens)}
+							</span>
+							<span>hit:{cacheHitPct()}%</span>
+							<span>
+								{Math.round(
+									((totalInput() + u().output_tokens) / u().context_limit) *
+										100,
+								)}
+								% ctx
+							</span>
+						</div>
+					);
+				})()}
 			</Show>
 		</div>
 	);

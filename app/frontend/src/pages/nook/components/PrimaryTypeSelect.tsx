@@ -8,7 +8,7 @@ export function PrimaryTypeSelect(props: { store: NookStore }) {
 				<div>
 					<div>Primary type</div>
 					<Show
-						when={`${props.store.selectedId()}|${props.store.type()}|${props.store.noteTypes().length}`}
+						when={`${props.store.selectedId()}|${props.store.typeId()}|${props.store.noteTypes().length}`}
 						keyed
 					>
 						{(_) => (
@@ -25,19 +25,11 @@ export function PrimaryTypeSelect(props: { store: NookStore }) {
 								<option value="">(none)</option>
 								{(() => {
 									const current = props.store.typeId();
-									const filtered = props.store
-										.noteTypes()
-										.filter(
-											(t) =>
-												t.appliesTo ===
-												(props.store.type() === "file" ? "files" : "notes"),
-										);
-									if (current === "") return filtered;
-									if (filtered.some((t) => t.id === current)) return filtered;
-									const selected = props.store
-										.noteTypes()
-										.find((t) => t.id === current);
-									if (selected) return [selected, ...filtered];
+									const all = props.store.noteTypes();
+									if (current === "") return all;
+									if (all.some((t) => t.id === current)) return all;
+									const selected = all.find((t) => t.id === current);
+									if (selected) return [selected, ...all];
 									return [
 										{
 											id: current,
@@ -45,11 +37,10 @@ export function PrimaryTypeSelect(props: { store: NookStore }) {
 											key: "",
 											nookId: "",
 											parentId: "",
-											appliesTo: "notes" as const,
 											createdAt: undefined,
 											updatedAt: undefined,
 										},
-										...filtered,
+										...all,
 									];
 								})().map((t) => (
 									<option value={t.id}>{t.label}</option>

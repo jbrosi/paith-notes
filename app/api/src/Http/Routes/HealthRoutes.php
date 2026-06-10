@@ -9,6 +9,7 @@ use Paith\Notes\Api\Http\Controller\HealthController;
 
 final class HealthRoutes
 {
+    /** @param array<string, list<\Paith\Notes\Api\Http\Middleware>> $prefixMiddlewares */
     public static function register(RouteCollector $r, array &$prefixMiddlewares): void
     {
         $r->addRoute('GET', '/health', [HealthController::class, 'health']);
