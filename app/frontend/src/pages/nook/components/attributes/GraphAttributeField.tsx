@@ -4,6 +4,8 @@ import type { NookStore } from "../../store";
 import {
 	type GraphViewProperties,
 	parseGraphProperties,
+	parseGraphTypeDefaults,
+	readAllowOverride,
 	serializeGraphProperties,
 	type TypeAttribute,
 } from "../../types";
@@ -16,27 +18,48 @@ export function GraphAttributeField(props: {
 	store: NookStore;
 	fullscreen?: boolean;
 }) {
+	const typeDefaults = () => parseGraphTypeDefaults(props.attr.config);
+	const allowOverride = () =>
+		readAllowOverride(props.attr.kind, props.attr.config);
+
 	// Default the graph to the current note as root when the
 	// attribute has no value yet — without this the schema rejects
 	// the empty config and the whole field renders nothing (not
 	// even the label), so the user couldn't tell the attribute
 	// was there.
+	//
+	// When allow_override_in_note is false, the per-note value is
+	// ignored entirely — the type-level defaults drive the display.
+	// The saved per-note blob stays in the DB; flipping the flag
+	// back on restores it.
 	const graphProps = (): GraphViewProperties | null => {
-		const raw = (props.value as Record<string, unknown> | undefined) ?? {};
+		const raw = allowOverride()
+			? ((props.value as Record<string, unknown> | undefined) ?? {})
+			: {};
 		if (typeof raw.rootNoteId !== "string" || raw.rootNoteId === "") {
 			raw.rootNoteId = props.store.selectedId();
 		}
-		return parseGraphProperties(raw);
+		return parseGraphProperties(raw, typeDefaults());
 	};
 
+	const canPersist = () => props.store.isEditing() && allowOverride();
+
 	const handleConfigChange = (config: GraphViewProperties) => {
+		// View mode → tweaks stay local (would otherwise trigger discard
+		// prompt). Overrides disabled → tweaks also stay local (no per-note
+		// storage allowed). Both cases: don't propagate.
+		if (!canPersist()) return;
 		props.onChange(serializeGraphProperties(config));
 		props.store.setIsDirty(true);
 	};
 
-	const handleSave = async (config: GraphViewProperties) => {
-		props.onChange(serializeGraphProperties(config));
-		await props.store.saveNote();
+	// Clearing the per-note value lets parseGraphProperties fall straight
+	// through to typeDefaults — the panel re-seeds from the new
+	// initialConfig automatically via its existing createEffect.
+	const handleReset = () => {
+		if (!canPersist()) return;
+		props.onChange({});
+		props.store.setIsDirty(true);
 	};
 
 	return (
@@ -81,7 +104,7 @@ export function GraphAttributeField(props: {
 						store={props.store}
 						graphProps={gp()}
 						onConfigChange={handleConfigChange}
-						onSave={handleSave}
+						onReset={canPersist() ? handleReset : undefined}
 					/>
 				)}
 			</Show>

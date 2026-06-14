@@ -13,61 +13,35 @@ import type { GraphData, GraphEdge, GraphNode } from "./graphTypes";
 import styles from "./NookGraphPanel.module.css";
 import type { NookStore } from "./store";
 import {
+	buildGraphShareUrl,
 	type GraphLayout,
 	type GraphViewProperties,
 	type LinkPredicate,
 	LinkPredicatesListResponseSchema,
 	type NoteLink,
 	NoteLinksListResponseSchema,
-	NoteResponseSchema,
-	serializeGraphProperties,
-	TypeAttributesListResponseSchema,
 } from "./types";
 
 export type NookGraphPanelProps = {
 	store: NookStore;
+	/** Whether to render as a fullscreen overlay (escapes parent layout). */
 	fullscreen?: boolean;
-	onClose?: () => void;
-	/** Embedded mode: render as inline graph block for a graph-type note */
-	embedded?: boolean;
-	/** Root note ID override (used in embedded mode) */
+	/** Note ID at the center of the graph (the "root" of traversal). */
 	rootNoteId?: string;
-	/** Initial config to seed filters (used in embedded mode) */
+	/** Initial config to seed filters + display knobs. */
 	initialConfig?: GraphViewProperties | null;
-	/** Callback to save current filter state (used in embedded mode) */
-	onSaveConfig?: (config: GraphViewProperties) => void;
-	/** Called when embedded graph filters change (syncs config + marks dirty) */
+	/** Called on every config change (syncs config + marks dirty). */
 	onDirty?: (config: GraphViewProperties) => void;
+	/** Reset per-note override back to type-level defaults. Provided only
+	 * when reset makes sense (edit mode + allow_override_in_note on). */
+	onReset?: () => void;
 };
-
-const GRAPH_WIDTH_STORAGE_KEY = "paith-notes:graphPanelWidth";
-const DEFAULT_GRAPH_WIDTH = 300;
-const MIN_GRAPH_WIDTH = 200;
-const MAX_GRAPH_WIDTH_RATIO = 0.5;
-
-function loadStoredWidth(): number {
-	try {
-		const v = localStorage.getItem(GRAPH_WIDTH_STORAGE_KEY);
-		if (v) {
-			const n = Number(v);
-			if (Number.isFinite(n) && n >= MIN_GRAPH_WIDTH) return n;
-		}
-	} catch {
-		/* ignore */
-	}
-	return DEFAULT_GRAPH_WIDTH;
-}
 
 export function NookGraphPanel(props: NookGraphPanelProps) {
 	const navigate = useNavigate();
 	const store = () => props.store;
 	const nookId = () => store().nookId();
-	const embedded = () => Boolean(props.embedded);
-	const noteId = () => {
-		if (embedded()) return props.rootNoteId ?? "";
-		return store().selectedId();
-	};
-	const excludeNoteId = () => "";
+	const noteId = () => props.rootNoteId ?? "";
 	const fullscreen = () => Boolean(props.fullscreen);
 
 	// Seed signals from initialConfig (embedded/graph note mode)
@@ -156,10 +130,8 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 	});
 
 	const markDirty = () => {
-		if (embedded()) {
-			// Use setTimeout to read signals after they've been updated
-			setTimeout(() => props.onDirty?.(currentConfig()), 0);
-		}
+		// setTimeout so signals settle before we serialize them.
+		setTimeout(() => props.onDirty?.(currentConfig()), 0);
 	};
 
 	const toggleFilterTypeId = (id: string) => {
@@ -209,89 +181,24 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 		linkWidth: linkWidth(),
 	});
 
-	const onSaveConfig = () => {
-		props.onSaveConfig?.(currentConfig());
-	};
-
-	const onSaveAsGraphNote = async () => {
-		const config = currentConfig();
-		if (config.rootNoteId === "") return;
-		const n = nookId().trim();
-		if (n === "") return;
+	const [justCopied, setJustCopied] = createSignal<boolean>(false);
+	let copyResetHandle: ReturnType<typeof setTimeout> | undefined;
+	const copyShareUrl = async () => {
+		const url = buildGraphShareUrl(nookId(), currentConfig());
+		const absolute =
+			typeof window !== "undefined" && window.location?.origin
+				? `${window.location.origin}${url}`
+				: url;
 		try {
-			// Find the graph type and its graph attribute
-			const types = store().noteTypes();
-			const graphType = types.find((t) => t.key === "graph");
-			if (!graphType) return;
-
-			let graphAttrId = "";
-			const attrRes = await apiFetch(
-				`/api/nooks/${n}/note-types/${graphType.id}/attributes`,
-			);
-			if (attrRes.ok) {
-				const attrJson = await attrRes.json();
-				const attrs =
-					TypeAttributesListResponseSchema.parse(attrJson).attributes;
-				const graphAttr = attrs.find((a) => a.kind === "graph");
-				if (graphAttr) graphAttrId = graphAttr.id;
-			}
-			if (!graphAttrId) return;
-
-			const centerTitle = titleById().get(config.rootNoteId) ?? "";
-			const attributes: Record<string, unknown> = {
-				[graphAttrId]: serializeGraphProperties(config),
-			};
-			const res = await apiFetch(`/api/nooks/${n}/notes`, {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({
-					title: centerTitle ? `Graph: ${centerTitle}` : "Untitled Graph View",
-					content: "",
-					type_id: graphType.id,
-					attributes,
-				}),
-			});
-			if (!res.ok) return;
-			const json = await res.json();
-			const body = NoteResponseSchema.parse(json);
-			navigate(
-				`/nooks/${encodeURIComponent(n)}/notes/${encodeURIComponent(body.note.id)}`,
-			);
+			await navigator.clipboard.writeText(absolute);
+			setJustCopied(true);
+			if (copyResetHandle) clearTimeout(copyResetHandle);
+			copyResetHandle = setTimeout(() => setJustCopied(false), 1500);
 		} catch {
-			/* ignore */
+			/* clipboard API not available; silent no-op */
 		}
 	};
 
-	const [graphWidth, setGraphWidth] = createSignal(loadStoredWidth());
-
-	const onResizeStart = (e: MouseEvent) => {
-		e.preventDefault();
-		const startX = e.clientX;
-		const startWidth = graphWidth();
-		const onMove = (ev: MouseEvent) => {
-			const delta = startX - ev.clientX;
-			const next = Math.max(
-				MIN_GRAPH_WIDTH,
-				Math.min(window.innerWidth * MAX_GRAPH_WIDTH_RATIO, startWidth + delta),
-			);
-			setGraphWidth(next);
-		};
-		const onUp = () => {
-			document.removeEventListener("mousemove", onMove);
-			document.removeEventListener("mouseup", onUp);
-			document.body.style.cursor = "";
-			document.body.style.userSelect = "";
-			try {
-				localStorage.setItem(GRAPH_WIDTH_STORAGE_KEY, String(graphWidth()));
-			} catch {
-				/* ignore */
-			}
-		};
-		document.body.style.cursor = "col-resize";
-		document.body.style.userSelect = "none";
-		document.addEventListener("mousemove", onMove);
-		document.addEventListener("mouseup", onUp);
-	};
 	const selectNote = (id: string) => {
 		void store().onNoteLinkClick(id);
 	};
@@ -378,11 +285,8 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 	const graph = createMemo((): GraphData => {
 		const centerId = noteId().trim();
 		if (centerId === "") return { nodes: [], edges: [] };
-		const centerTitle = embedded()
-			? labelFor(centerId)
-			: store().title().trim();
+		const centerTitle = labelFor(centerId);
 		const hidden = hiddenNodeIds();
-		const exclude = excludeNoteId();
 
 		const nodes = new Map<string, GraphNode>();
 		nodes.set(centerId, {
@@ -397,7 +301,6 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 			const t = l.targetNoteId.trim();
 			if (s === "" || t === "") continue;
 			if (hidden.has(s) || hidden.has(t)) continue;
-			if (exclude && (s === exclude || t === exclude)) continue;
 			if (!nodes.has(s))
 				nodes.set(s, {
 					id: s,
@@ -427,27 +330,12 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 	let svgEl: SVGSVGElement | undefined;
 	let currentRender: ReturnType<typeof renderGraph> = null;
 	const onCenter = () => currentRender?.centerView();
-	const onFullscreen = () => {
-		if (embedded()) {
-			const n = nookId().trim();
-			const graphNoteId = store().selectedId().trim();
-			if (n === "" || graphNoteId === "") return;
-			navigate(
-				`/nooks/${encodeURIComponent(n)}/notes/${encodeURIComponent(graphNoteId)}?fullscreen`,
-			);
-			return;
-		}
-		const n = nookId().trim();
-		const note = noteId().trim();
-		if (n === "" || note === "") return;
-		navigate(
-			`/nooks/${encodeURIComponent(n)}/graph/${encodeURIComponent(note)}`,
-		);
-	};
 	const onCloseFullscreen = () => {
 		const n = nookId().trim();
-		// For embedded fullscreen, go back to the graph note (not the root note)
-		const note = embedded() ? store().selectedId().trim() : noteId().trim();
+		// Go back to the host note (the one whose graph attribute we're
+		// viewing), not the graph's root node — the root may be a
+		// different note we navigated through.
+		const note = store().selectedId().trim();
 		if (n === "") return;
 		if (note !== "") {
 			navigate(
@@ -480,7 +368,6 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 			chargeStrength: currentChargeStrength,
 			onSelectNote: selectNote,
 			onHideNode: hideNode,
-			onOpenGraphNode: selectNote,
 		});
 
 		onCleanup(() => {
@@ -488,36 +375,18 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 		});
 	});
 
-	const handleClose = () => {
-		if (fullscreen()) {
-			onCloseFullscreen();
-		} else {
-			props.onClose?.();
-		}
-	};
-
 	return (
 		<div
-			class={`${styles.container} ${fullscreen() && !embedded() ? styles.containerFullscreen : ""} ${embedded() ? (fullscreen() ? styles.containerEmbeddedFullscreen : styles.containerEmbedded) : ""}`}
-			style={
-				fullscreen() || embedded() ? undefined : { width: `${graphWidth()}px` }
-			}
+			class={`${styles.container} ${fullscreen() ? styles.containerEmbeddedFullscreen : styles.containerEmbedded}`}
 		>
-			<Show when={!fullscreen() && !embedded()}>
-				<hr
-					tabIndex={0}
-					class={styles.resizeHandle}
-					onMouseDown={onResizeStart}
-				/>
-			</Show>
-			<Show when={!embedded() || fullscreen()}>
+			<Show when={fullscreen()}>
 				<div class={styles.header}>
 					<div class={styles.title}>Graph</div>
 					<button
 						type="button"
 						class={styles.closeBtn}
-						onClick={handleClose}
-						title={fullscreen() ? "Exit fullscreen" : "Close graph"}
+						onClick={onCloseFullscreen}
+						title="Exit fullscreen"
 					>
 						&times;
 					</button>
@@ -601,38 +470,24 @@ export function NookGraphPanel(props: NookGraphPanelProps) {
 				>
 					Center
 				</button>
-				<Show
-					when={embedded()}
-					fallback={
-						<button
-							type="button"
-							class={styles.controlBtn}
-							onClick={onSaveAsGraphNote}
-							disabled={noteId().trim() === ""}
-							title="Save as graph view note"
-						>
-							Save as note
-						</button>
-					}
+				<button
+					type="button"
+					class={styles.controlBtn}
+					onClick={() => void copyShareUrl()}
+					disabled={noteId().trim() === ""}
+					title="Copy shareable link to this graph view"
 				>
+					{justCopied() ? "Copied!" : "Copy link"}
+				</button>
+				<Show when={props.onReset}>
 					<button
 						type="button"
 						class={styles.controlBtn}
-						onClick={onSaveConfig}
+						onClick={() => props.onReset?.()}
 						disabled={noteId().trim() === ""}
-						title="Save graph configuration"
+						title="Reset graph configuration to type defaults"
 					>
-						Save
-					</button>
-				</Show>
-				<Show when={!fullscreen()}>
-					<button
-						type="button"
-						class={styles.controlBtn}
-						onClick={onFullscreen}
-						disabled={noteId().trim() === ""}
-					>
-						Fullscreen
+						Reset
 					</button>
 				</Show>
 			</div>

@@ -496,6 +496,8 @@ export function TypeAttributeEditor(props: TypeAttributeEditorProps) {
 						void onAddSave(name, kind, config, key)
 					}
 					onCancel={() => setAdding(false)}
+					nookId={props.nookId}
+					store={props.store}
 				/>
 			</Show>
 
@@ -653,6 +655,8 @@ export function TypeAttributeEditor(props: TypeAttributeEditorProps) {
 																void onSaveEdit(attr, name, kind, config, key)
 															}
 															onCancel={() => setEditingId(null)}
+															nookId={props.nookId}
+															store={props.store}
 														/>
 													}
 												>
@@ -662,6 +666,8 @@ export function TypeAttributeEditor(props: TypeAttributeEditorProps) {
 															void onSaveOverride(attr.id, config)
 														}
 														onCancel={() => setEditingId(null)}
+														nookId={props.nookId}
+														store={props.store}
 													/>
 												</Show>
 											</Show>
@@ -1022,6 +1028,8 @@ function InheritedConfigEditRow(props: {
 	attr: TypeAttribute;
 	onSave: (config: Record<string, unknown>) => void;
 	onCancel: () => void;
+	nookId: string;
+	store: NookStore;
 }) {
 	let configState: KindConfigState | null = null;
 
@@ -1048,6 +1056,8 @@ function InheritedConfigEditRow(props: {
 			<AttributeKindConfig
 				kind={props.attr.kind}
 				config={props.attr.config}
+				nookId={props.nookId}
+				store={props.store}
 				ref={(s) => {
 					configState = s;
 				}}
@@ -1077,10 +1087,18 @@ function AttributeEditRow(props: {
 		key?: string,
 	) => void;
 	onCancel: () => void;
+	nookId: string;
+	store: NookStore;
 }) {
 	const [name, setName] = createSignal(props.attr.name);
 	const [key, setKey] = createSignal(props.attr.key);
 	const [kind, setKind] = createSignal<TypeAttributeKind>(props.attr.kind);
+	// Kind is locked once an attribute exists. The empty id signals the
+	// "add new attribute" flow, where the user is still choosing kind.
+	// Existing per-note values are shape-specific (text vs graph config
+	// vs linked_notes selection), so changing kind would silently
+	// invalidate every stored value across every note of this type.
+	const isNew = () => props.attr.id === "";
 	let configState: KindConfigState | null = null;
 
 	return (
@@ -1119,7 +1137,16 @@ function AttributeEditRow(props: {
 				<select
 					value={kind()}
 					onChange={(e) => setKind(e.currentTarget.value as TypeAttributeKind)}
-					style={{ padding: "4px 6px" }}
+					disabled={!isNew()}
+					title={
+						isNew()
+							? undefined
+							: "Kind cannot be changed after creation — delete and recreate to change it"
+					}
+					style={{
+						padding: "4px 6px",
+						...(isNew() ? {} : { cursor: "not-allowed", opacity: "0.7" }),
+					}}
 				>
 					<For each={[...TypeAttributeKinds]}>
 						{(k) => <option value={k}>{k}</option>}
@@ -1130,6 +1157,8 @@ function AttributeEditRow(props: {
 			<AttributeKindConfig
 				kind={kind()}
 				config={props.attr.config}
+				nookId={props.nookId}
+				store={props.store}
 				ref={(s) => {
 					configState = s;
 				}}

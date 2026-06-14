@@ -138,15 +138,21 @@ final class TypeAttributesController
         NookAccess::requireOwner($pdo, $user, $nookId);
         $this->requireType($pdo, $nookId, $typeId);
 
-        // Verify attribute belongs to this type (not inherited)
-        $check = $pdo->prepare('select id from global.type_attributes where id = :id and type_id = :type_id and nook_id = :nook_id');
+        // Verify attribute belongs to this type (not inherited) AND fetch
+        // the stored kind. Kind is locked after creation: every per-note value
+        // is shape-specific to its kind, so a kind switch would silently
+        // invalidate stored data across every note of this type. We ignore
+        // any kind the client sends and validate config against the stored
+        // kind instead.
+        $check = $pdo->prepare('select kind from global.type_attributes where id = :id and type_id = :type_id and nook_id = :nook_id');
         $check->execute([':id' => $attrId, ':type_id' => $typeId, ':nook_id' => $nookId]);
-        if (!$check->fetchColumn()) {
+        $storedKind = $check->fetchColumn();
+        if (!is_string($storedKind) || $storedKind === '') {
             throw new HttpError('attribute not found on this type (inherited attributes cannot be edited here)', 404);
         }
 
         $payload = TypeAttributeRequest::fromJson($request->jsonBody(), self::VALID_KINDS);
-        $this->validateConfig($payload->kind, $payload->config);
+        $this->validateConfig($storedKind, $payload->config);
 
         // Slugified key only when user provided one — null means "leave key alone"
         $key = $payload->keyRaw !== null ? self::slugify($payload->keyRaw) : null;
@@ -162,7 +168,10 @@ final class TypeAttributesController
 
         $this->checkDescendantNameConflict($pdo, $nookId, $typeId, $payload->name, $attrId);
 
-        $sql = 'update global.type_attributes set name = :name, kind = :kind, config = :config::jsonb, '
+        // Note: kind is intentionally omitted from the UPDATE — it's locked
+        // after creation (see top of method). We use $storedKind everywhere
+        // that needs the attribute's kind.
+        $sql = 'update global.type_attributes set name = :name, config = :config::jsonb, '
             . 'indexed = :indexed';
         if ($key !== null) {
             $sql .= ', key = :key';
@@ -176,7 +185,6 @@ final class TypeAttributesController
         $stmt->bindValue(':nook_id', $nookId);
         $stmt->bindValue(':type_id', $typeId);
         $stmt->bindValue(':name', $payload->name);
-        $stmt->bindValue(':kind', $payload->kind);
         $stmt->bindValue(':config', json_encode($payload->config));
         $stmt->bindValue(':indexed', $payload->indexed, PDO::PARAM_BOOL);
         if ($key !== null) {
@@ -191,8 +199,8 @@ final class TypeAttributesController
 
         $resolvedKey = Row::str($row, 'key', $key ?? '');
 
-        // Index lifecycle: re-sync (kind or indexed flag may have changed)
-        $this->syncAttributeIndex($pdo, $attrId, $payload->kind, $payload->indexed);
+        // Index lifecycle: re-sync (indexed flag may have changed; kind didn't)
+        $this->syncAttributeIndex($pdo, $attrId, $storedKind, $payload->indexed);
 
         return JsonResponse::ok([
             'attribute' => [
@@ -200,7 +208,7 @@ final class TypeAttributesController
                 'type_id' => $typeId,
                 'name' => $payload->name,
                 'key' => $resolvedKey,
-                'kind' => $payload->kind,
+                'kind' => $storedKind,
                 'config' => $payload->config === [] ? (object)[] : $payload->config,
                 'indexed' => $payload->indexed,
                 'inherited' => false,

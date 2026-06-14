@@ -23,7 +23,6 @@ final class NoteTypesController
 {
     private const DEFAULT_BASE_TYPE_KEY = 'base';
     private const DEFAULT_FILE_TYPE_KEY = 'file';
-    private const DEFAULT_GRAPH_TYPE_KEY = 'graph';
     private const DEFAULT_VIEW_TYPE_KEY = 'view';
 
     public function list(Request $request, Context $context): Response
@@ -37,7 +36,6 @@ final class NoteTypesController
 
         $baseTypeId = $this->ensureDefaultBaseType($pdo, $nookId);
         $this->ensureDefaultFileType($pdo, $nookId, $baseTypeId);
-        $this->ensureDefaultGraphType($pdo, $nookId, $baseTypeId);
         $this->ensureDefaultViewType($pdo, $nookId, $baseTypeId);
 
         $stmt = $pdo->prepare(
@@ -377,39 +375,6 @@ final class NoteTypesController
             $attrStmt->execute([':nook_id' => $nookId, ':type_id' => $typeId]);
         }
     }
-
-    private function ensureDefaultGraphType(PDO $pdo, string $nookId, string $baseTypeId): void
-    {
-        $check = $pdo->prepare('select id from global.note_types where nook_id = :nook_id and key = :key');
-        $check->execute([':nook_id' => $nookId, ':key' => self::DEFAULT_GRAPH_TYPE_KEY]);
-        if ($check->fetchColumn()) {
-            return;
-        }
-
-        $stmt = $pdo->prepare(
-            'insert into global.note_types (nook_id, key, label, parent_id) '
-            . 'values (:nook_id, :key, :label, :parent_id) '
-            . 'returning id'
-        );
-        $stmt->execute([
-            ':nook_id' => $nookId,
-            ':key' => self::DEFAULT_GRAPH_TYPE_KEY,
-            ':label' => 'Graph View',
-            ':parent_id' => $baseTypeId !== '' ? $baseTypeId : null,
-        ]);
-        $typeIdRaw = $stmt->fetchColumn();
-        $typeId = is_scalar($typeIdRaw) ? (string)$typeIdRaw : '';
-
-        if ($typeId !== '') {
-            $attrStmt = $pdo->prepare(
-                "insert into global.type_attributes (nook_id, type_id, name, kind, config) "
-                . "values (:nook_id, :type_id, 'Graph', 'graph', '{}'::jsonb) "
-                . "on conflict do nothing"
-            );
-            $attrStmt->execute([':nook_id' => $nookId, ':type_id' => $typeId]);
-        }
-    }
-
 
     private function ensureDefaultViewType(PDO $pdo, string $nookId, string $baseTypeId): void
     {

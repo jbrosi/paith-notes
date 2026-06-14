@@ -1192,7 +1192,7 @@ it('type deletion is blocked when children exist', function (): void {
     expect($delParent2['status'])->toBe(200);
 });
 
-it('default file and graph types are seeded for new nooks', function (): void {
+it('default file and view types are seeded for new nooks', function (): void {
     $userId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
     $headers = [
         'X-Nook-User' => $userId,
@@ -1202,12 +1202,14 @@ it('default file and graph types are seeded for new nooks', function (): void {
 
     $nookId = json_decode(App::handle('POST', '/api/nooks', $headers, json_encode(['name' => 'Seed Test']))['body'], true)['nook']['id'];
 
-    // List types — should include seeded File and Graph View types
+    // List types — should include seeded File and View types. Graphs no
+    // longer have a dedicated type (see "views are now notes" refactor):
+    // graph notes are now View-typed notes with a graph attribute.
     $typesRes = App::handle('GET', '/api/nooks/' . $nookId . '/note-types', $headers, '');
     $types = json_decode($typesRes['body'], true)['types'];
     $keys = array_map(fn($t) => $t['key'], $types);
     expect(in_array('file', $keys, true))->toBeTrue();
-    expect(in_array('graph', $keys, true))->toBeTrue();
+    expect(in_array('view', $keys, true))->toBeTrue();
 
     // File type should have a file attribute
     $fileType = null;
@@ -1216,12 +1218,12 @@ it('default file and graph types are seeded for new nooks', function (): void {
     $fileKinds = array_map(fn($a) => $a['kind'], $fileAttrs);
     expect(in_array('file', $fileKinds, true))->toBeTrue();
 
-    // Graph type should have a graph attribute
-    $graphType = null;
-    foreach ($types as $t) { if ($t['key'] === 'graph') { $graphType = $t; break; } }
-    $graphAttrs = json_decode(App::handle('GET', '/api/nooks/' . $nookId . '/note-types/' . $graphType['id'] . '/attributes', $headers, '')['body'], true)['attributes'];
-    $graphKinds = array_map(fn($a) => $a['kind'], $graphAttrs);
-    expect(in_array('graph', $graphKinds, true))->toBeTrue();
+    // View type should have a view attribute
+    $viewType = null;
+    foreach ($types as $t) { if ($t['key'] === 'view') { $viewType = $t; break; } }
+    $viewAttrs = json_decode(App::handle('GET', '/api/nooks/' . $nookId . '/note-types/' . $viewType['id'] . '/attributes', $headers, '')['body'], true)['attributes'];
+    $viewKinds = array_map(fn($a) => $a['kind'], $viewAttrs);
+    expect(in_array('view', $viewKinds, true))->toBeTrue();
 });
 
 it('indexed attributes create and drop expression indexes', function (): void {
