@@ -17,6 +17,7 @@ import {
 } from "./ChatMessage";
 import styles from "./ChatPanel.module.css";
 import { ToolApproval } from "./ToolApproval";
+import { createTtsQueue } from "./voice";
 
 type ConversationSummary = {
 	id: string;
@@ -204,6 +205,19 @@ export function ChatPanel(props: Props) {
 		createSignal<PendingApproval | null>(null);
 	const [error, setError] = createSignal<string | null>(null);
 	const [quickReplyDismissed, setQuickReplyDismissed] = createSignal(false);
+	const [voiceMode, setVoiceMode] = createSignal(false);
+	const [voiceLang, setVoiceLang] = createSignal("en");
+	// MCP synthesizes server-side now; createTtsQueue is just a decoder +
+	// Web Audio scheduler. Frontend never POSTs to /tts directly anymore.
+	const tts = createTtsQueue({ debug: () => true });
+
+	// Don't cancel TTS when the approval modal opens. The pre-tool
+	// announcement ("I'll add that to your notes now") is queued before
+	// awaiting_approval — for slow engines like F5 it's still in the
+	// prebuffer when the event arrives, so cancelling here drops it before
+	// it ever plays. The audio is short and lets the user hear what the
+	// assistant is asking permission for; if they want silence they can
+	// hit Stop or just deny the action.
 
 	// L1 progress indicator for image generation: tracks the wall-clock
 	// start of an approved generate_image call so the UI can show
@@ -325,6 +339,7 @@ export function ChatPanel(props: Props) {
 		clearKeepAlive();
 		isNudge = false;
 		abortCtrl?.abort();
+		tts.cancel();
 		setStreaming(false);
 		setPendingApproval(null);
 		setView("list");
@@ -518,7 +533,31 @@ export function ChatPanel(props: Props) {
 					// image must already be persisted, so the "generating
 					// image…" banner has served its purpose.
 					clearImageGenIndicator();
-					appendDelta(data.delta as string);
+					const delta = data.delta as string;
+					appendDelta(delta);
+				} else if (event === "audio_chunk") {
+					// MCP synthesized a chunk on the voice service and
+					// forwarded it to us as base64. Decode and queue for
+					// gapless playback.
+					try {
+						const b64 = String((data as { data?: string }).data ?? "");
+						console.log(
+							`[voice] audio_chunk event received: ${b64.length} base64 chars`,
+						);
+						const bin = atob(b64);
+						const arr = new Uint8Array(bin.length);
+						for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+						tts.enqueueAudioBytes(arr.buffer);
+					} catch (e) {
+						console.error("[voice] audio_chunk decode failed", e);
+					}
+				} else if (event === "voice_debug") {
+					if (
+						typeof localStorage !== "undefined" &&
+						localStorage.getItem("voiceDebug") === "1"
+					) {
+						console.log("[voice/server]", data);
+					}
 				} else if (event === "tool_use_start") {
 					clearImageGenIndicator();
 					addToolUseStart(data.id as string, data.name as string);
@@ -623,6 +662,7 @@ export function ChatPanel(props: Props) {
 					terminalEventSeen = true;
 					finalizeAssistant();
 					setStreaming(false);
+					tts.cancel();
 					setError(data.message as string);
 					return;
 				}
@@ -644,6 +684,10 @@ export function ChatPanel(props: Props) {
 		setError(null);
 		setModel(selectedModel);
 		setQuickReplyDismissed(false);
+		// AudioContext.resume() only honors a recent user gesture; chunks
+		// arrive seconds later, so we have to wake the context *here*, while
+		// we still have the click in scope. No-op after the first call.
+		if (voiceMode()) tts.prime();
 		setMessages((prev) => [
 			...prev,
 			{ role: "user", text, sentAt: Date.now() } as ChatMessageData,
@@ -669,6 +713,8 @@ export function ChatPanel(props: Props) {
 						context_note_title: props.currentNoteTitle ?? undefined,
 						context_note_type: props.currentNoteType ?? undefined,
 						context_path: props.currentPath ?? undefined,
+						voice_mode: voiceMode(),
+						voice_lang: voiceLang(),
 					}),
 					signal: abortCtrl.signal,
 				},
@@ -753,6 +799,9 @@ export function ChatPanel(props: Props) {
 		}
 		setStreaming(true);
 		setError(null);
+		// Prime the AudioContext from this approval click (user gesture)
+		// so chunks arriving later can actually play.
+		if (voiceMode()) tts.prime();
 
 		// If any of the approved tools is generate_image, start the
 		// "Generating image…" indicator — the wait is long enough
@@ -776,6 +825,8 @@ export function ChatPanel(props: Props) {
 						conversation_id: pa.conversationId,
 						model: pa.model,
 						context_note_id: pa.contextNoteId,
+						voice_mode: voiceMode(),
+						voice_lang: voiceLang(),
 						tool_results: pa.tools.map((t) => ({
 							tool_use_id: t.id,
 							tool_name: t.name,
@@ -907,6 +958,10 @@ export function ChatPanel(props: Props) {
 						disabled={false}
 						model={model()}
 						onModelChange={setModel}
+						voiceMode={voiceMode()}
+						onVoiceModeChange={setVoiceMode}
+						voiceLang={voiceLang()}
+						onVoiceLangChange={setVoiceLang}
 					/>
 				</div>
 			</Show>
@@ -1025,6 +1080,7 @@ export function ChatPanel(props: Props) {
 							type="button"
 							onClick={() => {
 								abortCtrl?.abort();
+								tts.cancel();
 								setStreaming(false);
 								setMessages((prev) => {
 									const last = prev[prev.length - 1];
@@ -1066,73 +1122,12 @@ export function ChatPanel(props: Props) {
 						inputRef={(el) => {
 							chatInputEl = el;
 						}}
+						voiceMode={voiceMode()}
+						onVoiceModeChange={setVoiceMode}
+						voiceLang={voiceLang()}
+						onVoiceLangChange={setVoiceLang}
+						contextUsage={contextUsage()}
 					/>
-					<Show when={contextUsage().ratio > 0}>
-						{(() => {
-							const pct = () => Math.round(contextUsage().ratio * 100);
-							const color = () =>
-								contextUsage().ratio > 0.9
-									? "var(--color-danger, #ef4444)"
-									: contextUsage().ratio > 0.5
-										? "var(--color-warning, #f59e0b)"
-										: "var(--color-text-faint, #ccc)";
-							// SVG circle: radius=8, circumference=50.27
-							const circumference = 50.27;
-							const offset = () => circumference * (1 - contextUsage().ratio);
-							return (
-								<div
-									style={{
-										"margin-top": "4px",
-										display: "flex",
-										"align-items": "center",
-										"justify-content": "flex-end",
-										gap: "4px",
-									}}
-								>
-									<svg
-										width="18"
-										height="18"
-										viewBox="0 0 20 20"
-										aria-hidden="true"
-									>
-										<title>Context usage</title>
-										<circle
-											cx="10"
-											cy="10"
-											r="8"
-											fill="none"
-											stroke="var(--color-border-light, #eee)"
-											stroke-width="2.5"
-										/>
-										<circle
-											cx="10"
-											cy="10"
-											r="8"
-											fill="none"
-											stroke={color()}
-											stroke-width="2.5"
-											stroke-dasharray={String(circumference)}
-											stroke-dashoffset={String(offset())}
-											stroke-linecap="round"
-											transform="rotate(-90 10 10)"
-											style={{
-												transition: "stroke-dashoffset 0.3s, stroke 0.3s",
-											}}
-										/>
-									</svg>
-									<span
-										style={{
-											"font-size": "0.65rem",
-											color: color(),
-											"white-space": "nowrap",
-										}}
-									>
-										{pct()}%
-									</span>
-								</div>
-							);
-						})()}
-					</Show>
 				</div>
 			</Show>
 		</div>

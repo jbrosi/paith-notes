@@ -30,6 +30,20 @@
         reverse_proxy mcp:3000
     }
 
+    @voice {
+        path /api/voice/*
+    }
+
+    handle @voice {
+        uri strip_prefix /api/voice
+        reverse_proxy voice:8000 {
+            transport http {
+                read_timeout 600s
+                write_timeout 600s
+            }
+        }
+    }
+
     handle @php {
         root * /app/api
         php_server {

@@ -16,7 +16,11 @@ services:
       - app
     volumes:
       - .:/workspace
-      - claude_home:/root
+      # Claude Code stores settings/memory/sessions under $HOME/.claude/ and
+      # $HOME/.claude.json. HOME is /home/ubuntu (set above), so the volume
+      # must mount there — mounting at /root preserved the wrong directory
+      # and every rebuild wiped real state.
+      - claude_state:/home/ubuntu
     working_dir: /workspace
 
   mcp:
@@ -153,7 +157,32 @@ services:
     expose:
       - "8080"
 
+  voice:
+    image: ${VOICE_IMAGE:-notes-voice}
+    build:
+      context: ./app/voice
+      target: dev
+    volumes:
+      - ./app/voice/src:/app/src
+      # Persist downloaded whisper models across container restarts so the
+      # ~150MB base model isn't refetched every rebuild.
+      # Holds both the whisper model and the ~1.5GB Chatterbox weights
+      # (HF_HOME points here; chatterbox uses huggingface_hub cache under hub/).
+      - voice_models:/app/models/whisper
+      # Drop a 6–10s real human-voice WAV at app/voice/voices/default.wav
+      # to override Chatterbox's built-in (male) default.
+      - ./app/voice/voices:/app/voices
+    expose:
+      - "8000"
+    environment:
+      WHISPER_MODEL: ${WHISPER_MODEL:-small}
+      WHISPER_DEVICE: ${WHISPER_DEVICE:-cpu}
+      WHISPER_COMPUTE_TYPE: ${WHISPER_COMPUTE_TYPE:-int8}
+      WHISPER_LANGUAGE: ${WHISPER_LANGUAGE:-}
+    restart: unless-stopped
+
 volumes:
   frontend_node_modules:
   files_data:
-  claude_home:
+  claude_state:
+  voice_models:
