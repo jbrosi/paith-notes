@@ -1,6 +1,6 @@
 fastapi==0.115.6
 uvicorn[standard]==0.34.0
-python-multipart==0.0.20
+python-multipart==0.0.31
 faster-whisper==1.1.1
 # Kokoro handles English + es/fr/hi/it/ja/pt-br/zh. The 0.4 line reads the
 # new binary voices format (voices-v1.0.bin) that we bake into the image.
@@ -17,10 +17,10 @@ chatterbox-tts
 # transformers>=4.47 because the per-step attention shapes stopped being
 # consistent (past_key_values format change). 4.46.3 is the last version
 # Chatterbox's CI tested against.
-transformers==4.46.3
+transformers==5.0.0rc3
 # F5-TTS (SWivid, MIT) — flow-matching TTS. Stable prosody (no AR warmup
 # drift), zero-shot voice cloning, but requires a transcript of the
 # reference WAV at inference time. Pulls vocos for the vocoder.
 f5-tts
 # faster-whisper imports `requests` at top level but doesn't declare it.
-requests==2.32.3
+requests==2.33.0
