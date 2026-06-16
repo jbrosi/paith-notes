@@ -188,7 +188,7 @@
 	display: inline-block;
 	padding: 4px 8px;
 	margin: 4px 0;
-	color: var(--color-link, #0066cc);
+	color: var(--color-link, #06c);
 	border: 1px dashed var(--color-border-light, #e5e7eb);
 	border-radius: 4px;
 	text-decoration: none;

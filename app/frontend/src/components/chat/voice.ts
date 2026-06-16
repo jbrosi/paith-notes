@@ -222,10 +222,6 @@ export function createTtsQueue(opts: TtsQueueOptions = {}) {
 	const PREBUFFER_TARGET = 3;
 	const PREBUFFER_DEADLINE_MS = 1500;
 	let needsPrebuffer = true;
-	const debugOn = (): boolean =>
-		(opts.debug?.() ?? false) &&
-		typeof localStorage !== "undefined" &&
-		localStorage.getItem("voiceDebug") === "1";
 
 	// One AudioContext for the whole queue's lifetime. Created on first
 	// enqueue (inside a user-gesture-initiated call chain) so the browser's

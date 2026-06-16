@@ -173,15 +173,16 @@
 	border-radius: 50%;
 	background: var(--color-danger, #ef4444);
 	flex-shrink: 0;
-	animation: micPulse 1.2s ease-in-out infinite;
+	animation: mic-pulse 1.2s ease-in-out infinite;
 }
 
-@keyframes micPulse {
+@keyframes mic-pulse {
 	0%,
 	100% {
 		opacity: 1;
 		transform: scale(1);
 	}
+
 	50% {
 		opacity: 0.5;
 		transform: scale(1.3);
