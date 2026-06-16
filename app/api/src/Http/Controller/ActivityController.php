@@ -11,6 +11,8 @@ use Paith\Notes\Api\Http\Request;
 use Paith\Notes\Api\Http\Response;
 use Paith\Notes\Shared\Db\Row;
 use PDO;
+use Paith\Notes\Shared\Uuid;
+use Paith\Notes\Api\Http\Auth\User;
 
 final class ActivityController
 {
@@ -30,7 +32,7 @@ final class ActivityController
         $before = $beforeRaw !== '' ? (int)$beforeRaw : 0;
 
         $whereClause = 'am.user_id = :user_id and (am.nook_id is null or am.nook_id in (select nook_id from global.nook_members where user_id = :user_id_sub))';
-        $params = [':user_id' => $user['id'], ':user_id_sub' => $user['id']];
+        $params = [':user_id' => $user->id, ':user_id_sub' => $user->id];
 
         if ($before > 0) {
             $whereClause .= ' and am.id < :before';
@@ -38,7 +40,7 @@ final class ActivityController
         }
 
         $stmt = $pdo->prepare(
-            "select am.id, am.version, am.action, am.table_name, am.table_id, am.nook_id, am.user_id, am.actor, am.created_at,
+            "select am.id, am.version, am.action, am.table_name, am.entity_id, am.nook_id, am.user_id, am.actor, am.created_at,
                     u.first_name, u.last_name, u.nickname,
                     n.title as note_title,
                     ad.data->>'source_note_id' as link_source_id,
@@ -48,7 +50,7 @@ final class ActivityController
                     (select forward_label from global.link_predicates where id = (ad.data->>'predicate_id')::uuid) as link_forward_label
              from global.audit_meta am
              left join global.users u on u.id = am.user_id
-             left join global.notes n on n.id = am.table_id and am.table_name = 'notes'
+             left join global.notes n on n.id = am.entity_id and am.table_name = 'notes'
              left join global.audit_data ad on ad.meta_id = am.id and am.table_name in ('note_links', 'note_cross_links')
              where {$whereClause}
              order by am.id desc
@@ -59,6 +61,7 @@ final class ActivityController
         }
         $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
         $stmt->execute();
+        /** @var list<array<string, mixed>> $rows */
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
         return JsonResponse::ok([
@@ -76,12 +79,9 @@ final class ActivityController
         $pdo = $context->pdo();
         $user = $context->user();
 
-        $nookId = trim($request->routeParam('nookId'));
-        if ($nookId === '' || !self::isUuid($nookId)) {
-            throw new HttpError('nookId must be a UUID', 400);
-        }
+        $nookId = $request->requireUuidRouteParam('nookId');
 
-        $this->requireMember($pdo, $user, $nookId);
+        NookAccess::requireMember($pdo, $user, $nookId);
 
         $limitRaw = $request->queryParam('limit');
         $limit = min(50, max(1, $limitRaw !== '' ? (int)$limitRaw : 20));
@@ -97,13 +97,13 @@ final class ActivityController
             $params[':before'] = $before;
         }
 
-        if ($filterUserId !== '' && self::isUuid($filterUserId)) {
+        if ($filterUserId !== '' && Uuid::isValid($filterUserId)) {
             $whereClause .= ' and am.user_id = :filter_user_id';
             $params[':filter_user_id'] = $filterUserId;
         }
 
         $stmt = $pdo->prepare(
-            "select am.id, am.version, am.action, am.table_name, am.table_id, am.nook_id, am.created_at,
+            "select am.id, am.version, am.action, am.table_name, am.entity_id, am.nook_id, am.created_at,
                     am.user_id, am.actor,
                     u.first_name, u.last_name, u.nickname,
                     n.title as note_title,
@@ -114,7 +114,7 @@ final class ActivityController
                     (select forward_label from global.link_predicates where id = (ad.data->>'predicate_id')::uuid) as link_forward_label
              from global.audit_meta am
              left join global.users u on u.id = am.user_id
-             left join global.notes n on n.id = am.table_id and am.table_name = 'notes'
+             left join global.notes n on n.id = am.entity_id and am.table_name = 'notes'
              left join global.audit_data ad on ad.meta_id = am.id and am.table_name in ('note_links', 'note_cross_links')
              where {$whereClause}
              order by am.id desc
@@ -125,6 +125,7 @@ final class ActivityController
         }
         $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
         $stmt->execute();
+        /** @var list<array<string, mixed>> $rows */
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
         return JsonResponse::ok([
@@ -133,23 +134,20 @@ final class ActivityController
     }
 
     /**
-     * @param array $rows
-     * @return array<int, array<string, mixed>>
+     * @param list<array<string, mixed>> $rows
+     * @return list<array<string, mixed>>
      */
     private static function formatRows(array $rows): array
     {
         $activity = [];
         foreach ($rows as $r) {
-            if (!is_array($r)) {
-                continue;
-            }
             $entry = [
                 'id' => Row::int($r, 'id'),
                 'version' => Row::int($r, 'version'),
                 'action' => Row::str($r, 'action'),
                 'actor' => Row::str($r, 'actor', 'user'),
                 'table_name' => Row::str($r, 'table_name'),
-                'table_id' => Row::str($r, 'table_id'),
+                'table_id' => Row::str($r, 'entity_id'),
                 'nook_id' => Row::str($r, 'nook_id'),
                 'user_id' => Row::str($r, 'user_id'),
                 'user_name' => trim(Row::str($r, 'nickname') !== '' ? Row::str($r, 'nickname') : (Row::str($r, 'first_name') . ' ' . Row::str($r, 'last_name'))),
@@ -200,7 +198,7 @@ final class ActivityController
         $before = $beforeRaw !== '' ? (int)$beforeRaw : 0;
 
         $whereClause = 'user_id = :user_id';
-        $params = [':user_id' => $user['id']];
+        $params = [':user_id' => $user->id];
 
         if ($before > 0) {
             $whereClause .= ' and id < :before';
@@ -236,22 +234,5 @@ final class ActivityController
         }
 
         return JsonResponse::ok(['events' => $events]);
-    }
-
-    private function requireMember(PDO $pdo, array $user, string $nookId): void
-    {
-        $check = $pdo->prepare('select 1 from global.nook_members where nook_id = :nook_id and user_id = :user_id limit 1');
-        $check->execute([':nook_id' => $nookId, ':user_id' => $user['id']]);
-        if ($check->fetch() === false) {
-            throw new HttpError('forbidden', 403);
-        }
-    }
-
-    private static function isUuid(string $value): bool
-    {
-        return (bool)preg_match(
-            '/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i',
-            $value
-        );
     }
 }

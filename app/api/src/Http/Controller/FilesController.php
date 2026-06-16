@@ -12,6 +12,7 @@ use Paith\Notes\Api\Http\Request;
 use Paith\Notes\Api\Http\Response;
 use Paith\Notes\Api\Http\TextResponse;
 use PDO;
+use Paith\Notes\Shared\Db\Row;
 
 final class FilesController
 {
@@ -119,7 +120,7 @@ final class FilesController
                 : substr($objectKey, 0, $lastSlash + 1) . substr($base, 0, $dot);
         }
 
-        $userId = is_scalar($user['id'] ?? null) ? (string)$user['id'] : '';
+        $userId = $user->id;
         if ($userId === '') {
             // auth_request wants 401 for unauthenticated
             throw new HttpError('unauthenticated', 401);
@@ -151,8 +152,8 @@ final class FilesController
             throw new HttpError('not found', 404);
         }
 
-        $filename = is_scalar($row['filename'] ?? null) ? (string)$row['filename'] : 'download';
-        $mimeType = is_scalar($row['mime_type'] ?? null) ? (string)$row['mime_type'] : '';
+        $filename = Row::str($row, 'filename', 'download');
+        $mimeType = Row::str($row, 'mime_type');
         $mimeType = $this->normalizeMimeType($mimeType);
         if ($mimeType === '' && $requestedExt !== '') {
             $mimeType = $this->guessMimeTypeFromExtension($requestedExt);

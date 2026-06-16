@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Paith\Notes\Api\Http;
 
+use Paith\Notes\Api\Http\Auth\User;
 use PDO;
 
 final class Context
@@ -13,7 +14,7 @@ final class Context
 
     private ?PDO $pdo;
 
-    private ?array $user;
+    private ?User $user;
 
     private string $actor = 'user';
 
@@ -36,9 +37,8 @@ final class Context
         // Set the audit user context for PostgreSQL triggers.
         // If no user is authenticated yet, use a nil UUID (triggers will still fire
         // but the audit row records that no user was identified).
-        $userId = is_array($this->user) && is_scalar($this->user['id'] ?? null) ? (string)$this->user['id'] : '00000000-0000-0000-0000-000000000000';
-        $quotedUserId = $pdo->quote($userId);
-        $pdo->exec("select set_config('app.user_id', " . $quotedUserId . ", false)");
+        $userId = $this->user !== null ? $this->user->id : '00000000-0000-0000-0000-000000000000';
+        $pdo->exec("select set_config('app.user_id', " . $pdo->quote($userId) . ", false)");
         $pdo->exec("select set_config('app.actor', " . $pdo->quote($this->actor) . ", false)");
 
         $this->pdo = $pdo;
@@ -51,24 +51,31 @@ final class Context
      */
     public function syncAuditUser(): void
     {
-        if ($this->pdo instanceof PDO && is_array($this->user)) {
-            $userId = is_scalar($this->user['id'] ?? null) ? (string)$this->user['id'] : '';
-            $this->pdo->exec("select set_config('app.user_id', " . $this->pdo->quote($userId) . ", false)");
+        if ($this->pdo instanceof PDO && $this->user !== null) {
+            $this->pdo->exec("select set_config('app.user_id', " . $this->pdo->quote($this->user->id) . ", false)");
             $this->pdo->exec("select set_config('app.actor', " . $this->pdo->quote($this->actor) . ", false)");
         }
     }
 
-    public function setUser(array $user): void
+    public function setUser(User $user): void
     {
         $this->user = $user;
     }
 
-    public function user(): array
+    public function user(): User
     {
-        if (!is_array($this->user)) {
+        if ($this->user === null) {
             throw new HttpError('not authenticated', 401);
         }
         return $this->user;
+    }
+
+    /**
+     * Convenience accessor — equivalent to user()->id.
+     */
+    public function userId(): string
+    {
+        return $this->user()->id;
     }
 
     /** Set the actor ('user' or 'ai') from the X-Nook-Actor header */

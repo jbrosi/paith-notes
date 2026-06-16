@@ -6,20 +6,11 @@ import {
 	useContext,
 } from "solid-js";
 
-export type MobilePanel =
-	| "content"
-	| "links"
-	| "history"
-	| "graph"
-	| "markdown";
+/** Panel key for mobile swipe navigation. Dynamic based on type's attribute_layout. */
+export type MobilePanel = string;
 
-export const MOBILE_PANELS: MobilePanel[] = [
-	"content",
-	"links",
-	"history",
-	"graph",
-	"markdown",
-];
+/** Default panel list when no layout is configured */
+export const DEFAULT_MOBILE_PANELS: string[] = ["main"];
 
 export type ThemeMode = "system" | "light" | "dark";
 
@@ -27,9 +18,12 @@ export type UiState = {
 	mode: () => "view" | "edit";
 	setMode: (next: "view" | "edit") => void;
 	toggleMode: () => void;
-	graphPanelOpen: () => boolean;
-	setGraphPanelOpen: (next: boolean) => void;
-	toggleGraphPanel: () => void;
+	sidebarRightOpen: () => boolean;
+	setSidebarRightOpen: (next: boolean) => void;
+	toggleSidebarRight: () => void;
+	sidebarLeftOpen: () => boolean;
+	setSidebarLeftOpen: (next: boolean) => void;
+	toggleSidebarLeft: () => void;
 	typesPanelOpen: () => boolean;
 	setTypesPanelOpen: (next: boolean) => void;
 	toggleTypesPanel: () => void;
@@ -38,6 +32,9 @@ export type UiState = {
 	toggleChatPanel: () => void;
 	activePanel: () => MobilePanel;
 	setActivePanel: (next: MobilePanel) => void;
+	/** Set the available mobile panels (driven by attribute_layout) */
+	setMobilePanels: (panels: string[]) => void;
+	mobilePanels: () => string[];
 	nextPanel: () => void;
 	prevPanel: () => void;
 	theme: () => ThemeMode;
@@ -47,55 +44,71 @@ export type UiState = {
 	setAccentColor: (color: string, nookId?: string) => void;
 	resetAccentColor: (nookId?: string) => void;
 	loadNookAccent: (nookId: string) => void;
+	debugMode: () => boolean;
+	setDebugMode: (next: boolean) => void;
+	toggleDebugMode: () => void;
 };
 
 const UiContext = createContext<UiState>();
 
-const GRAPH_PANEL_OPEN_STORAGE_KEY = "paith-notes:graphPanelOpen";
+const SIDEBAR_RIGHT_STORAGE_KEY = "paith-notes:sidebarRightOpen";
+const SIDEBAR_LEFT_STORAGE_KEY = "paith-notes:sidebarLeftOpen";
 const TYPES_PANEL_OPEN_STORAGE_KEY = "paith-notes:typesPanelOpen";
 const CHAT_PANEL_OPEN_STORAGE_KEY = "paith-notes:chatPanelOpen";
 const ACTIVE_PANEL_STORAGE_KEY = "paith-notes:activePanel";
 const THEME_STORAGE_KEY = "paith-notes:theme";
+const DEBUG_MODE_STORAGE_KEY = "paith-notes:debugMode";
 
 export function UiProvider(props: { children: JSX.Element }) {
 	const [mode, setModeSignal] = createSignal<"view" | "edit">("view");
-	const [graphPanelOpen, setGraphPanelOpenSignal] = createSignal<boolean>(true);
+	const [sidebarRightOpen, setSidebarRightOpenSignal] =
+		createSignal<boolean>(true);
+	const [sidebarLeftOpen, setSidebarLeftOpenSignal] =
+		createSignal<boolean>(false);
 	const [typesPanelOpen, setTypesPanelOpenSignal] = createSignal<boolean>(true);
 	const [chatPanelOpen, setChatPanelOpenSignal] = createSignal<boolean>(false);
-	const [activePanel, setActivePanelSignal] =
-		createSignal<MobilePanel>("content");
+	const [activePanel, setActivePanelSignal] = createSignal<MobilePanel>("main");
+	const [mobilePanels, setMobilePanelsSignal] = createSignal<string[]>(
+		DEFAULT_MOBILE_PANELS,
+	);
 	const [theme, setThemeSignal] = createSignal<ThemeMode>("system");
 	const [accentColor, setAccentColorSignal] = createSignal("");
+	const [debugMode, setDebugModeSignal] = createSignal(false);
 
 	onMount(() => {
-		// Mode intentionally not restored from localStorage — always start in view
 		try {
-			const v = window.localStorage.getItem(GRAPH_PANEL_OPEN_STORAGE_KEY);
-			if (v === "0") setGraphPanelOpenSignal(false);
-			if (v === "1") setGraphPanelOpenSignal(true);
+			const v = window.localStorage.getItem(SIDEBAR_RIGHT_STORAGE_KEY);
+			if (v === "0") setSidebarRightOpenSignal(false);
+			if (v === "1") setSidebarRightOpenSignal(true);
 		} catch {
-			// ignore
+			/* ignore */
+		}
+		try {
+			const v = window.localStorage.getItem(SIDEBAR_LEFT_STORAGE_KEY);
+			if (v === "0") setSidebarLeftOpenSignal(false);
+			if (v === "1") setSidebarLeftOpenSignal(true);
+		} catch {
+			/* ignore */
 		}
 		try {
 			const v = window.localStorage.getItem(TYPES_PANEL_OPEN_STORAGE_KEY);
 			if (v === "0") setTypesPanelOpenSignal(false);
 			if (v === "1") setTypesPanelOpenSignal(true);
 		} catch {
-			// ignore
+			/* ignore */
 		}
 		try {
 			const v = window.localStorage.getItem(CHAT_PANEL_OPEN_STORAGE_KEY);
 			if (v === "0") setChatPanelOpenSignal(false);
 			if (v === "1") setChatPanelOpenSignal(true);
 		} catch {
-			// ignore
+			/* ignore */
 		}
 		try {
 			const v = window.localStorage.getItem(ACTIVE_PANEL_STORAGE_KEY);
-			if (v === "content" || v === "links" || v === "graph" || v === "markdown")
-				setActivePanelSignal(v);
+			if (v) setActivePanelSignal(v);
 		} catch {
-			// ignore
+			/* ignore */
 		}
 		try {
 			const v = window.localStorage.getItem(THEME_STORAGE_KEY);
@@ -104,7 +117,13 @@ export function UiProvider(props: { children: JSX.Element }) {
 				applyTheme(v);
 			}
 		} catch {
-			// ignore
+			/* ignore */
+		}
+		try {
+			const v = window.localStorage.getItem(DEBUG_MODE_STORAGE_KEY);
+			if (v === "1") setDebugModeSignal(true);
+		} catch {
+			/* ignore */
 		}
 	});
 
@@ -112,40 +131,32 @@ export function UiProvider(props: { children: JSX.Element }) {
 		setModeSignal(next);
 	};
 
-	const setGraphPanelOpen = (next: boolean) => {
-		setGraphPanelOpenSignal(Boolean(next));
+	const persistBool = (key: string, val: boolean) => {
 		try {
-			window.localStorage.setItem(
-				GRAPH_PANEL_OPEN_STORAGE_KEY,
-				next ? "1" : "0",
-			);
+			window.localStorage.setItem(key, val ? "1" : "0");
 		} catch {
-			// ignore
+			/* ignore */
 		}
+	};
+
+	const setSidebarRightOpen = (next: boolean) => {
+		setSidebarRightOpenSignal(Boolean(next));
+		persistBool(SIDEBAR_RIGHT_STORAGE_KEY, next);
+	};
+
+	const setSidebarLeftOpen = (next: boolean) => {
+		setSidebarLeftOpenSignal(Boolean(next));
+		persistBool(SIDEBAR_LEFT_STORAGE_KEY, next);
 	};
 
 	const setTypesPanelOpen = (next: boolean) => {
 		setTypesPanelOpenSignal(Boolean(next));
-		try {
-			window.localStorage.setItem(
-				TYPES_PANEL_OPEN_STORAGE_KEY,
-				next ? "1" : "0",
-			);
-		} catch {
-			// ignore
-		}
+		persistBool(TYPES_PANEL_OPEN_STORAGE_KEY, next);
 	};
 
 	const setChatPanelOpen = (next: boolean) => {
 		setChatPanelOpenSignal(Boolean(next));
-		try {
-			window.localStorage.setItem(
-				CHAT_PANEL_OPEN_STORAGE_KEY,
-				next ? "1" : "0",
-			);
-		} catch {
-			// ignore
-		}
+		persistBool(CHAT_PANEL_OPEN_STORAGE_KEY, next);
 	};
 
 	const setActivePanel = (next: MobilePanel) => {
@@ -153,7 +164,7 @@ export function UiProvider(props: { children: JSX.Element }) {
 		try {
 			window.localStorage.setItem(ACTIVE_PANEL_STORAGE_KEY, next);
 		} catch {
-			// ignore
+			/* ignore */
 		}
 	};
 
@@ -171,7 +182,7 @@ export function UiProvider(props: { children: JSX.Element }) {
 		try {
 			window.localStorage.setItem(THEME_STORAGE_KEY, next);
 		} catch {
-			// ignore
+			/* ignore */
 		}
 	};
 
@@ -210,7 +221,7 @@ export function UiProvider(props: { children: JSX.Element }) {
 				window.localStorage.removeItem(key);
 			}
 		} catch {
-			// ignore
+			/* ignore */
 		}
 	};
 
@@ -228,7 +239,7 @@ export function UiProvider(props: { children: JSX.Element }) {
 				applyAccentColor("");
 			}
 		} catch {
-			// ignore
+			/* ignore */
 		}
 	};
 
@@ -238,20 +249,35 @@ export function UiProvider(props: { children: JSX.Element }) {
 		setTheme(order[(idx + 1) % order.length]);
 	};
 
+	const setMobilePanels = (panels: string[]) => {
+		const list = panels.length > 0 ? panels : DEFAULT_MOBILE_PANELS;
+		setMobilePanelsSignal(list);
+		if (!list.includes(activePanel())) {
+			setActivePanel(list[0]);
+		}
+	};
+
 	const nextPanel = () => {
-		const idx = MOBILE_PANELS.indexOf(activePanel());
-		setActivePanel(MOBILE_PANELS[(idx + 1) % MOBILE_PANELS.length]);
+		const panels = mobilePanels();
+		const idx = panels.indexOf(activePanel());
+		setActivePanel(panels[(idx + 1) % panels.length]);
 	};
 
 	const prevPanel = () => {
-		const idx = MOBILE_PANELS.indexOf(activePanel());
-		setActivePanel(
-			MOBILE_PANELS[(idx - 1 + MOBILE_PANELS.length) % MOBILE_PANELS.length],
-		);
+		const panels = mobilePanels();
+		const idx = panels.indexOf(activePanel());
+		setActivePanel(panels[(idx - 1 + panels.length) % panels.length]);
 	};
 
+	const setDebugMode = (next: boolean) => {
+		setDebugModeSignal(Boolean(next));
+		persistBool(DEBUG_MODE_STORAGE_KEY, next);
+	};
+	const toggleDebugMode = () => setDebugMode(!debugMode());
+
 	const toggleMode = () => setMode(mode() === "edit" ? "view" : "edit");
-	const toggleGraphPanel = () => setGraphPanelOpen(!graphPanelOpen());
+	const toggleSidebarRight = () => setSidebarRightOpen(!sidebarRightOpen());
+	const toggleSidebarLeft = () => setSidebarLeftOpen(!sidebarLeftOpen());
 	const toggleTypesPanel = () => setTypesPanelOpen(!typesPanelOpen());
 	const toggleChatPanel = () => setChatPanelOpen(!chatPanelOpen());
 
@@ -261,9 +287,12 @@ export function UiProvider(props: { children: JSX.Element }) {
 				mode,
 				setMode,
 				toggleMode,
-				graphPanelOpen,
-				setGraphPanelOpen,
-				toggleGraphPanel,
+				sidebarRightOpen,
+				setSidebarRightOpen,
+				toggleSidebarRight,
+				sidebarLeftOpen,
+				setSidebarLeftOpen,
+				toggleSidebarLeft,
 				typesPanelOpen,
 				setTypesPanelOpen,
 				toggleTypesPanel,
@@ -272,6 +301,8 @@ export function UiProvider(props: { children: JSX.Element }) {
 				toggleChatPanel,
 				activePanel,
 				setActivePanel,
+				setMobilePanels,
+				mobilePanels,
 				nextPanel,
 				prevPanel,
 				theme,
@@ -281,6 +312,9 @@ export function UiProvider(props: { children: JSX.Element }) {
 				setAccentColor,
 				resetAccentColor,
 				loadNookAccent,
+				debugMode,
+				setDebugMode,
+				toggleDebugMode,
 			}}
 		>
 			{props.children}

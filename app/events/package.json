@@ -1,0 +1,23 @@
+{
+  "name": "paith-notes-events",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "test": "tsx --test src/**/*.test.ts"
+  },
+  "dependencies": {
+    "jose": "^5.10.0",
+    "pg": "^8.16.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.14",
+    "@types/pg": "^8.11.6",
+    "@types/ws": "^8.18.1",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.2"
+  }
+}

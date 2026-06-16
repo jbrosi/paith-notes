@@ -11,8 +11,6 @@ export type GraphFilterDropdownProps = {
 	onTogglePredicateId: (id: string) => void;
 	onClearAll: () => void;
 	disabled?: boolean;
-	includeFiles: boolean;
-	onIncludeFilesChange: (v: boolean) => void;
 	// Display settings
 	layout: GraphLayout;
 	onLayoutChange: (layout: GraphLayout) => void;
@@ -37,10 +35,7 @@ export function GraphFilterDropdown(props: GraphFilterDropdownProps) {
 	let inputRef: HTMLInputElement | undefined;
 
 	const activeCount = createMemo(
-		() =>
-			props.selectedTypeIds.size +
-			props.selectedPredicateIds.size +
-			(props.includeFiles ? 0 : 1),
+		() => props.selectedTypeIds.size + props.selectedPredicateIds.size,
 	);
 	const hasFilter = createMemo(() => activeCount() > 0);
 
@@ -280,20 +275,6 @@ export function GraphFilterDropdown(props: GraphFilterDropdownProps) {
 
 					{/* Types tab */}
 					<Show when={tab() === "types"}>
-						<label
-							class={navStyles.typeCheckItem}
-							style={{ "border-bottom": "1px solid var(--color-border-light)" }}
-						>
-							<input
-								type="checkbox"
-								checked={props.includeFiles}
-								onChange={(e) =>
-									props.onIncludeFilesChange(e.currentTarget.checked)
-								}
-								class={navStyles.typeCheckbox}
-							/>
-							<span class={navStyles.typeCheckLabel}>Include files</span>
-						</label>
 						<Show when={props.selectedTypeIds.size > 0}>
 							<label
 								class={navStyles.typeCheckItem}
