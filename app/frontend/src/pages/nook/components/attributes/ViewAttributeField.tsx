@@ -65,16 +65,22 @@ export function ViewAttributeField(props: {
 	const executeView = async () => {
 		const c = config();
 		const nookId = props.store.nookId();
-		const typeId = c.type_id || "all";
+		const typeId = c.type_id || "";
 		setViewLoading(true);
 		try {
 			const params = new URLSearchParams();
+			// View attribute renderer needs the structured attribute
+			// values to render its columns — opt in via ?include=attributes.
+			params.set("include", "attributes");
+			if (typeId !== "") {
+				params.set("type_id", typeId);
+				params.set("include_subtypes", "1");
+			}
 			if (c.filters.length > 0) {
 				params.set("attribute_filters", JSON.stringify(c.filters));
 			}
-			const qs = params.toString() ? `?${params}` : "";
 			const res = await apiFetch(
-				`/api/nooks/${nookId}/note-types/${typeId}/notes${qs}`,
+				`/api/nooks/${nookId}/notes?${params.toString()}`,
 			);
 			if (!res.ok) {
 				setResults([]);

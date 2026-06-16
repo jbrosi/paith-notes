@@ -4,6 +4,8 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y \
     curl git unzip ca-certificates software-properties-common \
+    python3 python3-pip python3-yaml \
+    ffmpeg \
     && add-apt-repository ppa:ondrej/php \
     && apt-get update && apt-get install -y \
     php8.4-cli php8.4-pgsql php8.4-mbstring php8.4-xml php8.4-curl \

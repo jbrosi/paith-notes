@@ -16,7 +16,7 @@ final class AttributeValidator
     private const VALID_DIRECTIONS = ['outgoing', 'incoming', 'both'];
     private const VALID_CONTENT_MODES = ['markdown', 'plain', 'code', 'hidden'];
     private const VALID_TEXT_DISPLAYS = ['', 'paragraph'];
-    private const VALID_NUMBER_DISPLAYS = ['', 'rating'];
+    private const VALID_NUMBER_DISPLAYS = ['', 'rating', 'duration', 'currency'];
     private const VALID_FILE_DISPLAYS = ['', 'download', 'preview', 'player'];
     private const VALID_GRAPH_LAYOUTS = ['force', 'tree', 'radial'];
 
@@ -58,7 +58,7 @@ final class AttributeValidator
             case 'number':
                 $display = $config['display'] ?? '';
                 if ($display !== '' && !in_array($display, self::VALID_NUMBER_DISPLAYS, true)) {
-                    throw new HttpError('number display must be one of: (empty), rating', 400);
+                    throw new HttpError('number display must be one of: ' . implode(', ', array_map(fn($d) => $d === '' ? '(empty)' : $d, self::VALID_NUMBER_DISPLAYS)), 400);
                 }
                 if (isset($config['max'])) {
                     if (!is_numeric($config['max'])) {
@@ -67,6 +67,15 @@ final class AttributeValidator
                     $max = (int)$config['max'];
                     if ($max < 1 || $max > 100) {
                         throw new HttpError('number max must be between 1 and 100', 400);
+                    }
+                }
+                if ($display === 'currency') {
+                    // ISO 4217 codes are 3 uppercase letters; default to USD
+                    // when omitted but reject malformed overrides so a typo
+                    // doesn't silently become e.g. "U$D".
+                    $currency = $config['currency'] ?? 'USD';
+                    if (!is_string($currency) || !preg_match('/^[A-Z]{3}$/', $currency)) {
+                        throw new HttpError('number currency must be a 3-letter ISO code (e.g. USD)', 400);
                     }
                 }
                 break;
@@ -232,6 +241,25 @@ final class AttributeValidator
                 }
                 if ($value !== '' && !filter_var($value, FILTER_VALIDATE_URL)) {
                     throw new HttpError("$prefix: url value must be a valid URL", 400);
+                }
+                break;
+
+            case 'dimension':
+                if (!is_array($value)) {
+                    throw new HttpError("$prefix: dimension value must be an object with width/height", 400);
+                }
+                $width = $value['width'] ?? null;
+                $height = $value['height'] ?? null;
+                // Both must be present + positive integers. Zero/negative
+                // dimensions don't represent anything meaningful and would
+                // confuse downstream renderers.
+                foreach (['width' => $width, 'height' => $height] as $label => $v) {
+                    if (!is_int($v) && !(is_string($v) && ctype_digit($v))) {
+                        throw new HttpError("$prefix: dimension $label must be a positive integer", 400);
+                    }
+                    if ((int)$v < 1) {
+                        throw new HttpError("$prefix: dimension $label must be >= 1", 400);
+                    }
                 }
                 break;
 

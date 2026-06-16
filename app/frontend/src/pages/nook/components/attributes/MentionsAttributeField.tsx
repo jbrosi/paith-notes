@@ -49,20 +49,34 @@ export function MentionsAttributeField(props: {
 	});
 
 	return (
-		<Show when={items().length > 0}>
-			<div style={{ "margin-top": "8px" }}>
-				<div
-					style={{
-						"font-size": "0.7rem",
-						"font-weight": "600",
-						color: "var(--color-text-secondary)",
-						"margin-bottom": "4px",
-						"text-transform": "uppercase",
-						"letter-spacing": "0.03em",
-					}}
-				>
-					{props.attr.name}
-				</div>
+		<div style={{ "margin-top": "8px" }}>
+			<div
+				style={{
+					"font-size": "0.7rem",
+					"font-weight": "600",
+					color: "var(--color-text-secondary)",
+					"margin-bottom": "4px",
+					"text-transform": "uppercase",
+					"letter-spacing": "0.03em",
+				}}
+			>
+				{props.attr.name}
+			</div>
+			<Show
+				when={items().length > 0}
+				fallback={
+					<div
+						style={{
+							"font-size": "0.75rem",
+							color: "var(--color-text-muted)",
+							"font-style": "italic",
+							padding: "4px 0",
+						}}
+					>
+						No mentions yet.
+					</div>
+				}
+			>
 				<div style={{ display: "grid", gap: "2px" }}>
 					<For each={items()}>
 						{(item) => (
@@ -89,7 +103,7 @@ export function MentionsAttributeField(props: {
 						)}
 					</For>
 				</div>
-			</div>
-		</Show>
+			</Show>
+		</div>
 	);
 }

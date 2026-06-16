@@ -10,6 +10,7 @@ const WRITE_TOOLS = new Set([
 	"create_note",
 	"update_note",
 	"create_note_link",
+	"generate_image",
 	"open_note",
 	"start_new_chat",
 ]);

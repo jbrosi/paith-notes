@@ -19,11 +19,121 @@ export const GraphViewPropertiesSchema = z.object({
 
 export type GraphViewProperties = z.infer<typeof GraphViewPropertiesSchema>;
 
+/** Type-level graph defaults, declared on a graph TypeAttribute's config. */
+export type GraphTypeDefaults = Omit<
+	GraphViewProperties,
+	"rootNoteId" | "hiddenNodeIds"
+>;
+
+/**
+ * Extract graph type-level defaults from a TypeAttribute config blob.
+ * Unknown / invalid fields are dropped; valid fields override the
+ * hard-coded fallbacks at render time.
+ */
+export function parseGraphTypeDefaults(
+	config: Record<string, unknown>,
+): GraphTypeDefaults {
+	const out: GraphTypeDefaults = {};
+	const layout = GraphLayoutEnum.safeParse(config.layout);
+	if (layout.success) out.layout = layout.data;
+	if (
+		typeof config.depth === "number" &&
+		config.depth >= 1 &&
+		config.depth <= 5
+	)
+		out.depth = config.depth;
+	if (Array.isArray(config.filter_type_ids))
+		out.filterTypeIds = (config.filter_type_ids as unknown[]).filter(
+			(v): v is string => typeof v === "string",
+		);
+	if (Array.isArray(config.filter_predicate_ids))
+		out.filterPredicateIds = (config.filter_predicate_ids as unknown[]).filter(
+			(v): v is string => typeof v === "string",
+		);
+	if (
+		typeof config.link_distance === "number" &&
+		config.link_distance >= 20 &&
+		config.link_distance <= 300
+	)
+		out.linkDistance = config.link_distance;
+	if (
+		typeof config.charge_strength === "number" &&
+		config.charge_strength >= -1000 &&
+		config.charge_strength <= 0
+	)
+		out.chargeStrength = config.charge_strength;
+	if (
+		typeof config.node_size === "number" &&
+		config.node_size >= 3 &&
+		config.node_size <= 20
+	)
+		out.nodeSize = config.node_size;
+	if (
+		typeof config.link_width === "number" &&
+		config.link_width >= 0.5 &&
+		config.link_width <= 5
+	)
+		out.linkWidth = config.link_width;
+	return out;
+}
+
+/**
+ * Parse a per-note graph value, merging type-level defaults underneath
+ * the per-note override fields. Fields missing from the per-note value
+ * fall through to the defaults; defaults missing from the type config
+ * fall through to the hard-coded global fallbacks at the renderer.
+ */
 export function parseGraphProperties(
 	raw: Record<string, unknown>,
+	defaults?: GraphTypeDefaults,
 ): GraphViewProperties | null {
 	const result = GraphViewPropertiesSchema.safeParse(raw);
-	return result.success ? result.data : null;
+	if (!result.success) return null;
+	const merged: GraphViewProperties = { ...result.data };
+	if (defaults) {
+		if (merged.depth === undefined) merged.depth = defaults.depth;
+		if (merged.filterTypeIds === undefined)
+			merged.filterTypeIds = defaults.filterTypeIds;
+		if (merged.filterPredicateIds === undefined)
+			merged.filterPredicateIds = defaults.filterPredicateIds;
+		if (merged.layout === undefined) merged.layout = defaults.layout;
+		if (merged.linkDistance === undefined)
+			merged.linkDistance = defaults.linkDistance;
+		if (merged.chargeStrength === undefined)
+			merged.chargeStrength = defaults.chargeStrength;
+		if (merged.nodeSize === undefined) merged.nodeSize = defaults.nodeSize;
+		if (merged.linkWidth === undefined) merged.linkWidth = defaults.linkWidth;
+	}
+	return merged;
+}
+
+/** Kinds whose display is driven by type-level config and can therefore
+ * meaningfully be "overridden per note" via allow_override_in_note. Simple
+ * value kinds (text, number, select, file, etc.) are excluded — their
+ * per-note "value" IS the data, not a display override.
+ */
+export const OverrideCapableKinds: ReadonlySet<TypeAttributeKind> = new Set([
+	"graph",
+	"linked_notes",
+	"mentions",
+	"toc",
+]);
+
+/** Default for allow_override_in_note when the field is missing from config.
+ * Graph defaults to true to preserve the historical per-note override
+ * behavior; all other view kinds default to false (opt-in for new feature).
+ */
+export function defaultAllowOverride(kind: TypeAttributeKind): boolean {
+	return kind === "graph";
+}
+
+export function readAllowOverride(
+	kind: TypeAttributeKind,
+	config: Record<string, unknown>,
+): boolean {
+	const v = config.allow_override_in_note;
+	if (typeof v === "boolean") return v;
+	return defaultAllowOverride(kind);
 }
 
 export function serializeGraphProperties(
@@ -47,6 +157,161 @@ export function serializeGraphProperties(
 	if (props.linkWidth !== undefined && props.linkWidth !== 1)
 		out.linkWidth = props.linkWidth;
 	return out;
+}
+
+// ─── Graph URI ──────────────────────────────────────────────────────────────
+//
+// Two surface forms, same underlying params:
+//   1. Full app URL — `/nooks/<n>/notes/<rootId>?fullscreen=1&depth=3&...`
+//      Doubles as a browser link AND a markdown embed src.
+//   2. Custom `graph:` scheme — `graph:?root=<rootId>&depth=3&...`
+//      Portable across deployments; mirrors the existing `note:` scheme
+//      used for `![](note:uuid)` inline note embeds.
+//
+// Both forms share the same query-param schema so we have one parser.
+
+const GRAPH_PARAM_KEYS = {
+	root: "root",
+	depth: "depth",
+	layout: "layout",
+	types: "types",
+	preds: "preds",
+	hide: "hide",
+	linkDistance: "linkDistance",
+	chargeStrength: "chargeStrength",
+	nodeSize: "nodeSize",
+	linkWidth: "linkWidth",
+} as const;
+
+function appendIfSet(
+	out: URLSearchParams,
+	key: string,
+	value: string | number | undefined,
+): void {
+	if (value === undefined || value === null) return;
+	const s = String(value).trim();
+	if (s === "") return;
+	out.set(key, s);
+}
+
+function appendIfNonEmpty(
+	out: URLSearchParams,
+	key: string,
+	value: string[] | undefined,
+): void {
+	if (!value?.length) return;
+	out.set(key, value.join(","));
+}
+
+/** Serialize a graph config to URL query parameters. Includes all fields,
+ * even those matching defaults — the resulting URI is the canonical record
+ * of the view. */
+export function graphConfigToParams(
+	props: GraphViewProperties,
+): URLSearchParams {
+	const p = new URLSearchParams();
+	const k = GRAPH_PARAM_KEYS;
+	appendIfSet(p, k.root, props.rootNoteId);
+	appendIfSet(p, k.depth, props.depth);
+	appendIfSet(p, k.layout, props.layout);
+	appendIfNonEmpty(p, k.types, props.filterTypeIds);
+	appendIfNonEmpty(p, k.preds, props.filterPredicateIds);
+	appendIfNonEmpty(p, k.hide, props.hiddenNodeIds);
+	appendIfSet(p, k.linkDistance, props.linkDistance);
+	appendIfSet(p, k.chargeStrength, props.chargeStrength);
+	appendIfSet(p, k.nodeSize, props.nodeSize);
+	appendIfSet(p, k.linkWidth, props.linkWidth);
+	return p;
+}
+
+function readNumber(params: URLSearchParams, key: string): number | undefined {
+	const v = params.get(key);
+	if (v === null) return undefined;
+	const n = Number(v);
+	return Number.isFinite(n) ? n : undefined;
+}
+
+function readList(params: URLSearchParams, key: string): string[] | undefined {
+	const v = params.get(key);
+	if (v === null || v === "") return undefined;
+	return v
+		.split(",")
+		.map((s) => s.trim())
+		.filter(Boolean);
+}
+
+/** Parse URL query parameters back into a partial graph config. Fields not
+ * present in the URI are left undefined so callers can layer overrides. */
+export function graphParamsToConfig(
+	params: URLSearchParams,
+): Partial<GraphViewProperties> {
+	const out: Partial<GraphViewProperties> = {};
+	const k = GRAPH_PARAM_KEYS;
+	const root = params.get(k.root);
+	if (root) out.rootNoteId = root;
+	const depth = readNumber(params, k.depth);
+	if (depth !== undefined) out.depth = depth;
+	const layoutRaw = params.get(k.layout);
+	if (layoutRaw) {
+		const layout = GraphLayoutEnum.safeParse(layoutRaw);
+		if (layout.success) out.layout = layout.data;
+	}
+	out.filterTypeIds = readList(params, k.types);
+	out.filterPredicateIds = readList(params, k.preds);
+	out.hiddenNodeIds = readList(params, k.hide);
+	const ld = readNumber(params, k.linkDistance);
+	if (ld !== undefined) out.linkDistance = ld;
+	const cs = readNumber(params, k.chargeStrength);
+	if (cs !== undefined) out.chargeStrength = cs;
+	const ns = readNumber(params, k.nodeSize);
+	if (ns !== undefined) out.nodeSize = ns;
+	const lw = readNumber(params, k.linkWidth);
+	if (lw !== undefined) out.linkWidth = lw;
+	return out;
+}
+
+/** Build a shareable app URL with the graph config encoded as query params.
+ * This URL doubles as a browser link and as a markdown image `src`. */
+export function buildGraphShareUrl(
+	nookId: string,
+	config: GraphViewProperties,
+): string {
+	const root = encodeURIComponent(config.rootNoteId);
+	const n = encodeURIComponent(nookId);
+	const params = graphConfigToParams(config);
+	// root is in the path, drop it from the query
+	params.delete(GRAPH_PARAM_KEYS.root);
+	params.set("fullscreen", "1");
+	return `/nooks/${n}/notes/${root}?${params.toString()}`;
+}
+
+/** Build the compact `graph:` scheme form. Mirrors `note:uuid` — usable
+ * as `![label](graph:?root=X&...)` in markdown. */
+export function buildGraphScheme(config: GraphViewProperties): string {
+	return `graph:?${graphConfigToParams(config).toString()}`;
+}
+
+/** Detect the URI shape and extract a config. Accepts both forms:
+ * - `graph:?root=...&depth=...`
+ * - `/nooks/<n>/notes/<root>?fullscreen=1&depth=...` (root from path)
+ * Returns null when the URI isn't a recognised graph form. */
+export function parseGraphUri(
+	uri: string,
+): { nookId?: string; config: Partial<GraphViewProperties> } | null {
+	if (uri.startsWith("graph:")) {
+		const queryStart = uri.indexOf("?");
+		const qs = queryStart >= 0 ? uri.slice(queryStart + 1) : "";
+		return { config: graphParamsToConfig(new URLSearchParams(qs)) };
+	}
+	// Match the app URL pattern. URL may be relative or absolute.
+	const match = uri.match(/\/nooks\/([^/?#]+)\/notes\/([^/?#]+)(?:\?([^#]*))?/);
+	if (!match) return null;
+	const [, nookId, root, qs] = match;
+	const params = new URLSearchParams(qs ?? "");
+	if (!params.has("fullscreen")) return null;
+	const config = graphParamsToConfig(params);
+	config.rootNoteId = decodeURIComponent(root);
+	return { nookId: decodeURIComponent(nookId), config };
 }
 
 const NoteSummaryApiSchema = z
@@ -216,6 +481,7 @@ export const TypeAttributeKinds = [
 	"metadata",
 	"content",
 	"source",
+	"dimension",
 ] as const;
 export type TypeAttributeKind = (typeof TypeAttributeKinds)[number];
 

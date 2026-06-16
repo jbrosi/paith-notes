@@ -21,15 +21,48 @@
 	margin: 0 auto;
 }
 
-/* Desktop side panel container */
+/* Desktop side panel container. Width is set inline (drag-resizable
+ * with localStorage persistence); these min/max only bound CSS-level
+ * flex behaviour — the JS resize handler enforces its own clamp. */
 .sidePanel {
-	width: 340px;
-	min-width: 260px;
-	max-width: 500px;
+	flex: 0 0 auto;
+	min-width: 200px;
+	max-width: 80vw;
 	border-left: 1px solid var(--color-border-light);
 	display: flex;
 	flex-direction: column;
 	overflow: hidden;
+	position: relative;
+}
+
+/* Drag handle on the inner edge of each sidebar (right's left edge,
+ * left's right edge). Thin, hover-highlighted, col-resize cursor. */
+.sideResizeHandleLeft,
+.sideResizeHandleRight {
+	position: absolute;
+	top: 0;
+	bottom: 0;
+	width: 4px;
+	cursor: col-resize;
+	z-index: 2;
+	background: transparent;
+	transition: background 0.15s;
+}
+
+.sideResizeHandleLeft {
+	left: -2px;
+}
+
+.sideResizeHandleRight {
+	right: -2px;
+}
+
+.sideResizeHandleLeft:hover,
+.sideResizeHandleRight:hover,
+.sideResizeHandleLeft:active,
+.sideResizeHandleRight:active {
+	background: var(--color-primary, #3b82f6);
+	opacity: 0.5;
 }
 
 .sidePanelTabs {

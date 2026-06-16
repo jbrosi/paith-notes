@@ -29,13 +29,32 @@
         reverse_proxy mcp:3000
     }
 
+    @voice {
+        path /api/voice/*
+    }
+
+    handle @voice {
+        # Strip the /api/voice prefix before forwarding — the Python service
+        # only knows about /stt and /tts. Matched before @php so the /api/*
+        # PHP catch-all doesn't swallow these.
+        # 10 min timeout because Chatterbox on CPU does ~1000 generation
+        # steps per sentence at a few it/s. Kokoro + Piper are sub-second.
+        uri strip_prefix /api/voice
+        reverse_proxy voice:8000 {
+            transport http {
+                read_timeout 600s
+                write_timeout 600s
+            }
+        }
+    }
+
     handle @php {
         php_server {
             file_server off
             # Worker mode for the front controller
             worker {
                 file /app/api/index.php
-                num 5
+                num 20
                 watch /app/api/index.php
                 watch /app/api/src/**/*.php
                 watch /app/backend-shared/src/**/*.php

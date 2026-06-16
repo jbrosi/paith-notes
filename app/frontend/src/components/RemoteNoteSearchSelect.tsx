@@ -162,15 +162,17 @@ export function RemoteNoteSearchSelect(props: RemoteNoteSearchSelectProps) {
 				}
 
 				try {
-					const typeForApi = typeId !== "" ? typeId : "all";
 					const qs = new URLSearchParams();
-					qs.set("include_subtypes", "1");
 					qs.set("limit", "50");
+					if (typeId !== "") {
+						qs.set("type_id", typeId);
+						qs.set("include_subtypes", "1");
+					}
 					if (q !== "") qs.set("q", q);
 					const kind = effectiveKind().trim();
 					if (kind !== "") qs.set("kind", kind);
 					const res = await apiFetch(
-						`/api/nooks/${nookId}/note-types/${typeForApi}/notes?${qs.toString()}`,
+						`/api/nooks/${nookId}/notes?${qs.toString()}`,
 						{ method: "GET" },
 					);
 					if (!res.ok) throw new Error(`Search failed: ${res.status}`);
