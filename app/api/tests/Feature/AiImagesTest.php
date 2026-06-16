@@ -17,7 +17,19 @@ use Paith\Notes\Api\Http\Service\ImageGeneration\FakeImageGenerator;
  * don't pollute the dev /data volume; the dir is wiped per test.
  */
 
-beforeEach(function (): void {
+// Save the env values these tests mutate so afterEach can restore them.
+// Earlier versions of this file just did `putenv('FILES_DATA_PATH')` in
+// afterEach, which UNSETS the variable — that broke the suite-wide
+// FILES_DATA_PATH set up by tests/bootstrap.php, sending subsequent tests
+// (e.g. ApiTest's attribute-based file upload) at the /data fallback, which
+// isn't writable on CI runners. Save & restore, don't unset.
+$savedFilesDataPath = null;
+$savedImageProvider = null;
+
+beforeEach(function () use (&$savedFilesDataPath, &$savedImageProvider): void {
+    $savedFilesDataPath = getenv('FILES_DATA_PATH');
+    $savedImageProvider = getenv('IMAGE_PROVIDER');
+
     putenv('KEYCLOAK_ENABLED=0');
     putenv('IMAGE_PROVIDER=fake');
     putenv('FILES_DATA_PATH=/tmp/paith-ai-images-test');
@@ -39,9 +51,17 @@ beforeEach(function (): void {
     $pdo->exec("insert into global.users (id, first_name, last_name) values ('deadc0ff-ee00-4000-8000-000000000000', 'AI', 'Assistant') on conflict (id) do nothing");
 });
 
-afterEach(function (): void {
-    putenv('IMAGE_PROVIDER');
-    putenv('FILES_DATA_PATH');
+afterEach(function () use (&$savedFilesDataPath, &$savedImageProvider): void {
+    if ($savedImageProvider === false) {
+        putenv('IMAGE_PROVIDER');
+    } else {
+        putenv('IMAGE_PROVIDER=' . $savedImageProvider);
+    }
+    if ($savedFilesDataPath === false) {
+        putenv('FILES_DATA_PATH');
+    } else {
+        putenv('FILES_DATA_PATH=' . $savedFilesDataPath);
+    }
     AiImagesController::$generatorOverride = null;
 });
 
