@@ -1,5 +1,13 @@
-import { createSignal, Show } from "solid-js";
-import type { TypeAttributeKind } from "../../types";
+import { createEffect, createSignal, For, Show } from "solid-js";
+import { apiFetch } from "../../../../auth/keycloak";
+import type { NookStore } from "../../store";
+import {
+	defaultAllowOverride,
+	type LinkPredicate,
+	LinkPredicatesListResponseSchema,
+	OverrideCapableKinds,
+	type TypeAttributeKind,
+} from "../../types";
 
 export type KindConfigState = {
 	buildConfig: () => Record<string, unknown>;
@@ -13,6 +21,9 @@ export function AttributeKindConfig(props: {
 	kind: TypeAttributeKind;
 	config: Record<string, unknown>;
 	ref: (state: KindConfigState) => void;
+	/** Required for graph/linked_notes filter pickers (note types + predicates). */
+	nookId?: string;
+	store?: NookStore;
 }) {
 	// ── Shared state ────────────────────────────────────────────────────
 	const [display, setDisplay] = createSignal(
@@ -24,6 +35,9 @@ export function AttributeKindConfig(props: {
 			: "",
 	);
 	const [max, setMax] = createSignal(String(props.config.max ?? ""));
+	const [currency, setCurrency] = createSignal(
+		String(props.config.currency ?? "USD"),
+	);
 
 	// ── Linked notes / mentions ──────────────────────────────────────────
 	const [lnDirection, setLnDirection] = createSignal(
@@ -59,6 +73,94 @@ export function AttributeKindConfig(props: {
 		props.config.show_views !== false,
 	);
 
+	// ── Per-note override flag (generic, applies to view/aggregate kinds) ─
+	const initialAllowOverride = (): boolean => {
+		const v = props.config.allow_override_in_note;
+		if (typeof v === "boolean") return v;
+		return defaultAllowOverride(props.kind);
+	};
+	const [allowOverride, setAllowOverride] = createSignal(
+		initialAllowOverride(),
+	);
+
+	// ── Filter pickers (shared by graph + linked_notes) ──────────────────
+	const initialTypeIds = (): Set<string> =>
+		Array.isArray(props.config.filter_type_ids)
+			? new Set(
+					(props.config.filter_type_ids as unknown[]).filter(
+						(v): v is string => typeof v === "string",
+					),
+				)
+			: new Set<string>();
+	const initialPredicateIds = (): Set<string> =>
+		Array.isArray(props.config.filter_predicate_ids)
+			? new Set(
+					(props.config.filter_predicate_ids as unknown[]).filter(
+						(v): v is string => typeof v === "string",
+					),
+				)
+			: new Set<string>();
+	const [filterTypeIds, setFilterTypeIds] = createSignal(initialTypeIds());
+	const [filterPredicateIds, setFilterPredicateIds] = createSignal(
+		initialPredicateIds(),
+	);
+
+	const toggleTypeId = (id: string) => {
+		const s = new Set(filterTypeIds());
+		if (s.has(id)) s.delete(id);
+		else s.add(id);
+		setFilterTypeIds(s);
+	};
+	const togglePredicateId = (id: string) => {
+		const s = new Set(filterPredicateIds());
+		if (s.has(id)) s.delete(id);
+		else s.add(id);
+		setFilterPredicateIds(s);
+	};
+
+	const [predicates, setPredicates] = createSignal<LinkPredicate[]>([]);
+	createEffect(() => {
+		const nid = props.nookId;
+		if (!nid) return;
+		// Only fetch when this attribute kind actually uses predicates
+		if (
+			props.kind !== "graph" &&
+			props.kind !== "linked_notes" &&
+			props.kind !== "mentions"
+		)
+			return;
+		void (async () => {
+			try {
+				const res = await apiFetch(`/api/nooks/${nid}/link-predicates`);
+				if (!res.ok) return;
+				const json = await res.json();
+				setPredicates(LinkPredicatesListResponseSchema.parse(json).predicates);
+			} catch {
+				/* ignore */
+			}
+		})();
+	});
+
+	// ── Graph defaults ──────────────────────────────────────────────────
+	const [graphDepth, setGraphDepth] = createSignal(
+		String(props.config.depth ?? "2"),
+	);
+	const [graphLayout, setGraphLayout] = createSignal(
+		String(props.config.layout ?? "force"),
+	);
+	const [graphLinkDistance, setGraphLinkDistance] = createSignal(
+		String(props.config.link_distance ?? "90"),
+	);
+	const [graphChargeStrength, setGraphChargeStrength] = createSignal(
+		String(props.config.charge_strength ?? "-280"),
+	);
+	const [graphNodeSize, setGraphNodeSize] = createSignal(
+		String(props.config.node_size ?? "6"),
+	);
+	const [graphLinkWidth, setGraphLinkWidth] = createSignal(
+		String(props.config.link_width ?? "1"),
+	);
+
 	// ── Build config ────────────────────────────────────────────────────
 	const buildConfig = (): Record<string, unknown> => {
 		const c: Record<string, unknown> = {};
@@ -71,6 +173,9 @@ export function AttributeKindConfig(props: {
 		}
 		if (display()) c.display = display();
 		if (k === "number" && max()) c.max = Number(max());
+		if (k === "number" && display() === "currency") {
+			c.currency = currency().toUpperCase();
+		}
 		if (k === "linked_notes" || k === "mentions") {
 			c.direction = lnDirection();
 		}
@@ -82,6 +187,28 @@ export function AttributeKindConfig(props: {
 			c.show_created = mdShowCreated();
 			c.show_updated = mdShowUpdated();
 			c.show_views = mdShowViews();
+		}
+		if (k === "graph" || k === "linked_notes" || k === "mentions") {
+			const ids = [...filterTypeIds()];
+			if (ids.length) c.filter_type_ids = ids;
+			const pids = [...filterPredicateIds()];
+			if (pids.length) c.filter_predicate_ids = pids;
+		}
+		if (k === "graph") {
+			const d = Number(graphDepth());
+			if (Number.isFinite(d) && d >= 1 && d <= 5) c.depth = d;
+			if (graphLayout() && graphLayout() !== "force") c.layout = graphLayout();
+			const ld = Number(graphLinkDistance());
+			if (Number.isFinite(ld) && ld >= 20 && ld <= 300) c.link_distance = ld;
+			const cs = Number(graphChargeStrength());
+			if (Number.isFinite(cs) && cs >= -1000 && cs <= 0) c.charge_strength = cs;
+			const ns = Number(graphNodeSize());
+			if (Number.isFinite(ns) && ns >= 3 && ns <= 20) c.node_size = ns;
+			const lw = Number(graphLinkWidth());
+			if (Number.isFinite(lw) && lw >= 0.5 && lw <= 5) c.link_width = lw;
+		}
+		if (OverrideCapableKinds.has(k)) {
+			c.allow_override_in_note = allowOverride();
 		}
 		return c;
 	};
@@ -122,6 +249,8 @@ export function AttributeKindConfig(props: {
 					>
 						<option value="">Plain number (default)</option>
 						<option value="rating">Rating</option>
+						<option value="duration">Duration (ms → human)</option>
+						<option value="currency">Currency</option>
 					</select>
 					<Show when={display() === "rating"}>
 						<input
@@ -130,6 +259,19 @@ export function AttributeKindConfig(props: {
 							onInput={(e) => setMax(e.currentTarget.value)}
 							placeholder="Max (e.g. 5)"
 							style={{ width: "80px", ...s }}
+						/>
+					</Show>
+					<Show when={display() === "currency"}>
+						<input
+							type="text"
+							value={currency()}
+							onInput={(e) =>
+								setCurrency(e.currentTarget.value.toUpperCase().slice(0, 3))
+							}
+							placeholder="USD"
+							maxLength={3}
+							style={{ width: "70px", "text-transform": "uppercase", ...s }}
+							aria-label="ISO 4217 currency code"
 						/>
 					</Show>
 				</div>
@@ -242,6 +384,193 @@ export function AttributeKindConfig(props: {
 						View count
 					</label>
 				</div>
+			</Show>
+
+			<Show when={props.kind === "graph"}>
+				<div
+					style={{
+						display: "grid",
+						"grid-template-columns": "auto 1fr",
+						gap: "6px 8px",
+						"align-items": "center",
+						"font-size": "12px",
+					}}
+				>
+					<label for="attr-graph-depth">Default depth</label>
+					<input
+						id="attr-graph-depth"
+						type="number"
+						min="1"
+						max="5"
+						value={graphDepth()}
+						onInput={(e) => setGraphDepth(e.currentTarget.value)}
+						style={{ width: "70px", ...s }}
+					/>
+					<label for="attr-graph-layout">Default layout</label>
+					<select
+						id="attr-graph-layout"
+						value={graphLayout()}
+						onChange={(e) => setGraphLayout(e.currentTarget.value)}
+						style={s}
+					>
+						<option value="force">Force</option>
+						<option value="tree">Tree</option>
+						<option value="radial">Radial</option>
+					</select>
+					<label for="attr-graph-link-distance">Link distance</label>
+					<input
+						id="attr-graph-link-distance"
+						type="number"
+						min="20"
+						max="300"
+						value={graphLinkDistance()}
+						onInput={(e) => setGraphLinkDistance(e.currentTarget.value)}
+						style={{ width: "70px", ...s }}
+					/>
+					<label for="attr-graph-charge">Charge strength</label>
+					<input
+						id="attr-graph-charge"
+						type="number"
+						min="-1000"
+						max="0"
+						value={graphChargeStrength()}
+						onInput={(e) => setGraphChargeStrength(e.currentTarget.value)}
+						style={{ width: "80px", ...s }}
+					/>
+					<label for="attr-graph-node-size">Node size</label>
+					<input
+						id="attr-graph-node-size"
+						type="number"
+						min="3"
+						max="20"
+						value={graphNodeSize()}
+						onInput={(e) => setGraphNodeSize(e.currentTarget.value)}
+						style={{ width: "70px", ...s }}
+					/>
+					<label for="attr-graph-link-width">Link width</label>
+					<input
+						id="attr-graph-link-width"
+						type="number"
+						min="0.5"
+						max="5"
+						step="0.5"
+						value={graphLinkWidth()}
+						onInput={(e) => setGraphLinkWidth(e.currentTarget.value)}
+						style={{ width: "70px", ...s }}
+					/>
+				</div>
+			</Show>
+
+			<Show
+				when={
+					(props.kind === "graph" ||
+						props.kind === "linked_notes" ||
+						props.kind === "mentions") &&
+					props.store
+				}
+			>
+				<fieldset
+					style={{
+						border: "1px solid var(--color-border-light)",
+						"border-radius": "4px",
+						padding: "6px 8px",
+						"font-size": "12px",
+					}}
+				>
+					<legend style={{ "font-size": "11px", padding: "0 4px" }}>
+						Default filters (empty = include all)
+					</legend>
+					<div style={{ "font-size": "11px", "margin-top": "2px" }}>
+						Note types
+					</div>
+					<div
+						style={{
+							display: "flex",
+							"flex-wrap": "wrap",
+							gap: "4px 8px",
+							"margin-bottom": "6px",
+						}}
+					>
+						<For each={props.store?.noteTypes() ?? []}>
+							{(t) => (
+								<label
+									style={{
+										display: "flex",
+										"align-items": "center",
+										gap: "3px",
+									}}
+								>
+									<input
+										type="checkbox"
+										checked={filterTypeIds().has(t.id)}
+										onChange={() => toggleTypeId(t.id)}
+									/>
+									{t.label}
+								</label>
+							)}
+						</For>
+					</div>
+					<div style={{ "font-size": "11px" }}>Link predicates</div>
+					<div
+						style={{
+							display: "flex",
+							"flex-wrap": "wrap",
+							gap: "4px 8px",
+						}}
+					>
+						<Show
+							when={predicates().length > 0}
+							fallback={
+								<span style={{ color: "var(--color-text-muted)" }}>
+									(no predicates defined)
+								</span>
+							}
+						>
+							<For each={predicates()}>
+								{(p) => (
+									<label
+										style={{
+											display: "flex",
+											"align-items": "center",
+											gap: "3px",
+										}}
+									>
+										<input
+											type="checkbox"
+											checked={filterPredicateIds().has(p.id)}
+											onChange={() => togglePredicateId(p.id)}
+										/>
+										{p.forwardLabel || p.key}
+									</label>
+								)}
+							</For>
+						</Show>
+					</div>
+				</fieldset>
+			</Show>
+
+			<Show when={OverrideCapableKinds.has(props.kind)}>
+				<label
+					style={{
+						display: "flex",
+						"align-items": "center",
+						gap: "6px",
+						"font-size": "12px",
+					}}
+				>
+					<input
+						type="checkbox"
+						checked={allowOverride()}
+						onChange={(e) => setAllowOverride(e.currentTarget.checked)}
+					/>
+					Allow per-note override of these settings
+					<span
+						style={{ color: "var(--color-text-muted)", "font-size": "11px" }}
+					>
+						(notes keep their saved overrides but won't display them when
+						unchecked)
+					</span>
+				</label>
 			</Show>
 
 			<Show when={props.kind === "toc"}>

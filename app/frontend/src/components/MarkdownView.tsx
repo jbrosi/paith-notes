@@ -1,17 +1,31 @@
 import { marked } from "marked";
-import { createEffect, createSignal } from "solid-js";
+import { createEffect, createSignal, For, Show } from "solid-js";
 import {
 	type NotePreviewController,
+	useNook,
 	useNotePreview,
 	useNoteResolver,
 } from "../pages/nook/NookContext";
+import { NookEmbeddedGraph } from "../pages/nook/NookEmbeddedGraph";
+import { type GraphViewProperties, parseGraphUri } from "../pages/nook/types";
 import styles from "./MarkdownView.module.css";
 
 /** Wiki-link: [[note:uuid]] or [[note:nookId/noteId]] */
 const WIKI_LINK_RE = /\[\[note:(?:([0-9a-f-]+)\/)?([0-9a-f-]+)\]\]/gi;
 
+/** Graph wiki-link: [[graph:?root=...&depth=...&...]] — rendered as a link to
+ * the real fullscreen URL (mirrors [[note:uuid]] but no embed). */
+const WIKI_GRAPH_RE = /\[\[graph:([^\]]+)\]\]/gi;
+
 /** Image embeds: ![...](note:uuid) or ![...](note:nookId/noteId) */
 const NOTE_IMAGE_RE = /!\[([^\]]*)\]\(note:(?:[0-9a-f-]+\/)?([0-9a-f-]+)\)/gi;
+
+/** Graph image embeds: ![label](graph:?root=...&...) OR
+ * ![label](/nooks/<n>/notes/<root>?fullscreen=1&...). Both forms parse via
+ * parseGraphUri — we split the markdown around these so each becomes an
+ * interactive NookEmbeddedGraph block in the rendered tree. */
+const GRAPH_EMBED_RE =
+	/!\[([^\]]*)\]\((graph:[^)\s]+|\/nooks\/[^?)\s]+\?[^)\s]*fullscreen[^)\s]*)\)/gi;
 
 /** Configure marked */
 marked.use({ async: false, gfm: true });
@@ -56,6 +70,27 @@ function expandWikiLinks(
 			return `[${display}](${href})`;
 		},
 	);
+}
+
+/** Expand [[graph:params]] to a markdown link pointing at the fullscreen URL.
+ * The link is Ctrl-clickable like any markdown link. */
+function expandGraphWikiLinks(content: string, currentNookId: string): string {
+	return content.replace(WIKI_GRAPH_RE, (_, paramsRaw: string) => {
+		const uri = `graph:${paramsRaw}`;
+		const parsed = parseGraphUri(uri);
+		const config = parsed?.config;
+		if (!config?.rootNoteId || !currentNookId) {
+			// Fall back to a literal link so the user still sees something
+			return `[graph view](${uri})`;
+		}
+		const params = new URLSearchParams();
+		for (const [k, v] of new URLSearchParams(paramsRaw)) {
+			if (k !== "root") params.set(k, v);
+		}
+		params.set("fullscreen", "1");
+		const href = `/nooks/${encodeURIComponent(currentNookId)}/notes/${encodeURIComponent(config.rootNoteId)}?${params.toString()}`;
+		return `[graph view](${href})`;
+	});
 }
 
 /**
@@ -112,26 +147,79 @@ function parseNoteRef(href: string): { nookId: string; noteId: string } | null {
 	};
 }
 
+/** Segment of rendered content: a plain markdown text run OR an inline
+ * graph-view block that mounts NookEmbeddedGraph. We split on graph embeds
+ * so each becomes a real Solid component (which the markdown HTML pipeline
+ * can't produce by itself). */
+type Segment =
+	| { kind: "md"; text: string }
+	| { kind: "graph"; config: GraphViewProperties };
+
+function splitGraphSegments(content: string): Segment[] {
+	const out: Segment[] = [];
+	let cursor = 0;
+	for (const m of content.matchAll(GRAPH_EMBED_RE)) {
+		const start = m.index ?? 0;
+		if (start > cursor) {
+			out.push({ kind: "md", text: content.slice(cursor, start) });
+		}
+		const parsed = parseGraphUri(m[2]);
+		if (parsed?.config?.rootNoteId) {
+			out.push({
+				kind: "graph",
+				config: {
+					rootNoteId: parsed.config.rootNoteId,
+					...parsed.config,
+				} as GraphViewProperties,
+			});
+		} else {
+			// Unparseable — leave the raw image tag in place
+			out.push({ kind: "md", text: m[0] });
+		}
+		cursor = start + m[0].length;
+	}
+	if (cursor < content.length) {
+		out.push({ kind: "md", text: content.slice(cursor) });
+	}
+	return out.length > 0 ? out : [{ kind: "md", text: content }];
+}
+
 export function MarkdownView(props: Props) {
-	const [html, setHtml] = createSignal("");
-	let containerEl: HTMLDivElement | undefined;
+	const [segments, setSegments] = createSignal<Segment[]>([]);
+	// Per-segment rendered HTML (parallel array to segments, only populated
+	// for kind === "md" entries).
+	const [renderedHtml, setRenderedHtml] = createSignal<string[]>([]);
 	const resolver = useNoteResolver();
 	const ctxPreview = useNotePreview();
+	const nookCtx = (() => {
+		try {
+			return useNook();
+		} catch {
+			return null;
+		}
+	})();
 	const preview = () => props.notePreview ?? ctxPreview;
 
-	createEffect(() => {
-		const raw = props.content;
-		const currentNook = resolver.currentNookId();
+	const renderMd = (text: string, currentNook: string): string => {
 		const resolveTitle = props.resolveNoteTitle
 			? (id: string) => props.resolveNoteTitle?.(id)
 			: (id: string, nookId?: string) =>
 					resolver.resolveTitle(id, nookId || currentNook);
-		const expanded = expandWikiLinks(
-			raw,
+		const withWiki = expandWikiLinks(
+			text,
 			resolveTitle,
 			resolver.resolveNookName,
 			currentNook,
 		);
+		const withGraphLinks = expandGraphWikiLinks(withWiki, currentNook);
+		return marked.parse(withGraphLinks) as string;
+	};
+
+	createEffect(() => {
+		const raw = props.content;
+		const currentNook = resolver.currentNookId();
+		const segs = splitGraphSegments(raw);
+		setSegments(segs);
 
 		// Trigger async fetch for any unresolved note titles
 		if (!props.resolveNoteTitle) {
@@ -142,36 +230,26 @@ export function MarkdownView(props: Props) {
 			if (missing.length > 0) resolver.fetchMissing(missing);
 		}
 
-		if (props.resolveEmbeddedImageSrc) {
-			void resolveImages(expanded, props.resolveEmbeddedImageSrc).then(
-				(resolved) => {
-					setHtml(marked.parse(resolved) as string);
-				},
+		const renderSegments = (
+			mdResolver: (s: string) => string | Promise<string>,
+		) =>
+			Promise.all(
+				segs.map(async (s) =>
+					s.kind === "md" ? await mdResolver(s.text) : "",
+				),
 			);
+
+		const imageResolver = props.resolveEmbeddedImageSrc;
+		if (imageResolver) {
+			void renderSegments(async (text) => {
+				const resolved = await resolveImages(text, imageResolver);
+				return renderMd(resolved, currentNook);
+			}).then((arr) => setRenderedHtml(arr));
 		} else {
-			setHtml(marked.parse(expanded) as string);
-		}
-	});
-
-	// After HTML is rendered, highlight code blocks and render mermaid
-	createEffect(() => {
-		const rendered = html();
-		if (!containerEl || !rendered) return;
-
-		queueMicrotask(() => {
-			if (!containerEl) return;
-			const el = containerEl as HTMLElement;
-
-			void import("./highlight").then(({ highlightCodeBlocks }) =>
-				highlightCodeBlocks(el),
+			void renderSegments((text) => renderMd(text, currentNook)).then((arr) =>
+				setRenderedHtml(arr),
 			);
-
-			if (hasMermaid(props.content)) {
-				void import("./mermaid").then(({ renderMermaidBlocks }) =>
-					renderMermaidBlocks(el),
-				);
-			}
-		});
+		}
 	});
 
 	// Hover preview for note links
@@ -203,15 +281,63 @@ export function MarkdownView(props: Props) {
 		}
 	};
 
+	// After HTML segments are mounted, highlight code blocks + mermaid.
+	// Mounts an effect on each segment by using a ref callback.
+	const mountedRefs = new Set<HTMLElement>();
+	const setupSegmentEl = (el: HTMLDivElement | undefined) => {
+		if (!el || mountedRefs.has(el)) return;
+		mountedRefs.add(el);
+		queueMicrotask(() => {
+			void import("./highlight").then(({ highlightCodeBlocks }) =>
+				highlightCodeBlocks(el),
+			);
+			if (hasMermaid(el.innerHTML)) {
+				void import("./mermaid").then(({ renderMermaidBlocks }) =>
+					renderMermaidBlocks(el),
+				);
+			}
+		});
+	};
+
+	const store = () => nookCtx?.store() ?? null;
+
 	return (
 		// biome-ignore lint/a11y/useKeyWithMouseEvents: hover preview is mouse-only
 		// biome-ignore lint/a11y/noStaticElementInteractions: event delegation on rendered HTML
 		<div
-			ref={containerEl}
 			class={`${styles.markdown} ${props.class ?? ""}`}
-			innerHTML={html()}
 			onMouseOver={handleMouseOver}
 			onMouseOut={handleMouseOut}
-		/>
+		>
+			<For each={segments()}>
+				{(seg, i) =>
+					seg.kind === "md" ? (
+						<div ref={setupSegmentEl} innerHTML={renderedHtml()[i()] ?? ""} />
+					) : (
+						<Show
+							when={store()}
+							fallback={
+								<a
+									href={`graph:?root=${seg.config.rootNoteId}`}
+									class={styles.graphEmbedLink}
+								>
+									Graph view
+								</a>
+							}
+						>
+							{(s) => (
+								<NookEmbeddedGraph
+									store={s()}
+									graphProps={seg.config}
+									onConfigChange={() => {
+										/* read-only: tweaks stay local */
+									}}
+								/>
+							)}
+						</Show>
+					)
+				}
+			</For>
+		</div>
 	);
 }

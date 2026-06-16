@@ -183,3 +183,18 @@
 	border-left: 3px solid var(--color-danger-border);
 }
 /* stylelint-enable selector-pseudo-class-no-unknown, selector-class-pattern */
+
+.graphEmbedLink {
+	display: inline-block;
+	padding: 4px 8px;
+	margin: 4px 0;
+	color: var(--color-link, #06c);
+	border: 1px dashed var(--color-border-light, #e5e7eb);
+	border-radius: 4px;
+	text-decoration: none;
+	font-size: 0.8rem;
+}
+
+.graphEmbedLink:hover {
+	background: var(--color-bg-hover, #f3f4f6);
+}

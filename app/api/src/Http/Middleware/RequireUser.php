@@ -717,9 +717,10 @@ final class RequireUser implements Middleware
             "insert into global.nook_members (nook_id, user_id, role) values (:nook_id, :user_id, 'owner') on conflict (nook_id, user_id) do update set role = excluded.role"
         )->execute([':nook_id' => $nookIdStr, ':user_id' => self::AI_USER_ID]);
 
-        // Human user is readwrite member
+        // Human user is readwrite member. (Previously wrote 'member',
+        // which the controller-side NookRole enum no longer accepts.)
         $pdo->prepare(
-            "insert into global.nook_members (nook_id, user_id, role) values (:nook_id, :user_id, 'member') on conflict (nook_id, user_id) do nothing"
+            "insert into global.nook_members (nook_id, user_id, role) values (:nook_id, :user_id, 'readwrite') on conflict (nook_id, user_id) do nothing"
         )->execute([':nook_id' => $nookIdStr, ':user_id' => $userId]);
     }
 }

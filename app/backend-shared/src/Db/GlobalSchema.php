@@ -182,7 +182,7 @@ final class GlobalSchema
                 do \$\$ begin
                     alter table global.type_attributes drop constraint if exists type_attributes_kind_check;
                     alter table global.type_attributes add constraint type_attributes_kind_check
-                        check (kind in ('text', 'number', 'boolean', 'date', 'date_range', 'select', 'multi_select', 'url', 'file', 'graph', 'view', 'linked_notes', 'mentions', 'history', 'toc', 'metadata', 'content', 'source'));
+                        check (kind in ('text', 'number', 'boolean', 'date', 'date_range', 'select', 'multi_select', 'url', 'file', 'graph', 'view', 'linked_notes', 'mentions', 'history', 'toc', 'metadata', 'content', 'source', 'dimension'));
                 end \$\$;
             ");
             $pdo->exec('create index if not exists type_attributes_type_id_idx on global.type_attributes (type_id)');
@@ -199,6 +199,17 @@ final class GlobalSchema
             $pdo->exec("
                 create or replace function global.safe_numeric(text) returns numeric as \$\$
                     select case when \$1 ~ '^-?[0-9]+(\.[0-9]+)?\$' then \$1::numeric end
+                \$\$ language sql immutable;
+            ");
+
+            // safe_date function for date attribute indexes — text::date
+            // and to_date(text, fmt) are both STABLE (not IMMUTABLE) in
+            // PG and can't be used in an index expression. Wrap an
+            // ISO-format check in a SQL function we explicitly mark
+            // IMMUTABLE so it works as an indexable expression.
+            $pdo->exec("
+                create or replace function global.safe_date(text) returns date as \$\$
+                    select case when \$1 ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}\$' then \$1::date end
                 \$\$ language sql immutable;
             ");
 
@@ -486,6 +497,15 @@ final class GlobalSchema
                     alter type global.nook_role add value 'readwrite';
                 end if;
             end $$;");
+
+            // Backfill: the original two-role enum ('owner', 'member')
+            // was replaced by ('owner', 'readwrite', 'readonly'), but
+            // 'member' rows persisted in the table and the
+            // application-side NookRole enum no longer accepts them.
+            // Promote any remaining 'member' rows to 'readwrite' to
+            // match the role's historical semantics (non-owner with
+            // edit access).
+            $pdo->exec("update global.nook_members set role = 'readwrite' where role = 'member'");
 
             // Nook sharing invitations (by email, since invitee may not have an account yet)
             $pdo->exec("

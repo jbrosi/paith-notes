@@ -64,41 +64,55 @@ export function HistoryAttributeField(props: {
 		return `v${v}`;
 	});
 
+	const hasContent = () =>
+		entries().length > 0 || (limit() === 0 && currentVersionLabel());
 	return (
-		<Show
-			when={entries().length > 0 || (limit() === 0 && currentVersionLabel())}
-		>
-			<div style={{ "margin-top": "8px" }}>
-				<div
-					style={{
-						"font-size": "0.7rem",
-						"font-weight": "600",
-						color: "var(--color-text-secondary)",
-						"margin-bottom": "4px",
-						"text-transform": "uppercase",
-						"letter-spacing": "0.03em",
-						display: "flex",
-						"align-items": "center",
-						gap: "6px",
-					}}
-				>
-					{props.attr.name}
-					<Show when={!props.fullscreen}>
-						<FullscreenButton attr={props.attr} store={props.store} />
-					</Show>
-					<Show when={limit() === 0 && currentVersionLabel()}>
-						<span
-							style={{
-								"font-weight": "400",
-								"text-transform": "none",
-								"letter-spacing": "normal",
-								color: "var(--color-text-muted)",
-							}}
-						>
-							{currentVersionLabel()}
-						</span>
-					</Show>
-				</div>
+		<div style={{ "margin-top": "8px" }}>
+			<div
+				style={{
+					"font-size": "0.7rem",
+					"font-weight": "600",
+					color: "var(--color-text-secondary)",
+					"margin-bottom": "4px",
+					"text-transform": "uppercase",
+					"letter-spacing": "0.03em",
+					display: "flex",
+					"align-items": "center",
+					gap: "6px",
+				}}
+			>
+				{props.attr.name}
+				<Show when={!props.fullscreen}>
+					<FullscreenButton attr={props.attr} store={props.store} />
+				</Show>
+				<Show when={limit() === 0 && currentVersionLabel()}>
+					<span
+						style={{
+							"font-weight": "400",
+							"text-transform": "none",
+							"letter-spacing": "normal",
+							color: "var(--color-text-muted)",
+						}}
+					>
+						{currentVersionLabel()}
+					</span>
+				</Show>
+			</div>
+			<Show
+				when={hasContent()}
+				fallback={
+					<div
+						style={{
+							"font-size": "0.75rem",
+							color: "var(--color-text-muted)",
+							"font-style": "italic",
+							padding: "4px 0",
+						}}
+					>
+						No history yet — first edit will appear here.
+					</div>
+				}
+			>
 				<For each={entries()}>
 					{(entry) => {
 						const isLink = entry.type === "link";
@@ -206,7 +220,7 @@ export function HistoryAttributeField(props: {
 						Show full history
 					</a>
 				</Show>
-			</div>
-		</Show>
+			</Show>
+		</div>
 	);
 }
