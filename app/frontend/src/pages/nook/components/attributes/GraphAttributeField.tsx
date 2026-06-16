@@ -4,6 +4,8 @@ import type { NookStore } from "../../store";
 import {
 	type GraphViewProperties,
 	parseGraphProperties,
+	parseGraphTypeDefaults,
+	readAllowOverride,
 	serializeGraphProperties,
 	type TypeAttribute,
 } from "../../types";
@@ -16,44 +18,96 @@ export function GraphAttributeField(props: {
 	store: NookStore;
 	fullscreen?: boolean;
 }) {
+	const typeDefaults = () => parseGraphTypeDefaults(props.attr.config);
+	const allowOverride = () =>
+		readAllowOverride(props.attr.kind, props.attr.config);
+
+	// Default the graph to the current note as root when the
+	// attribute has no value yet — without this the schema rejects
+	// the empty config and the whole field renders nothing (not
+	// even the label), so the user couldn't tell the attribute
+	// was there.
+	//
+	// When allow_override_in_note is false, the per-note value is
+	// ignored entirely — the type-level defaults drive the display.
+	// The saved per-note blob stays in the DB; flipping the flag
+	// back on restores it.
 	const graphProps = (): GraphViewProperties | null => {
-		if (!props.value) return null;
-		return parseGraphProperties(props.value as Record<string, unknown>);
+		const raw = allowOverride()
+			? ((props.value as Record<string, unknown> | undefined) ?? {})
+			: {};
+		if (typeof raw.rootNoteId !== "string" || raw.rootNoteId === "") {
+			raw.rootNoteId = props.store.selectedId();
+		}
+		return parseGraphProperties(raw, typeDefaults());
 	};
 
+	const canPersist = () => props.store.isEditing() && allowOverride();
+
 	const handleConfigChange = (config: GraphViewProperties) => {
+		// View mode → tweaks stay local (would otherwise trigger discard
+		// prompt). Overrides disabled → tweaks also stay local (no per-note
+		// storage allowed). Both cases: don't propagate.
+		if (!canPersist()) return;
 		props.onChange(serializeGraphProperties(config));
 		props.store.setIsDirty(true);
 	};
 
-	const handleSave = async (config: GraphViewProperties) => {
-		props.onChange(serializeGraphProperties(config));
-		await props.store.saveNote();
+	// Clearing the per-note value lets parseGraphProperties fall straight
+	// through to typeDefaults — the panel re-seeds from the new
+	// initialConfig automatically via its existing createEffect.
+	const handleReset = () => {
+		if (!canPersist()) return;
+		props.onChange({});
+		props.store.setIsDirty(true);
 	};
 
 	return (
-		<Show when={graphProps()}>
-			{(gp) => (
-				<div>
-					<Show when={!props.fullscreen}>
-						<div
-							style={{
-								display: "flex",
-								"justify-content": "flex-end",
-								padding: "4px 0",
-							}}
-						>
-							<FullscreenButton attr={props.attr} store={props.store} />
-						</div>
-					</Show>
+		<div>
+			<div
+				style={{
+					display: "flex",
+					"align-items": "center",
+					"justify-content": "space-between",
+					padding: "4px 0",
+				}}
+			>
+				<div
+					style={{
+						"font-size": "12px",
+						color: "var(--color-text-secondary)",
+					}}
+				>
+					{props.attr.name}
+				</div>
+				<Show when={!props.fullscreen}>
+					<FullscreenButton attr={props.attr} store={props.store} />
+				</Show>
+			</div>
+			<Show
+				when={graphProps()}
+				fallback={
+					<div
+						style={{
+							padding: "12px",
+							"font-size": "13px",
+							color: "var(--color-text-muted)",
+							"font-style": "italic",
+						}}
+					>
+						Open a note to see its graph here.
+					</div>
+				}
+			>
+				{(gp) => (
 					<NookEmbeddedGraph
 						store={props.store}
 						graphProps={gp()}
 						onConfigChange={handleConfigChange}
-						onSave={handleSave}
+						onReset={canPersist() ? handleReset : undefined}
 					/>
-				</div>
-			)}
-		</Show>
+				)}
+			</Show>
+		</div>
 	);
 }

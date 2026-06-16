@@ -84,6 +84,44 @@ export function NookDefaultLayout(props: NookDefaultLayoutProps) {
 
 	const [activeSideTab, setActiveSideTab] = createSignal("");
 
+	// Per-side width signals, hydrated from localStorage and written
+	// back on every change so the next reload remembers the user's
+	// preferred sidebar width.
+	const RIGHT_WIDTH_KEY = "paith-notes:rightSidebarWidth";
+	const LEFT_WIDTH_KEY = "paith-notes:leftSidebarWidth";
+	const SIDEBAR_DEFAULT = 340;
+	const readStoredWidth = (k: string): number => {
+		try {
+			const v = window.localStorage.getItem(k);
+			const n = v !== null ? parseInt(v, 10) : NaN;
+			return Number.isFinite(n) && n >= 200 ? n : SIDEBAR_DEFAULT;
+		} catch {
+			return SIDEBAR_DEFAULT;
+		}
+	};
+	const [rightSidebarWidth, setRightSidebarWidthSignal] = createSignal(
+		readStoredWidth(RIGHT_WIDTH_KEY),
+	);
+	const [leftSidebarWidth, setLeftSidebarWidthSignal] = createSignal(
+		readStoredWidth(LEFT_WIDTH_KEY),
+	);
+	const setRightSidebarWidth = (w: number) => {
+		setRightSidebarWidthSignal(w);
+		try {
+			window.localStorage.setItem(RIGHT_WIDTH_KEY, String(w));
+		} catch {
+			/* ignore */
+		}
+	};
+	const setLeftSidebarWidth = (w: number) => {
+		setLeftSidebarWidthSignal(w);
+		try {
+			window.localStorage.setItem(LEFT_WIDTH_KEY, String(w));
+		} catch {
+			/* ignore */
+		}
+	};
+
 	// Update mobile panels when resolved panels change
 	createEffect(() => {
 		const panels = resolvedPanels();
@@ -187,6 +225,9 @@ export function NookDefaultLayout(props: NookDefaultLayoutProps) {
 							setActiveSideTab={setActiveSideTab}
 							store={props.store}
 							panelLabel={panelLabel}
+							side="left"
+							width={leftSidebarWidth}
+							setWidth={setLeftSidebarWidth}
 						/>
 					</Show>
 
@@ -215,6 +256,9 @@ export function NookDefaultLayout(props: NookDefaultLayoutProps) {
 							setActiveSideTab={setActiveSideTab}
 							store={props.store}
 							panelLabel={panelLabel}
+							side="right"
+							width={rightSidebarWidth}
+							setWidth={setRightSidebarWidth}
 						/>
 					</Show>
 
@@ -286,9 +330,50 @@ function SidebarContainer(props: {
 	setActiveSideTab: (key: string) => void;
 	store: NookStore;
 	panelLabel: (panel: Panel) => string;
+	side: "left" | "right";
+	width: () => number;
+	setWidth: (w: number) => void;
 }) {
+	// Drag-to-resize. The handle sits on the inner edge of the
+	// sidebar (right's left edge, left's right edge) and updates
+	// the width signal while the mouse is down. Width persistence
+	// lives in the parent via localStorage so reopens remember it.
+	const SIDEBAR_MIN = 240;
+	const SIDEBAR_MAX_RATIO = 0.6; // never more than 60% of viewport
+	const onResizeStart = (e: MouseEvent) => {
+		e.preventDefault();
+		const startX = e.clientX;
+		const startWidth = props.width();
+		const onMove = (ev: MouseEvent) => {
+			// For the right sidebar, dragging left (delta > 0) widens it;
+			// for the left sidebar, dragging right (delta > 0) widens it.
+			const delta =
+				props.side === "right" ? startX - ev.clientX : ev.clientX - startX;
+			const maxW = Math.floor(window.innerWidth * SIDEBAR_MAX_RATIO);
+			const next = Math.max(SIDEBAR_MIN, Math.min(maxW, startWidth + delta));
+			props.setWidth(next);
+		};
+		const onUp = () => {
+			document.removeEventListener("mousemove", onMove);
+			document.removeEventListener("mouseup", onUp);
+			document.body.style.cursor = "";
+			document.body.style.userSelect = "";
+		};
+		document.body.style.cursor = "col-resize";
+		document.body.style.userSelect = "none";
+		document.addEventListener("mousemove", onMove);
+		document.addEventListener("mouseup", onUp);
+	};
+
 	return (
-		<div class={styles.sidePanel}>
+		<div class={styles.sidePanel} style={{ width: `${props.width()}px` }}>
+			<Show when={props.side === "right"}>
+				<div
+					class={styles.sideResizeHandleLeft}
+					onMouseDown={onResizeStart}
+					aria-hidden="true"
+				/>
+			</Show>
 			<Show when={props.panels.length > 1}>
 				<div class={styles.sidePanelTabs}>
 					<For each={props.panels}>
@@ -326,6 +411,13 @@ function SidebarContainer(props: {
 					)}
 				</For>
 			</div>
+			<Show when={props.side === "left"}>
+				<div
+					class={styles.sideResizeHandleRight}
+					onMouseDown={onResizeStart}
+					aria-hidden="true"
+				/>
+			</Show>
 		</div>
 	);
 }
