@@ -6,6 +6,9 @@ use Paith\Notes\Api\Http\Auth\SessionStore;
 use Paith\Notes\Shared\Db\DatabaseUrl;
 use Paith\Notes\Shared\Db\GlobalSchema;
 
+// FILES_DATA_PATH setup lives in tests/bootstrap.php — earlier and more
+// reliable than top-level code here. See that file for the rationale.
+
 function test_pdo(): \PDO
 {
     // Prefer DATABASE_TEST_URL to avoid wiping the dev database.

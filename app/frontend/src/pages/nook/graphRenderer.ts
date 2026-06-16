@@ -12,22 +12,12 @@ export type GraphRenderConfig = {
 	chargeStrength: number;
 	onSelectNote: (id: string) => void;
 	onHideNode: (id: string) => void;
-	onOpenGraphNode: (id: string) => void;
 };
 
 export type GraphRenderResult = {
 	simulation: d3.Simulation<GraphNode, undefined>;
 	centerView: () => void;
 };
-
-function hexPath(r: number): string {
-	const a = Math.PI / 3;
-	const pts = Array.from({ length: 6 }, (_, i) => {
-		const angle = a * i - Math.PI / 6;
-		return `${r * Math.cos(angle)},${r * Math.sin(angle)}`;
-	});
-	return `M${pts.join("L")}Z`;
-}
 
 function buildAdjacency(edges: GraphEdge[]) {
 	const m = new Map<string, Array<{ next: string; edgeId: string }>>();
@@ -200,7 +190,6 @@ export function renderGraph(
 	const colorEdgeLabel = tv("--color-text-muted", "#64748b");
 	const colorEdgeLabelBg = tv("--color-bg", "#ffffff");
 	const colorHoverBg = tv("--color-bg-hover", "#e2e8f0");
-	const colorGraphNode = tv("--color-accent", "#8b5cf6");
 
 	const { centerId, nodeSize: baseSize, linkWidth: currentLinkWidth } = config;
 	const edges = data.edges.map((e) => ({ ...e }));
@@ -255,31 +244,16 @@ export function renderGraph(
 	nodeLinkSel.each(function (_d) {
 		const el = d3.select(this as Element);
 		const d = _d;
-		const isGraph = d.noteType === "graph";
 		const isCenter = d.id === centerId;
-		const r = isCenter ? baseSize + 3 : isGraph ? baseSize + 2 : baseSize;
-		const fill = isCenter
-			? colorNodeCenter
-			: isGraph
-				? colorGraphNode
-				: colorNode;
-		if (isGraph) {
-			el.append("path")
-				.attr("d", hexPath(r))
-				.attr("fill", fill)
-				.attr("stroke", "transparent")
-				.attr("stroke-width", 2)
-				.style("cursor", "pointer")
-				.attr("class", "node-shape");
-		} else {
-			el.append("circle")
-				.attr("r", r)
-				.attr("fill", fill)
-				.attr("stroke", "transparent")
-				.attr("stroke-width", 2)
-				.style("cursor", "pointer")
-				.attr("class", "node-shape");
-		}
+		const r = isCenter ? baseSize + 3 : baseSize;
+		const fill = isCenter ? colorNodeCenter : colorNode;
+		el.append("circle")
+			.attr("r", r)
+			.attr("fill", fill)
+			.attr("stroke", "transparent")
+			.attr("stroke-width", 2)
+			.style("cursor", "pointer")
+			.attr("class", "node-shape");
 		el.append("title").text(d.label);
 	});
 	const nodeSel = nodeLinkSel.select<SVGElement>(".node-shape");
@@ -401,7 +375,6 @@ export function renderGraph(
 			})
 			.attr("fill", (d) => {
 				if (d.id === centerId) return colorNodeCenter;
-				if (d.noteType === "graph") return colorGraphNode;
 				if (d.id === hoveredId) return colorEdgeLabel;
 				return colorNode;
 			});
@@ -436,10 +409,6 @@ export function renderGraph(
 		event.stopPropagation();
 		if (event.shiftKey) {
 			config.onHideNode(d.id);
-			return;
-		}
-		if (d.noteType === "graph") {
-			config.onOpenGraphNode(d.id);
 			return;
 		}
 		config.onSelectNote(d.id);

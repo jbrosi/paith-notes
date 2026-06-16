@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Paith\Notes\Api\Http\Routes;
 
 use Paith\Notes\Api\Http\Controller\ActivityController;
+use Paith\Notes\Api\Http\Controller\AiImagesController;
 use Paith\Notes\Api\Http\Controller\AuthController;
 use Paith\Notes\Api\Http\Controller\SearchController;
 use Paith\Notes\Api\Http\Controller\ChatController;
@@ -98,7 +99,7 @@ final class ApiRoutes
         $r->post('/nooks/{nookId}/note-types', [NoteTypesController::class, 'create']);
         $r->add('PUT', '/nooks/{nookId}/note-types/{typeId}', [NoteTypesController::class, 'update']);
         $r->add('DELETE', '/nooks/{nookId}/note-types/{typeId}', [NoteTypesController::class, 'delete']);
-        $r->get('/nooks/{nookId}/note-types/{typeId}/notes', [NoteTypesController::class, 'notes']);
+        // /note-types/{typeId}/notes consolidated into /notes?type_id=X — the type filter is now a query param.
 
         $r->get('/nooks/{nookId}/note-types/{typeId}/attributes', [TypeAttributesController::class, 'list']);
         $r->post('/nooks/{nookId}/note-types/{typeId}/attributes', [TypeAttributesController::class, 'create']);
@@ -113,6 +114,9 @@ final class ApiRoutes
         $r->add('PUT', '/nooks/{nookId}/link-predicates/{predicateId}/rules', [LinkPredicatesController::class, 'replaceRules']);
 
         $r->get('/nooks/{nookId}/notes', [NotesController::class, 'list']);
+        // Must precede /notes/{noteId} so the literal `titles` isn't
+        // parsed as a note id by the parameterized route.
+        $r->get('/nooks/{nookId}/notes/titles', [NotesController::class, 'titles']);
         $r->get('/nooks/{nookId}/notes/{noteId}', [NotesController::class, 'get']);
         $r->post('/nooks/{nookId}/notes', [NotesController::class, 'create']);
         $r->add('PUT', '/nooks/{nookId}/notes/{noteId}', [NotesController::class, 'update']);
@@ -123,6 +127,10 @@ final class ApiRoutes
         $r->get('/nooks/{nookId}/notes/{noteId}/history', [NotesController::class, 'history']);
         $r->get('/nooks/{nookId}/notes/{noteId}/diff', [NotesController::class, 'diff']);
         $r->get('/nooks/{nookId}/notes/{noteId}/history/{historyId}', [NotesController::class, 'historySnapshot']);
+
+        // AI-driven image generation. nookId may be a real UUID or
+        // the literal sentinel "ai-memory" (resolved server-side).
+        $r->post('/nooks/{nookId}/ai-images', [AiImagesController::class, 'generate']);
 
         $r->get('/nooks/{nookId}/notes/{noteId}/links', [NoteLinksController::class, 'list']);
         $r->post('/nooks/{nookId}/notes/{noteId}/links', [NoteLinksController::class, 'create']);

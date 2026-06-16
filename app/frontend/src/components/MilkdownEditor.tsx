@@ -4,6 +4,28 @@ import "@milkdown/crepe/theme/frame.css";
 import { editorViewCtx } from "@milkdown/kit/core";
 import type { EditorView } from "@milkdown/kit/prose/view";
 import { createEffect, onCleanup, onMount } from "solid-js";
+import { parseGraphUri } from "../pages/nook/types";
+
+/** Translate a `graph:` scheme URI into the full fullscreen-route URL.
+ * Returns null when the URI can't be parsed or no nook context is
+ * available. */
+function buildFullscreenUrlFromGraphScheme(href: string): string | null {
+	if (!href.startsWith("graph:")) return null;
+	const parsed = parseGraphUri(href);
+	if (!parsed?.config?.rootNoteId) return null;
+	// Pull nook ID from the current location; the graph: scheme by design
+	// doesn't include it, so the URL is "current nook".
+	const m =
+		typeof window !== "undefined"
+			? window.location.pathname.match(/\/nooks\/([^/]+)/)
+			: null;
+	const nookId = m?.[1];
+	if (!nookId) return null;
+	const params = new URLSearchParams(href.slice("graph:?".length));
+	params.delete("root");
+	params.set("fullscreen", "1");
+	return `${window.location.origin}/nooks/${nookId}/notes/${encodeURIComponent(parsed.config.rootNoteId)}?${params.toString()}`;
+}
 
 export type EditorHandle = {
 	insertMentionAt: (
@@ -241,6 +263,25 @@ export function MilkdownEditor(props: MilkdownEditorProps) {
 			if (!(target instanceof Element)) {
 				return;
 			}
+
+			// Ctrl/Cmd-click on a graph:-href anchor (rendered by Crepe from
+			// `[label](graph:...)`) opens the fullscreen graph URL in a new
+			// tab. The editor itself doesn't try to render an interactive
+			// embed yet — that's the follow-up ProseMirror NodeView work.
+			const graphAnchor = target.closest("a");
+			if (graphAnchor instanceof HTMLAnchorElement) {
+				const href = graphAnchor.getAttribute("href") ?? "";
+				if (href.startsWith("graph:")) {
+					if (e.ctrlKey || e.metaKey) {
+						e.preventDefault();
+						e.stopPropagation();
+						const realUrl = buildFullscreenUrlFromGraphScheme(href);
+						if (realUrl) window.open(realUrl, "_blank", "noopener");
+					}
+					return;
+				}
+			}
+
 			const anchor = target.closest("a");
 			if (!(anchor instanceof HTMLAnchorElement)) {
 				return;

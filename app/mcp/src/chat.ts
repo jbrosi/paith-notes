@@ -5,6 +5,13 @@ import rateLimit from 'express-rate-limit';
 import { TOOLS, executeTool } from './chat-tools.js';
 import { runSearchAgent, type SearchAgentContext } from './search-agent.js';
 
+// Engines whose voice-service synth holds a per-engine generation lock and
+// can take many minutes per sentence on CPU. For these we MUST NOT fire
+// the next sentence's fetch until the previous one has been fully drained,
+// otherwise undici's 5-min headersTimeout fires on the queued requests
+// before sentence 1 finishes. Kokoro is fast + lockless so eager fires.
+const SLOW_SERIAL_ENGINES = new Set(['f5', 'chatterbox']);
+
 function buildConversationSummary(messages: Anthropic.MessageParam[], maxLength = 500): string {
   const parts: string[] = [];
   let len = 0;
@@ -35,6 +42,217 @@ async function resolveNookName(nookId: string, cookie: string, apiBase: string):
 const DEFAULT_MODEL = 'claude-sonnet-4-6';
 const MAX_TOKENS    = 8096;
 const MAX_AUTO_DEPTH = 8;
+
+// Voice service for the integrated TTS pipeline. MCP forwards text deltas
+// it produces into the streaming TTS endpoint and re-emits the resulting
+// audio chunks on the same SSE the frontend already listens to.
+// VOICE_BASE_URL points at the default voice service (the local compose
+// container — Kokoro / Chatterbox / Piper). VOICE_F5_URL is an optional
+// second URL for a GPU-accelerated F5 pod: when set, requests whose
+// resolved engine is "f5" are routed there instead, everything else
+// stays on the local URL. STT is *not* routed through here — the
+// frontend hits /api/voice/stt directly via Caddy which always proxies
+// to the local container, so the user's mic audio never leaves the home
+// network even when TTS runs in the cloud.
+const VOICE_BASE_URL = process.env.VOICE_BASE_URL ?? 'http://voice:8000';
+const VOICE_F5_URL = (process.env.VOICE_F5_URL ?? '').trim();
+// Shared bearer secret matching each voice service's VOICE_TOKEN. Empty
+// disables auth (fine for the local compose default; required when the
+// URL is public). VOICE_F5_TOKEN falls back to VOICE_TOKEN when unset
+// for the common case of using the same secret on both endpoints.
+const VOICE_TOKEN = (process.env.VOICE_TOKEN ?? '').trim();
+const VOICE_F5_TOKEN = (process.env.VOICE_F5_TOKEN ?? VOICE_TOKEN).trim();
+
+// Sentence-end detection — fires when `.!?` (optionally followed by a
+// closing quote/bracket) is followed by whitespace, or on a newline.
+// Same regex shape as the previous frontend splitter but centralized here.
+const SENTENCE_END = /([.!?]+["')\]]*\s+|\n+)/;
+
+// Strip markdown-y bits that sound bad read aloud (code fences, link
+// targets, leading heading markers, UUID-shaped tokens like note IDs).
+// Mirrors the old frontend cleanup plus voice-specific scrubbing.
+const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
+const NOTE_REF_RE = /\[\[note:[^\]]+\]\]/g;
+function stripForSpeech(text: string): string {
+  return text
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/!\[[^\]]*\]\([^)]+\)/g, '')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    // [[note:UUID]] is a UI-only marker — the user sees a clickable title;
+    // for TTS we drop it entirely (no graceful spoken equivalent).
+    .replace(NOTE_REF_RE, '')
+    // Bare UUIDs (tool inputs, IDs the model wrote into prose) — F5 will
+    // happily try to enunciate every digit and burn minutes of synth time.
+    .replace(UUID_RE, '')
+    .replace(/^#{1,6}\s+/gm, '')
+    .replace(/(\*\*|__)(.*?)\1/g, '$2')
+    .replace(/(\*|_)(.*?)\1/g, '$2')
+    .trim();
+}
+
+/**
+ * Streams sentences to the voice service eagerly (fires fetch the moment a
+ * sentence boundary closes) while emitting the resulting audio chunks to
+ * the client in strict submission order.
+ *
+ * "Eager fetch + ordered drain" is the trick: by the time we get to
+ * sentence N's drain, the voice service has often already produced its
+ * chunks because N's fetch went out while N-1 was still being read. On a
+ * laptop that can run two or three concurrent Kokoro syntheses, this
+ * accumulates a buffer and the client never starves between sentences.
+ */
+// Frontend-only pseudo-langs that pin a specific engine for testing. Real
+// lang code goes to the voice service; engine override forces routing.
+const LANG_ENGINE_OVERRIDES: Record<string, { lang: string; engine: string }> = {
+  'en-cb': { lang: 'en', engine: 'chatterbox' },
+  'en-f5': { lang: 'en', engine: 'f5' },
+  'de-f5': { lang: 'de', engine: 'f5' },
+};
+
+class VoiceStreamer {
+  private pending: Promise<void> = Promise.resolve();
+  private res: express.Response;
+  private lang: string;
+  private engine: string | null;
+  private seq = 0;
+
+  constructor(res: express.Response, lang: string) {
+    this.res = res;
+    const override = LANG_ENGINE_OVERRIDES[lang];
+    this.lang = override?.lang ?? lang;
+    this.engine = override?.engine ?? null;
+  }
+
+  enqueueSentence(rawSentence: string): void {
+    const clean = stripForSpeech(rawSentence);
+    if (!clean) return;
+    const seq = ++this.seq;
+    console.log(
+      `[voice] #${seq} enqueue lang=${this.lang} engine=${this.engine ?? 'auto'} chars=${clean.length} text=${JSON.stringify(clean.slice(0, 60))}`,
+    );
+    const doFetch = () => {
+      // F5 goes to the GPU pod when configured; everything else (and F5
+      // when VOICE_F5_URL is unset) stays on the local container. We
+      // could fall through to local on missing pod URL, but the local
+      // service may not even have F5 deps installed — better to fail
+      // fast with a clear message than to surprise-time-out.
+      if (this.engine === 'f5' && !VOICE_F5_URL) {
+        return Promise.reject(
+          new Error('voice: f5 engine requested but VOICE_F5_URL is unset'),
+        );
+      }
+      const useF5Pod = this.engine === 'f5' && VOICE_F5_URL;
+      const url = useF5Pod ? VOICE_F5_URL : VOICE_BASE_URL;
+      const token = useF5Pod ? VOICE_F5_TOKEN : VOICE_TOKEN;
+      return fetch(`${url}/tts/stream`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          text: clean,
+          lang: this.lang,
+          ...(this.engine ? { engine: this.engine } : {}),
+        }),
+      });
+    };
+    // Eager for fast/parallel-safe engines (Kokoro): the next request goes
+    // out while we're still draining the current one — keeps the pipeline
+    // saturated. Lazy for engines that serialize on a gen lock at the voice
+    // service: firing N parallel fetches would just queue dead connections
+    // and trip undici's 5-min headersTimeout.
+    const eager = !this.engine || !SLOW_SERIAL_ENGINES.has(this.engine);
+    const fetchPromise = eager ? doFetch() : null;
+    // Optional client-side debug: emit a structured event the frontend can
+    // surface in a debug panel without parsing log lines.
+    sse(this.res, 'voice_debug', {
+      seq,
+      kind: 'sentence_enqueued',
+      chars: clean.length,
+      text: clean.slice(0, 80),
+    });
+    // Chain the drain after any previously queued drains so chunks reach
+    // the SSE in the order their source sentences came in.
+    this.pending = this.pending.then(async () => {
+      const fetchStartedAt = Date.now();
+      try {
+        const r = await (fetchPromise ?? doFetch());
+        const synthFirstByteMs = Date.now() - fetchStartedAt;
+        if (!r.ok || !r.body) {
+          console.error(`[voice] #${seq} tts failed status=${r.status}`);
+          sse(this.res, 'voice_debug', {
+            seq,
+            kind: 'error',
+            status: r.status,
+          });
+          return;
+        }
+        const reader = r.body.getReader();
+        let buf = new Uint8Array(0);
+        let chunkIdx = 0;
+        let totalBytes = 0;
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (value) {
+            // Reader's Uint8Array may be backed by SharedArrayBuffer; copy
+            // into a fresh ArrayBuffer-backed buffer for type compatibility
+            // and so subsequent subarray() slices outlive the reader.
+            const copy = new Uint8Array(value.length);
+            copy.set(value);
+            buf = concatU8(buf, copy);
+          }
+          while (buf.length >= 4) {
+            const length =
+              (buf[0] << 24) | (buf[1] << 16) | (buf[2] << 8) | buf[3];
+            if (buf.length < 4 + length) break;
+            const chunk = buf.subarray(4, 4 + length);
+            chunkIdx++;
+            totalBytes += chunk.length;
+            sse(this.res, 'audio_chunk', {
+              seq,
+              chunk: chunkIdx,
+              data: Buffer.from(chunk).toString('base64'),
+            });
+            buf = buf.subarray(4 + length);
+          }
+        }
+        const totalMs = Date.now() - fetchStartedAt;
+        console.log(
+          `[voice] #${seq} done chunks=${chunkIdx} bytes=${totalBytes} ttfb=${synthFirstByteMs}ms total=${totalMs}ms`,
+        );
+        sse(this.res, 'voice_debug', {
+          seq,
+          kind: 'sentence_done',
+          chunks: chunkIdx,
+          bytes: totalBytes,
+          ttfb_ms: synthFirstByteMs,
+          total_ms: totalMs,
+        });
+      } catch (e) {
+        console.error(`[voice] #${seq} drain error`, e);
+        sse(this.res, 'voice_debug', {
+          seq,
+          kind: 'error',
+          message: e instanceof Error ? e.message : String(e),
+        });
+      }
+    });
+  }
+
+  async flush(): Promise<void> {
+    await this.pending;
+  }
+}
+
+function concatU8(a: Uint8Array, b: Uint8Array): Uint8Array<ArrayBuffer> {
+  const out = new Uint8Array(new ArrayBuffer(a.length + b.length));
+  out.set(a, 0);
+  out.set(b, a.length);
+  return out;
+}
 
 // Context window limits per model (input tokens)
 const MODEL_CONTEXT_LIMITS: Record<string, number> = {
@@ -523,7 +741,28 @@ async function streamConversation(
   nookId: string,
   contextNote?: { id: string; title: string; type?: string },
   memoryNookId?: string | null,
+  voice?: { lang: string } | null,
 ): Promise<void> {
+  const voiceStreamer = voice ? new VoiceStreamer(res, voice.lang) : null;
+  // Terminal events (done/awaiting_approval/error) must be emitted AFTER
+  // voiceStreamer.flush() — otherwise the frontend stops reading on the
+  // terminal event and the trailing audio_chunk SSE writes (which the
+  // flush is still pushing) get stranded in the receive buffer.
+  const trailing: Array<{ event: string; data: unknown }> = [];
+  let voiceBuf = '';
+  // Drain whatever sentence boundaries already closed in voiceBuf, leaving
+  // any trailing partial sentence behind for the next delta.
+  const drainVoiceBuf = (): void => {
+    if (!voiceStreamer) return;
+    while (true) {
+      const m = SENTENCE_END.exec(voiceBuf);
+      if (!m) break;
+      const end = m.index + m[0].length;
+      const sentence = voiceBuf.slice(0, end).trim();
+      voiceBuf = voiceBuf.slice(end);
+      if (sentence) voiceStreamer.enqueueSentence(sentence);
+    }
+  };
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
   // Resolve nook name, role, instruction notes, and handbook in parallel
@@ -628,6 +867,10 @@ async function streamConversation(
           if (event.delta.type === 'text_delta') {
             currentText += event.delta.text;
             sse(res, 'text_delta', { delta: event.delta.text });
+            if (voiceStreamer) {
+              voiceBuf += event.delta.text;
+              drainVoiceBuf();
+            }
           } else if (event.delta.type === 'input_json_delta' && currentTool) {
             currentTool.partialInput += event.delta.partial_json;
             sse(res, 'tool_input_delta', { id: currentTool.id, delta: event.delta.partial_json });
@@ -638,6 +881,12 @@ async function streamConversation(
           if (currentText !== '') {
             contentBlocks.push({ type: 'text', text: currentText });
             currentText = '';
+          }
+          // Flush whatever trailing text didn't end with sentence punctuation
+          // — the model often ends a turn on a single noun or short clause.
+          if (voiceStreamer && voiceBuf.trim()) {
+            voiceStreamer.enqueueSentence(voiceBuf);
+            voiceBuf = '';
           }
           if (currentTool) {
             const toolInput = JSON.parse(currentTool.partialInput || '{}') as Record<string, unknown>;
@@ -668,22 +917,23 @@ async function streamConversation(
           if (stopReason === 'end_turn') {
             const contextLimit = MODEL_CONTEXT_LIMITS[model] ?? DEFAULT_CONTEXT_LIMIT;
             const totalTokens = inputTokens + outputTokens;
-            sse(res, 'done', {
-              conversation_id: conversationId,
-              usage: {
-                input_tokens: inputTokens,
-                output_tokens: outputTokens,
-                cache_creation_input_tokens: cacheCreationTokens,
-                cache_read_input_tokens: cacheReadTokens,
-                context_limit: contextLimit,
+            trailing.push({
+              event: 'done',
+              data: {
+                conversation_id: conversationId,
+                usage: {
+                  input_tokens: inputTokens,
+                  output_tokens: outputTokens,
+                  cache_creation_input_tokens: cacheCreationTokens,
+                  cache_read_input_tokens: cacheReadTokens,
+                  context_limit: contextLimit,
+                },
               },
             });
-
-            // If context is critically full, append a system hint for next turn
             if (totalTokens > contextLimit * CONTEXT_CRITICAL_THRESHOLD) {
-              sse(res, 'context_warning', { level: 'critical', usage_ratio: totalTokens / contextLimit });
+              trailing.push({ event: 'context_warning', data: { level: 'critical', usage_ratio: totalTokens / contextLimit } });
             } else if (totalTokens > contextLimit * CONTEXT_WARNING_THRESHOLD) {
-              sse(res, 'context_warning', { level: 'warning', usage_ratio: totalTokens / contextLimit });
+              trailing.push({ event: 'context_warning', data: { level: 'warning', usage_ratio: totalTokens / contextLimit } });
             }
             return;
           }
@@ -763,12 +1013,15 @@ async function streamConversation(
             } else {
               // Needs user approval
               const displayNames = await resolveDisplayNames(toolsPayload, nookId, apiBase, cookie, memoryNookId);
-              sse(res, 'awaiting_approval', {
-                conversation_id: conversationId,
-                tools: toolsPayload,
-                display_names: displayNames,
-                nook_name: nookName,
-                nook_id: nookId,
+              trailing.push({
+                event: 'awaiting_approval',
+                data: {
+                  conversation_id: conversationId,
+                  tools: toolsPayload,
+                  display_names: displayNames,
+                  nook_name: nookName,
+                  nook_id: nookId,
+                },
               });
               return;
             }
@@ -778,10 +1031,21 @@ async function streamConversation(
     }
 
     // Fell through MAX_AUTO_DEPTH — shouldn't normally happen
-    sse(res, 'error', { message: 'Auto-execution depth limit reached' });
+    trailing.push({ event: 'error', data: { message: 'Auto-execution depth limit reached' } });
   } catch (err) {
-    sse(res, 'error', { message: err instanceof Error ? err.message : 'unknown error' });
+    trailing.push({ event: 'error', data: { message: err instanceof Error ? err.message : 'unknown error' } });
   } finally {
+    // Order matters: drain audio_chunks first so the frontend has them all
+    // before it sees a terminal event and stops reading. Then emit the
+    // captured terminal event(s). Then close the stream.
+    if (voiceStreamer) {
+      try {
+        await voiceStreamer.flush();
+      } catch (e) {
+        console.error('[voice] flush error', e);
+      }
+    }
+    for (const ev of trailing) sse(res, ev.event, ev.data);
     res.end();
   }
 }
@@ -809,12 +1073,15 @@ export function createChatRouter(apiBase: string): Router {
     }
 
     const nook_id = validateNookId(String(req.params.nookId));
-    const { message, model, conversation_id, context_note_id, context_note_title, context_note_type } = req.body as Record<string, unknown>;
+    const { message, model, conversation_id, context_note_id, context_note_title, context_note_type, voice_mode, voice_lang } = req.body as Record<string, unknown>;
 
     if (typeof message !== 'string' || message.trim() === '') {
       res.status(400).json({ error: 'message is required' });
       return;
     }
+    const voice = voice_mode === true
+      ? { lang: typeof voice_lang === 'string' && voice_lang ? voice_lang : 'en' }
+      : null;
 
     const resolvedModel = typeof model === 'string' && model ? model : DEFAULT_MODEL;
 
@@ -860,7 +1127,7 @@ export function createChatRouter(apiBase: string): Router {
       sseHeaders(res);
       sse(res, 'conversation', { conversation_id: convId });
 
-      await streamConversation(res, history, resolvedModel, convId, cookieHeader, apiBase, nook_id, contextNote, memoryNookId);
+      await streamConversation(res, history, resolvedModel, convId, cookieHeader, apiBase, nook_id, contextNote, memoryNookId, voice);
     } catch (err) {
       if (!res.headersSent) {
         res.status(500).json({ error: err instanceof Error ? err.message : 'unknown error' });
@@ -883,14 +1150,19 @@ export function createChatRouter(apiBase: string): Router {
     const nook_id = validateNookId(String(req.params.nookId));
 
     type ToolResult = { tool_use_id: string; tool_name: string; tool_input: Record<string, unknown>; approved: boolean };
-    const { conversation_id, model, tool_results, context_note_id, context_note_title, context_note_type } = req.body as {
+    const { conversation_id, model, tool_results, context_note_id, context_note_title, context_note_type, voice_mode, voice_lang } = req.body as {
       conversation_id: string;
       model?: string;
       tool_results: ToolResult[];
       context_note_id?: string;
       context_note_title?: string;
       context_note_type?: string;
+      voice_mode?: boolean;
+      voice_lang?: string;
     };
+    const voice = voice_mode === true
+      ? { lang: typeof voice_lang === 'string' && voice_lang ? voice_lang : 'en' }
+      : null;
 
     if (!conversation_id || !Array.isArray(tool_results) || tool_results.length === 0) {
       res.status(400).json({ error: 'conversation_id and tool_results are required' });
@@ -991,7 +1263,7 @@ export function createChatRouter(apiBase: string): Router {
         : undefined;
 
       if (!res.headersSent) sseHeaders(res);
-      await streamConversation(res, history, resolvedModel, conversation_id, cookieHeader, apiBase, nook_id, contextNote, memNookId);
+      await streamConversation(res, history, resolvedModel, conversation_id, cookieHeader, apiBase, nook_id, contextNote, memNookId, voice);
     } catch (err) {
       if (!res.headersSent) {
         res.status(500).json({ error: err instanceof Error ? err.message : 'unknown error' });

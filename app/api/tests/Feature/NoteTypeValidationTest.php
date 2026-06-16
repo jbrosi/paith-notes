@@ -143,6 +143,21 @@ it('auto-slugifies the attribute key from name when not provided', function (): 
     expect(json_decode($res['body'], true)['attribute']['key'])->toBe('some-mixed-case-name');
 });
 
+it('successfully creates an indexed date attribute (regression: CREATE INDEX cast paren wrap)', function (): void {
+    // Reproduces a syntax error where the date kind\'s index
+    // expression `(attributes->>X)::date` confused PG\'s CREATE
+    // INDEX grammar; now wrapped as `((attributes->>X)::date)`.
+    [$headers, $nookId] = nookTestSetup('a99999999999');
+    $typeId = createType($headers, $nookId, 'event', 'Event');
+
+    $res = App::handle('POST', "/api/nooks/{$nookId}/note-types/{$typeId}/attributes", $headers, json_encode([
+        'name' => 'Event Date',
+        'kind' => 'date',
+        'indexed' => true,
+    ]));
+    expect($res['status'])->toBe(200, $res['body']);
+});
+
 it('rejects deleting a type that still has child types', function (): void {
     [$headers, $nookId] = nookTestSetup('a88888888888');
     $parent = createType($headers, $nookId, 'parent-d', 'Parent');

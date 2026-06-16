@@ -914,14 +914,19 @@ export function createNookStore(nookId: () => string) {
 		setError("");
 		try {
 			const qs = new URLSearchParams();
-			qs.set("include_subtypes", "1");
 			qs.set("limit", "50");
+			// Type filter is now a query param. "all" means "no filter"
+			// — omit type_id entirely rather than passing the sentinel.
+			if (typeForList !== "all") {
+				qs.set("type_id", typeForList);
+				qs.set("include_subtypes", "1");
+			}
 			if (q !== "") qs.set("q", q);
 			if (cursor !== "") qs.set("cursor", cursor);
 			if (parsed.unlinked) qs.set("unlinked", "1");
 
 			const res = await apiFetch(
-				`/api/nooks/${nookId()}/note-types/${typeForList}/notes?${qs.toString()}`,
+				`/api/nooks/${nookId()}/notes?${qs.toString()}`,
 				{ method: "GET", signal: abort.signal },
 			);
 			if (version !== loadNotesVersion) return;
@@ -1287,12 +1292,13 @@ export function createNookStore(nookId: () => string) {
 		}
 	});
 
-	createEffect(() => {
-		void nookId();
-		void selectedTypeIds();
-		void notesQuery();
-		void loadNotes({ reset: true });
-	});
+	// (Previously: eager createEffect that called loadNotes on every
+	// nookId / selectedTypeIds / notesQuery change. Removed because
+	// the only consumer was the global notes-search dropdown, which
+	// now lazy-fetches its own lean titles list on focus via the
+	// /notes/titles endpoint. loadNotes stays available for callers
+	// that explicitly want the full notes list — e.g. NookUnlinkedNotes
+	// has its own state and never used this effect.)
 
 	const uploadFile = async (_file: File) => {};
 

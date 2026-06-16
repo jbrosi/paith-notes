@@ -64,7 +64,7 @@ export const TOOLS: Anthropic.Tool[] = [
   },
   {
     name: 'create_note_type',
-    description: 'Create a new note type in the current nook\'s taxonomy. Always call list_note_types first so you can see the existing hierarchy and choose the right parent. Show the user a summary like "Creating type \'Employee\' under \'Person\'" before proceeding. The key must be a unique lowercase slug (e.g. "employee", "project-phase").',
+    description: 'Create a new note type in the current nook\'s taxonomy. Always call list_note_types first so you can see the existing hierarchy and choose the right parent. Show the user a summary like "Creating type \'Employee\' under \'Person\'" before proceeding. The key must be a unique lowercase slug (e.g. "employee", "project-phase"). Schema mutations (create/update/delete on note types and their attributes) require the user to be the nook owner — this will 403 in nooks the user only collaborates on (including ai-memory, which is system-owned). Don\'t suggest schema changes in those nooks.',
     input_schema: {
       type: 'object',
       properties: {
@@ -78,7 +78,7 @@ export const TOOLS: Anthropic.Tool[] = [
   },
   {
     name: 'update_note_type',
-    description: 'Update the label or description of an existing note type. Use this to rename a type or improve its description. Does not change the key or parent — those are structural changes that should be done in settings.',
+    description: 'Update the label or description of an existing note type. Use this to rename a type or improve its description. Does not change the key or parent — those are structural changes that should be done in settings. Owner-only: will 403 in shared nooks where the user isn\'t the nook owner.',
     input_schema: {
       type: 'object',
       properties: {
@@ -166,7 +166,7 @@ export const TOOLS: Anthropic.Tool[] = [
   },
   {
     name: 'search_notes',
-    description: 'Search notes by title, content, or attribute values. Use type_id to filter by note type, or "all" for all types. Use attribute_filters for structured queries like "rating >= 4" or "date between X and Y". When a search query is provided, results also include heading_matches — headings (h1-h6) extracted from notes that match the query, with note_id, note_title, level, text, and position (character offset for jump-to-section).',
+    description: 'Search notes by title, content, or attribute values. Returns a LEAN list — each result is just {id, title, type_id, timestamps, mention/link counts}.\n\nSearch is cheap and lean. When the user\'s ask can be approached from multiple angles (synonyms, related concepts, sibling categories, different attribute_filters), issue SEVERAL search_notes calls in PARALLEL in the same turn — one per angle. Then dedupe results by id and decide which ones are worth a deep read. This is much faster and more thorough than a single search with a vague query.\n\nTo read a note\'s full content/attributes, follow up with get_note(id) — also parallelize those calls when investigating multiple candidates (they\'re independent).\n\nUse type_id to filter by note type. Use attribute_filters for structured queries like "rating >= 4" or "date between X and Y" — those filter server-side without you needing to read the values. When a search query is provided, results also include heading_matches — headings (h1-h6) extracted from notes that match the query, with note_id, note_title, level, text, and position (character offset for jump-to-section).',
     input_schema: {
       type: 'object',
       properties: {
@@ -213,7 +213,7 @@ export const TOOLS: Anthropic.Tool[] = [
   },
   {
     name: 'search_all_nooks',
-    description: 'Search notes across ALL nooks the user has access to. Only use this when the user explicitly asks to search globally, or when a local search_notes returned no results and you want to ask the user if they\'d like to search more broadly. Prefer search_notes (local to current nook) first. Also returns heading_matches for headings matching the query.',
+    description: 'Search notes across ALL nooks the user has access to. Only use this when the user explicitly asks to search globally, or when a local search_notes returned no results and you want to ask the user if they\'d like to search more broadly. Prefer search_notes (local to current nook) first. Also returns heading_matches for headings matching the query.\n\nLike search_notes, this is cheap and lean — when you go broad you can fan out several search_all_nooks calls in parallel with different angles in the same turn and dedupe results by id before deciding which notes to deep-read via get_note.',
     input_schema: {
       type: 'object',
       properties: {
@@ -315,10 +315,28 @@ export const TOOLS: Anthropic.Tool[] = [
       required: ['task'],
     },
   },
+  // ── Image generation (creates or refines a generated_image note in ai-memory) ──
+  {
+    name: 'generate_image',
+    description: 'Generate an image from a text prompt and store it as a generated_image note in the user\'s AI memory nook (default) or a specific nook. Costs real money per call — the user is asked to approve. Returns the new note\'s id, the model\'s revised_prompt, and the call\'s usage/cost.\n\nRefinement vs new note: when the user says something like "make it darker" or "the same one but with a sunset" they\'re refining the LAST image you generated in this chat — pass that note id as refine_note_id so we update the existing note, bump the file version, and append the new summary to its body. When the user says something like "for the birthday party, the invitation needs..." referring to an older image, FIRST use memory_search to find the matching prior generated_image note, then refine that one. When in doubt about which note to refine, use ask_user to confirm — never silently guess between candidates.\n\nFor a brand-new topic (no prior image referenced), omit refine_note_id and a fresh note is created.\n\nDefault quality is "low" — fast and cheap (~$0.01–0.02), great for prompt iteration. Only escalate to medium (~$0.04–0.06) or high (~$0.17–0.25) when the user explicitly asks for a finished/printable image. On a refinement, omitted size/quality/transparent inherit from the prior note.\n\nThe summary field is required: write a short (1–2 sentence) human-readable description of what this iteration is about; it seeds the note body and, on refinements, gets appended as a versioned changelog so the user has a chronological narrative of how the image evolved.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        prompt:         { type: 'string', description: 'What to generate. Be specific — the provider rewrites short prompts and you\'ll get a revised_prompt back showing what it actually drew.' },
+        summary:        { type: 'string', description: 'A 1–2 sentence human-readable description of this iteration ("first take of the birthday invitation in pastels" / "swapped the pink for lavender per user request"). Seeds the note body; on refinements becomes a versioned changelog entry.' },
+        nook_id:        { type: 'string', description: 'Target nook UUID. Omit to drop the image in ai-memory (the default and recommended behaviour).' },
+        refine_note_id: { type: 'string', description: 'UUID of an existing generated_image note to refine. When provided, the existing note is updated (file_version bumped, attributes overwritten, summary appended) instead of creating a new note. The note must be a generated_image in the same target nook. Inherit-default: any of size/quality/transparent you omit will reuse the prior note\'s values.' },
+        size:           { type: 'string', enum: ['1024x1024', '1024x1536', '1536x1024', 'auto'], description: 'Output dimensions. New-note default: 1024x1024. Refinement: inherits prior note\'s size when omitted.' },
+        quality:        { type: 'string', enum: ['low', 'medium', 'high', 'auto'], description: 'Rendering quality. New-note default: "low". Refinement: inherits prior note\'s quality when omitted. low ~$0.01–0.02, medium ~$0.04–0.06, high ~$0.17–0.25 (~4–6× the cost). Escalate only when the user explicitly asks for a finished/printable image.' },
+        transparent:    { type: 'boolean', description: 'Generate with a transparent background (PNG with alpha). New-note default: false. Refinement: inherits prior value when omitted.' },
+      },
+      required: ['prompt', 'summary'],
+    },
+  },
   // ── User memory nook tools (cross-nook, auto-approved) ──
   {
     name: 'memory_search',
-    description: 'Search the user\'s personal AI memory nook. Use this to recall cross-nook information about the user (preferences, facts, patterns). Auto-approved.',
+    description: 'Search the user\'s personal AI memory nook. Use this to recall cross-nook information about the user (preferences, facts, patterns). Returns LEAN results (id + title + type_id only).\n\nMemory recall is cheap and auto-approved — issue several memory_search calls in PARALLEL with different keywords/angles when the topic is broad (e.g. for a meeting-prep task, you might search "meeting", "agenda", the project name, and the attendees in parallel). Dedupe by id, then memory_get(id) — also in parallel — for the ones you actually need to read.',
     input_schema: {
       type: 'object',
       properties: {
@@ -385,8 +403,22 @@ export async function executeTool(
       body: body !== undefined ? JSON.stringify(body) : undefined,
     });
     const text = await res.text();
-    if (!res.ok) throw new Error(`API ${res.status}: ${text}`);
-    return text ? JSON.parse(text) : null;
+    if (!res.ok) {
+      throw new Error(`API ${res.status} ${method} ${path}: ${text.slice(0, 800)}`);
+    }
+    if (!text) return null;
+    try {
+      return JSON.parse(text);
+    } catch (e) {
+      // The API returned 2xx but non-JSON — typically PHP warning HTML
+      // leaking ahead of the JSON body. Include the first chunk of the
+      // raw response in the error so the upstream caller (and the AI
+      // surfacing it) can see what actually came back.
+      const snippet = text.slice(0, 800).replace(/\s+/g, ' ').trim();
+      throw new Error(
+        `API ${method} ${path} returned non-JSON (status ${res.status}, content-type ${res.headers.get('content-type') ?? 'unknown'}): ${snippet}`,
+      );
+    }
   };
   const noteId = String(input.note_id ?? '');
 
@@ -513,15 +545,24 @@ export async function executeTool(
     }
 
     case 'search_notes': {
-      const typeId = String(input.type_id ?? 'all');
+      const typeId = String(input.type_id ?? '');
       const params = new URLSearchParams();
+      // Lean by default — id/title/type_id + counts. The AI inspects
+      // titles to pick which notes are worth a follow-up get_note
+      // call (which it can parallelize across the candidates it
+      // cares about). attribute_filters still works because that's a
+      // server-side WHERE — the AI doesn't need to read the values
+      // to filter by them.
+      if (typeId !== '' && typeId !== 'all') {
+        params.set('type_id', typeId);
+        params.set('include_subtypes', '1');
+      }
       if (input.q) params.set('q', String(input.q));
       if (input.attribute_filters) params.set('attribute_filters', String(input.attribute_filters));
       if (input.search_mode) params.set('search_mode', String(input.search_mode));
       if (input.sort) params.set('sort', String(input.sort));
       if (input.cursor) params.set('cursor', String(input.cursor));
-      const qs = params.toString() ? `?${params}` : '';
-      return JSON.stringify(await api('GET', `/api/nooks/${nookId}/note-types/${typeId}/notes${qs}`));
+      return JSON.stringify(await api('GET', `/api/nooks/${nookId}/notes?${params.toString()}`));
     }
 
     case 'start_new_chat': {
@@ -568,13 +609,31 @@ export async function executeTool(
       );
     }
 
+    // ── Image generation ──
+    case 'generate_image': {
+      // Sentinel "ai-memory" is resolved server-side; pass it through
+      // whenever the caller doesn't specify a nook so we don't have
+      // to round-trip GET /nooks/ai-memory from here.
+      const target = typeof input.nook_id === 'string' && input.nook_id.trim() !== ''
+        ? input.nook_id.trim()
+        : 'ai-memory';
+      const body: Record<string, unknown> = { prompt: String(input.prompt ?? '') };
+      if (input.summary)        body.summary = String(input.summary);
+      if (input.refine_note_id) body.refine_note_id = String(input.refine_note_id);
+      if (input.size)           body.size = String(input.size);
+      if (input.quality)        body.quality = String(input.quality);
+      if (input.transparent)    body.transparent = true;
+      return JSON.stringify(await api('POST', `/api/nooks/${target}/ai-images`, body));
+    }
+
     // ── User memory nook tools ──
     case 'memory_search': {
       if (!memoryNookId) throw new Error('AI memory nook not available');
       const params = new URLSearchParams();
+      // Lean — title/id only. Follow up with memory_get(id) for any
+      // memory whose content/attributes you actually need to read.
       if (input.q) params.set('q', String(input.q));
-      const qs = params.toString() ? `?${params}` : '';
-      return JSON.stringify(await api('GET', `/api/nooks/${memoryNookId}/note-types/all/notes${qs}`));
+      return JSON.stringify(await api('GET', `/api/nooks/${memoryNookId}/notes?${params.toString()}`));
     }
 
     case 'memory_get': {

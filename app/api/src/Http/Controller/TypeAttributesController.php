@@ -51,7 +51,7 @@ final class TypeAttributesController
         $nookId = self::requireUuid($request->routeParam('nookId'), 'nookId');
         $typeId = self::requireUuid($request->routeParam('typeId'), 'typeId');
 
-        NookAccess::requireWriteAccess($pdo, $user, $nookId);
+        NookAccess::requireOwner($pdo, $user, $nookId);
         $this->requireType($pdo, $nookId, $typeId);
 
         $payload = TypeAttributeRequest::fromJson($request->jsonBody(), self::VALID_KINDS);
@@ -135,18 +135,24 @@ final class TypeAttributesController
         $typeId = self::requireUuid($request->routeParam('typeId'), 'typeId');
         $attrId = self::requireUuid($request->routeParam('attributeId'), 'attributeId');
 
-        NookAccess::requireWriteAccess($pdo, $user, $nookId);
+        NookAccess::requireOwner($pdo, $user, $nookId);
         $this->requireType($pdo, $nookId, $typeId);
 
-        // Verify attribute belongs to this type (not inherited)
-        $check = $pdo->prepare('select id from global.type_attributes where id = :id and type_id = :type_id and nook_id = :nook_id');
+        // Verify attribute belongs to this type (not inherited) AND fetch
+        // the stored kind. Kind is locked after creation: every per-note value
+        // is shape-specific to its kind, so a kind switch would silently
+        // invalidate stored data across every note of this type. We ignore
+        // any kind the client sends and validate config against the stored
+        // kind instead.
+        $check = $pdo->prepare('select kind from global.type_attributes where id = :id and type_id = :type_id and nook_id = :nook_id');
         $check->execute([':id' => $attrId, ':type_id' => $typeId, ':nook_id' => $nookId]);
-        if (!$check->fetchColumn()) {
+        $storedKind = $check->fetchColumn();
+        if (!is_string($storedKind) || $storedKind === '') {
             throw new HttpError('attribute not found on this type (inherited attributes cannot be edited here)', 404);
         }
 
         $payload = TypeAttributeRequest::fromJson($request->jsonBody(), self::VALID_KINDS);
-        $this->validateConfig($payload->kind, $payload->config);
+        $this->validateConfig($storedKind, $payload->config);
 
         // Slugified key only when user provided one — null means "leave key alone"
         $key = $payload->keyRaw !== null ? self::slugify($payload->keyRaw) : null;
@@ -162,7 +168,10 @@ final class TypeAttributesController
 
         $this->checkDescendantNameConflict($pdo, $nookId, $typeId, $payload->name, $attrId);
 
-        $sql = 'update global.type_attributes set name = :name, kind = :kind, config = :config::jsonb, '
+        // Note: kind is intentionally omitted from the UPDATE — it's locked
+        // after creation (see top of method). We use $storedKind everywhere
+        // that needs the attribute's kind.
+        $sql = 'update global.type_attributes set name = :name, config = :config::jsonb, '
             . 'indexed = :indexed';
         if ($key !== null) {
             $sql .= ', key = :key';
@@ -176,7 +185,6 @@ final class TypeAttributesController
         $stmt->bindValue(':nook_id', $nookId);
         $stmt->bindValue(':type_id', $typeId);
         $stmt->bindValue(':name', $payload->name);
-        $stmt->bindValue(':kind', $payload->kind);
         $stmt->bindValue(':config', json_encode($payload->config));
         $stmt->bindValue(':indexed', $payload->indexed, PDO::PARAM_BOOL);
         if ($key !== null) {
@@ -191,8 +199,8 @@ final class TypeAttributesController
 
         $resolvedKey = Row::str($row, 'key', $key ?? '');
 
-        // Index lifecycle: re-sync (kind or indexed flag may have changed)
-        $this->syncAttributeIndex($pdo, $attrId, $payload->kind, $payload->indexed);
+        // Index lifecycle: re-sync (indexed flag may have changed; kind didn't)
+        $this->syncAttributeIndex($pdo, $attrId, $storedKind, $payload->indexed);
 
         return JsonResponse::ok([
             'attribute' => [
@@ -200,7 +208,7 @@ final class TypeAttributesController
                 'type_id' => $typeId,
                 'name' => $payload->name,
                 'key' => $resolvedKey,
-                'kind' => $payload->kind,
+                'kind' => $storedKind,
                 'config' => $payload->config === [] ? (object)[] : $payload->config,
                 'indexed' => $payload->indexed,
                 'inherited' => false,
@@ -222,7 +230,7 @@ final class TypeAttributesController
         $typeId = self::requireUuid($request->routeParam('typeId'), 'typeId');
         $attrId = self::requireUuid($request->routeParam('attributeId'), 'attributeId');
 
-        NookAccess::requireWriteAccess($pdo, $user, $nookId);
+        NookAccess::requireOwner($pdo, $user, $nookId);
         $this->requireType($pdo, $nookId, $typeId);
 
         $stmt = $pdo->prepare(
@@ -527,10 +535,17 @@ final class TypeAttributesController
         $pdo->exec("drop index if exists global.{$idxName}_from");
         $pdo->exec("drop index if exists global.{$idxName}_to");
 
+        // PG requires every non-column item in a CREATE INDEX column
+        // list to be wrapped in its own set of parens. Casts and
+        // built-in `to_date` are NOT marked IMMUTABLE, so we route
+        // date parsing through global.safe_date — a SQL function
+        // we explicitly mark IMMUTABLE — same pattern as
+        // global.safe_numeric for the number indexes.
+
         // date_range: two indexes on from/to for overlap queries
         if ($kind === 'date_range') {
-            $fromExpr = "(attributes->'{$attrId}'->>'from')::date";
-            $toExpr = "(attributes->'{$attrId}'->>'to')::date";
+            $fromExpr = "global.safe_date(attributes->'{$attrId}'->>'from')";
+            $toExpr = "global.safe_date(attributes->'{$attrId}'->>'to')";
             $fromWhere = "attributes->'{$attrId}'->>'from' IS NOT NULL";
             $toWhere = "attributes->'{$attrId}'->>'to' IS NOT NULL";
             $pdo->exec("create index {$idxName}_from on global.notes (nook_id, {$fromExpr}) where {$fromWhere}");
@@ -541,9 +556,9 @@ final class TypeAttributesController
         // Single expression index for other kinds
         $expr = match ($kind) {
             'number' => "global.safe_numeric(attributes->>'{$attrId}')",
-            'date' => "(attributes->>'{$attrId}')::date",
-            'text' => "attributes->>'{$attrId}'",
-            'select' => "attributes->>'{$attrId}'",
+            'date' => "global.safe_date(attributes->>'{$attrId}')",
+            'text' => "(attributes->>'{$attrId}')",
+            'select' => "(attributes->>'{$attrId}')",
             default => null,
         };
 

@@ -1,6 +1,52 @@
 import { For, Show } from "solid-js";
 import type { TypeAttribute } from "../../types";
 
+/**
+ * Humanise a raw millisecond count for the number kind's
+ * display="duration" variant. Crosses the boundaries that actually
+ * matter for our use cases: an OpenAI call ranging from a few hundred
+ * ms to a few minutes.
+ */
+function formatDurationMs(ms: number): string {
+	if (!Number.isFinite(ms) || ms <= 0) return "0 ms";
+	if (ms < 1000) return `${Math.round(ms)} ms`;
+	if (ms < 60_000) return `${(ms / 1000).toFixed(ms < 10_000 ? 2 : 1)} s`;
+	if (ms < 3_600_000) {
+		const mins = Math.floor(ms / 60_000);
+		const secs = Math.round((ms % 60_000) / 1000);
+		return secs ? `${mins} min ${secs} s` : `${mins} min`;
+	}
+	if (ms < 86_400_000) {
+		const hrs = Math.floor(ms / 3_600_000);
+		const mins = Math.round((ms % 3_600_000) / 60_000);
+		return mins ? `${hrs} h ${mins} min` : `${hrs} h`;
+	}
+	const days = Math.floor(ms / 86_400_000);
+	const hrs = Math.round((ms % 86_400_000) / 3_600_000);
+	return hrs ? `${days} d ${hrs} h` : `${days} d`;
+}
+
+/**
+ * Format a decimal as a currency string. Uses up to 4 fraction digits
+ * because AI-generation costs are routinely sub-cent ($0.0042) and a
+ * 2-digit rounding would mislead.
+ */
+function formatCurrency(value: number, currency: string): string {
+	if (!Number.isFinite(value)) return "";
+	try {
+		return new Intl.NumberFormat(undefined, {
+			style: "currency",
+			currency,
+			minimumFractionDigits: 2,
+			maximumFractionDigits: 4,
+		}).format(value);
+	} catch {
+		// Unknown currency code — fall back to plain decimal + code so the
+		// value is still readable when Intl rejects the input.
+		return `${value.toFixed(4)} ${currency}`;
+	}
+}
+
 export function AttributeField(props: {
 	attr: TypeAttribute;
 	value: unknown;
@@ -94,6 +140,64 @@ export function AttributeField(props: {
 					</div>
 				);
 			}
+
+			// duration: stored as raw milliseconds, displayed humanised.
+			// Edit mode keeps the plain number input so the AI/system that
+			// writes durations can still set them precisely.
+			if (display() === "duration") {
+				return (
+					<label>
+						<div style={labelStyle}>{props.attr.name}</div>
+						<Show
+							when={!props.disabled}
+							fallback={
+								<div style={{ "font-size": "13px" }}>
+									{formatDurationMs(numVal())}
+								</div>
+							}
+						>
+							<input
+								type="number"
+								value={numVal()}
+								onInput={(e) => props.onChange(Number(e.currentTarget.value))}
+								style={inputStyle}
+							/>
+						</Show>
+					</label>
+				);
+			}
+
+			// currency: stored as a decimal in the configured ISO 4217
+			// currency (USD by default). Display uses Intl.NumberFormat so
+			// locale picks the right symbol position automatically.
+			if (display() === "currency") {
+				const currency = () =>
+					typeof props.attr.config.currency === "string"
+						? props.attr.config.currency
+						: "USD";
+				return (
+					<label>
+						<div style={labelStyle}>{props.attr.name}</div>
+						<Show
+							when={!props.disabled}
+							fallback={
+								<div style={{ "font-size": "13px" }}>
+									{formatCurrency(numVal(), currency())}
+								</div>
+							}
+						>
+							<input
+								type="number"
+								step="0.0001"
+								value={numVal()}
+								onInput={(e) => props.onChange(Number(e.currentTarget.value))}
+								style={inputStyle}
+							/>
+						</Show>
+					</label>
+				);
+			}
+
 			return (
 				<label>
 					<div style={labelStyle}>{props.attr.name}</div>
@@ -105,6 +209,76 @@ export function AttributeField(props: {
 						style={inputStyle}
 					/>
 				</label>
+			);
+		}
+
+		case "dimension": {
+			const dim = () => {
+				if (typeof props.value === "object" && props.value !== null) {
+					const v = props.value as { width?: number; height?: number };
+					return {
+						width: typeof v.width === "number" ? v.width : 0,
+						height: typeof v.height === "number" ? v.height : 0,
+					};
+				}
+				return { width: 0, height: 0 };
+			};
+			const inputId = `attr-${props.attr.id}`;
+			return (
+				<div>
+					<div style={labelStyle}>{props.attr.name}</div>
+					<Show
+						when={!props.disabled}
+						fallback={
+							<div style={{ "font-size": "13px" }}>
+								{dim().width && dim().height
+									? `${dim().width} × ${dim().height} px`
+									: "(unset)"}
+							</div>
+						}
+					>
+						<div
+							style={{ display: "flex", "align-items": "center", gap: "6px" }}
+						>
+							<input
+								id={inputId}
+								type="number"
+								min={1}
+								value={dim().width}
+								onInput={(e) =>
+									props.onChange({
+										...dim(),
+										width: Number(e.currentTarget.value),
+									})
+								}
+								style={{ ...inputStyle, width: "5em" }}
+								aria-label="width"
+							/>
+							<span style={{ color: "var(--color-text-muted)" }}>×</span>
+							<input
+								type="number"
+								min={1}
+								value={dim().height}
+								onInput={(e) =>
+									props.onChange({
+										...dim(),
+										height: Number(e.currentTarget.value),
+									})
+								}
+								style={{ ...inputStyle, width: "5em" }}
+								aria-label="height"
+							/>
+							<span
+								style={{
+									"font-size": "11px",
+									color: "var(--color-text-muted)",
+								}}
+							>
+								px
+							</span>
+						</div>
+					</Show>
+				</div>
 			);
 		}
 

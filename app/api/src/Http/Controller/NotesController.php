@@ -22,6 +22,7 @@ use Paith\Notes\Shared\Db\Rows\NoteFileMetadataRow;
 use Paith\Notes\Shared\Db\Rows\NoteHeadingRow;
 use Paith\Notes\Shared\Db\Rows\NoteListRow;
 use Paith\Notes\Shared\Db\Rows\NoteSummaryRow;
+use Paith\Notes\Shared\Search\SearchQueryParser;
 use Paith\Notes\Shared\Uuid;
 use PDO;
 use Throwable;
@@ -39,6 +40,117 @@ final class NotesController
         $this->headings = new HeadingsService();
     }
 
+    /**
+     * GET /nooks/{nookId}/notes/titles?q=...&limit=20
+     *
+     * Lean projection for the global notes-search dropdown. Returns
+     * only id + title + type_id, no mention/link counts, no joins.
+     * Replaces the heavier /note-types/all/notes prefetch the dropdown
+     * used to do on every nook open — now it fetches on focus, with
+     * a tighter cap (max 50, default 20) and an optional case-
+     * insensitive title-substring filter.
+     */
+    public function titles(Request $request, Context $context): Response
+    {
+        $pdo = $context->pdo();
+        $user = $context->user();
+
+        $nookId = $request->requireUuidRouteParam('nookId');
+
+        NookAccess::requireMember($pdo, $user, $nookId);
+
+        $q = strtolower(trim($request->queryParam('q')));
+        $limitRaw = $request->queryParam('limit');
+        $limit = min(50, max(1, $limitRaw !== '' ? (int)$limitRaw : 20));
+
+        $typeId = trim($request->queryParam('type_id'));
+        $hasTypeFilter = $typeId !== '';
+        if ($hasTypeFilter && !Uuid::isValid($typeId)) {
+            throw new HttpError('type_id must be a UUID', 400);
+        }
+        $v = strtolower(trim($request->queryParam('include_subtypes')));
+        $includeSubtypes = in_array($v, ['1', 'true', 'yes', 'on'], true);
+
+        // Compose the WHERE / FROM dynamically so the type filter
+        // and subtype CTE only appear when actually needed.
+        $whereType = '';
+        $cteHead = '';
+        $params = [':nook_id' => $nookId];
+        if ($hasTypeFilter && $includeSubtypes) {
+            $cteHead = 'with recursive type_tree as ('
+                . ' select id from global.note_types where id = :type_id and nook_id = :nook_id'
+                . ' union all'
+                . ' select nt.id from global.note_types nt join type_tree tt on nt.parent_id = tt.id'
+                . ' where nt.nook_id = :nook_id'
+                . ') ';
+            $whereType = ' and type_id in (select id from type_tree)';
+            $params[':type_id'] = $typeId;
+        } elseif ($hasTypeFilter) {
+            $whereType = ' and type_id = :type_id';
+            $params[':type_id'] = $typeId;
+        }
+
+        $whereQ = '';
+        if ($q !== '') {
+            $whereQ = ' and lower(title) like :q';
+            $params[':q'] = '%' . $q . '%';
+        }
+
+        $sql = $cteHead
+            . 'select id, title, type_id from global.notes '
+            . 'where nook_id = :nook_id'
+            . $whereType
+            . $whereQ
+            . ' order by created_at desc limit :limit';
+        $stmt = $pdo->prepare($sql);
+        foreach ($params as $p => $val) {
+            $stmt->bindValue($p, $val);
+        }
+        $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
+        $stmt->execute();
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $notes = [];
+        foreach ($rows as $r) {
+            if (!is_array($r)) {
+                continue;
+            }
+            $notes[] = [
+                'id' => Row::str($r, 'id'),
+                'title' => Row::str($r, 'title'),
+                'type_id' => Row::str($r, 'type_id'),
+            ];
+        }
+        return JsonResponse::ok(['notes' => $notes]);
+    }
+
+    /**
+     * GET /nooks/{nookId}/notes
+     *
+     * Notes listing with filtering. Replaces the old
+     * /note-types/{typeId}/notes endpoint — the type filter is now
+     * a regular query param (`?type_id=X&include_subtypes=1`) which
+     * reads honestly as "list notes filtered by type".
+     *
+     * Supported filters:
+     *   ?type_id=<uuid>     filter by type. Omit for "all types".
+     *   ?include_subtypes=1 include notes of descendant types via the
+     *                       parent_id chain.
+     *   ?q=<text>           title+content search (uses SearchQueryParser).
+     *   ?search_mode=and|or how multi-word queries combine. Default and.
+     *   ?attribute_filters=<json>  typed-attribute filtering.
+     *   ?unlinked=1         only notes with zero links / mentions.
+     *   ?sort=newest|oldest|updated_newest|updated_oldest
+     *   ?limit=N            page size, max 200, default 50.
+     *   ?cursor=<base64>    pagination cursor from a prior response.
+     *
+     * Response is lean by default (id/title/type_id/created_at/
+     * updated_at + the 4 mention/link counts + search_rank). Pass
+     * ?include=attributes when the caller actually needs the
+     * structured attribute values inline (MCP/AI tooling and the
+     * frontend's `view` attribute renderer use this); the default
+     * stays small for list views.
+     */
     public function list(Request $request, Context $context): Response
     {
         $pdo = $context->pdo();
@@ -48,56 +160,392 @@ final class NotesController
 
         NookAccess::requireMember($pdo, $user, $nookId);
 
-        $stmt = $pdo->prepare(
-            'select n.id, n.title, n.type_id, n.created_at,
-                coalesce(outgoing.cnt, 0) as outgoing_mentions_count,
-                coalesce(incoming.cnt, 0) as incoming_mentions_count,
-                coalesce(outgoing_links.cnt, 0) as outgoing_links_count,
-                coalesce(incoming_links.cnt, 0) as incoming_links_count
-            from global.notes n
-            left join (
-                select nm.source_note_id as note_id, count(*)::int as cnt
-                from global.note_mentions nm
-                join global.notes nn on nn.id = nm.source_note_id
-                where nn.nook_id = :nook_id
-                group by nm.source_note_id
-            ) outgoing on outgoing.note_id = n.id
-            left join (
-                select nm.target_note_id as note_id, count(*)::int as cnt
-                from global.note_mentions nm
-                join global.notes nn on nn.id = nm.target_note_id
-                where nn.nook_id = :nook_id
-                group by nm.target_note_id
-            ) incoming on incoming.note_id = n.id
-            left join (
-                select l.source_note_id as note_id, count(*)::int as cnt
-                from global.note_links l
-                where l.nook_id = :nook_id
-                group by l.source_note_id
-            ) outgoing_links on outgoing_links.note_id = n.id
-            left join (
-                select l.target_note_id as note_id, count(*)::int as cnt
-                from global.note_links l
-                where l.nook_id = :nook_id
-                group by l.target_note_id
-            ) incoming_links on incoming_links.note_id = n.id
-            where n.nook_id = :nook_id
-            order by n.created_at desc'
+        $typeId = trim($request->queryParam('type_id'));
+        $hasTypeFilter = $typeId !== '';
+        if ($hasTypeFilter && !Uuid::isValid($typeId)) {
+            throw new HttpError('type_id must be a UUID', 400);
+        }
+
+        $v = strtolower(trim($request->queryParam('include_subtypes')));
+        $includeSubtypes = in_array($v, ['1', 'true', 'yes', 'on'], true);
+
+        $includeAttrs = in_array(
+            strtolower(trim($request->queryParam('include'))),
+            ['attributes', 'attrs'],
+            true,
         );
-        $stmt->execute([':nook_id' => $nookId]);
+
+        $limit = (int)trim($request->queryParam('limit'));
+        if ($limit <= 0) {
+            $limit = 50;
+        }
+        if ($limit > 200) {
+            $limit = 200;
+        }
+
+        $cursor = trim($request->queryParam('cursor'));
+        $cursorSortVal = '';
+        $cursorId = '';
+        if ($cursor !== '') {
+            $decoded = base64_decode($cursor, true);
+            if (!is_string($decoded) || $decoded === '') {
+                throw new HttpError('cursor is invalid', 400);
+            }
+            $obj = json_decode($decoded, true);
+            if (!is_array($obj)) {
+                throw new HttpError('cursor is invalid', 400);
+            }
+            $cursorSortValRaw = $obj['created_at'] ?? '';
+            $cursorIdRaw = $obj['id'] ?? '';
+            $cursorSortVal = is_string($cursorSortValRaw) ? trim($cursorSortValRaw) : '';
+            $cursorId = is_string($cursorIdRaw) ? trim($cursorIdRaw) : '';
+            if ($cursorSortVal === '' || $cursorId === '' || !Uuid::isValid($cursorId)) {
+                throw new HttpError('cursor is invalid', 400);
+            }
+        }
+
+        if ($hasTypeFilter) {
+            $typeCheck = $pdo->prepare('select 1 from global.note_types where id = :id and nook_id = :nook_id');
+            $typeCheck->execute([':id' => $typeId, ':nook_id' => $nookId]);
+            if (!$typeCheck->fetchColumn()) {
+                throw new HttpError('type not found', 404);
+            }
+        }
+
+        $sortParam = strtolower(trim($request->queryParam('sort')));
+        if (!in_array($sortParam, ['newest', 'oldest', 'updated_newest', 'updated_oldest'], true)) {
+            $sortParam = 'newest';
+        }
+        $sortCol = str_starts_with($sortParam, 'updated') ? 'updated_at' : 'created_at';
+        $sortDir = str_ends_with($sortParam, 'oldest') ? 'asc' : 'desc';
+        $cursorOp = $sortDir === 'asc' ? '>' : '<';
+        $orderBy = "order by n.{$sortCol} {$sortDir}, n.id {$sortDir}";
+
+        $q = strtolower(trim($request->queryParam('q')));
+        $searchMode = strtolower(trim($request->queryParam('search_mode')));
+        if (!in_array($searchMode, ['and', 'or'], true)) {
+            $searchMode = 'and';
+        }
+
+        $search = SearchQueryParser::buildSearchClause($q, $searchMode);
+        $whereSearch = $search['where'];
+        $searchRank = $search['rank'] !== '0'
+            ? '(' . $search['rank'] . ' + ln(1 + least(coalesce(ns.view_count, 0), 1000)) * 0.5)'
+            : '0';
+        $searchBindings = $search['bindings'];
+
+        $orderByWithRank = $searchRank !== '0'
+            ? "order by search_rank desc, n.{$sortCol} {$sortDir}, n.id {$sortDir}"
+            : $orderBy;
+
+        $attrFilter = $this->buildAttributeFilterClause($request->queryParam('attribute_filters'), $searchBindings);
+        $whereAttrFilter = $attrFilter['where'];
+
+        $unlinked = $request->queryParam('unlinked') === '1';
+        $whereUnlinked = $unlinked
+            ? 'and coalesce(ns.outgoing_links, 0) = 0 and coalesce(ns.incoming_links, 0) = 0
+               and coalesce(ns.outgoing_mentions, 0) = 0 and coalesce(ns.incoming_mentions, 0) = 0'
+            : '';
+
+        $whereCursor = '';
+        if ($cursor !== '') {
+            $whereCursor = "and (n.{$sortCol}, n.id) {$cursorOp} (:cursor_sort_val::timestamptz, :cursor_id::uuid)";
+        }
+
+        $limitPlusOne = $limit + 1;
+
+        // Only select `attributes` when the caller asked for it — keeps
+        // the wire payload light for list views that just want title/id.
+        $attrsCol = $includeAttrs ? 'n.attributes,' : '';
+        $selectCols = "select n.id, n.title, n.type_id, {$attrsCol} n.created_at, n.updated_at,
+                    coalesce(ns.outgoing_mentions, 0) as outgoing_mentions_count,
+                    coalesce(ns.incoming_mentions, 0) as incoming_mentions_count,
+                    coalesce(ns.outgoing_links, 0) as outgoing_links_count,
+                    coalesce(ns.incoming_links, 0) as incoming_links_count,
+                    {$searchRank} as search_rank";
+        $joinCounts = 'left join global.note_stats ns on ns.note_id = n.id';
+
+        if (!$hasTypeFilter) {
+            $sql = $selectCols . ' from global.notes n ' . $joinCounts
+                . ' where n.nook_id = :nook_id ' . $whereCursor
+                . ' ' . $whereSearch
+                . ' ' . $whereAttrFilter
+                . ' ' . $whereUnlinked
+                . ' ' . $orderByWithRank
+                . ' limit :limit';
+            $stmt = $pdo->prepare($sql);
+            $stmt->bindValue(':nook_id', $nookId);
+            $stmt->bindValue(':limit', $limitPlusOne, PDO::PARAM_INT);
+        } elseif ($includeSubtypes) {
+            $sql = 'with recursive type_tree as ('
+                . ' select id from global.note_types where id = :type_id and nook_id = :nook_id'
+                . ' union all'
+                . ' select nt.id from global.note_types nt join type_tree tt on nt.parent_id = tt.id'
+                . ' where nt.nook_id = :nook_id'
+                . ') '
+                . $selectCols . ' from global.notes n ' . $joinCounts
+                . ' where n.nook_id = :nook_id and n.type_id in (select id from type_tree) '
+                . $whereCursor
+                . ' ' . $whereSearch
+                . ' ' . $whereAttrFilter
+                . ' ' . $whereUnlinked
+                . ' ' . $orderByWithRank
+                . ' limit :limit';
+            $stmt = $pdo->prepare($sql);
+            $stmt->bindValue(':nook_id', $nookId);
+            $stmt->bindValue(':type_id', $typeId);
+            $stmt->bindValue(':limit', $limitPlusOne, PDO::PARAM_INT);
+        } else {
+            $sql = $selectCols . ' from global.notes n ' . $joinCounts
+                . ' where n.nook_id = :nook_id and n.type_id = :type_id '
+                . $whereCursor
+                . ' ' . $whereSearch
+                . ' ' . $whereAttrFilter
+                . ' ' . $whereUnlinked
+                . ' ' . $orderByWithRank
+                . ' limit :limit';
+            $stmt = $pdo->prepare($sql);
+            $stmt->bindValue(':nook_id', $nookId);
+            $stmt->bindValue(':type_id', $typeId);
+            $stmt->bindValue(':limit', $limitPlusOne, PDO::PARAM_INT);
+        }
+
+        foreach ($searchBindings as $param => $val) {
+            $stmt->bindValue($param, $val);
+        }
+        if ($cursor !== '') {
+            $stmt->bindValue(':cursor_sort_val', $cursorSortVal);
+            $stmt->bindValue(':cursor_id', $cursorId);
+        }
+        $stmt->execute();
+
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $nextCursor = '';
+        $hasMore = count($rows) > $limit;
+        if ($hasMore) {
+            $rows = array_slice($rows, 0, $limit);
+        }
 
         $notes = [];
         foreach ($rows as $r) {
             if (!is_array($r)) {
                 continue;
             }
-            $notes[] = ['nook_id' => $nookId] + NoteListRow::fromRow($r)->toArray();
+            $entry = [
+                'id' => Row::str($r, 'id'),
+                'nook_id' => $nookId,
+                'title' => Row::str($r, 'title'),
+                'type_id' => Row::str($r, 'type_id'),
+                'created_at' => Row::str($r, 'created_at'),
+                'updated_at' => Row::str($r, 'updated_at'),
+                'outgoing_mentions_count' => Row::int($r, 'outgoing_mentions_count'),
+                'incoming_mentions_count' => Row::int($r, 'incoming_mentions_count'),
+                'outgoing_links_count' => Row::int($r, 'outgoing_links_count'),
+                'incoming_links_count' => Row::int($r, 'incoming_links_count'),
+            ];
+            if ($includeAttrs) {
+                $entry['attributes'] = Row::decodeJsonObject($r['attributes'] ?? null);
+            }
+            $notes[] = $entry;
+        }
+
+        if ($hasMore && $rows !== []) {
+            $last = $rows[count($rows) - 1];
+            if (is_array($last)) {
+                $lastSortVal = is_scalar($last[$sortCol] ?? null) ? (string)$last[$sortCol] : '';
+                $lastId = Row::str($last, 'id');
+                if ($lastSortVal !== '' && $lastId !== '' && Uuid::isValid($lastId)) {
+                    $payload = json_encode(['created_at' => $lastSortVal, 'id' => $lastId]);
+                    if (is_string($payload)) {
+                        $nextCursor = base64_encode($payload);
+                    }
+                }
+            }
+        }
+
+        // Heading matches for q-search (only on first page so the
+        // section is shown once at the top, not repeated per cursor).
+        $headingMatches = [];
+        if ($q !== '' && $cursor === '') {
+            $headingTerms = SearchQueryParser::splitTerms($q);
+            if ($headingTerms !== []) {
+                $hClauses = [];
+                $hBindings = [];
+                foreach ($headingTerms as $i => $term) {
+                    $hp = ':hq' . $i;
+                    $hClauses[] = "lower(h.text) like {$hp}";
+                    $hBindings[$hp] = '%' . $term . '%';
+                }
+                $hGlue = $searchMode === 'or' ? ' or ' : ' and ';
+                $hWhere = implode($hGlue, $hClauses);
+
+                $hStmt = $pdo->prepare(
+                    "select h.note_id, h.level, h.text, h.position, n.title as note_title
+                     from global.note_headings h
+                     join global.notes n on n.id = h.note_id
+                     where h.nook_id = :nook_id and {$hWhere}
+                     order by similarity(lower(h.text), :hq_full) desc
+                     limit 10"
+                );
+                $hStmt->bindValue(':nook_id', $nookId);
+                $hStmt->bindValue(':hq_full', $q);
+                foreach ($hBindings as $param => $val) {
+                    $hStmt->bindValue($param, $val);
+                }
+                $hStmt->execute();
+                $hRows = $hStmt->fetchAll(PDO::FETCH_ASSOC);
+                foreach ($hRows as $hr) {
+                    if (!is_array($hr)) {
+                        continue;
+                    }
+                    $headingMatches[] = [
+                        'note_id' => Row::str($hr, 'note_id'),
+                        'note_title' => Row::str($hr, 'note_title'),
+                        'level' => Row::int($hr, 'level'),
+                        'text' => Row::str($hr, 'text'),
+                        'position' => Row::int($hr, 'position'),
+                    ];
+                }
+            }
         }
 
         return JsonResponse::ok([
             'notes' => $notes,
+            'next_cursor' => $nextCursor,
+            'heading_matches' => $headingMatches,
         ]);
+    }
+
+    /**
+     * Parse attribute_filters JSON into a SQL WHERE clause +
+     * bindings. Moved here from NoteTypesController when the type-
+     * filtered listing migrated to /notes?type_id=X.
+     *
+     * @param array<string, string> &$bindings  bindings the caller will bind on the stmt
+     * @return array{where: string}
+     */
+    private function buildAttributeFilterClause(string $raw, array &$bindings): array
+    {
+        $raw = trim($raw);
+        if ($raw === '') {
+            return ['where' => ''];
+        }
+        $filters = json_decode($raw, true);
+        if (!is_array($filters) || $filters === []) {
+            return ['where' => ''];
+        }
+
+        $clauses = [];
+        $idx = 0;
+        foreach ($filters as $f) {
+            if (!is_array($f)) {
+                continue;
+            }
+            $attrIdRaw = $f['attribute_id'] ?? '';
+            $attrId = is_scalar($attrIdRaw) ? trim((string)$attrIdRaw) : '';
+            $opRaw = $f['op'] ?? '';
+            $op = strtolower(is_scalar($opRaw) ? trim((string)$opRaw) : '');
+            $value = $f['value'] ?? null;
+            $scalarValue = is_scalar($value) ? (string)$value : '';
+
+            if ($attrId === '' || !Uuid::isValid($attrId)) {
+                continue;
+            }
+
+            $paramKey = ':af_' . $idx;
+            $jsonPath = "n.attributes->>'" . $attrId . "'";
+            $jsonPathObj = "n.attributes->'" . $attrId . "'";
+            $idx++;
+
+            switch ($op) {
+                case 'eq':
+                    $clauses[] = "{$jsonPath} = {$paramKey}";
+                    $bindings[$paramKey] = $scalarValue;
+                    break;
+                case 'neq':
+                    $clauses[] = "({$jsonPath} IS NULL OR {$jsonPath} != {$paramKey})";
+                    $bindings[$paramKey] = $scalarValue;
+                    break;
+                case 'gt':
+                    $clauses[] = "global.safe_numeric({$jsonPath}) > {$paramKey}::numeric";
+                    $bindings[$paramKey] = $scalarValue;
+                    break;
+                case 'gte':
+                    $clauses[] = "global.safe_numeric({$jsonPath}) >= {$paramKey}::numeric";
+                    $bindings[$paramKey] = $scalarValue;
+                    break;
+                case 'lt':
+                    $clauses[] = "global.safe_numeric({$jsonPath}) < {$paramKey}::numeric";
+                    $bindings[$paramKey] = $scalarValue;
+                    break;
+                case 'lte':
+                    $clauses[] = "global.safe_numeric({$jsonPath}) <= {$paramKey}::numeric";
+                    $bindings[$paramKey] = $scalarValue;
+                    break;
+                case 'date_gt':
+                    $clauses[] = "({$jsonPath})::date > {$paramKey}::date";
+                    $bindings[$paramKey] = $scalarValue;
+                    break;
+                case 'date_gte':
+                    $clauses[] = "({$jsonPath})::date >= {$paramKey}::date";
+                    $bindings[$paramKey] = $scalarValue;
+                    break;
+                case 'date_lt':
+                    $clauses[] = "({$jsonPath})::date < {$paramKey}::date";
+                    $bindings[$paramKey] = $scalarValue;
+                    break;
+                case 'date_lte':
+                    $clauses[] = "({$jsonPath})::date <= {$paramKey}::date";
+                    $bindings[$paramKey] = $scalarValue;
+                    break;
+                case 'contains':
+                    $clauses[] = "{$jsonPath} ILIKE {$paramKey}";
+                    $bindings[$paramKey] = '%' . str_replace(['%', '_'], ['\\%', '\\_'], $scalarValue) . '%';
+                    break;
+                case 'starts_with':
+                    $clauses[] = "{$jsonPath} ILIKE {$paramKey}";
+                    $bindings[$paramKey] = str_replace(['%', '_'], ['\\%', '\\_'], $scalarValue) . '%';
+                    break;
+                case 'is_null':
+                    $clauses[] = "{$jsonPath} IS NULL";
+                    break;
+                case 'is_not_null':
+                    $clauses[] = "{$jsonPath} IS NOT NULL";
+                    break;
+                case 'in':
+                    if (is_array($value) && $value !== []) {
+                        $inPlaceholders = [];
+                        foreach ($value as $vi => $vv) {
+                            $pk = $paramKey . '_' . $vi;
+                            $inPlaceholders[] = $pk;
+                            $bindings[$pk] = is_scalar($vv) ? (string)$vv : '';
+                        }
+                        $clauses[] = "{$jsonPath} IN (" . implode(', ', $inPlaceholders) . ")";
+                    }
+                    break;
+                case 'overlaps':
+                    if (is_array($value)) {
+                        $fromRaw = $value['from'] ?? '';
+                        $from = is_scalar($fromRaw) ? (string)$fromRaw : '';
+                        $toRaw = $value['to'] ?? '';
+                        $to = is_scalar($toRaw) ? (string)$toRaw : '';
+                        if ($from !== '' && $to !== '') {
+                            $pkFrom = $paramKey . '_from';
+                            $pkTo = $paramKey . '_to';
+                            $clauses[] = "({$jsonPathObj}->>'from')::date <= {$pkTo}::date AND ({$jsonPathObj}->>'to')::date >= {$pkFrom}::date";
+                            $bindings[$pkFrom] = $from;
+                            $bindings[$pkTo] = $to;
+                        }
+                    }
+                    break;
+            }
+        }
+
+        if ($clauses === []) {
+            return ['where' => ''];
+        }
+        return ['where' => 'and ' . implode(' and ', $clauses)];
     }
 
     public function presence(Request $request, Context $context): Response

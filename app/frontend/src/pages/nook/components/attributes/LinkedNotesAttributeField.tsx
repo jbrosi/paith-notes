@@ -147,26 +147,40 @@ export function LinkedNotesAttributeField(props: {
 	});
 
 	return (
-		<Show when={items().length > 0}>
-			<div style={{ "margin-top": "8px" }}>
-				<div
-					style={{
-						"font-size": "0.7rem",
-						"font-weight": "600",
-						color: "var(--color-text-secondary)",
-						"margin-bottom": "4px",
-						"text-transform": "uppercase",
-						"letter-spacing": "0.03em",
-						display: "flex",
-						"align-items": "center",
-						gap: "6px",
-					}}
-				>
-					{props.attr.name}
-					<Show when={!props.fullscreen}>
-						<FullscreenButton attr={props.attr} store={props.store} />
-					</Show>
-				</div>
+		<div style={{ "margin-top": "8px" }}>
+			<div
+				style={{
+					"font-size": "0.7rem",
+					"font-weight": "600",
+					color: "var(--color-text-secondary)",
+					"margin-bottom": "4px",
+					"text-transform": "uppercase",
+					"letter-spacing": "0.03em",
+					display: "flex",
+					"align-items": "center",
+					gap: "6px",
+				}}
+			>
+				{props.attr.name}
+				<Show when={!props.fullscreen}>
+					<FullscreenButton attr={props.attr} store={props.store} />
+				</Show>
+			</div>
+			<Show
+				when={items().length > 0}
+				fallback={
+					<div
+						style={{
+							"font-size": "0.75rem",
+							color: "var(--color-text-muted)",
+							"font-style": "italic",
+							padding: "4px 0",
+						}}
+					>
+						No linked notes yet.
+					</div>
+				}
+			>
 				<div style={{ display: "grid", gap: "2px" }}>
 					<For each={items()}>
 						{(item) => (
@@ -204,7 +218,7 @@ export function LinkedNotesAttributeField(props: {
 						)}
 					</For>
 				</div>
-			</div>
-		</Show>
+			</Show>
+		</div>
 	);
 }
