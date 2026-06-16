@@ -6,6 +6,24 @@ use Paith\Notes\Api\Http\Auth\SessionStore;
 use Paith\Notes\Shared\Db\DatabaseUrl;
 use Paith\Notes\Shared\Db\GlobalSchema;
 
+// Guarantee FILES_DATA_PATH points to a writable directory before any test
+// runs. CI sets it via scripts/ci-test-php.sh, but if the env doesn't reach
+// pest (or the configured path isn't writable from this process), fall back
+// to a per-PID tempdir so both controllers and test helpers agree on the
+// location. /data is the production default and isn't writable on CI runners.
+(static function (): void {
+    $configured = trim((string)getenv('FILES_DATA_PATH'));
+    $usable = $configured !== '' && is_dir($configured) && is_writable($configured);
+    $path = $usable ? $configured : (sys_get_temp_dir() . '/paith-api-tests-' . getmypid());
+    if (!is_dir($path . '/tmp')) {
+        mkdir($path . '/tmp', 0777, true);
+    }
+    if (!is_dir($path . '/notes')) {
+        mkdir($path . '/notes', 0777, true);
+    }
+    putenv('FILES_DATA_PATH=' . $path);
+})();
+
 function test_pdo(): \PDO
 {
     // Prefer DATABASE_TEST_URL to avoid wiping the dev database.
