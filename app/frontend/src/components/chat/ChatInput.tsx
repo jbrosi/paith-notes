@@ -1,4 +1,5 @@
 import { createSignal, Show } from "solid-js";
+import { useFeatures } from "../../features";
 import styles from "./ChatInput.module.css";
 import {
 	createRecognizer,
@@ -46,11 +47,12 @@ type Props = {
 export function ChatInput(props: Props) {
 	const [text, setText] = createSignal("");
 	const [voiceError, setVoiceError] = createSignal<string | null>(null);
-	const sttSupported = isSttSupported();
-	const ttsSupported = isTtsSupported();
-	const voiceCapable = sttSupported || ttsSupported;
+	const features = useFeatures();
+	const sttSupported = () => features().voice && isSttSupported();
+	const ttsSupported = () => features().voice && isTtsSupported();
+	const voiceCapable = () => sttSupported() || ttsSupported();
 
-	const recognizer = sttSupported
+	const recognizer = isSttSupported()
 		? createRecognizer({
 				onFinal: (transcript) => {
 					if (props.disabled) return;
@@ -120,7 +122,7 @@ export function ChatInput(props: Props) {
 					rows={1}
 					ref={props.inputRef}
 				/>
-				<Show when={sttSupported}>
+				<Show when={sttSupported()}>
 					<button
 						class={`${styles.micBtn} ${recognizer?.isListening() ? styles.micBtnActive : ""}`}
 						type="button"
@@ -160,11 +162,11 @@ export function ChatInput(props: Props) {
 						<option value={m.value}>{m.label}</option>
 					))}
 				</select>
-				<Show when={voiceCapable && props.onVoiceModeChange}>
+				<Show when={voiceCapable() && props.onVoiceModeChange}>
 					<label
 						class={styles.voiceToggle}
 						title={
-							ttsSupported
+							ttsSupported()
 								? "When on, the assistant's replies are spoken aloud and kept short."
 								: "Speech output is not supported in this browser."
 						}
@@ -172,7 +174,7 @@ export function ChatInput(props: Props) {
 						<input
 							type="checkbox"
 							checked={props.voiceMode ?? false}
-							disabled={!ttsSupported}
+							disabled={!ttsSupported()}
 							onChange={(e) =>
 								props.onVoiceModeChange?.(e.currentTarget.checked)
 							}

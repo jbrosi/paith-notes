@@ -21,6 +21,9 @@ final class MeController
                 'first_name' => $user->firstName,
                 'last_name' => $user->lastName,
             ],
+            'features' => [
+                'voice' => (string)getenv('VOICE_ENABLED') === '1',
+            ],
         ]);
     }
 }
