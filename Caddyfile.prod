@@ -14,7 +14,11 @@
         # 'unsafe-eval' is required by Zod 4 (JIT-compiles validators with
         # new Function for perf) and by Mermaid's Jison-generated parser.
         # It does NOT allow injecting new scripts — 'self' still gates that.
-        Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' blob:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; frame-src 'none'; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests"
+        # 'unsafe-inline' on style-src is required by Milkdown/ProseMirror
+        # (inline style attrs on selection decorations + popovers), D3 (SVG
+        # styling on the graph), and Mermaid (post-render SVG styling).
+        # Bounded blast radius: CSS-only UI redress, not script execution.
+        Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' blob:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; frame-src 'none'; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests"
         -Server
     }
 
