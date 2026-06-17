@@ -67,6 +67,9 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       IMAGE_PROVIDER: ${IMAGE_PROVIDER:-}
       IMAGE_MODEL: ${IMAGE_MODEL:-}
+      # When 0/unset, /api/me reports features.voice = false and the UI
+      # hides the mic + voice-mode toggle (no /api/voice/* calls fired).
+      VOICE_ENABLED: ${VOICE_ENABLED:-0}
     depends_on:
       - frontend
       - db

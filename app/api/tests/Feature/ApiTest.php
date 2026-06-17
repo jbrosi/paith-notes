@@ -34,6 +34,28 @@ it('returns 400 when X-Nook-User is not a UUID', function (): void {
     expect($data['status'])->toBe('error');
 });
 
+it('reports features.voice from VOICE_ENABLED env on /api/me', function (): void {
+    $headers = [
+        'X-Nook-User' => 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        'X-Nook-Groups' => 'paith/notes',
+    ];
+
+    putenv('VOICE_ENABLED');
+    $off = App::handle('GET', '/api/me', $headers, '');
+    expect($off['status'])->toBe(200);
+    expect(json_decode($off['body'], true)['features']['voice'])->toBeFalse();
+
+    putenv('VOICE_ENABLED=0');
+    $zero = App::handle('GET', '/api/me', $headers, '');
+    expect(json_decode($zero['body'], true)['features']['voice'])->toBeFalse();
+
+    putenv('VOICE_ENABLED=1');
+    $on = App::handle('GET', '/api/me', $headers, '');
+    expect(json_decode($on['body'], true)['features']['voice'])->toBeTrue();
+
+    putenv('VOICE_ENABLED');
+});
+
 it('auto-creates a user and can create/list nooks', function (): void {
     $userId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
     $headers = [
