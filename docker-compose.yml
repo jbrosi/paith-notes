@@ -61,6 +61,7 @@ services:
       KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:-}
       KEYCLOAK_CLIENT_SECRET: ${KEYCLOAK_CLIENT_SECRET:-}
       SESSION_SECRET: ${SESSION_SECRET:-}
+      FILES_SIGNING_KEY: ${FILES_SIGNING_KEY:-}
       DEBUG_AUTH: ${DEBUG_AUTH:-0}
       # AI image generation — unset => factory falls back to a stub
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
@@ -149,10 +150,13 @@ services:
       retries: 10
 
   files:
-    image: docker.io/nginx:1.29-alpine
-    command: ["sh", "-lc", "mkdir -p /data/tmp /data/notes && chown nginx:nginx /data /data/tmp /data/notes && exec nginx -g 'daemon off;'" ]
+    build: ./docker/files
+    environment:
+      FILES_SIGNING_KEY: ${FILES_SIGNING_KEY:-}
     volumes:
+      # Mounted for fast iteration in dev; the Dockerfile bakes in the originals.
       - ./docker/files/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./docker/files/njs:/etc/nginx/njs:ro
       - files_data:/data:U
     expose:
       - "8080"

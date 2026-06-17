@@ -9,8 +9,17 @@ use PDO;
 
 final class App
 {
+    /**
+     * Required secrets — boot hard-fails if any are missing, warns if any
+     * look like the placeholder strings shipped in .env.example. Keep this
+     * list in sync with both .env.example files.
+     */
+    private const REQUIRED_SECRETS = ['SESSION_SECRET', 'FILES_SIGNING_KEY'];
+
     public static function run(): void
     {
+        self::checkSecretsOrDie();
+
         $handler = static function (): void {
             $request = Request::fromGlobals();
             $response = self::kernel()->handle($request, self::context());
@@ -19,6 +28,97 @@ final class App
 
         while (frankenphp_handle_request($handler)) {
         }
+    }
+
+    /**
+     * Inspect a map of secret-name → value and return any problems found.
+     * Pure — no env access, no side effects, no exit() — so it's straightforward
+     * to test. The runtime wrapper below is what reads env and acts on the
+     * issues.
+     *
+     * @param array<string, string> $secrets
+     * @return list<array{key: string, severity: 'fatal'|'warning', reason: string}>
+     */
+    public static function secretIssues(array $secrets): array
+    {
+        $issues = [];
+        foreach ($secrets as $key => $value) {
+            if ($value === '') {
+                $issues[] = ['key' => $key, 'severity' => 'fatal', 'reason' => 'missing'];
+                continue;
+            }
+            if (self::looksLikePlaceholder($value)) {
+                $issues[] = ['key' => $key, 'severity' => 'warning', 'reason' => 'placeholder'];
+                continue;
+            }
+            if (strlen($value) < 32) {
+                $issues[] = ['key' => $key, 'severity' => 'warning', 'reason' => 'short'];
+            }
+        }
+        return $issues;
+    }
+
+    private static function checkSecretsOrDie(): void
+    {
+        $secrets = [];
+        foreach (self::REQUIRED_SECRETS as $key) {
+            $secrets[$key] = (string)getenv($key);
+        }
+
+        $issues = self::secretIssues($secrets);
+
+        $missing = [];
+        foreach ($issues as $issue) {
+            if ($issue['severity'] === 'fatal') {
+                $missing[] = $issue['key'];
+                continue;
+            }
+            $reason = $issue['reason'] === 'placeholder'
+                ? 'matches a placeholder string from .env.example'
+                : 'is shorter than 32 characters';
+            fwrite(STDERR, "[paith] WARNING: {$issue['key']} {$reason}. Replace with: openssl rand -hex 32\n");
+        }
+
+        if ($missing === []) {
+            return;
+        }
+
+        // Banner so the message survives the FrankenPHP worker-restart spam.
+        // Without the bracketing lines + sleep, this fatal gets buried under
+        // 70+ lines of "many consecutive worker failures" JSON within seconds.
+        $line = str_repeat('═', 72);
+        $lines = [
+            '',
+            $line,
+            '  paith — BOOT REFUSED: required secret(s) missing',
+            '',
+        ];
+        foreach ($missing as $key) {
+            $lines[] = "    - {$key}";
+        }
+        $lines[] = '';
+        $lines[] = '  Generate each with:  openssl rand -hex 32';
+        $lines[] = '  Then set them in your .env (or in docker-compose env).';
+        $lines[] = $line;
+        $lines[] = '';
+
+        fwrite(STDERR, implode("\n", $lines));
+
+        // Slow the worker-restart loop so the banner above stays readable.
+        // FrankenPHP will keep respawning anyway; this just buys the operator
+        // time to actually see the message before it scrolls off-screen.
+        sleep(3);
+        exit(1);
+    }
+
+    private static function looksLikePlaceholder(string $value): bool
+    {
+        foreach (['replace-me', 'change-me', 'paste-here'] as $marker) {
+            if (stripos($value, $marker) !== false) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

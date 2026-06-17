@@ -531,16 +531,23 @@ export function createNookStore(nookId: () => string) {
 		const d = await loadNoteDetail(id);
 		if (!d) return null;
 
-		// Find the first file with an image content_type from note.files
+		// Find the first file with an image content_type from note.files.
+		// Prefer the server-signed URL (HMAC verified in nginx, no PHP roundtrip
+		// per render, 2hr cache-friendly); fall back to the legacy unsigned
+		// /files/<object_key> path only if the backend didn't include one (older
+		// API response, no session cookie issued the URL, etc.).
 		const files = d.files ?? {};
-		let imageFile: { object_key: string; extension: string } | null = null;
+		let imageFile: { object_key: string; signed_url?: string } | null = null;
 		for (const f of Object.values(files)) {
 			if (typeof f === "object" && f !== null && "mime_type" in f) {
 				const ct = String((f as Record<string, unknown>).mime_type ?? "");
 				if (ct.startsWith("image/")) {
+					const rec = f as Record<string, unknown>;
+					const signed =
+						typeof rec.signed_url === "string" ? rec.signed_url : "";
 					imageFile = {
-						object_key: String((f as Record<string, unknown>).object_key ?? ""),
-						extension: String((f as Record<string, unknown>).extension ?? ""),
+						object_key: String(rec.object_key ?? ""),
+						signed_url: signed || undefined,
 					};
 					break;
 				}
@@ -550,14 +557,10 @@ export function createNookStore(nookId: () => string) {
 			return null;
 		}
 
-		try {
-			const ext = imageFile.extension;
-			const url = `/files/${imageFile.object_key}${ext ? `.${ext}` : ""}?inline=1`;
-			embeddedImageCache.set(id, url);
-			return url;
-		} catch {
-			return null;
-		}
+		const url =
+			imageFile.signed_url ?? `/files/${imageFile.object_key}?inline=1`;
+		embeddedImageCache.set(id, url);
+		return url;
 	};
 
 	const loadNoteDetail = async (noteId: string): Promise<Note | null> => {
