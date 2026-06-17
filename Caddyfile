@@ -1,6 +1,22 @@
 :8000 {
     root * /app/api
 
+    # Mirrors Caddyfile.prod minus HSTS. CSP is in report-only mode here so
+    # Vite/HMR keeps working — violations still print to the browser console
+    # exactly as they would with the prod enforcing policy.
+    # style-src includes 'unsafe-inline' here because Vite dev injects CSS via
+    # inline <style> elements (the prod build extracts them to .css files, so
+    # this relaxation does not exist in Caddyfile.prod).
+    header {
+        X-Content-Type-Options    "nosniff"
+        Referrer-Policy           "strict-origin-when-cross-origin"
+        Cross-Origin-Opener-Policy   "same-origin"
+        Cross-Origin-Resource-Policy "same-origin"
+        Permissions-Policy "accelerometer=(), autoplay=(), camera=(), clipboard-read=(self), clipboard-write=(self), display-capture=(), encrypted-media=(), fullscreen=(self), geolocation=(), gyroscope=(), magnetometer=(), microphone=(self), midi=(), payment=(), picture-in-picture=(), publickey-credentials-get=(), screen-wake-lock=(), sync-xhr=(), usb=(), web-share=(self), xr-spatial-tracking=()"
+        Content-Security-Policy-Report-Only "default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' blob:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; frame-src 'none'; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'"
+        -Server
+    }
+
     @php {
         path /health* /healthz* /api/*
     }
@@ -13,6 +29,14 @@
         reverse_proxy files:8080
     }
 
+    @ws {
+        path /ws/*
+    }
+
+    handle @ws {
+        reverse_proxy events:3002
+    }
+
     @mcp {
         path /nooks/*/chat /nooks/*/chat/* /mcp* /.well-known/oauth-protected-resource
     }
@@ -21,13 +45,32 @@
         reverse_proxy mcp:3000
     }
 
+    @voice {
+        path /api/voice/*
+    }
+
+    handle @voice {
+        # Strip the /api/voice prefix before forwarding — the Python service
+        # only knows about /stt and /tts. Matched before @php so the /api/*
+        # PHP catch-all doesn't swallow these.
+        # 10 min timeout because Chatterbox on CPU does ~1000 generation
+        # steps per sentence at a few it/s. Kokoro + Piper are sub-second.
+        uri strip_prefix /api/voice
+        reverse_proxy voice:8000 {
+            transport http {
+                read_timeout 600s
+                write_timeout 600s
+            }
+        }
+    }
+
     handle @php {
         php_server {
             file_server off
             # Worker mode for the front controller
             worker {
                 file /app/api/index.php
-                num 5
+                num 20
                 watch /app/api/index.php
                 watch /app/api/src/**/*.php
                 watch /app/backend-shared/src/**/*.php

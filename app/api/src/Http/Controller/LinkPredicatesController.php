@@ -11,6 +11,13 @@ use Paith\Notes\Api\Http\Request;
 use Paith\Notes\Api\Http\Response;
 use PDO;
 use Throwable;
+use Paith\Notes\Shared\Uuid;
+use Paith\Notes\Shared\Db\Row;
+use Paith\Notes\Shared\Db\Rows\LinkPredicateRow;
+use Paith\Notes\Shared\Db\Rows\LinkPredicateRuleRow;
+use Paith\Notes\Api\Http\Dto\JsonReader;
+use Paith\Notes\Api\Http\Dto\LinkPredicateRequest;
+use Paith\Notes\Api\Http\Auth\User;
 
 final class LinkPredicatesController
 {
@@ -21,15 +28,9 @@ final class LinkPredicatesController
         $pdo = $context->pdo();
         $user = $context->user();
 
-        $nookId = trim($request->routeParam('nookId'));
-        if ($nookId === '') {
-            throw new HttpError('nookId is required', 400);
-        }
-        if (!self::isUuid($nookId)) {
-            throw new HttpError('nookId must be a UUID', 400);
-        }
+        $nookId = $request->requireUuidRouteParam('nookId');
 
-        $this->requireMember($pdo, $user, $nookId);
+        NookAccess::requireMember($pdo, $user, $nookId);
         $this->ensureDefaultRelatesTo($pdo, $nookId);
 
         $stmt = $pdo->prepare(
@@ -44,17 +45,7 @@ final class LinkPredicatesController
             if (!is_array($r)) {
                 continue;
             }
-            $predicates[] = [
-                'id' => is_scalar($r['id'] ?? null) ? (string)$r['id'] : '',
-                'nook_id' => $nookId,
-                'key' => is_scalar($r['key'] ?? null) ? (string)$r['key'] : '',
-                'forward_label' => is_scalar($r['forward_label'] ?? null) ? (string)$r['forward_label'] : '',
-                'reverse_label' => is_scalar($r['reverse_label'] ?? null) ? (string)$r['reverse_label'] : '',
-                'supports_start_date' => (bool)($r['supports_start_date'] ?? false),
-                'supports_end_date' => (bool)($r['supports_end_date'] ?? false),
-                'created_at' => is_scalar($r['created_at'] ?? null) ? (string)$r['created_at'] : '',
-                'updated_at' => is_scalar($r['updated_at'] ?? null) ? (string)$r['updated_at'] : '',
-            ];
+            $predicates[] = ['nook_id' => $nookId] + LinkPredicateRow::fromRow($r)->toArray();
         }
 
         return JsonResponse::ok(['predicates' => $predicates]);
@@ -65,48 +56,22 @@ final class LinkPredicatesController
         $pdo = $context->pdo();
         $user = $context->user();
 
-        $nookId = trim($request->routeParam('nookId'));
-        if ($nookId === '') {
-            throw new HttpError('nookId is required', 400);
-        }
-        if (!self::isUuid($nookId)) {
-            throw new HttpError('nookId must be a UUID', 400);
-        }
+        $nookId = $request->requireUuidRouteParam('nookId');
 
         NookAccess::requireWriteAccess($pdo, $user, $nookId);
         $this->ensureDefaultRelatesTo($pdo, $nookId);
 
-        $data = $request->jsonBody();
+        $payload = LinkPredicateRequest::fromJson($request->jsonBody());
 
-        $keyRaw = $data['key'] ?? '';
-        $key = is_string($keyRaw) ? trim($keyRaw) : '';
-        if ($key === '') {
-            throw new HttpError('key is required', 400);
-        }
-        if ($key === self::DEFAULT_RELATES_TO_KEY) {
+        if ($payload->key === self::DEFAULT_RELATES_TO_KEY) {
             throw new HttpError('relates_to is reserved', 400);
         }
-
-        $forwardRaw = $data['forward_label'] ?? '';
-        $forward = is_string($forwardRaw) ? trim($forwardRaw) : '';
-        if ($forward === '') {
-            throw new HttpError('forward_label is required', 400);
-        }
-
-        $reverseRaw = $data['reverse_label'] ?? '';
-        $reverse = is_string($reverseRaw) ? trim($reverseRaw) : '';
-        if ($reverse === '') {
-            throw new HttpError('reverse_label is required', 400);
-        }
-
-        $supportsStart = (bool)($data['supports_start_date'] ?? false);
-        $supportsEnd = (bool)($data['supports_end_date'] ?? false);
 
         try {
             $pdo->beginTransaction();
 
             $dupe = $pdo->prepare('select 1 from global.link_predicates where nook_id = :nook_id and key = :key');
-            $dupe->execute([':nook_id' => $nookId, ':key' => $key]);
+            $dupe->execute([':nook_id' => $nookId, ':key' => $payload->key]);
             if ($dupe->fetchColumn()) {
                 throw new HttpError('key already exists', 409);
             }
@@ -117,11 +82,11 @@ final class LinkPredicatesController
                 . 'returning id, created_at, updated_at'
             );
             $stmt->bindValue(':nook_id', $nookId);
-            $stmt->bindValue(':key', $key);
-            $stmt->bindValue(':forward_label', $forward);
-            $stmt->bindValue(':reverse_label', $reverse);
-            $stmt->bindValue(':supports_start_date', $supportsStart, PDO::PARAM_BOOL);
-            $stmt->bindValue(':supports_end_date', $supportsEnd, PDO::PARAM_BOOL);
+            $stmt->bindValue(':key', $payload->key);
+            $stmt->bindValue(':forward_label', $payload->forwardLabel);
+            $stmt->bindValue(':reverse_label', $payload->reverseLabel);
+            $stmt->bindValue(':supports_start_date', $payload->supportsStartDate, PDO::PARAM_BOOL);
+            $stmt->bindValue(':supports_end_date', $payload->supportsEndDate, PDO::PARAM_BOOL);
             $stmt->execute();
 
             $row = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -131,19 +96,17 @@ final class LinkPredicatesController
 
             $pdo->commit();
 
-            $id = is_scalar($row['id'] ?? null) ? (string)$row['id'] : '';
-
             return JsonResponse::ok([
                 'predicate' => [
-                    'id' => $id,
+                    'id' => Row::str($row, 'id'),
                     'nook_id' => $nookId,
-                    'key' => $key,
-                    'forward_label' => $forward,
-                    'reverse_label' => $reverse,
-                    'supports_start_date' => $supportsStart,
-                    'supports_end_date' => $supportsEnd,
-                    'created_at' => is_scalar($row['created_at'] ?? null) ? (string)$row['created_at'] : '',
-                    'updated_at' => is_scalar($row['updated_at'] ?? null) ? (string)$row['updated_at'] : '',
+                    'key' => $payload->key,
+                    'forward_label' => $payload->forwardLabel,
+                    'reverse_label' => $payload->reverseLabel,
+                    'supports_start_date' => $payload->supportsStartDate,
+                    'supports_end_date' => $payload->supportsEndDate,
+                    'created_at' => Row::str($row, 'created_at'),
+                    'updated_at' => Row::str($row, 'updated_at'),
                 ],
             ]);
         } catch (Throwable $e) {
@@ -159,21 +122,9 @@ final class LinkPredicatesController
         $pdo = $context->pdo();
         $user = $context->user();
 
-        $nookId = trim($request->routeParam('nookId'));
-        if ($nookId === '') {
-            throw new HttpError('nookId is required', 400);
-        }
-        if (!self::isUuid($nookId)) {
-            throw new HttpError('nookId must be a UUID', 400);
-        }
+        $nookId = $request->requireUuidRouteParam('nookId');
 
-        $predicateId = trim($request->routeParam('predicateId'));
-        if ($predicateId === '') {
-            throw new HttpError('predicateId is required', 400);
-        }
-        if (!self::isUuid($predicateId)) {
-            throw new HttpError('predicateId must be a UUID', 400);
-        }
+        $predicateId = $request->requireUuidRouteParam('predicateId');
 
         NookAccess::requireWriteAccess($pdo, $user, $nookId);
         $this->ensureDefaultRelatesTo($pdo, $nookId);
@@ -189,35 +140,15 @@ final class LinkPredicatesController
             throw new HttpError('relates_to cannot be modified', 400);
         }
 
-        $data = $request->jsonBody();
+        $payload = LinkPredicateRequest::fromJson($request->jsonBody());
 
-        $keyRaw = $data['key'] ?? '';
-        $key = is_string($keyRaw) ? trim($keyRaw) : '';
-        if ($key === '') {
-            throw new HttpError('key is required', 400);
-        }
-        if ($key === self::DEFAULT_RELATES_TO_KEY) {
+        if ($payload->key === self::DEFAULT_RELATES_TO_KEY) {
             throw new HttpError('relates_to is reserved', 400);
         }
 
-        $forwardRaw = $data['forward_label'] ?? '';
-        $forward = is_string($forwardRaw) ? trim($forwardRaw) : '';
-        if ($forward === '') {
-            throw new HttpError('forward_label is required', 400);
-        }
-
-        $reverseRaw = $data['reverse_label'] ?? '';
-        $reverse = is_string($reverseRaw) ? trim($reverseRaw) : '';
-        if ($reverse === '') {
-            throw new HttpError('reverse_label is required', 400);
-        }
-
-        $supportsStart = (bool)($data['supports_start_date'] ?? false);
-        $supportsEnd = (bool)($data['supports_end_date'] ?? false);
-
-        if ($key !== $existingKey) {
+        if ($payload->key !== $existingKey) {
             $dupe = $pdo->prepare('select 1 from global.link_predicates where nook_id = :nook_id and key = :key and id != :id');
-            $dupe->execute([':nook_id' => $nookId, ':key' => $key, ':id' => $predicateId]);
+            $dupe->execute([':nook_id' => $nookId, ':key' => $payload->key, ':id' => $predicateId]);
             if ($dupe->fetchColumn()) {
                 throw new HttpError('key already exists', 409);
             }
@@ -230,11 +161,11 @@ final class LinkPredicatesController
         );
         $stmt->bindValue(':id', $predicateId);
         $stmt->bindValue(':nook_id', $nookId);
-        $stmt->bindValue(':key', $key);
-        $stmt->bindValue(':forward_label', $forward);
-        $stmt->bindValue(':reverse_label', $reverse);
-        $stmt->bindValue(':supports_start_date', $supportsStart, PDO::PARAM_BOOL);
-        $stmt->bindValue(':supports_end_date', $supportsEnd, PDO::PARAM_BOOL);
+        $stmt->bindValue(':key', $payload->key);
+        $stmt->bindValue(':forward_label', $payload->forwardLabel);
+        $stmt->bindValue(':reverse_label', $payload->reverseLabel);
+        $stmt->bindValue(':supports_start_date', $payload->supportsStartDate, PDO::PARAM_BOOL);
+        $stmt->bindValue(':supports_end_date', $payload->supportsEndDate, PDO::PARAM_BOOL);
         $stmt->execute();
 
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -246,13 +177,13 @@ final class LinkPredicatesController
             'predicate' => [
                 'id' => $predicateId,
                 'nook_id' => $nookId,
-                'key' => $key,
-                'forward_label' => $forward,
-                'reverse_label' => $reverse,
-                'supports_start_date' => $supportsStart,
-                'supports_end_date' => $supportsEnd,
-                'created_at' => is_scalar($row['created_at'] ?? null) ? (string)$row['created_at'] : '',
-                'updated_at' => is_scalar($row['updated_at'] ?? null) ? (string)$row['updated_at'] : '',
+                'key' => $payload->key,
+                'forward_label' => $payload->forwardLabel,
+                'reverse_label' => $payload->reverseLabel,
+                'supports_start_date' => $payload->supportsStartDate,
+                'supports_end_date' => $payload->supportsEndDate,
+                'created_at' => Row::str($row, 'created_at'),
+                'updated_at' => Row::str($row, 'updated_at'),
             ],
         ]);
     }
@@ -262,21 +193,9 @@ final class LinkPredicatesController
         $pdo = $context->pdo();
         $user = $context->user();
 
-        $nookId = trim($request->routeParam('nookId'));
-        if ($nookId === '') {
-            throw new HttpError('nookId is required', 400);
-        }
-        if (!self::isUuid($nookId)) {
-            throw new HttpError('nookId must be a UUID', 400);
-        }
+        $nookId = $request->requireUuidRouteParam('nookId');
 
-        $predicateId = trim($request->routeParam('predicateId'));
-        if ($predicateId === '') {
-            throw new HttpError('predicateId is required', 400);
-        }
-        if (!self::isUuid($predicateId)) {
-            throw new HttpError('predicateId must be a UUID', 400);
-        }
+        $predicateId = $request->requireUuidRouteParam('predicateId');
 
         NookAccess::requireWriteAccess($pdo, $user, $nookId);
         $this->ensureDefaultRelatesTo($pdo, $nookId);
@@ -310,23 +229,11 @@ final class LinkPredicatesController
         $pdo = $context->pdo();
         $user = $context->user();
 
-        $nookId = trim($request->routeParam('nookId'));
-        if ($nookId === '') {
-            throw new HttpError('nookId is required', 400);
-        }
-        if (!self::isUuid($nookId)) {
-            throw new HttpError('nookId must be a UUID', 400);
-        }
+        $nookId = $request->requireUuidRouteParam('nookId');
 
-        $predicateId = trim($request->routeParam('predicateId'));
-        if ($predicateId === '') {
-            throw new HttpError('predicateId is required', 400);
-        }
-        if (!self::isUuid($predicateId)) {
-            throw new HttpError('predicateId must be a UUID', 400);
-        }
+        $predicateId = $request->requireUuidRouteParam('predicateId');
 
-        $this->requireMember($pdo, $user, $nookId);
+        NookAccess::requireMember($pdo, $user, $nookId);
 
         $check = $pdo->prepare('select 1 from global.link_predicates where id = :id and nook_id = :nook_id');
         $check->execute([':id' => $predicateId, ':nook_id' => $nookId]);
@@ -346,14 +253,7 @@ final class LinkPredicatesController
             if (!is_array($r)) {
                 continue;
             }
-            $rules[] = [
-                'id' => is_scalar($r['id'] ?? null) ? (int)$r['id'] : 0,
-                'predicate_id' => $predicateId,
-                'source_type_id' => is_scalar($r['source_type_id'] ?? null) ? (string)$r['source_type_id'] : '',
-                'target_type_id' => is_scalar($r['target_type_id'] ?? null) ? (string)$r['target_type_id'] : '',
-                'include_source_subtypes' => (bool)($r['include_source_subtypes'] ?? true),
-                'include_target_subtypes' => (bool)($r['include_target_subtypes'] ?? true),
-            ];
+            $rules[] = LinkPredicateRuleRow::fromRow($r)->toArray();
         }
 
         return JsonResponse::ok(['rules' => $rules]);
@@ -364,21 +264,9 @@ final class LinkPredicatesController
         $pdo = $context->pdo();
         $user = $context->user();
 
-        $nookId = trim($request->routeParam('nookId'));
-        if ($nookId === '') {
-            throw new HttpError('nookId is required', 400);
-        }
-        if (!self::isUuid($nookId)) {
-            throw new HttpError('nookId must be a UUID', 400);
-        }
+        $nookId = $request->requireUuidRouteParam('nookId');
 
-        $predicateId = trim($request->routeParam('predicateId'));
-        if ($predicateId === '') {
-            throw new HttpError('predicateId is required', 400);
-        }
-        if (!self::isUuid($predicateId)) {
-            throw new HttpError('predicateId must be a UUID', 400);
-        }
+        $predicateId = $request->requireUuidRouteParam('predicateId');
 
         NookAccess::requireWriteAccess($pdo, $user, $nookId);
 
@@ -402,13 +290,13 @@ final class LinkPredicatesController
 
             $sourceTypeIdRaw = $rr['source_type_id'] ?? '';
             $sourceTypeId = is_string($sourceTypeIdRaw) ? trim($sourceTypeIdRaw) : '';
-            if ($sourceTypeId !== '' && !self::isUuid($sourceTypeId)) {
+            if ($sourceTypeId !== '' && !Uuid::isValid($sourceTypeId)) {
                 throw new HttpError('source_type_id must be a UUID', 400);
             }
 
             $targetTypeIdRaw = $rr['target_type_id'] ?? '';
             $targetTypeId = is_string($targetTypeIdRaw) ? trim($targetTypeIdRaw) : '';
-            if ($targetTypeId !== '' && !self::isUuid($targetTypeId)) {
+            if ($targetTypeId !== '' && !Uuid::isValid($targetTypeId)) {
                 throw new HttpError('target_type_id must be a UUID', 400);
             }
 
@@ -485,32 +373,5 @@ final class LinkPredicatesController
             ':forward_label' => 'relates to',
             ':reverse_label' => 'related to',
         ]);
-    }
-
-    private function requireMember(PDO $pdo, array $user, string $nookId): array
-    {
-        $userId = is_scalar($user['id'] ?? null) ? (string)$user['id'] : '';
-        if ($userId === '') {
-            throw new HttpError('invalid user', 500);
-        }
-
-        $check = $pdo->prepare('select role from global.nook_members where nook_id = :nook_id and user_id = :user_id limit 1');
-        $check->execute([
-            ':nook_id' => $nookId,
-            ':user_id' => $userId,
-        ]);
-        $row = $check->fetch(PDO::FETCH_ASSOC);
-        if (!is_array($row)) {
-            throw new HttpError('forbidden', 403);
-        }
-        return $row;
-    }
-
-    private static function isUuid(string $value): bool
-    {
-        return (bool)preg_match(
-            '/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i',
-            $value
-        );
     }
 }

@@ -1,20 +1,11 @@
 import { z } from "zod";
 
-const NoteTypeEnum = z
-	.string()
-	.transform((v) => {
-		if (v === "file" || v === "graph") return v;
-		return "anything" as const;
-	})
-	.pipe(z.enum(["anything", "file", "graph"]));
-
 export const GraphLayoutEnum = z.enum(["force", "tree", "radial"]);
 export type GraphLayout = z.infer<typeof GraphLayoutEnum>;
 
 export const GraphViewPropertiesSchema = z.object({
 	rootNoteId: z.string(),
 	depth: z.number().int().min(1).max(5).optional(),
-	includeFiles: z.boolean().optional(),
 	filterTypeIds: z.array(z.string()).optional(),
 	filterPredicateIds: z.array(z.string()).optional(),
 	hiddenNodeIds: z.array(z.string()).optional(),
@@ -28,11 +19,121 @@ export const GraphViewPropertiesSchema = z.object({
 
 export type GraphViewProperties = z.infer<typeof GraphViewPropertiesSchema>;
 
+/** Type-level graph defaults, declared on a graph TypeAttribute's config. */
+export type GraphTypeDefaults = Omit<
+	GraphViewProperties,
+	"rootNoteId" | "hiddenNodeIds"
+>;
+
+/**
+ * Extract graph type-level defaults from a TypeAttribute config blob.
+ * Unknown / invalid fields are dropped; valid fields override the
+ * hard-coded fallbacks at render time.
+ */
+export function parseGraphTypeDefaults(
+	config: Record<string, unknown>,
+): GraphTypeDefaults {
+	const out: GraphTypeDefaults = {};
+	const layout = GraphLayoutEnum.safeParse(config.layout);
+	if (layout.success) out.layout = layout.data;
+	if (
+		typeof config.depth === "number" &&
+		config.depth >= 1 &&
+		config.depth <= 5
+	)
+		out.depth = config.depth;
+	if (Array.isArray(config.filter_type_ids))
+		out.filterTypeIds = (config.filter_type_ids as unknown[]).filter(
+			(v): v is string => typeof v === "string",
+		);
+	if (Array.isArray(config.filter_predicate_ids))
+		out.filterPredicateIds = (config.filter_predicate_ids as unknown[]).filter(
+			(v): v is string => typeof v === "string",
+		);
+	if (
+		typeof config.link_distance === "number" &&
+		config.link_distance >= 20 &&
+		config.link_distance <= 300
+	)
+		out.linkDistance = config.link_distance;
+	if (
+		typeof config.charge_strength === "number" &&
+		config.charge_strength >= -1000 &&
+		config.charge_strength <= 0
+	)
+		out.chargeStrength = config.charge_strength;
+	if (
+		typeof config.node_size === "number" &&
+		config.node_size >= 3 &&
+		config.node_size <= 20
+	)
+		out.nodeSize = config.node_size;
+	if (
+		typeof config.link_width === "number" &&
+		config.link_width >= 0.5 &&
+		config.link_width <= 5
+	)
+		out.linkWidth = config.link_width;
+	return out;
+}
+
+/**
+ * Parse a per-note graph value, merging type-level defaults underneath
+ * the per-note override fields. Fields missing from the per-note value
+ * fall through to the defaults; defaults missing from the type config
+ * fall through to the hard-coded global fallbacks at the renderer.
+ */
 export function parseGraphProperties(
 	raw: Record<string, unknown>,
+	defaults?: GraphTypeDefaults,
 ): GraphViewProperties | null {
 	const result = GraphViewPropertiesSchema.safeParse(raw);
-	return result.success ? result.data : null;
+	if (!result.success) return null;
+	const merged: GraphViewProperties = { ...result.data };
+	if (defaults) {
+		if (merged.depth === undefined) merged.depth = defaults.depth;
+		if (merged.filterTypeIds === undefined)
+			merged.filterTypeIds = defaults.filterTypeIds;
+		if (merged.filterPredicateIds === undefined)
+			merged.filterPredicateIds = defaults.filterPredicateIds;
+		if (merged.layout === undefined) merged.layout = defaults.layout;
+		if (merged.linkDistance === undefined)
+			merged.linkDistance = defaults.linkDistance;
+		if (merged.chargeStrength === undefined)
+			merged.chargeStrength = defaults.chargeStrength;
+		if (merged.nodeSize === undefined) merged.nodeSize = defaults.nodeSize;
+		if (merged.linkWidth === undefined) merged.linkWidth = defaults.linkWidth;
+	}
+	return merged;
+}
+
+/** Kinds whose display is driven by type-level config and can therefore
+ * meaningfully be "overridden per note" via allow_override_in_note. Simple
+ * value kinds (text, number, select, file, etc.) are excluded — their
+ * per-note "value" IS the data, not a display override.
+ */
+export const OverrideCapableKinds: ReadonlySet<TypeAttributeKind> = new Set([
+	"graph",
+	"linked_notes",
+	"mentions",
+	"toc",
+]);
+
+/** Default for allow_override_in_note when the field is missing from config.
+ * Graph defaults to true to preserve the historical per-note override
+ * behavior; all other view kinds default to false (opt-in for new feature).
+ */
+export function defaultAllowOverride(kind: TypeAttributeKind): boolean {
+	return kind === "graph";
+}
+
+export function readAllowOverride(
+	kind: TypeAttributeKind,
+	config: Record<string, unknown>,
+): boolean {
+	const v = config.allow_override_in_note;
+	if (typeof v === "boolean") return v;
+	return defaultAllowOverride(kind);
 }
 
 export function serializeGraphProperties(
@@ -42,7 +143,6 @@ export function serializeGraphProperties(
 		rootNoteId: props.rootNoteId,
 	};
 	if (props.depth !== undefined && props.depth !== 2) out.depth = props.depth;
-	if (props.includeFiles) out.includeFiles = true;
 	if (props.filterTypeIds?.length) out.filterTypeIds = props.filterTypeIds;
 	if (props.filterPredicateIds?.length)
 		out.filterPredicateIds = props.filterPredicateIds;
@@ -59,6 +159,161 @@ export function serializeGraphProperties(
 	return out;
 }
 
+// ─── Graph URI ──────────────────────────────────────────────────────────────
+//
+// Two surface forms, same underlying params:
+//   1. Full app URL — `/nooks/<n>/notes/<rootId>?fullscreen=1&depth=3&...`
+//      Doubles as a browser link AND a markdown embed src.
+//   2. Custom `graph:` scheme — `graph:?root=<rootId>&depth=3&...`
+//      Portable across deployments; mirrors the existing `note:` scheme
+//      used for `![](note:uuid)` inline note embeds.
+//
+// Both forms share the same query-param schema so we have one parser.
+
+const GRAPH_PARAM_KEYS = {
+	root: "root",
+	depth: "depth",
+	layout: "layout",
+	types: "types",
+	preds: "preds",
+	hide: "hide",
+	linkDistance: "linkDistance",
+	chargeStrength: "chargeStrength",
+	nodeSize: "nodeSize",
+	linkWidth: "linkWidth",
+} as const;
+
+function appendIfSet(
+	out: URLSearchParams,
+	key: string,
+	value: string | number | undefined,
+): void {
+	if (value === undefined || value === null) return;
+	const s = String(value).trim();
+	if (s === "") return;
+	out.set(key, s);
+}
+
+function appendIfNonEmpty(
+	out: URLSearchParams,
+	key: string,
+	value: string[] | undefined,
+): void {
+	if (!value?.length) return;
+	out.set(key, value.join(","));
+}
+
+/** Serialize a graph config to URL query parameters. Includes all fields,
+ * even those matching defaults — the resulting URI is the canonical record
+ * of the view. */
+export function graphConfigToParams(
+	props: GraphViewProperties,
+): URLSearchParams {
+	const p = new URLSearchParams();
+	const k = GRAPH_PARAM_KEYS;
+	appendIfSet(p, k.root, props.rootNoteId);
+	appendIfSet(p, k.depth, props.depth);
+	appendIfSet(p, k.layout, props.layout);
+	appendIfNonEmpty(p, k.types, props.filterTypeIds);
+	appendIfNonEmpty(p, k.preds, props.filterPredicateIds);
+	appendIfNonEmpty(p, k.hide, props.hiddenNodeIds);
+	appendIfSet(p, k.linkDistance, props.linkDistance);
+	appendIfSet(p, k.chargeStrength, props.chargeStrength);
+	appendIfSet(p, k.nodeSize, props.nodeSize);
+	appendIfSet(p, k.linkWidth, props.linkWidth);
+	return p;
+}
+
+function readNumber(params: URLSearchParams, key: string): number | undefined {
+	const v = params.get(key);
+	if (v === null) return undefined;
+	const n = Number(v);
+	return Number.isFinite(n) ? n : undefined;
+}
+
+function readList(params: URLSearchParams, key: string): string[] | undefined {
+	const v = params.get(key);
+	if (v === null || v === "") return undefined;
+	return v
+		.split(",")
+		.map((s) => s.trim())
+		.filter(Boolean);
+}
+
+/** Parse URL query parameters back into a partial graph config. Fields not
+ * present in the URI are left undefined so callers can layer overrides. */
+export function graphParamsToConfig(
+	params: URLSearchParams,
+): Partial<GraphViewProperties> {
+	const out: Partial<GraphViewProperties> = {};
+	const k = GRAPH_PARAM_KEYS;
+	const root = params.get(k.root);
+	if (root) out.rootNoteId = root;
+	const depth = readNumber(params, k.depth);
+	if (depth !== undefined) out.depth = depth;
+	const layoutRaw = params.get(k.layout);
+	if (layoutRaw) {
+		const layout = GraphLayoutEnum.safeParse(layoutRaw);
+		if (layout.success) out.layout = layout.data;
+	}
+	out.filterTypeIds = readList(params, k.types);
+	out.filterPredicateIds = readList(params, k.preds);
+	out.hiddenNodeIds = readList(params, k.hide);
+	const ld = readNumber(params, k.linkDistance);
+	if (ld !== undefined) out.linkDistance = ld;
+	const cs = readNumber(params, k.chargeStrength);
+	if (cs !== undefined) out.chargeStrength = cs;
+	const ns = readNumber(params, k.nodeSize);
+	if (ns !== undefined) out.nodeSize = ns;
+	const lw = readNumber(params, k.linkWidth);
+	if (lw !== undefined) out.linkWidth = lw;
+	return out;
+}
+
+/** Build a shareable app URL with the graph config encoded as query params.
+ * This URL doubles as a browser link and as a markdown image `src`. */
+export function buildGraphShareUrl(
+	nookId: string,
+	config: GraphViewProperties,
+): string {
+	const root = encodeURIComponent(config.rootNoteId);
+	const n = encodeURIComponent(nookId);
+	const params = graphConfigToParams(config);
+	// root is in the path, drop it from the query
+	params.delete(GRAPH_PARAM_KEYS.root);
+	params.set("fullscreen", "1");
+	return `/nooks/${n}/notes/${root}?${params.toString()}`;
+}
+
+/** Build the compact `graph:` scheme form. Mirrors `note:uuid` — usable
+ * as `![label](graph:?root=X&...)` in markdown. */
+export function buildGraphScheme(config: GraphViewProperties): string {
+	return `graph:?${graphConfigToParams(config).toString()}`;
+}
+
+/** Detect the URI shape and extract a config. Accepts both forms:
+ * - `graph:?root=...&depth=...`
+ * - `/nooks/<n>/notes/<root>?fullscreen=1&depth=...` (root from path)
+ * Returns null when the URI isn't a recognised graph form. */
+export function parseGraphUri(
+	uri: string,
+): { nookId?: string; config: Partial<GraphViewProperties> } | null {
+	if (uri.startsWith("graph:")) {
+		const queryStart = uri.indexOf("?");
+		const qs = queryStart >= 0 ? uri.slice(queryStart + 1) : "";
+		return { config: graphParamsToConfig(new URLSearchParams(qs)) };
+	}
+	// Match the app URL pattern. URL may be relative or absolute.
+	const match = uri.match(/\/nooks\/([^/?#]+)\/notes\/([^/?#]+)(?:\?([^#]*))?/);
+	if (!match) return null;
+	const [, nookId, root, qs] = match;
+	const params = new URLSearchParams(qs ?? "");
+	if (!params.has("fullscreen")) return null;
+	const config = graphParamsToConfig(params);
+	config.rootNoteId = decodeURIComponent(root);
+	return { nookId: decodeURIComponent(nookId), config };
+}
+
 const NoteSummaryApiSchema = z
 	.object({
 		id: z.string(),
@@ -68,7 +323,6 @@ const NoteSummaryApiSchema = z
 		incoming_mentions_count: z.number().int().optional(),
 		outgoing_links_count: z.number().int().optional(),
 		incoming_links_count: z.number().int().optional(),
-		type: NoteTypeEnum.optional(),
 		created_at: z.string().optional(),
 	})
 	.transform((n) => ({
@@ -79,9 +333,32 @@ const NoteSummaryApiSchema = z
 		incomingMentionsCount: n.incoming_mentions_count ?? 0,
 		outgoingLinksCount: n.outgoing_links_count ?? 0,
 		incomingLinksCount: n.incoming_links_count ?? 0,
-		type: n.type ?? "anything",
 		createdAt: n.created_at,
 	}));
+
+const NoteHeadingSchema = z.object({
+	level: z.number().int(),
+	text: z.string(),
+	position: z.number().int(),
+});
+
+export type NoteHeading = z.infer<typeof NoteHeadingSchema>;
+
+const NoteFileSchema = z.object({
+	filename: z.string(),
+	extension: z.string(),
+	filesize: z.number().int(),
+	mime_type: z.string(),
+	checksum: z.string(),
+	file_version: z.number().int(),
+	object_key: z.string(),
+	// HMAC-signed URL ready for direct browser use. Optional because older
+	// API responses (pre signed_url) won't include it; callers fall back to
+	// building an unsigned /files/<object_key> path.
+	signed_url: z.string().optional(),
+});
+
+export type NoteFile = z.infer<typeof NoteFileSchema>;
 
 const NoteDetailApiSchema = z
 	.object({
@@ -89,23 +366,29 @@ const NoteDetailApiSchema = z
 		title: z.string(),
 		content: z.string(),
 		type_id: z.string().optional(),
-		type: NoteTypeEnum.optional(),
-		properties: z.record(z.string(), z.unknown()).optional(),
-		former_properties: z.record(z.string(), z.unknown()).optional(),
+		attributes: z.record(z.string(), z.unknown()).optional(),
+		archive: z.record(z.string(), z.unknown()).optional(),
 		version: z.number().int().optional(),
 		view_count: z.number().int().optional(),
+		headings: z.array(NoteHeadingSchema).optional(),
+		files: z.record(z.string(), NoteFileSchema).optional(),
 		created_at: z.string().optional(),
+		updated_at: z.string().optional(),
+		created_by_name: z.string().optional(),
 	})
 	.transform((n) => ({
 		id: n.id,
 		title: n.title,
 		content: n.content,
 		typeId: n.type_id ?? "",
-		type: n.type ?? "anything",
-		properties: n.properties ?? {},
-		formerProperties: n.former_properties ?? {},
+		attributes: n.attributes ?? {},
+		archive: n.archive ?? {},
 		version: n.version ?? 0,
 		viewCount: n.view_count ?? 0,
+		files: n.files ?? {},
+		updatedAt: n.updated_at ?? "",
+		createdByName: n.created_by_name ?? "",
+		headings: n.headings ?? [],
 		createdAt: n.created_at,
 	}));
 
@@ -117,14 +400,34 @@ export const NotesListResponseSchema = z
 		notes: r.notes,
 	}));
 
+const HeadingMatchSchema = z
+	.object({
+		note_id: z.string(),
+		note_title: z.string(),
+		level: z.number().int(),
+		text: z.string(),
+		position: z.number().int(),
+	})
+	.transform((h) => ({
+		noteId: h.note_id,
+		noteTitle: h.note_title,
+		level: h.level,
+		text: h.text,
+		position: h.position,
+	}));
+
+export type HeadingMatch = z.infer<typeof HeadingMatchSchema>;
+
 export const NoteTypeNotesResponseSchema = z
 	.object({
 		notes: z.array(NoteSummaryApiSchema),
 		next_cursor: z.string().optional(),
+		heading_matches: z.array(HeadingMatchSchema).optional(),
 	})
 	.transform((r) => ({
 		notes: r.notes,
 		nextCursor: r.next_cursor ?? "",
+		headingMatches: r.heading_matches ?? [],
 	}));
 
 export const NoteResponseSchema = z
@@ -161,6 +464,89 @@ export const MentionsResponseSchema = z
 		incoming: r.incoming,
 	}));
 
+// ─── Type Attributes ────────────────────────────────────────────────────────
+
+export const TypeAttributeKinds = [
+	"text",
+	"number",
+	"boolean",
+	"date",
+	"date_range",
+	"select",
+	"file",
+	"graph",
+	"view",
+	"multi_select",
+	"url",
+	"linked_notes",
+	"mentions",
+	"history",
+	"toc",
+	"metadata",
+	"content",
+	"source",
+	"dimension",
+] as const;
+export type TypeAttributeKind = (typeof TypeAttributeKinds)[number];
+
+const TypeAttributeApiSchema = z
+	.object({
+		id: z.string(),
+		type_id: z.string(),
+		name: z.string(),
+		key: z.string().optional(),
+		kind: z.string(),
+		config: z.record(z.string(), z.unknown()).optional(),
+		indexed: z.boolean().optional(),
+		inherited: z.boolean().optional(),
+		overridden: z.boolean().optional(),
+		created_at: z.string().optional(),
+		updated_at: z.string().optional(),
+	})
+	.transform((a) => ({
+		id: a.id,
+		typeId: a.type_id,
+		name: a.name,
+		key: a.key ?? "",
+		kind: a.kind as TypeAttributeKind,
+		config: (a.config ?? {}) as Record<string, unknown>,
+		indexed: a.indexed ?? false,
+		inherited: a.inherited ?? false,
+		overridden: a.overridden ?? false,
+		createdAt: a.created_at,
+		updatedAt: a.updated_at,
+	}));
+
+export type TypeAttribute = z.infer<typeof TypeAttributeApiSchema>;
+
+// ─── Panels & Layout ────────────────────────────────────────────────────────
+
+export const PanelPositions = ["main", "side-right", "side-left"] as const;
+export type PanelPosition = (typeof PanelPositions)[number];
+
+const PanelSchema = z.object({
+	key: z.string(),
+	label: z.string().optional(),
+	position: z.enum(PanelPositions),
+	collapsible: z.boolean().optional(),
+	hidden: z.boolean().optional(),
+	order: z.number().int().optional(),
+	attributes: z.array(z.string()),
+});
+
+export type Panel = z.infer<typeof PanelSchema>;
+
+const AttributeLayoutSchema = z
+	.object({
+		panels: z.array(PanelSchema),
+	})
+	.nullable()
+	.optional();
+
+export type AttributeLayout = { panels: Panel[] } | null;
+
+// ─── Note Types ─────────────────────────────────────────────────────────────
+
 const NoteTypeApiSchema = z
 	.object({
 		id: z.string(),
@@ -169,7 +555,9 @@ const NoteTypeApiSchema = z
 		label: z.string(),
 		description: z.string().optional(),
 		parent_id: z.string().optional(),
-		applies_to: z.string().optional(),
+		attribute_layout: AttributeLayoutSchema.optional(),
+		config_overrides: z.record(z.string(), z.unknown()).optional(),
+		attributes: z.array(TypeAttributeApiSchema).optional(),
 		created_at: z.string().optional(),
 		updated_at: z.string().optional(),
 	})
@@ -180,7 +568,12 @@ const NoteTypeApiSchema = z
 		label: t.label,
 		description: t.description ?? "",
 		parentId: t.parent_id ?? "",
-		appliesTo: (t.applies_to ?? "notes") as "notes" | "files",
+		attributeLayout: (t.attribute_layout ?? null) as AttributeLayout,
+		configOverrides: (t.config_overrides ?? {}) as Record<
+			string,
+			Record<string, unknown>
+		>,
+		attributes: t.attributes ?? [],
 		createdAt: t.created_at,
 		updatedAt: t.updated_at,
 	}));
@@ -188,9 +581,11 @@ const NoteTypeApiSchema = z
 export const NoteTypesListResponseSchema = z
 	.object({
 		types: z.array(NoteTypeApiSchema),
+		version: z.number().int().optional(),
 	})
 	.transform((r) => ({
 		types: r.types,
+		version: r.version ?? 0,
 	}));
 
 export const NoteTypeResponseSchema = z
@@ -200,6 +595,18 @@ export const NoteTypeResponseSchema = z
 	.transform((r) => ({
 		type: r.type,
 	}));
+
+export const TypeAttributesListResponseSchema = z
+	.object({
+		attributes: z.array(TypeAttributeApiSchema),
+	})
+	.transform((r) => ({ attributes: r.attributes }));
+
+export const TypeAttributeResponseSchema = z
+	.object({
+		attribute: TypeAttributeApiSchema,
+	})
+	.transform((r) => ({ attribute: r.attribute }));
 
 const LinkPredicateApiSchema = z
 	.object({
@@ -280,11 +687,9 @@ const NoteLinkApiSchema = z
 		source_note_id: z.string(),
 		source_note_title: z.string().optional(),
 		source_type_id: z.string().optional(),
-		source_note_type: NoteTypeEnum.optional(),
 		target_note_id: z.string(),
 		target_note_title: z.string().optional(),
 		target_type_id: z.string().optional(),
-		target_note_type: NoteTypeEnum.optional(),
 		start_date: z.string().optional(),
 		end_date: z.string().optional(),
 		former: z.record(z.string(), z.unknown()).optional(),
@@ -305,11 +710,9 @@ const NoteLinkApiSchema = z
 		sourceNoteId: l.source_note_id,
 		sourceNoteTitle: l.source_note_title ?? "",
 		sourceTypeId: l.source_type_id ?? "",
-		sourceNoteType: l.source_note_type ?? "anything",
 		targetNoteId: l.target_note_id,
 		targetNoteTitle: l.target_note_title ?? "",
 		targetTypeId: l.target_type_id ?? "",
-		targetNoteType: l.target_note_type ?? "anything",
 		startDate: l.start_date ?? "",
 		endDate: l.end_date ?? "",
 		former: l.former ?? {},
@@ -345,6 +748,9 @@ const NoteHistoryEntrySchema = z
 		linked_note_id: z.string().optional(),
 		linked_note_title: z.string().optional(),
 		link_label: z.string().optional(),
+		filename: z.string().optional(),
+		filesize: z.number().optional(),
+		mime_type: z.string().optional(),
 		user_id: z.string(),
 		user_name: z.string(),
 		created_at: z.string(),
@@ -358,6 +764,9 @@ const NoteHistoryEntrySchema = z
 		linkedNoteId: h.linked_note_id ?? "",
 		linkedNoteTitle: h.linked_note_title ?? "",
 		linkLabel: h.link_label ?? "",
+		filename: h.filename ?? "",
+		filesize: h.filesize ?? 0,
+		mimeType: h.mime_type ?? "",
 		userId: h.user_id,
 		userName: h.user_name,
 		createdAt: h.created_at,

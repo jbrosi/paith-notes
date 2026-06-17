@@ -135,7 +135,19 @@ export function NookTypesSettingsView(props: NookTypesSettingsViewProps) {
 	};
 
 	return (
-		<div style={{ width: "100%" }}>
+		// height:100% + overflow-y:auto so the editor scrolls within
+		// the outer <main> container (which itself is overflow:hidden);
+		// without this the bottom of long attribute/panel lists is
+		// clipped and unreachable.
+		<div
+			style={{
+				width: "100%",
+				height: "100%",
+				"overflow-y": "auto",
+				padding: "0 12px 24px",
+				"box-sizing": "border-box",
+			}}
+		>
 			<div
 				style={{
 					display: "flex",

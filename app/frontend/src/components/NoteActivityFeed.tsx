@@ -44,9 +44,14 @@ export function NoteActivityFeed(props: Props) {
 											linkTargetTitle: entry.linkedNoteTitle || undefined,
 											linkTargetId: entry.linkedNoteId || undefined,
 										}
-									: {
-											version: entry.version,
-										}),
+									: entry.type === "file"
+										? {
+												filename: entry.filename || undefined,
+												filesize: entry.filesize || undefined,
+											}
+										: {
+												version: entry.version,
+											}),
 								createdAt: entry.createdAt,
 							}}
 							onViewVersion={props.onViewVersion}

@@ -148,6 +148,21 @@ export function NookDashboard(props: NookDashboardProps) {
 				</p>
 			</div>
 
+			<Show when={props.store.error()}>
+				<div
+					style={{
+						background: "var(--color-danger, #ef4444)",
+						color: "#fff",
+						padding: "6px 12px",
+						"border-radius": "6px",
+						"font-size": "0.8rem",
+						"margin-bottom": "8px",
+					}}
+				>
+					{props.store.error()}
+				</div>
+			</Show>
+
 			{/* Action buttons — always visible */}
 			<div class={styles.actions}>
 				<Show when={props.store.canWrite()}>

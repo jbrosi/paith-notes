@@ -10,8 +10,10 @@ final class RedirectResponse implements Response
 
     private int $statusCode;
 
+    /** @var array<string, string> */
     private array $headers;
 
+    /** @param array<string, string> $headers */
     public function __construct(string $location, int $statusCode = 302, array $headers = [])
     {
         $this->location = $location;
@@ -25,6 +27,7 @@ final class RedirectResponse implements Response
         return $this->statusCode;
     }
 
+    /** @return array<string, string> */
     public function headers(): array
     {
         return $this->headers;

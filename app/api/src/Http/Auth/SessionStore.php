@@ -6,6 +6,7 @@ namespace Paith\Notes\Api\Http\Auth;
 
 use PDO;
 use RuntimeException;
+use Paith\Notes\Shared\Db\Row;
 
 final class SessionStore
 {
@@ -51,8 +52,8 @@ final class SessionStore
             $pdo->commit();
 
             return [
-                'redirect_to' => is_scalar($row['redirect_to'] ?? null) ? (string)$row['redirect_to'] : '/',
-                'code_verifier' => is_scalar($row['code_verifier'] ?? null) ? (string)$row['code_verifier'] : '',
+                'redirect_to' => Row::str($row, 'redirect_to', '/'),
+                'code_verifier' => Row::str($row, 'code_verifier'),
             ];
         } catch (RuntimeException $e) {
             if ($pdo->inTransaction()) {
@@ -90,9 +91,9 @@ final class SessionStore
             throw new RuntimeException('session not found');
         }
         return [
-            'user_id' => is_scalar($row['user_id'] ?? null) ? (string)$row['user_id'] : '',
-            'token_encrypted' => is_scalar($row['token_encrypted'] ?? null) ? (string)$row['token_encrypted'] : '',
-            'expires_at' => is_scalar($row['expires_at'] ?? null) ? (string)$row['expires_at'] : '',
+            'user_id' => Row::str($row, 'user_id'),
+            'token_encrypted' => Row::str($row, 'token_encrypted'),
+            'expires_at' => Row::str($row, 'expires_at'),
         ];
     }
 
@@ -110,9 +111,9 @@ final class SessionStore
             throw new RuntimeException('session not found');
         }
         return [
-            'user_id' => is_scalar($row['user_id'] ?? null) ? (string)$row['user_id'] : '',
-            'token_encrypted' => is_scalar($row['token_encrypted'] ?? null) ? (string)$row['token_encrypted'] : '',
-            'expires_at' => is_scalar($row['expires_at'] ?? null) ? (string)$row['expires_at'] : '',
+            'user_id' => Row::str($row, 'user_id'),
+            'token_encrypted' => Row::str($row, 'token_encrypted'),
+            'expires_at' => Row::str($row, 'expires_at'),
         ];
     }
 

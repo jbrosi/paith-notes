@@ -17,9 +17,12 @@ final class MeController
 
         return JsonResponse::ok([
             'user' => [
-                'id' => $user['id'] ?? '',
-                'first_name' => $user['first_name'] ?? '',
-                'last_name' => $user['last_name'] ?? '',
+                'id' => $user->id,
+                'first_name' => $user->firstName,
+                'last_name' => $user->lastName,
+            ],
+            'features' => [
+                'voice' => (string)getenv('VOICE_ENABLED') === '1',
             ],
         ]);
     }

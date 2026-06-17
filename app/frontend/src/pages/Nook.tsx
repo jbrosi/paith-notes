@@ -14,9 +14,10 @@ import { apiFetch } from "../auth/keycloak";
 import { Button } from "../components/Button";
 import { useUi } from "../ui/UiContext";
 import { NookActivityFeed } from "./nook/NookActivityFeed";
+import { NookComparePage } from "./nook/NookComparePage";
 import { useNook } from "./nook/NookContext";
 import { NookDefaultLayout } from "./nook/NookDefaultLayout";
-import { NookGraphPanel } from "./nook/NookGraphPanel";
+import { NookFullscreenAttr } from "./nook/NookFullscreenAttr";
 import { NookLinksPanel } from "./nook/NookLinksPanel";
 import { NookNoteHistoryPage } from "./nook/NookNoteHistoryPage";
 import {
@@ -138,18 +139,16 @@ export default function Nook() {
 	);
 	const showSettings = createMemo(() => normalizedSubPath() === "settings");
 
-	const fullscreenGraphNoteId = createMemo(() => {
-		const m = normalizedSubPath().match(/^graph\/([^/]+)$/);
-		return m?.[1] ? String(m[1]) : "";
+	/** Fullscreen attribute view: /notes/:noteId/attr/:attrKey */
+	const fullscreenAttr = createMemo(() => {
+		const m = normalizedSubPath().match(/^notes\/([^/]+)\/attr\/([^/]+)$/);
+		if (!m) return null;
+		return { noteId: String(m[1]), attrKey: String(m[2]) };
 	});
-
-	const isGraphFullscreen = createMemo(
-		() => fullscreenGraphNoteId().trim() !== "",
-	);
 
 	const selectedNoteIdFromPath = createMemo(() => {
 		const m = normalizedSubPath().match(
-			/^notes\/([^/]+?)(?:\/v\/\d+|\/history)?$/,
+			/^notes\/([^/]+?)(?:\/attr\/[^/]+|\/v\/\d+|\/history|\/compare\/\d+(?:\/\d+)?)?$/,
 		);
 		return m?.[1] ? String(m[1]) : "";
 	});
@@ -163,12 +162,22 @@ export default function Nook() {
 		/^notes\/[^/]+\/history$/.test(normalizedSubPath()),
 	);
 
+	const compareVersions = createMemo(() => {
+		const m = normalizedSubPath().match(
+			/^notes\/[^/]+\/compare\/(\d+)(?:\/(\d+))?$/,
+		);
+		if (!m) return null;
+		return {
+			from: Number(m[1]),
+			to: m[2] ? Number(m[2]) : undefined,
+		};
+	});
+
 	// URL → store: URL is the single source of truth for which note is selected.
 	// The store never drives navigation — only follows the URL.
 	createEffect(() => {
-		const id = (
-			isGraphFullscreen() ? fullscreenGraphNoteId() : selectedNoteIdFromPath()
-		).trim();
+		const fa = fullscreenAttr();
+		const id = (fa ? fa.noteId : selectedNoteIdFromPath()).trim();
 
 		if (id === "") {
 			if (untrack(() => store.selectedId()) !== "") {
@@ -269,33 +278,45 @@ export default function Nook() {
 												when={showTypesSettings()}
 												fallback={
 													<Show
-														when={showNoteHistory()}
+														when={compareVersions()}
 														fallback={
 															<Show
-																when={isGraphFullscreen()}
+																when={showNoteHistory()}
 																fallback={
-																	<NookDefaultLayout
-																		nookId={nookId()}
-																		store={store}
-																		showGraph={ui.graphPanelOpen()}
-																		onSettings={() =>
-																			navigate(
-																				`/nooks/${encodeURIComponent(nookId())}/settings`,
-																			)
+																	<Show
+																		when={fullscreenAttr()}
+																		fallback={
+																			<NookDefaultLayout
+																				nookId={nookId()}
+																				store={store}
+																				onSettings={() =>
+																					navigate(
+																						`/nooks/${encodeURIComponent(nookId())}/settings`,
+																					)
+																				}
+																			/>
 																		}
-																	/>
+																	>
+																		{(fa) => (
+																			<NookFullscreenAttr
+																				store={store}
+																				attrKey={fa().attrKey}
+																			/>
+																		)}
+																	</Show>
 																}
 															>
-																<div style={{ width: "100%" }}>
-																	<NookGraphPanel
-																		store={store}
-																		fullscreen={true}
-																	/>
-																</div>
+																<NookNoteHistoryPage store={store} />
 															</Show>
 														}
 													>
-														<NookNoteHistoryPage store={store} />
+														{(cv) => (
+															<NookComparePage
+																store={store}
+																fromVersion={cv().from}
+																toVersion={cv().to}
+															/>
+														)}
 													</Show>
 												}
 											>

@@ -108,9 +108,8 @@ export function registerTools(server: McpServer, ctx: ApiContext): void {
         'To link to another note inline, use [[note:<note_id>]] — the title is resolved automatically. ' +
         'To embed a file note as an image, use ![Note Title](note:<note_id>).'
       ),
-      type: z.string().optional().describe('Note type: "anything" (default), "file", or "graph"'),
       type_id: z.string().optional().describe('Note type ID from taxonomy'),
-      properties: z.any().optional().describe('JSON properties. For graph: { rootNoteId, depth?, layout?, includeFiles?, ... }'),
+      attributes: z.any().optional().describe('JSON attributes keyed by attribute UUID'),
     },
     async ({ nook_id, ...body }) => {
       requireNookWrite(ctx.scopes, nook_id);
@@ -154,30 +153,45 @@ export function registerTools(server: McpServer, ctx: ApiContext): void {
 
   tool(server,
     'list_note_types',
-    'List note types (taxonomy) defined in a nook',
+    'List note types (taxonomy) defined in a nook. Each type has an id, key, label, parent_id, and attribute_layout (panel-based layout). Use list_type_attributes to see what attributes a type defines.',
     { nook_id: z.string() },
     async ({ nook_id }) => {
       requireNookRead(ctx.scopes, nook_id);
-      return json(await api(ctx, 'GET', `/api/nooks/${nook_id}/types`));
+      return json(await api(ctx, 'GET', `/api/nooks/${nook_id}/note-types`));
+    },
+  );
+
+  tool(server,
+    'list_type_attributes',
+    'List all attributes for a type, including inherited attributes from ancestor types. Returns id, name, kind, config (display options), indexed flag, inherited flag, and overridden flag. Hidden inherited attributes are excluded. Use this to understand what structured data a type supports before creating or updating notes.',
+    {
+      nook_id: z.string(),
+      type_id: z.string().describe('The note type ID'),
+    },
+    async ({ nook_id, type_id }) => {
+      requireNookRead(ctx.scopes, nook_id);
+      return json(await api(ctx, 'GET', `/api/nooks/${nook_id}/note-types/${type_id}/attributes`));
     },
   );
 
   tool(server,
     'search_notes_by_type',
-    'List or search notes filtered by a specific note type, with optional text search and pagination',
+    'List or search notes filtered by a specific note type, with optional text search, attribute filters, and pagination. Attribute filters are JSON: [{"attribute_id":"<uuid>","op":"gte","value":4}]. Operators: eq, neq, gt, gte, lt, lte (number), date_gt, date_gte, date_lt, date_lte (date), contains, starts_with (text), is_null, is_not_null, in (select), overlaps (date_range with {from,to}).',
     {
       nook_id: z.string(),
       type_id: z.string(),
       search: z.string().optional().describe('Text search query'),
+      attribute_filters: z.string().optional().describe('JSON array of attribute filters, e.g. [{"attribute_id":"<uuid>","op":"gte","value":4}]'),
       cursor: z.string().optional().describe('Pagination cursor from a previous response'),
     },
-    async ({ nook_id, type_id, search, cursor }) => {
+    async ({ nook_id, type_id, search, attribute_filters, cursor }) => {
       requireNookRead(ctx.scopes, nook_id);
       const params = new URLSearchParams();
       if (search) params.set('search', search);
+      if (attribute_filters) params.set('attribute_filters', attribute_filters);
       if (cursor) params.set('cursor', cursor);
       const qs = params.toString() ? `?${params}` : '';
-      return json(await api(ctx, 'GET', `/api/nooks/${nook_id}/types/${type_id}/notes${qs}`));
+      return json(await api(ctx, 'GET', `/api/nooks/${nook_id}/note-types/${type_id}/notes${qs}`));
     },
   );
 

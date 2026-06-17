@@ -16,7 +16,11 @@ services:
       - app
     volumes:
       - .:/workspace
-      - claude_home:/root
+      # Claude Code stores settings/memory/sessions under $HOME/.claude/ and
+      # $HOME/.claude.json. HOME is /home/ubuntu (set above), so the volume
+      # must mount there — mounting at /root preserved the wrong directory
+      # and every rebuild wiped real state.
+      - claude_state:/home/ubuntu
     working_dir: /workspace
 
   mcp:
@@ -57,7 +61,15 @@ services:
       KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:-}
       KEYCLOAK_CLIENT_SECRET: ${KEYCLOAK_CLIENT_SECRET:-}
       SESSION_SECRET: ${SESSION_SECRET:-}
+      FILES_SIGNING_KEY: ${FILES_SIGNING_KEY:-}
       DEBUG_AUTH: ${DEBUG_AUTH:-0}
+      # AI image generation — unset => factory falls back to a stub
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      IMAGE_PROVIDER: ${IMAGE_PROVIDER:-}
+      IMAGE_MODEL: ${IMAGE_MODEL:-}
+      # When 0/unset, /api/me reports features.voice = false and the UI
+      # hides the mic + voice-mode toggle (no /api/voice/* calls fired).
+      VOICE_ENABLED: ${VOICE_ENABLED:-0}
     depends_on:
       - frontend
       - db
@@ -85,6 +97,27 @@ services:
       - ./.ci-cache/yarn:/tmp/yarn-cache
     expose:
       - "5173"
+
+  events:
+    image: ${EVENTS_IMAGE:-notes-events}
+    build:
+      context: ./app/events
+      target: dev
+    volumes:
+      - ./app/events/src:/app/src
+    ports:
+      - "3002:3002"
+    environment:
+      DATABASE_URL: "postgresql://paith:paith@db:5432/paith"
+      SESSION_SECRET: ${SESSION_SECRET:-}
+      KEYCLOAK_ENABLED: ${KEYCLOAK_ENABLED:-0}
+      KEYCLOAK_BASE_URL: ${KEYCLOAK_BASE_URL:-}
+      KEYCLOAK_REALM: ${KEYCLOAK_REALM:-master}
+      EVENTS_PORT: 3002
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
 
   worker:
     image: ${WORKER_IMAGE:-notes-worker}
@@ -120,15 +153,43 @@ services:
       retries: 10
 
   files:
-    image: docker.io/nginx:1.29-alpine
-    command: ["sh", "-lc", "mkdir -p /data/tmp /data/notes && chown nginx:nginx /data /data/tmp /data/notes && exec nginx -g 'daemon off;'" ]
+    build: ./docker/files
+    environment:
+      FILES_SIGNING_KEY: ${FILES_SIGNING_KEY:-}
     volumes:
+      # Mounted for fast iteration in dev; the Dockerfile bakes in the originals.
       - ./docker/files/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./docker/files/njs:/etc/nginx/njs:ro
       - files_data:/data:U
     expose:
       - "8080"
 
+  voice:
+    image: ${VOICE_IMAGE:-notes-voice}
+    build:
+      context: ./app/voice
+      target: dev
+    volumes:
+      - ./app/voice/src:/app/src
+      # Persist downloaded whisper models across container restarts so the
+      # ~150MB base model isn't refetched every rebuild.
+      # Holds both the whisper model and the ~1.5GB Chatterbox weights
+      # (HF_HOME points here; chatterbox uses huggingface_hub cache under hub/).
+      - voice_models:/app/models/whisper
+      # Drop a 6–10s real human-voice WAV at app/voice/voices/default.wav
+      # to override Chatterbox's built-in (male) default.
+      - ./app/voice/voices:/app/voices
+    expose:
+      - "8000"
+    environment:
+      WHISPER_MODEL: ${WHISPER_MODEL:-small}
+      WHISPER_DEVICE: ${WHISPER_DEVICE:-cpu}
+      WHISPER_COMPUTE_TYPE: ${WHISPER_COMPUTE_TYPE:-int8}
+      WHISPER_LANGUAGE: ${WHISPER_LANGUAGE:-}
+    restart: unless-stopped
+
 volumes:
   frontend_node_modules:
   files_data:
-  claude_home:
+  claude_state:
+  voice_models:

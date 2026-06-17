@@ -9,8 +9,13 @@ use Paith\Notes\Api\Http\HttpError;
 use Paith\Notes\Api\Http\JsonResponse;
 use Paith\Notes\Api\Http\Request;
 use Paith\Notes\Api\Http\Response;
+use Paith\Notes\Api\Http\Dto\CreateNoteLinkRequest;
+use Paith\Notes\Shared\Db\Row;
 use PDO;
 use Throwable;
+use Paith\Notes\Shared\Uuid;
+use Paith\Notes\Api\Http\Dto\JsonReader;
+use Paith\Notes\Api\Http\Auth\User;
 
 final class NoteLinksController
 {
@@ -21,23 +26,11 @@ final class NoteLinksController
         $pdo = $context->pdo();
         $user = $context->user();
 
-        $nookId = trim($request->routeParam('nookId'));
-        if ($nookId === '') {
-            throw new HttpError('nookId is required', 400);
-        }
-        if (!self::isUuid($nookId)) {
-            throw new HttpError('nookId must be a UUID', 400);
-        }
+        $nookId = $request->requireUuidRouteParam('nookId');
 
-        $noteId = trim($request->routeParam('noteId'));
-        if ($noteId === '') {
-            throw new HttpError('noteId is required', 400);
-        }
-        if (!self::isUuid($noteId)) {
-            throw new HttpError('noteId must be a UUID', 400);
-        }
+        $noteId = $request->requireUuidRouteParam('noteId');
 
-        $this->requireMember($pdo, $user, $nookId);
+        NookAccess::requireMember($pdo, $user, $nookId);
 
         $direction = trim($request->queryParam('direction'));
         if ($direction === '') {
@@ -60,7 +53,7 @@ final class NoteLinksController
         if ($predicateIdsRaw !== '') {
             foreach (explode(',', $predicateIdsRaw) as $pid) {
                 $pid = trim($pid);
-                if (self::isUuid($pid)) {
+                if (Uuid::isValid($pid)) {
                     $predicateIds[] = $pid;
                 }
             }
@@ -76,26 +69,13 @@ final class NoteLinksController
         if ($nodeTypeIdsRaw !== '') {
             foreach (explode(',', $nodeTypeIdsRaw) as $tid) {
                 $tid = trim($tid);
-                if (self::isUuid($tid)) {
+                if (Uuid::isValid($tid)) {
                     $nodeTypeIds[] = $tid;
                 }
             }
         }
         $strictTypeFilter = trim($request->queryParam('strict_type_filter')) === '1';
 
-        // Optional filter: exclude links where a non-start endpoint has one of these note types
-        // (e.g. "file"). The starting note is never excluded by this filter.
-        $excludeNoteTypes = [];
-        $excludeNoteTypesRaw = trim($request->queryParam('exclude_note_types'));
-        if ($excludeNoteTypesRaw !== '') {
-            $allowed = ['anything', 'file', 'graph'];
-            foreach (explode(',', $excludeNoteTypesRaw) as $nt) {
-                $nt = trim(strtolower($nt));
-                if (in_array($nt, $allowed, true)) {
-                    $excludeNoteTypes[] = $nt;
-                }
-            }
-        }
 
         // Optional search term: only surface links where at least one connected note (excl. start)
         // matches by title or content (trigram-compatible LIKE). Traversal is unaffected.
@@ -161,8 +141,8 @@ final class NoteLinksController
                 'select '
                 . 'l.id, l.predicate_id, l.source_note_id, l.target_note_id, l.start_date, l.end_date, l.former, l.created_at, l.updated_at, '
                 . 'p.key as predicate_key, p.forward_label, p.reverse_label, p.supports_start_date, p.supports_end_date, '
-                . 'ns.title as source_note_title, ns.type_id as source_type_id, ns.type as source_note_type, '
-                . 'nt.title as target_note_title, nt.type_id as target_type_id, nt.type as target_note_type, '
+                . 'ns.title as source_note_title, ns.type_id as source_type_id, '
+                . 'nt.title as target_note_title, nt.type_id as target_type_id, '
                 . 'am.actor as last_actor, am.user_id as last_user_id, '
                 . 'coalesce(nullif(lu.nickname, \'\'), concat(lu.first_name, \' \', lu.last_name)) as last_user_name '
                 . 'from global.note_links l '
@@ -182,32 +162,32 @@ final class NoteLinksController
                     continue;
                 }
 
-                $id = is_scalar($r['id'] ?? null) ? (string)$r['id'] : '';
+                $id = Row::str($r, 'id');
                 if ($id === '') {
                     continue;
                 }
 
-                $sourceId     = is_scalar($r['source_note_id'] ?? null) ? (string)$r['source_note_id'] : '';
-                $targetId     = is_scalar($r['target_note_id'] ?? null) ? (string)$r['target_note_id'] : '';
-                $sourceTypeId = is_scalar($r['source_type_id'] ?? null) ? (string)$r['source_type_id'] : '';
-                $targetTypeId = is_scalar($r['target_type_id'] ?? null) ? (string)$r['target_type_id'] : '';
+                $sourceId     = Row::str($r, 'source_note_id');
+                $targetId     = Row::str($r, 'target_note_id');
+                $sourceTypeId = Row::str($r, 'source_type_id');
+                $targetTypeId = Row::str($r, 'target_type_id');
 
                 $sourceMatchesType = $nodeTypeIds === [] || in_array($sourceTypeId, $nodeTypeIds, true) || $sourceId === $noteId;
                 $targetMatchesType = $nodeTypeIds === [] || in_array($targetTypeId, $nodeTypeIds, true) || $targetId === $noteId;
 
                 // Expand frontier: in strict mode only through matching nodes, otherwise through all
                 if ($strictTypeFilter && $nodeTypeIds !== []) {
-                    if ($sourceId !== '' && self::isUuid($sourceId) && !isset($visited[$sourceId]) && $sourceMatchesType) {
+                    if ($sourceId !== '' && Uuid::isValid($sourceId) && !isset($visited[$sourceId]) && $sourceMatchesType) {
                         $nextFrontier[$sourceId] = true;
                     }
-                    if ($targetId !== '' && self::isUuid($targetId) && !isset($visited[$targetId]) && $targetMatchesType) {
+                    if ($targetId !== '' && Uuid::isValid($targetId) && !isset($visited[$targetId]) && $targetMatchesType) {
                         $nextFrontier[$targetId] = true;
                     }
                 } else {
-                    if ($sourceId !== '' && self::isUuid($sourceId) && !isset($visited[$sourceId])) {
+                    if ($sourceId !== '' && Uuid::isValid($sourceId) && !isset($visited[$sourceId])) {
                         $nextFrontier[$sourceId] = true;
                     }
-                    if ($targetId !== '' && self::isUuid($targetId) && !isset($visited[$targetId])) {
+                    if ($targetId !== '' && Uuid::isValid($targetId) && !isset($visited[$targetId])) {
                         $nextFrontier[$targetId] = true;
                     }
                 }
@@ -232,45 +212,32 @@ final class NoteLinksController
                     }
                 }
 
-                $sourceNoteType = is_scalar($r['source_note_type'] ?? null) ? (string)$r['source_note_type'] : 'anything';
-                $targetNoteType = is_scalar($r['target_note_type'] ?? null) ? (string)$r['target_note_type'] : 'anything';
 
-                // Apply exclude_note_types filter (skip links where a non-start endpoint has excluded type)
-                if ($excludeNoteTypes !== []) {
-                    $srcExcluded = $sourceId !== $noteId && in_array($sourceNoteType, $excludeNoteTypes, true);
-                    $tgtExcluded = $targetId !== $noteId && in_array($targetNoteType, $excludeNoteTypes, true);
-                    if ($srcExcluded || $tgtExcluded) {
-                        continue;
-                    }
-                }
-
-                $former = self::decodeJsonObject($r['former'] ?? null);
+                $former = Row::decodeJsonObject($r['former'] ?? null);
                 $lastUserName = is_scalar($r['last_user_name'] ?? null) ? trim((string)$r['last_user_name']) : '';
 
                 $linksById[$id] = [
                     'id' => $id,
                     'nook_id' => $nookId,
-                    'predicate_id' => is_scalar($r['predicate_id'] ?? null) ? (string)$r['predicate_id'] : '',
-                    'predicate_key' => is_scalar($r['predicate_key'] ?? null) ? (string)$r['predicate_key'] : '',
-                    'forward_label' => is_scalar($r['forward_label'] ?? null) ? (string)$r['forward_label'] : '',
-                    'reverse_label' => is_scalar($r['reverse_label'] ?? null) ? (string)$r['reverse_label'] : '',
+                    'predicate_id' => Row::str($r, 'predicate_id'),
+                    'predicate_key' => Row::str($r, 'predicate_key'),
+                    'forward_label' => Row::str($r, 'forward_label'),
+                    'reverse_label' => Row::str($r, 'reverse_label'),
                     'supports_start_date' => (bool)($r['supports_start_date'] ?? false),
                     'supports_end_date' => (bool)($r['supports_end_date'] ?? false),
                     'source_note_id' => $sourceId,
-                    'source_note_title' => is_scalar($r['source_note_title'] ?? null) ? (string)$r['source_note_title'] : '',
+                    'source_note_title' => Row::str($r, 'source_note_title'),
                     'source_type_id' => $sourceTypeId,
-                    'source_note_type' => $sourceNoteType,
                     'target_note_id' => $targetId,
-                    'target_note_title' => is_scalar($r['target_note_title'] ?? null) ? (string)$r['target_note_title'] : '',
+                    'target_note_title' => Row::str($r, 'target_note_title'),
                     'target_type_id' => $targetTypeId,
-                    'target_note_type' => $targetNoteType,
-                    'start_date' => is_scalar($r['start_date'] ?? null) ? (string)$r['start_date'] : '',
-                    'end_date' => is_scalar($r['end_date'] ?? null) ? (string)$r['end_date'] : '',
+                    'start_date' => Row::str($r, 'start_date'),
+                    'end_date' => Row::str($r, 'end_date'),
                     'former' => $former === [] ? (object)[] : $former,
-                    'last_actor' => is_scalar($r['last_actor'] ?? null) ? (string)$r['last_actor'] : 'user',
+                    'last_actor' => Row::str($r, 'last_actor', 'user'),
                     'last_user_name' => $lastUserName,
-                    'created_at' => is_scalar($r['created_at'] ?? null) ? (string)$r['created_at'] : '',
-                    'updated_at' => is_scalar($r['updated_at'] ?? null) ? (string)$r['updated_at'] : '',
+                    'created_at' => Row::str($r, 'created_at'),
+                    'updated_at' => Row::str($r, 'updated_at'),
                 ];
             }
 
@@ -401,60 +368,24 @@ final class NoteLinksController
         $pdo = $context->pdo();
         $user = $context->user();
 
-        $nookId = trim($request->routeParam('nookId'));
-        if ($nookId === '') {
-            throw new HttpError('nookId is required', 400);
-        }
-        if (!self::isUuid($nookId)) {
-            throw new HttpError('nookId must be a UUID', 400);
-        }
+        $nookId = $request->requireUuidRouteParam('nookId');
 
-        $sourceNoteId = trim($request->routeParam('noteId'));
-        if ($sourceNoteId === '') {
-            throw new HttpError('noteId is required', 400);
-        }
-        if (!self::isUuid($sourceNoteId)) {
-            throw new HttpError('noteId must be a UUID', 400);
-        }
+        $sourceNoteId = $request->requireUuidRouteParam('noteId');
 
         NookAccess::requireWriteAccess($pdo, $user, $nookId);
         $this->ensureDefaultRelatesTo($pdo, $nookId);
 
-        $data = $request->jsonBody();
+        $payload = CreateNoteLinkRequest::fromJson($request->jsonBody());
 
-        $predicateIdRaw = $data['predicate_id'] ?? '';
-        $predicateId = is_string($predicateIdRaw) ? trim($predicateIdRaw) : '';
-        if ($predicateId === '') {
-            throw new HttpError('predicate_id is required', 400);
-        }
-        if (!self::isUuid($predicateId)) {
-            throw new HttpError('predicate_id must be a UUID', 400);
-        }
-
-        $targetNoteIdRaw = $data['target_note_id'] ?? '';
-        $targetNoteId = is_string($targetNoteIdRaw) ? trim($targetNoteIdRaw) : '';
-        if ($targetNoteId === '') {
-            throw new HttpError('target_note_id is required', 400);
-        }
-        if (!self::isUuid($targetNoteId)) {
-            throw new HttpError('target_note_id must be a UUID', 400);
-        }
-        if ($targetNoteId === $sourceNoteId) {
+        if ($payload->targetNoteId === $sourceNoteId) {
             throw new HttpError('cannot link a note to itself', 400);
-        }
-
-        $startDate = self::normalizeDate($data['start_date'] ?? null);
-        $endDate = self::normalizeDate($data['end_date'] ?? null);
-
-        if ($startDate !== '' && $endDate !== '' && $startDate > $endDate) {
-            throw new HttpError('start_date must be <= end_date', 400);
         }
 
         $predStmt = $pdo->prepare(
             'select key, forward_label, reverse_label, supports_start_date, supports_end_date '
             . 'from global.link_predicates where id = :id and nook_id = :nook_id'
         );
-        $predStmt->execute([':id' => $predicateId, ':nook_id' => $nookId]);
+        $predStmt->execute([':id' => $payload->predicateId, ':nook_id' => $nookId]);
         $pred = $predStmt->fetch(PDO::FETCH_ASSOC);
         if (!is_array($pred)) {
             throw new HttpError('predicate not found', 404);
@@ -463,10 +394,10 @@ final class NoteLinksController
         $supportsStart = (bool)($pred['supports_start_date'] ?? false);
         $supportsEnd = (bool)($pred['supports_end_date'] ?? false);
 
-        if ($startDate !== '' && !$supportsStart) {
+        if ($payload->startDate !== null && !$supportsStart) {
             throw new HttpError('predicate does not support start_date', 400);
         }
-        if ($endDate !== '' && !$supportsEnd) {
+        if ($payload->endDate !== null && !$supportsEnd) {
             throw new HttpError('predicate does not support end_date', 400);
         }
 
@@ -478,7 +409,7 @@ final class NoteLinksController
         }
 
         $targetStmt = $pdo->prepare('select id, type_id from global.notes where id = :id and nook_id = :nook_id');
-        $targetStmt->execute([':id' => $targetNoteId, ':nook_id' => $nookId]);
+        $targetStmt->execute([':id' => $payload->targetNoteId, ':nook_id' => $nookId]);
         $target = $targetStmt->fetch(PDO::FETCH_ASSOC);
         if (!is_array($target)) {
             throw new HttpError('target note not found', 404);
@@ -487,7 +418,7 @@ final class NoteLinksController
         $sourceTypeId = is_scalar($source['type_id'] ?? null) ? trim((string)$source['type_id']) : '';
         $targetTypeId = is_scalar($target['type_id'] ?? null) ? trim((string)$target['type_id']) : '';
 
-        if (!$this->isPredicateAllowedForTypes($pdo, $nookId, $predicateId, $sourceTypeId, $targetTypeId)) {
+        if (!$this->isPredicateAllowedForTypes($pdo, $nookId, $payload->predicateId, $sourceTypeId, $targetTypeId)) {
             throw new HttpError('predicate not allowed for these note types', 400);
         }
 
@@ -501,11 +432,11 @@ final class NoteLinksController
             );
             $stmt->execute([
                 ':nook_id' => $nookId,
-                ':predicate_id' => $predicateId,
+                ':predicate_id' => $payload->predicateId,
                 ':source_note_id' => $sourceNoteId,
-                ':target_note_id' => $targetNoteId,
-                ':start_date' => $startDate !== '' ? $startDate : null,
-                ':end_date' => $endDate !== '' ? $endDate : null,
+                ':target_note_id' => $payload->targetNoteId,
+                ':start_date' => $payload->startDate,
+                ':end_date' => $payload->endDate,
             ]);
 
             $row = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -517,21 +448,21 @@ final class NoteLinksController
 
             return JsonResponse::ok([
                 'link' => [
-                    'id' => is_scalar($row['id'] ?? null) ? (string)$row['id'] : '',
+                    'id' => Row::str($row, 'id'),
                     'nook_id' => $nookId,
-                    'predicate_id' => $predicateId,
-                    'predicate_key' => is_scalar($pred['key'] ?? null) ? (string)$pred['key'] : '',
-                    'forward_label' => is_scalar($pred['forward_label'] ?? null) ? (string)$pred['forward_label'] : '',
-                    'reverse_label' => is_scalar($pred['reverse_label'] ?? null) ? (string)$pred['reverse_label'] : '',
+                    'predicate_id' => $payload->predicateId,
+                    'predicate_key' => Row::str($pred, 'key'),
+                    'forward_label' => Row::str($pred, 'forward_label'),
+                    'reverse_label' => Row::str($pred, 'reverse_label'),
                     'supports_start_date' => $supportsStart,
                     'supports_end_date' => $supportsEnd,
                     'source_note_id' => $sourceNoteId,
-                    'target_note_id' => $targetNoteId,
-                    'start_date' => $startDate,
-                    'end_date' => $endDate,
+                    'target_note_id' => $payload->targetNoteId,
+                    'start_date' => $payload->startDate ?? '',
+                    'end_date' => $payload->endDate ?? '',
                     'former' => (object)[],
-                    'created_at' => is_scalar($row['created_at'] ?? null) ? (string)$row['created_at'] : '',
-                    'updated_at' => is_scalar($row['updated_at'] ?? null) ? (string)$row['updated_at'] : '',
+                    'created_at' => Row::str($row, 'created_at'),
+                    'updated_at' => Row::str($row, 'updated_at'),
                 ],
             ]);
         } catch (Throwable $e) {
@@ -547,29 +478,11 @@ final class NoteLinksController
         $pdo = $context->pdo();
         $user = $context->user();
 
-        $nookId = trim($request->routeParam('nookId'));
-        if ($nookId === '') {
-            throw new HttpError('nookId is required', 400);
-        }
-        if (!self::isUuid($nookId)) {
-            throw new HttpError('nookId must be a UUID', 400);
-        }
+        $nookId = $request->requireUuidRouteParam('nookId');
 
-        $noteId = trim($request->routeParam('noteId'));
-        if ($noteId === '') {
-            throw new HttpError('noteId is required', 400);
-        }
-        if (!self::isUuid($noteId)) {
-            throw new HttpError('noteId must be a UUID', 400);
-        }
+        $noteId = $request->requireUuidRouteParam('noteId');
 
-        $linkId = trim($request->routeParam('linkId'));
-        if ($linkId === '') {
-            throw new HttpError('linkId is required', 400);
-        }
-        if (!self::isUuid($linkId)) {
-            throw new HttpError('linkId must be a UUID', 400);
-        }
+        $linkId = $request->requireUuidRouteParam('linkId');
 
         NookAccess::requireWriteAccess($pdo, $user, $nookId);
 
@@ -668,7 +581,7 @@ final class NoteLinksController
             $parentRaw = $stmt->fetchColumn();
             $parent = is_scalar($parentRaw) ? trim((string)$parentRaw) : '';
 
-            if ($parent === '' || !self::isUuid($parent)) {
+            if ($parent === '' || !Uuid::isValid($parent)) {
                 break;
             }
 
@@ -676,41 +589,6 @@ final class NoteLinksController
         }
 
         return $out;
-    }
-
-    private static function normalizeDate(mixed $value): string
-    {
-        if ($value === null) {
-            return '';
-        }
-        if (!is_string($value)) {
-            throw new HttpError('date must be a string (YYYY-MM-DD)', 400);
-        }
-
-        $v = trim($value);
-        if ($v === '') {
-            return '';
-        }
-
-        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $v)) {
-            throw new HttpError('date must be in format YYYY-MM-DD', 400);
-        }
-
-        return $v;
-    }
-
-    /** @return array<string, mixed> */
-    private static function decodeJsonObject(mixed $value): array
-    {
-        if (!is_scalar($value)) {
-            return [];
-        }
-        $decoded = json_decode((string)$value, true);
-        if (!is_array($decoded)) {
-            return [];
-        }
-        /** @var array<string, mixed> $decoded */
-        return $decoded;
     }
 
     private function ensureDefaultRelatesTo(PDO $pdo, string $nookId): void
@@ -731,32 +609,5 @@ final class NoteLinksController
             ':forward_label' => 'relates to',
             ':reverse_label' => 'related to',
         ]);
-    }
-
-    private function requireMember(PDO $pdo, array $user, string $nookId): array
-    {
-        $userId = is_scalar($user['id'] ?? null) ? (string)$user['id'] : '';
-        if ($userId === '') {
-            throw new HttpError('invalid user', 500);
-        }
-
-        $check = $pdo->prepare('select role from global.nook_members where nook_id = :nook_id and user_id = :user_id limit 1');
-        $check->execute([
-            ':nook_id' => $nookId,
-            ':user_id' => $userId,
-        ]);
-        $row = $check->fetch(PDO::FETCH_ASSOC);
-        if (!is_array($row)) {
-            throw new HttpError('forbidden', 403);
-        }
-        return $row;
-    }
-
-    private static function isUuid(string $value): bool
-    {
-        return (bool)preg_match(
-            '/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i',
-            $value
-        );
     }
 }

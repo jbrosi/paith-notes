@@ -1,8 +1,23 @@
-import { createResource, createSignal, For, onCleanup, Show } from "solid-js";
+import {
+	type Accessor,
+	createEffect,
+	createResource,
+	createSignal,
+	For,
+	onCleanup,
+	Show,
+} from "solid-js";
+import { useUi } from "../../ui/UiContext";
 import { ChatInput } from "./ChatInput";
-import { ChatMessage, type ChatMessageData, type ToolUse } from "./ChatMessage";
+import {
+	ChatMessage,
+	type ChatMessageData,
+	type MessageUsage,
+	type ToolUse,
+} from "./ChatMessage";
 import styles from "./ChatPanel.module.css";
 import { ToolApproval } from "./ToolApproval";
+import { createTtsQueue } from "./voice";
 
 type ConversationSummary = {
 	id: string;
@@ -34,23 +49,34 @@ type Props = {
 	currentNoteId?: string;
 	currentNoteTitle?: string;
 	currentNoteType?: string;
+	/** Current browser path — gives AI context about what view the user is on */
+	currentPath?: string;
 	onClose: () => void;
 	onNavigateToNote?: (noteId: string) => void;
 	notePreview?: NotePreviewController;
 };
 
-async function fetchConversations(
-	nookId: string,
-): Promise<ConversationSummary[]> {
-	const res = await fetch(
-		`/api/conversations?nook_id=${encodeURIComponent(nookId)}`,
-		{
-			credentials: "include",
-		},
-	);
+async function fetchConversations(): Promise<ConversationSummary[]> {
+	const res = await fetch("/api/conversations", { credentials: "include" });
 	if (!res.ok) return [];
 	const data = (await res.json()) as { conversations?: ConversationSummary[] };
 	return data.conversations ?? [];
+}
+
+async function deleteConversation(conversationId: string): Promise<boolean> {
+	const res = await fetch(
+		`/api/conversations/${encodeURIComponent(conversationId)}`,
+		{ method: "DELETE", credentials: "include" },
+	);
+	return res.ok;
+}
+
+async function deleteAllConversations(): Promise<boolean> {
+	const res = await fetch("/api/conversations", {
+		method: "DELETE",
+		credentials: "include",
+	});
+	return res.ok;
 }
 
 async function fetchMessages(
@@ -66,6 +92,7 @@ async function fetchMessages(
 	const data = (await res.json()) as {
 		messages?: Array<{ role: string; content: unknown }>;
 	};
+	const TS_RE = /^\[(\d{4}-\d{2}-\d{2}T\d{2}:\d{2})Z\]/;
 	const out: ChatMessageData[] = [];
 	for (const m of data.messages ?? []) {
 		if (m.role === "user") {
@@ -81,7 +108,10 @@ async function fetchMessages(
 				)
 				.map((b) => b.text)
 				.join("");
-			if (text.trim()) out.push({ role: "user", text });
+			const tsMatch = TS_RE.exec(text);
+			const sentAt = tsMatch ? new Date(`${tsMatch[1]}Z`).getTime() : undefined;
+			if (text.trim() && !text.includes("[nudge]"))
+				out.push({ role: "user", text, sentAt });
 		} else if (m.role === "assistant") {
 			const blocks = Array.isArray(m.content) ? m.content : [];
 			const text = blocks
@@ -118,12 +148,46 @@ async function fetchMessages(
 }
 
 export function ChatPanel(props: Props) {
+	const ui = useUi();
 	// ── list view state ──────────────────────────────────────
 	const [convRefetch, setConvRefetch] = createSignal(0);
 	const [conversations] = createResource(
-		() => ({ nookId: props.chatNookId, rev: convRefetch() }),
-		({ nookId }) => fetchConversations(nookId),
+		() => convRefetch(),
+		() => fetchConversations(),
 	);
+
+	const onDeleteConv = async (conv: ConversationSummary, e: MouseEvent) => {
+		e.stopPropagation();
+		if (
+			!window.confirm(
+				`Delete "${conv.title || "Untitled"}"? This cannot be undone.`,
+			)
+		) {
+			return;
+		}
+		const ok = await deleteConversation(conv.id);
+		if (ok) setConvRefetch((n) => n + 1);
+	};
+
+	const onDeleteAll = async () => {
+		const count = (conversations() ?? []).length;
+		if (count === 0) return;
+		if (
+			!window.confirm(
+				`Delete all ${count} conversation${count === 1 ? "" : "s"}? This cannot be undone.`,
+			)
+		) {
+			return;
+		}
+		const ok = await deleteAllConversations();
+		if (ok) setConvRefetch((n) => n + 1);
+	};
+
+	const onExport = () => {
+		// Triggers a download via the browser; the endpoint serves a zip with
+		// attachment Content-Disposition.
+		window.location.href = "/api/me/conversations/export";
+	};
 
 	// ── chat view state ──────────────────────────────────────
 	const [view, setView] = createSignal<"list" | "chat">("list");
@@ -140,11 +204,94 @@ export function ChatPanel(props: Props) {
 	const [pendingApproval, setPendingApproval] =
 		createSignal<PendingApproval | null>(null);
 	const [error, setError] = createSignal<string | null>(null);
+	const [quickReplyDismissed, setQuickReplyDismissed] = createSignal(false);
+	const [voiceMode, setVoiceMode] = createSignal(false);
+	const [voiceLang, setVoiceLang] = createSignal("en");
+	// MCP synthesizes server-side now; createTtsQueue is just a decoder +
+	// Web Audio scheduler. Frontend never POSTs to /tts directly anymore.
+	const tts = createTtsQueue({ debug: () => true });
+
+	// Don't cancel TTS when the approval modal opens. The pre-tool
+	// announcement ("I'll add that to your notes now") is queued before
+	// awaiting_approval — for slow engines like F5 it's still in the
+	// prebuffer when the event arrives, so cancelling here drops it before
+	// it ever plays. The audio is short and lets the user hear what the
+	// assistant is asking permission for; if they want silence they can
+	// hit Stop or just deny the action.
+
+	// L1 progress indicator for image generation: tracks the wall-clock
+	// start of an approved generate_image call so the UI can show
+	// "Generating image…" + elapsed seconds while the backend waits on
+	// OpenAI. Cleared the moment the next assistant turn starts
+	// streaming (or completes).
+	const [imageGenStartedAt, setImageGenStartedAt] = createSignal<number | null>(
+		null,
+	);
+	const [nowMs, setNowMs] = createSignal(Date.now());
+	let nowTimer: ReturnType<typeof setInterval> | undefined;
+	const clearImageGenIndicator = () => {
+		setImageGenStartedAt(null);
+		if (nowTimer !== undefined) {
+			clearInterval(nowTimer);
+			nowTimer = undefined;
+		}
+	};
+	const startImageGenIndicator = () => {
+		setImageGenStartedAt(Date.now());
+		setNowMs(Date.now());
+		if (nowTimer === undefined) {
+			nowTimer = setInterval(() => setNowMs(Date.now()), 500);
+		}
+	};
+	// Belt-and-braces clear: any path that turns streaming off (done,
+	// errors, aborts, awaiting_approval) drops the indicator too. The
+	// explicit early-clears in text_delta / tool_use_start give a
+	// snappier UI when text starts streaming, but this guarantees no
+	// stuck banner.
+	createEffect(() => {
+		if (!streaming() && imageGenStartedAt() !== null) {
+			clearImageGenIndicator();
+		}
+	});
+	onCleanup(() => {
+		if (nowTimer !== undefined) clearInterval(nowTimer);
+	});
+
+	let chatInputEl: HTMLTextAreaElement | undefined;
+
+	// Separate reactive signals for streaming tool input — avoids thrashing messages array
+	const toolInputStreams = new Map<
+		string,
+		{ get: Accessor<string>; set: (v: string) => void }
+	>();
+	const getToolInputStream = (toolId: string): Accessor<string> => {
+		let entry = toolInputStreams.get(toolId);
+		if (!entry) {
+			const [get, set] = createSignal("");
+			entry = { get, set };
+			toolInputStreams.set(toolId, entry);
+		}
+		return entry.get;
+	};
 
 	let abortCtrl: AbortController | null = null;
 	let messagesEl: HTMLDivElement | undefined;
+	let keepAliveTimer: ReturnType<typeof setTimeout> | null = null;
+	let isNudge = false;
 
-	onCleanup(() => abortCtrl?.abort());
+	const KEEP_ALIVE_MS = 4 * 60 * 1000; // 4 minutes
+
+	const clearKeepAlive = () => {
+		if (keepAliveTimer) {
+			clearTimeout(keepAliveTimer);
+			keepAliveTimer = null;
+		}
+	};
+
+	onCleanup(() => {
+		abortCtrl?.abort();
+		clearKeepAlive();
+	});
 
 	let userScrolledAway = false;
 
@@ -178,6 +325,8 @@ export function ChatPanel(props: Props) {
 	};
 
 	const startNewChat = () => {
+		clearKeepAlive();
+		isNudge = false;
 		setMessages([]);
 		setConversationId(null);
 		setActiveTitle("New chat");
@@ -187,7 +336,10 @@ export function ChatPanel(props: Props) {
 	};
 
 	const backToList = () => {
+		clearKeepAlive();
+		isNudge = false;
 		abortCtrl?.abort();
+		tts.cancel();
 		setStreaming(false);
 		setPendingApproval(null);
 		setView("list");
@@ -220,9 +372,10 @@ export function ChatPanel(props: Props) {
 		scrollToBottom();
 	};
 
-	const addToolUse = (tool: ToolUse) => {
+	const addToolUseStart = (id: string, name: string) => {
 		setMessages((prev) => {
 			const last = prev[prev.length - 1];
+			const partial: ToolUse = { id, name, input: {}, progress: "running" };
 			if (last?.role === "assistant") {
 				return [
 					...prev.slice(0, -1),
@@ -231,8 +384,54 @@ export function ChatPanel(props: Props) {
 						text: (last as { text: string }).text,
 						toolUses: [
 							...((last as { toolUses?: ToolUse[] }).toolUses ?? []),
-							tool,
+							partial,
 						],
+						streaming: (last as { streaming?: boolean }).streaming,
+					} as ChatMessageData,
+				];
+			}
+			return [
+				...prev,
+				{
+					role: "assistant",
+					text: "",
+					toolUses: [partial],
+					streaming: true,
+				} as ChatMessageData,
+			];
+		});
+		scrollToBottom();
+	};
+
+	const appendToolInputDelta = (toolId: string, delta: string) => {
+		let entry = toolInputStreams.get(toolId);
+		if (!entry) {
+			const [get, set] = createSignal("");
+			entry = { get, set };
+			toolInputStreams.set(toolId, entry);
+		}
+		entry.set(entry.get() + delta);
+		scrollToBottom();
+	};
+
+	const addToolUse = (tool: ToolUse) => {
+		toolInputStreams.delete(tool.id);
+		setMessages((prev) => {
+			const last = prev[prev.length - 1];
+			if (last?.role === "assistant") {
+				const existing = (last as { toolUses?: ToolUse[] }).toolUses ?? [];
+				// Replace the partial placeholder if it exists, otherwise append
+				const idx = existing.findIndex((t) => t.id === tool.id);
+				const updated =
+					idx >= 0
+						? [...existing.slice(0, idx), tool, ...existing.slice(idx + 1)]
+						: [...existing, tool];
+				return [
+					...prev.slice(0, -1),
+					{
+						role: "assistant",
+						text: (last as { text: string }).text,
+						toolUses: updated,
 						streaming: (last as { streaming?: boolean }).streaming,
 					} as ChatMessageData,
 				];
@@ -330,7 +529,40 @@ export function ChatPanel(props: Props) {
 					const cid = data.conversation_id as string;
 					setConversationId(cid);
 				} else if (event === "text_delta") {
-					appendDelta(data.delta as string);
+					// First post-approval token from the AI's reply — the
+					// image must already be persisted, so the "generating
+					// image…" banner has served its purpose.
+					clearImageGenIndicator();
+					const delta = data.delta as string;
+					appendDelta(delta);
+				} else if (event === "audio_chunk") {
+					// MCP synthesized a chunk on the voice service and
+					// forwarded it to us as base64. Decode and queue for
+					// gapless playback.
+					try {
+						const b64 = String((data as { data?: string }).data ?? "");
+						console.log(
+							`[voice] audio_chunk event received: ${b64.length} base64 chars`,
+						);
+						const bin = atob(b64);
+						const arr = new Uint8Array(bin.length);
+						for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+						tts.enqueueAudioBytes(arr.buffer);
+					} catch (e) {
+						console.error("[voice] audio_chunk decode failed", e);
+					}
+				} else if (event === "voice_debug") {
+					if (
+						typeof localStorage !== "undefined" &&
+						localStorage.getItem("voiceDebug") === "1"
+					) {
+						console.log("[voice/server]", data);
+					}
+				} else if (event === "tool_use_start") {
+					clearImageGenIndicator();
+					addToolUseStart(data.id as string, data.name as string);
+				} else if (event === "tool_input_delta") {
+					appendToolInputDelta(data.id as string, data.delta as string);
 				} else if (event === "tool_use") {
 					addToolUse({
 						id: data.id as string,
@@ -380,28 +612,57 @@ export function ChatPanel(props: Props) {
 					terminalEventSeen = true;
 					finalizeAssistant();
 					setStreaming(false);
-					// Update context usage indicator
+					// Update context usage indicator + attach usage to last assistant message
 					const usage = data.usage as
 						| {
 								input_tokens?: number;
 								output_tokens?: number;
+								cache_creation_input_tokens?: number;
+								cache_read_input_tokens?: number;
 								context_limit?: number;
 						  }
 						| undefined;
-					if (usage?.context_limit && usage.input_tokens) {
+					if (usage?.context_limit) {
+						const totalInput =
+							(usage.input_tokens ?? 0) +
+							(usage.cache_creation_input_tokens ?? 0) +
+							(usage.cache_read_input_tokens ?? 0);
 						const ratio =
-							(usage.input_tokens + (usage.output_tokens ?? 0)) /
-							usage.context_limit;
+							(totalInput + (usage.output_tokens ?? 0)) / usage.context_limit;
 						setContextUsage({
 							ratio,
 							level: ratio > 0.9 ? "critical" : ratio > 0.5 ? "warning" : "",
 						});
+						// Attach usage to last assistant message for debug display
+						const msgUsage: MessageUsage = {
+							input_tokens: usage.input_tokens ?? 0,
+							output_tokens: usage.output_tokens ?? 0,
+							cache_creation_input_tokens:
+								usage.cache_creation_input_tokens ?? 0,
+							cache_read_input_tokens: usage.cache_read_input_tokens ?? 0,
+							context_limit: usage.context_limit ?? 0,
+						};
+						setMessages((prev) => {
+							const last = prev[prev.length - 1];
+							if (last?.role === "assistant") {
+								return [...prev.slice(0, -1), { ...last, usage: msgUsage }];
+							}
+							return prev;
+						});
+					}
+					// Start keep-alive timer (one nudge only, then let cache expire)
+					clearKeepAlive();
+					if (isNudge) {
+						isNudge = false;
+					} else {
+						keepAliveTimer = setTimeout(() => void sendNudge(), KEEP_ALIVE_MS);
 					}
 					return;
 				} else if (event === "error") {
 					terminalEventSeen = true;
 					finalizeAssistant();
 					setStreaming(false);
+					tts.cancel();
 					setError(data.message as string);
 					return;
 				}
@@ -418,9 +679,19 @@ export function ChatPanel(props: Props) {
 
 	// ── send message ─────────────────────────────────────────
 	const send = async (text: string, selectedModel: string) => {
+		clearKeepAlive();
+		isNudge = false;
 		setError(null);
 		setModel(selectedModel);
-		setMessages((prev) => [...prev, { role: "user", text } as ChatMessageData]);
+		setQuickReplyDismissed(false);
+		// AudioContext.resume() only honors a recent user gesture; chunks
+		// arrive seconds later, so we have to wake the context *here*, while
+		// we still have the click in scope. No-op after the first call.
+		if (voiceMode()) tts.prime();
+		setMessages((prev) => [
+			...prev,
+			{ role: "user", text, sentAt: Date.now() } as ChatMessageData,
+		]);
 		scrollToBottom(true);
 		setStreaming(true);
 
@@ -441,6 +712,9 @@ export function ChatPanel(props: Props) {
 						context_note_id: props.currentNoteId ?? undefined,
 						context_note_title: props.currentNoteTitle ?? undefined,
 						context_note_type: props.currentNoteType ?? undefined,
+						context_path: props.currentPath ?? undefined,
+						voice_mode: voiceMode(),
+						voice_lang: voiceLang(),
 					}),
 					signal: abortCtrl.signal,
 				},
@@ -455,6 +729,44 @@ export function ChatPanel(props: Props) {
 			setStreaming(false);
 			if (err instanceof Error && err.name !== "AbortError")
 				setError(err.message);
+		}
+	};
+
+	// ── cache keep-alive nudge ───────────────────────────────
+	const sendNudge = async () => {
+		if (streaming() || !conversationId()) return;
+		isNudge = true;
+		setStreaming(true);
+		abortCtrl?.abort();
+		abortCtrl = new AbortController();
+		try {
+			const res = await fetch(
+				`/nooks/${encodeURIComponent(props.contextNookId)}/chat`,
+				{
+					method: "POST",
+					credentials: "include",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({
+						message:
+							"[nudge] The user has been idle for a few minutes. Send a brief, creative nudge related to the current conversation — a follow-up thought, a question, or a playful check-in. Keep it to 1-2 sentences. Do NOT mention that this is a system prompt or that you were asked to nudge.",
+						model: model(),
+						conversation_id: conversationId(),
+						context_note_id: props.currentNoteId ?? undefined,
+						context_note_title: props.currentNoteTitle ?? undefined,
+						context_note_type: props.currentNoteType ?? undefined,
+					}),
+					signal: abortCtrl.signal,
+				},
+			);
+			if (!res.ok || !res.body) {
+				setStreaming(false);
+				isNudge = false;
+				return;
+			}
+			consumeStream(res.body.getReader(), model());
+		} catch {
+			setStreaming(false);
+			isNudge = false;
 		}
 	};
 
@@ -487,6 +799,17 @@ export function ChatPanel(props: Props) {
 		}
 		setStreaming(true);
 		setError(null);
+		// Prime the AudioContext from this approval click (user gesture)
+		// so chunks arriving later can actually play.
+		if (voiceMode()) tts.prime();
+
+		// If any of the approved tools is generate_image, start the
+		// "Generating image…" indicator — the wait is long enough
+		// (20–60s with OpenAI) that a generic spinner doesn't tell
+		// the user anything useful about what's happening.
+		if (approved && pa.tools.some((t) => t.name === "generate_image")) {
+			startImageGenIndicator();
+		}
 
 		abortCtrl?.abort();
 		abortCtrl = new AbortController();
@@ -502,6 +825,8 @@ export function ChatPanel(props: Props) {
 						conversation_id: pa.conversationId,
 						model: pa.model,
 						context_note_id: pa.contextNoteId,
+						voice_mode: voiceMode(),
+						voice_lang: voiceLang(),
 						tool_results: pa.tools.map((t) => ({
 							tool_use_id: t.id,
 							tool_name: t.name,
@@ -571,22 +896,53 @@ export function ChatPanel(props: Props) {
 								<p class={styles.listEmpty}>No past conversations yet.</p>
 							}
 						>
-							<div class={styles.listSectionTitle}>Recent</div>
+							<div class={styles.listHeader}>
+								<span class={styles.listSectionTitle}>Recent</span>
+								<div class={styles.listHeaderActions}>
+									<button
+										type="button"
+										class={styles.listAction}
+										onClick={onExport}
+										title="Download all conversations as a zip"
+									>
+										Export
+									</button>
+									<button
+										type="button"
+										class={styles.listActionDanger}
+										onClick={() => void onDeleteAll()}
+										title="Delete every conversation"
+									>
+										Delete all
+									</button>
+								</div>
+							</div>
 							<div class={styles.listSection}>
 								<For each={conversations() ?? []}>
 									{(conv) => (
-										<button
-											class={styles.convItem}
-											type="button"
-											onClick={() => void openConversation(conv)}
-										>
-											<span class={styles.convTitle}>
-												{conv.title || "Untitled"}
-											</span>
-											<span class={styles.convMeta}>
-												{formatDate(conv.updated_at)} · {conv.model}
-											</span>
-										</button>
+										<div class={styles.convItemRow}>
+											<button
+												class={styles.convItem}
+												type="button"
+												onClick={() => void openConversation(conv)}
+											>
+												<span class={styles.convTitle}>
+													{conv.title || "Untitled"}
+												</span>
+												<span class={styles.convMeta}>
+													{formatDate(conv.updated_at)} · {conv.model}
+												</span>
+											</button>
+											<button
+												type="button"
+												class={styles.convDelete}
+												onClick={(e) => void onDeleteConv(conv, e)}
+												title="Delete this conversation"
+												aria-label="Delete conversation"
+											>
+												×
+											</button>
+										</div>
 									)}
 								</For>
 							</div>
@@ -602,6 +958,10 @@ export function ChatPanel(props: Props) {
 						disabled={false}
 						model={model()}
 						onModelChange={setModel}
+						voiceMode={voiceMode()}
+						onVoiceModeChange={setVoiceMode}
+						voiceLang={voiceLang()}
+						onVoiceLangChange={setVoiceLang}
 					/>
 				</div>
 			</Show>
@@ -622,12 +982,30 @@ export function ChatPanel(props: Props) {
 						}
 					>
 						<For each={messages()}>
-							{(m) => (
+							{(m, i) => (
 								<ChatMessage
 									message={m}
 									notePreview={props.notePreview}
 									onNavigateToNote={props.onNavigateToNote}
 									memoryNookId={props.chatNookId}
+									debugMode={ui.debugMode()}
+									getToolInputStream={getToolInputStream}
+									onQuickReply={
+										i() === messages().length - 1 && !quickReplyDismissed()
+											? (text) => void send(text, model())
+											: undefined
+									}
+									onQuickReplyOther={
+										i() === messages().length - 1
+											? () => {
+													setQuickReplyDismissed(true);
+													chatInputEl?.focus();
+												}
+											: undefined
+									}
+									inputDisabled={
+										streaming() || reconnecting() || pendingApproval() !== null
+									}
 								/>
 							)}
 						</For>
@@ -661,36 +1039,40 @@ export function ChatPanel(props: Props) {
 				</div>
 
 				<div class={styles.inputArea}>
-					<Show
-						when={
-							streaming() &&
-							(() => {
-								const msgs = messages();
-								const last = msgs[msgs.length - 1];
-								return (
-									!last ||
-									last.role !== "assistant" ||
-									(last as { text?: string }).text === ""
-								);
-							})()
-						}
-					>
+					<Show when={streaming() && imageGenStartedAt() === null}>
+						<div class={styles.thinkingBar} />
+					</Show>
+					<Show when={imageGenStartedAt() !== null}>
 						<div
 							style={{
 								display: "flex",
 								"align-items": "center",
-								gap: "6px",
-								padding: "6px 0",
-								color: "var(--color-text-muted, #888)",
-								"font-size": "0.8rem",
+								gap: "8px",
+								padding: "8px 10px",
+								"font-size": "0.8125rem",
+								color: "var(--color-text-secondary)",
+								background: "var(--color-primary-bg, #eff6ff)",
+								border: "1px solid var(--color-primary-border, #bae6fd)",
+								"border-radius": "6px",
+								"margin-bottom": "6px",
 							}}
 						>
-							<span class={styles.thinkingDots}>
-								<span />
-								<span />
-								<span />
+							<span class={styles.toolSpinner} aria-hidden="true" />
+							<span>Generating image…</span>
+							<span
+								style={{
+									"margin-left": "auto",
+									"font-variant-numeric": "tabular-nums",
+									color: "var(--color-text-muted)",
+								}}
+							>
+								{(() => {
+									const started = imageGenStartedAt();
+									if (started === null) return "";
+									const sec = Math.floor((nowMs() - started) / 1000);
+									return `${sec}s`;
+								})()}
 							</span>
-							Thinking...
 						</div>
 					</Show>
 					<Show when={streaming()}>
@@ -698,6 +1080,7 @@ export function ChatPanel(props: Props) {
 							type="button"
 							onClick={() => {
 								abortCtrl?.abort();
+								tts.cancel();
 								setStreaming(false);
 								setMessages((prev) => {
 									const last = prev[prev.length - 1];
@@ -736,73 +1119,15 @@ export function ChatPanel(props: Props) {
 						}
 						model={model()}
 						onModelChange={setModel}
+						inputRef={(el) => {
+							chatInputEl = el;
+						}}
+						voiceMode={voiceMode()}
+						onVoiceModeChange={setVoiceMode}
+						voiceLang={voiceLang()}
+						onVoiceLangChange={setVoiceLang}
+						contextUsage={contextUsage()}
 					/>
-					<Show when={contextUsage().ratio > 0}>
-						{(() => {
-							const pct = () => Math.round(contextUsage().ratio * 100);
-							const color = () =>
-								contextUsage().ratio > 0.9
-									? "var(--color-danger, #ef4444)"
-									: contextUsage().ratio > 0.5
-										? "var(--color-warning, #f59e0b)"
-										: "var(--color-text-faint, #ccc)";
-							// SVG circle: radius=8, circumference=50.27
-							const circumference = 50.27;
-							const offset = () => circumference * (1 - contextUsage().ratio);
-							return (
-								<div
-									style={{
-										"margin-top": "4px",
-										display: "flex",
-										"align-items": "center",
-										"justify-content": "flex-end",
-										gap: "4px",
-									}}
-								>
-									<svg
-										width="18"
-										height="18"
-										viewBox="0 0 20 20"
-										aria-hidden="true"
-									>
-										<title>Context usage</title>
-										<circle
-											cx="10"
-											cy="10"
-											r="8"
-											fill="none"
-											stroke="var(--color-border-light, #eee)"
-											stroke-width="2.5"
-										/>
-										<circle
-											cx="10"
-											cy="10"
-											r="8"
-											fill="none"
-											stroke={color()}
-											stroke-width="2.5"
-											stroke-dasharray={String(circumference)}
-											stroke-dashoffset={String(offset())}
-											stroke-linecap="round"
-											transform="rotate(-90 10 10)"
-											style={{
-												transition: "stroke-dashoffset 0.3s, stroke 0.3s",
-											}}
-										/>
-									</svg>
-									<span
-										style={{
-											"font-size": "0.65rem",
-											color: color(),
-											"white-space": "nowrap",
-										}}
-									>
-										{pct()}%
-									</span>
-								</div>
-							);
-						})()}
-					</Show>
 				</div>
 			</Show>
 		</div>

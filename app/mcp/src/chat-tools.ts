@@ -15,17 +15,16 @@ export const TOOLS: Anthropic.Tool[] = [
   },
   {
     name: 'create_note',
-    description: 'Create a new note in the current nook. To create a graph view note, set type to "graph" and pass properties with rootNoteId (the center note UUID) and optional settings: depth (1-5), includeFiles (boolean), layout ("force"|"tree"|"radial"), filterTypeIds (string[]), filterPredicateIds (string[]), hiddenNodeIds (string[]), linkDistance (number), chargeStrength (number), nodeSize (number), linkWidth (number).',
+    description: 'Create a new note in the current nook. You MUST always set type_id — call list_note_types first to pick the most appropriate type (or use the base type key "base" as fallback). You can pass the type key string (e.g. "base", "file") or UUID. Pass attributes as a JSON object keyed by attribute UUIDs.',
     input_schema: {
       type: 'object',
       properties: {
         title:      { type: 'string' },
         content:    { type: 'string', description: 'Note content in markdown. To link to another note use [[note:<full_uuid>]] with the complete UUID (never shorten) — the title is resolved automatically. To embed a file note as an image use ![Note Title](note:<full_uuid>).' },
-        type:       { type: 'string', description: 'Note type: "anything" (default), "file", or "graph" for saved graph views.' },
-        type_id:    { type: 'string', description: 'Note type ID from taxonomy' },
-        properties: { type: 'object', description: 'JSON properties. For graph notes: { rootNoteId: "<uuid>", depth?: 2, layout?: "force"|"tree"|"radial", includeFiles?: false, ... }' },
+        type_id:    { type: 'string', description: 'Note type ID or key (e.g. "base", "meeting"). Always set this — use "base" as fallback if unsure.' },
+        attributes: { type: 'object', description: 'JSON attributes keyed by attribute UUID' },
       },
-      required: ['title'],
+      required: ['title', 'type_id'],
     },
   },
   {
@@ -38,7 +37,8 @@ export const TOOLS: Anthropic.Tool[] = [
         expected_version: { type: 'number', description: 'The version number from when you last read the note. Required to prevent overwriting concurrent edits.' },
         title:            { type: 'string', description: 'New title. Omit to keep existing title.' },
         content:          { type: 'string', description: 'Note content in markdown. To link to another note use [[note:<full_uuid>]] with the complete UUID (never shorten) — the title is resolved automatically. To embed a file note as an image use ![Note Title](note:<full_uuid>).' },
-        properties:       { type: 'object' },
+        type_id:          { type: 'string', description: 'Change the note type (triggers attribute archive/restore)' },
+        attributes:       { type: 'object', description: 'JSON attributes keyed by attribute UUID. Null values delete keys.' },
       },
       required: ['note_id', 'expected_version'],
     },
@@ -64,7 +64,7 @@ export const TOOLS: Anthropic.Tool[] = [
   },
   {
     name: 'create_note_type',
-    description: 'Create a new note type in the current nook\'s taxonomy. Always call list_note_types first so you can see the existing hierarchy and choose the right parent. Show the user a summary like "Creating type \'Employee\' under \'Person\'" before proceeding. The key must be a unique lowercase slug (e.g. "employee", "project-phase").',
+    description: 'Create a new note type in the current nook\'s taxonomy. Always call list_note_types first so you can see the existing hierarchy and choose the right parent. Show the user a summary like "Creating type \'Employee\' under \'Person\'" before proceeding. The key must be a unique lowercase slug (e.g. "employee", "project-phase"). Schema mutations (create/update/delete on note types and their attributes) require the user to be the nook owner — this will 403 in nooks the user only collaborates on (including ai-memory, which is system-owned). Don\'t suggest schema changes in those nooks.',
     input_schema: {
       type: 'object',
       properties: {
@@ -78,7 +78,7 @@ export const TOOLS: Anthropic.Tool[] = [
   },
   {
     name: 'update_note_type',
-    description: 'Update the label or description of an existing note type. Use this to rename a type or improve its description. Does not change the key or parent — those are structural changes that should be done in settings.',
+    description: 'Update the label or description of an existing note type. Use this to rename a type or improve its description. Does not change the key or parent — those are structural changes that should be done in settings. Owner-only: will 403 in shared nooks where the user isn\'t the nook owner.',
     input_schema: {
       type: 'object',
       properties: {
@@ -90,16 +90,92 @@ export const TOOLS: Anthropic.Tool[] = [
     },
   },
   {
-    name: 'search_notes',
-    description: 'Search notes by title or content. Use type_id to filter by note type, or "all" to search across all types. Always use this instead of listing all notes.',
+    name: 'list_type_attributes',
+    description: 'List all attributes defined on a note type, including inherited attributes from ancestor types. Returns each attribute\'s id, name, kind, config (display options, select options, etc.), inherited flag, and overridden flag. Hidden inherited attributes are excluded. Use this to understand what structured data a type supports before creating or updating notes with attributes.',
     input_schema: {
       type: 'object',
       properties: {
-        q:           { type: 'string', description: 'Text search query (searches title and content). Multiple words are split and matched independently. Use double quotes for exact phrases: "meeting notes" project. Leave empty to list all notes.' },
-        type_id:     { type: 'string', description: 'Note type ID to filter by, or "all" for all types' },
-        search_mode: { type: 'string', enum: ['and', 'or'], description: 'How to combine multiple search words. "and" (default): all words must match. "or": any word can match.' },
-        sort:        { type: 'string', enum: ['newest', 'oldest', 'updated_newest', 'updated_oldest'], description: 'Sort order. Default: newest (created_at desc). Use updated_newest to find recently modified notes.' },
-        cursor:      { type: 'string', description: 'Pagination cursor from previous response' },
+        type_id: { type: 'string', description: 'The note type ID' },
+      },
+      required: ['type_id'],
+    },
+  },
+  {
+    name: 'get_note_history',
+    description: 'Get the edit history of a note — who changed it, when, and at which version. Returns a list of history entries with version numbers, action (INSERT/UPDATE), user, and timestamp. Use this to understand how a note evolved over time, or to find a specific version to inspect. To link to a version: /nooks/{nookId}/notes/{noteId}/v/{version}. To link to a diff: /nooks/{nookId}/notes/{noteId}/compare/{fromVersion} (or /compare/{from}/{to}).',
+    input_schema: {
+      type: 'object',
+      properties: {
+        note_id: { type: 'string' },
+        nook_id: { type: 'string', description: 'The nook ID. Defaults to current nook if omitted.' },
+      },
+      required: ['note_id'],
+    },
+  },
+  {
+    name: 'get_note_version',
+    description: 'Get a specific historical version of a note by version number. Returns the full note snapshot (title, content, attributes) as it was at that version. Use after get_note_history to inspect a particular version. To link users to this version: /nooks/{nookId}/notes/{noteId}/v/{version}',
+    input_schema: {
+      type: 'object',
+      properties: {
+        note_id: { type: 'string' },
+        nook_id: { type: 'string', description: 'The nook ID. Defaults to current nook if omitted.' },
+        version: { type: 'number', description: 'The version number to retrieve (from get_note_history)' },
+      },
+      required: ['note_id', 'version'],
+    },
+  },
+  {
+    name: 'compare_note_versions',
+    description: 'Compare two versions of a note. Returns a unified diff of the content, plus metadata (title, type, attributes) for both versions. If "to_version" is omitted, compares against the current version. To link users to a diff view, use: /nooks/{nookId}/notes/{noteId}/compare/{fromVersion} or /nooks/{nookId}/notes/{noteId}/compare/{fromVersion}/{toVersion}',
+    input_schema: {
+      type: 'object',
+      properties: {
+        note_id: { type: 'string' },
+        nook_id: { type: 'string', description: 'The nook ID. Defaults to current nook if omitted.' },
+        from_version: { type: 'number', description: 'The older version number to compare from' },
+        to_version: { type: 'number', description: 'The newer version number to compare to. Omit to compare against current.' },
+      },
+      required: ['note_id', 'from_version'],
+    },
+  },
+  {
+    name: 'get_note_summary',
+    description: 'Get lightweight note metadata: title, type, attributes, and table of contents (headings) — without loading the full content. Use this to understand a note\'s structure before deciding which section to read. Much cheaper than get_note for long notes.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        note_id: { type: 'string' },
+        nook_id: { type: 'string', description: 'The nook ID. Defaults to current nook if omitted.' },
+      },
+      required: ['note_id'],
+    },
+  },
+  {
+    name: 'get_note_section',
+    description: 'Read a specific section of a note by character position. Use after get_note_summary or search_notes heading_matches to read just the relevant section instead of the full note. Returns the section content from the heading at the given position to the next heading of the same or higher level.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        note_id: { type: 'string' },
+        nook_id: { type: 'string', description: 'The nook ID. Defaults to current nook if omitted.' },
+        position: { type: 'number', description: 'Character offset of the section heading (from headings or heading_matches)' },
+      },
+      required: ['note_id', 'position'],
+    },
+  },
+  {
+    name: 'search_notes',
+    description: 'Search notes by title, content, or attribute values. Returns a LEAN list — each result is just {id, title, type_id, timestamps, mention/link counts}.\n\nSearch is cheap and lean. When the user\'s ask can be approached from multiple angles (synonyms, related concepts, sibling categories, different attribute_filters), issue SEVERAL search_notes calls in PARALLEL in the same turn — one per angle. Then dedupe results by id and decide which ones are worth a deep read. This is much faster and more thorough than a single search with a vague query.\n\nTo read a note\'s full content/attributes, follow up with get_note(id) — also parallelize those calls when investigating multiple candidates (they\'re independent).\n\nUse type_id to filter by note type. Use attribute_filters for structured queries like "rating >= 4" or "date between X and Y" — those filter server-side without you needing to read the values. When a search query is provided, results also include heading_matches — headings (h1-h6) extracted from notes that match the query, with note_id, note_title, level, text, and position (character offset for jump-to-section).',
+    input_schema: {
+      type: 'object',
+      properties: {
+        q:                  { type: 'string', description: 'Text search query (searches title and content). Leave empty to list all notes.' },
+        type_id:            { type: 'string', description: 'Note type ID to filter by, or "all" for all types' },
+        attribute_filters:  { type: 'string', description: 'JSON array of attribute filters. Each filter: {"attribute_id":"<uuid>","op":"<operator>","value":<value>}. Operators: eq, neq, gt, gte, lt, lte (number), date_gt/date_gte/date_lt/date_lte (date), contains/starts_with (text), is_null/is_not_null, in (select array), overlaps (date_range with {"from":"...","to":"..."}).' },
+        search_mode:        { type: 'string', enum: ['and', 'or'], description: 'How to combine multiple search words. Default: "and".' },
+        sort:               { type: 'string', enum: ['newest', 'oldest', 'updated_newest', 'updated_oldest'], description: 'Sort order. Default: newest.' },
+        cursor:             { type: 'string', description: 'Pagination cursor from previous response' },
       },
       required: [],
     },
@@ -117,12 +193,32 @@ export const TOOLS: Anthropic.Tool[] = [
     },
   },
   {
+    name: 'ask_user',
+    description: 'Present the user with quick-reply buttons for simple choices. Use this when you need a yes/no confirmation, a choice between 2-4 options, or any simple decision. The user sees clickable buttons but can also type a free-form response instead. Always include your question in the preceding text — the buttons are just a convenience.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        options: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Button labels (2-5 short options, max 5). E.g. ["Yes", "No"] or ["Option A", "Option B", "Something else"]',
+        },
+        other_label: {
+          type: 'string',
+          description: 'Custom label for the free-form reply button. Defaults to "Other…" if omitted.',
+        },
+      },
+      required: ['options'],
+    },
+  },
+  {
     name: 'search_all_nooks',
-    description: 'Search notes across ALL nooks the user has access to. Only use this when the user explicitly asks to search globally, or when a local search_notes returned no results and you want to ask the user if they\'d like to search more broadly. Prefer search_notes (local to current nook) first.',
+    description: 'Search notes across ALL nooks the user has access to. Only use this when the user explicitly asks to search globally, or when a local search_notes returned no results and you want to ask the user if they\'d like to search more broadly. Prefer search_notes (local to current nook) first. Also returns heading_matches for headings matching the query.\n\nLike search_notes, this is cheap and lean — when you go broad you can fan out several search_all_nooks calls in parallel with different angles in the same turn and dedupe results by id before deciding which notes to deep-read via get_note.',
     input_schema: {
       type: 'object',
       properties: {
         q: { type: 'string', description: 'Text search query (searches title and content across all accessible nooks)' },
+        search_mode: { type: 'string', enum: ['and', 'or'], description: 'How to combine multiple search words. Default: "and".' },
       },
       required: ['q'],
     },
@@ -219,10 +315,28 @@ export const TOOLS: Anthropic.Tool[] = [
       required: ['task'],
     },
   },
+  // ── Image generation (creates or refines a generated_image note in ai-memory) ──
+  {
+    name: 'generate_image',
+    description: 'Generate an image from a text prompt and store it as a generated_image note in the user\'s AI memory nook (default) or a specific nook. Costs real money per call — the user is asked to approve. Returns the new note\'s id, the model\'s revised_prompt, and the call\'s usage/cost.\n\nRefinement vs new note: when the user says something like "make it darker" or "the same one but with a sunset" they\'re refining the LAST image you generated in this chat — pass that note id as refine_note_id so we update the existing note, bump the file version, and append the new summary to its body. When the user says something like "for the birthday party, the invitation needs..." referring to an older image, FIRST use memory_search to find the matching prior generated_image note, then refine that one. When in doubt about which note to refine, use ask_user to confirm — never silently guess between candidates.\n\nFor a brand-new topic (no prior image referenced), omit refine_note_id and a fresh note is created.\n\nDefault quality is "low" — fast and cheap (~$0.01–0.02), great for prompt iteration. Only escalate to medium (~$0.04–0.06) or high (~$0.17–0.25) when the user explicitly asks for a finished/printable image. On a refinement, omitted size/quality/transparent inherit from the prior note.\n\nThe summary field is required: write a short (1–2 sentence) human-readable description of what this iteration is about; it seeds the note body and, on refinements, gets appended as a versioned changelog so the user has a chronological narrative of how the image evolved.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        prompt:         { type: 'string', description: 'What to generate. Be specific — the provider rewrites short prompts and you\'ll get a revised_prompt back showing what it actually drew.' },
+        summary:        { type: 'string', description: 'A 1–2 sentence human-readable description of this iteration ("first take of the birthday invitation in pastels" / "swapped the pink for lavender per user request"). Seeds the note body; on refinements becomes a versioned changelog entry.' },
+        nook_id:        { type: 'string', description: 'Target nook UUID. Omit to drop the image in ai-memory (the default and recommended behaviour).' },
+        refine_note_id: { type: 'string', description: 'UUID of an existing generated_image note to refine. When provided, the existing note is updated (file_version bumped, attributes overwritten, summary appended) instead of creating a new note. The note must be a generated_image in the same target nook. Inherit-default: any of size/quality/transparent you omit will reuse the prior note\'s values.' },
+        size:           { type: 'string', enum: ['1024x1024', '1024x1536', '1536x1024', 'auto'], description: 'Output dimensions. New-note default: 1024x1024. Refinement: inherits prior note\'s size when omitted.' },
+        quality:        { type: 'string', enum: ['low', 'medium', 'high', 'auto'], description: 'Rendering quality. New-note default: "low". Refinement: inherits prior note\'s quality when omitted. low ~$0.01–0.02, medium ~$0.04–0.06, high ~$0.17–0.25 (~4–6× the cost). Escalate only when the user explicitly asks for a finished/printable image.' },
+        transparent:    { type: 'boolean', description: 'Generate with a transparent background (PNG with alpha). New-note default: false. Refinement: inherits prior value when omitted.' },
+      },
+      required: ['prompt', 'summary'],
+    },
+  },
   // ── User memory nook tools (cross-nook, auto-approved) ──
   {
     name: 'memory_search',
-    description: 'Search the user\'s personal AI memory nook. Use this to recall cross-nook information about the user (preferences, facts, patterns). Auto-approved.',
+    description: 'Search the user\'s personal AI memory nook. Use this to recall cross-nook information about the user (preferences, facts, patterns). Returns LEAN results (id + title + type_id only).\n\nMemory recall is cheap and auto-approved — issue several memory_search calls in PARALLEL with different keywords/angles when the topic is broad (e.g. for a meeting-prep task, you might search "meeting", "agenda", the project name, and the attendees in parallel). Dedupe by id, then memory_get(id) — also in parallel — for the ones you actually need to read.',
     input_schema: {
       type: 'object',
       properties: {
@@ -289,8 +403,22 @@ export async function executeTool(
       body: body !== undefined ? JSON.stringify(body) : undefined,
     });
     const text = await res.text();
-    if (!res.ok) throw new Error(`API ${res.status}: ${text}`);
-    return text ? JSON.parse(text) : null;
+    if (!res.ok) {
+      throw new Error(`API ${res.status} ${method} ${path}: ${text.slice(0, 800)}`);
+    }
+    if (!text) return null;
+    try {
+      return JSON.parse(text);
+    } catch (e) {
+      // The API returned 2xx but non-JSON — typically PHP warning HTML
+      // leaking ahead of the JSON body. Include the first chunk of the
+      // raw response in the error so the upstream caller (and the AI
+      // surfacing it) can see what actually came back.
+      const snippet = text.slice(0, 800).replace(/\s+/g, ' ').trim();
+      throw new Error(
+        `API ${method} ${path} returned non-JSON (status ${res.status}, content-type ${res.headers.get('content-type') ?? 'unknown'}): ${snippet}`,
+      );
+    }
   };
   const noteId = String(input.note_id ?? '');
 
@@ -307,9 +435,21 @@ export async function executeTool(
       if (typeof body.type_id === 'string' && !/^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(body.type_id)) {
         try {
           const typesData = await api('GET', `/api/nooks/${nookId}/note-types`) as { types?: Array<{ id: string; key: string }> };
-          const match = typesData?.types?.find(t => t.key === body.type_id);
-          if (match) body = { ...body, type_id: match.id };
-        } catch { /* best-effort */ }
+          const key = body.type_id as string;
+          // Try exact key match, then fall back to 'base' type
+          const match = typesData?.types?.find(t => t.key === key)
+            ?? typesData?.types?.find(t => t.key === 'base');
+          if (match) {
+            body = { ...body, type_id: match.id };
+          } else {
+            // No types at all — strip type_id to avoid sending invalid string
+            const { type_id: _, ...rest } = body;
+            body = rest;
+          }
+        } catch { /* best-effort — strip non-UUID type_id to avoid API error */
+          const { type_id: _, ...rest } = body;
+          body = rest;
+        }
       }
       return JSON.stringify(await api('POST', `/api/nooks/${nookId}/notes`, body));
     }
@@ -337,6 +477,11 @@ export async function executeTool(
       return JSON.stringify({ types, hierarchy });
     }
 
+    case 'list_type_attributes': {
+      const typeId = String(input.type_id ?? '');
+      return JSON.stringify(await api('GET', `/api/nooks/${nookId}/note-types/${typeId}/attributes`));
+    }
+
     case 'create_note_type': {
       const body: Record<string, unknown> = {
         key:   String(input.key ?? ''),
@@ -349,7 +494,15 @@ export async function executeTool(
 
     case 'update_note_type': {
       const typeId = String(input.type_id ?? '');
-      const body: Record<string, unknown> = {};
+      // Fetch current type to get required fields (key, label)
+      const typesData = await api('GET', `/api/nooks/${nookId}/note-types`) as { types?: Array<Record<string, unknown>> };
+      const current = typesData?.types?.find(t => t.id === typeId);
+      const body: Record<string, unknown> = {
+        key: current?.key ?? '',
+        label: current?.label ?? '',
+        description: current?.description ?? '',
+        parent_id: current?.parent_id ?? '',
+      };
       if (input.label !== undefined)       body.label       = String(input.label);
       if (input.description !== undefined) body.description = String(input.description);
       return JSON.stringify(await api('PUT', `/api/nooks/${nookId}/note-types/${typeId}`, body));
@@ -361,15 +514,55 @@ export async function executeTool(
     case 'list_link_predicates':
       return JSON.stringify(await api('GET', `/api/nooks/${nookId}/link-predicates`));
 
-    case 'search_notes': {
-      const typeId = String(input.type_id ?? 'all');
+    case 'get_note_history': {
+      const targetNook = String(input.nook_id || nookId);
+      return JSON.stringify(await api('GET', `/api/nooks/${targetNook}/notes/${noteId}/history`));
+    }
+
+    case 'get_note_version': {
+      const targetNook = String(input.nook_id || nookId);
+      const ver = Number(input.version ?? 1);
+      return JSON.stringify(await api('GET', `/api/nooks/${targetNook}/notes/${noteId}/history/v${ver}`));
+    }
+
+    case 'compare_note_versions': {
+      const targetNook = String(input.nook_id || nookId);
       const params = new URLSearchParams();
+      params.set('from', String(input.from_version ?? 1));
+      if (input.to_version) params.set('to', String(input.to_version));
+      return JSON.stringify(await api('GET', `/api/nooks/${targetNook}/notes/${noteId}/diff?${params}`));
+    }
+
+    case 'get_note_summary': {
+      const targetNook = String(input.nook_id || nookId);
+      return JSON.stringify(await api('GET', `/api/nooks/${targetNook}/notes/${noteId}/summary`));
+    }
+
+    case 'get_note_section': {
+      const targetNook = String(input.nook_id || nookId);
+      const pos = Number(input.position ?? 0);
+      return JSON.stringify(await api('GET', `/api/nooks/${targetNook}/notes/${noteId}?section_at=${pos}`));
+    }
+
+    case 'search_notes': {
+      const typeId = String(input.type_id ?? '');
+      const params = new URLSearchParams();
+      // Lean by default — id/title/type_id + counts. The AI inspects
+      // titles to pick which notes are worth a follow-up get_note
+      // call (which it can parallelize across the candidates it
+      // cares about). attribute_filters still works because that's a
+      // server-side WHERE — the AI doesn't need to read the values
+      // to filter by them.
+      if (typeId !== '' && typeId !== 'all') {
+        params.set('type_id', typeId);
+        params.set('include_subtypes', '1');
+      }
       if (input.q) params.set('q', String(input.q));
+      if (input.attribute_filters) params.set('attribute_filters', String(input.attribute_filters));
       if (input.search_mode) params.set('search_mode', String(input.search_mode));
       if (input.sort) params.set('sort', String(input.sort));
       if (input.cursor) params.set('cursor', String(input.cursor));
-      const qs = params.toString() ? `?${params}` : '';
-      return JSON.stringify(await api('GET', `/api/nooks/${nookId}/note-types/${typeId}/notes${qs}`));
+      return JSON.stringify(await api('GET', `/api/nooks/${nookId}/notes?${params.toString()}`));
     }
 
     case 'start_new_chat': {
@@ -378,8 +571,11 @@ export async function executeTool(
     }
 
     case 'search_all_nooks': {
-      const q = String(input.q ?? '');
-      return JSON.stringify(await api('GET', `/api/search?q=${encodeURIComponent(q)}&limit=20`));
+      const params = new URLSearchParams();
+      params.set('q', String(input.q ?? ''));
+      params.set('limit', '20');
+      if (input.search_mode) params.set('search_mode', String(input.search_mode));
+      return JSON.stringify(await api('GET', `/api/search?${params}`));
     }
 
     case 'open_note':
@@ -413,13 +609,31 @@ export async function executeTool(
       );
     }
 
+    // ── Image generation ──
+    case 'generate_image': {
+      // Sentinel "ai-memory" is resolved server-side; pass it through
+      // whenever the caller doesn't specify a nook so we don't have
+      // to round-trip GET /nooks/ai-memory from here.
+      const target = typeof input.nook_id === 'string' && input.nook_id.trim() !== ''
+        ? input.nook_id.trim()
+        : 'ai-memory';
+      const body: Record<string, unknown> = { prompt: String(input.prompt ?? '') };
+      if (input.summary)        body.summary = String(input.summary);
+      if (input.refine_note_id) body.refine_note_id = String(input.refine_note_id);
+      if (input.size)           body.size = String(input.size);
+      if (input.quality)        body.quality = String(input.quality);
+      if (input.transparent)    body.transparent = true;
+      return JSON.stringify(await api('POST', `/api/nooks/${target}/ai-images`, body));
+    }
+
     // ── User memory nook tools ──
     case 'memory_search': {
       if (!memoryNookId) throw new Error('AI memory nook not available');
       const params = new URLSearchParams();
+      // Lean — title/id only. Follow up with memory_get(id) for any
+      // memory whose content/attributes you actually need to read.
       if (input.q) params.set('q', String(input.q));
-      const qs = params.toString() ? `?${params}` : '';
-      return JSON.stringify(await api('GET', `/api/nooks/${memoryNookId}/note-types/all/notes${qs}`));
+      return JSON.stringify(await api('GET', `/api/nooks/${memoryNookId}/notes?${params.toString()}`));
     }
 
     case 'memory_get': {
@@ -443,6 +657,11 @@ export async function executeTool(
       if (input.title !== undefined) body.title = input.title;
       if (input.content !== undefined) body.content = input.content;
       return JSON.stringify(await api('PUT', `/api/nooks/${memoryNookId}/notes/${uid}`, body));
+    }
+
+    case 'ask_user': {
+      const options = Array.isArray(input.options) ? input.options.map(String) : [];
+      return JSON.stringify({ presented: true, options, note: 'Buttons shown to user. Wait for their next message.' });
     }
 
     default:

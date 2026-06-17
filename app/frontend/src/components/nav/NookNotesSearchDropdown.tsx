@@ -1,8 +1,11 @@
-import { createMemo, createSignal, For, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
+import { apiFetch } from "../../auth/keycloak";
 import { normalizeToken, parseTypedSearch } from "../../noteSearch";
 import type { NookStore } from "../../pages/nook/store";
 import { SEARCH_DEBOUNCE_MS } from "../../settings";
 import styles from "../Nav.module.css";
+
+type NoteTitle = { id: string; title: string; type_id: string };
 
 export type NookNotesSearchDropdownProps = {
 	store: NookStore | null;
@@ -20,11 +23,55 @@ export function NookNotesSearchDropdown(props: NookNotesSearchDropdownProps) {
 	let inputRef: HTMLInputElement | undefined;
 	let panelInputRef: HTMLInputElement | undefined;
 
-	const noteResults = createMemo(() => {
+	// Lean lazy fetch — only id+title+type_id, only when the dropdown
+	// actually gets focused. Replaces the previous behavior of eagerly
+	// loading 50 full notes on every nook open via the store.
+	const [titles, setTitles] = createSignal<NoteTitle[]>([]);
+	const [titlesLoaded, setTitlesLoaded] = createSignal(false);
+	const loadTitles = async (rawQuery: string) => {
 		const s = store();
-		if (!s) return [];
-		return s.notes().slice(0, 12);
-	});
+		const nookId = s?.nookId() ?? "";
+		if (nookId === "") return;
+
+		// Honour type:foo prefix syntax (and the explicit-no-type
+		// marker): resolve the type key to its UUID by walking the
+		// loaded types, then pass type_id+include_subtypes to the
+		// lean endpoint. Falls back to no type filter when the term
+		// doesn't match anything or there's no type: prefix.
+		const parsed = parseTypedSearch(rawQuery);
+		let typeId = "";
+		if (parsed.typeTerm.trim() !== "" && s) {
+			const term = normalizeToken(parsed.typeTerm);
+			const match =
+				s.noteTypes().find((t) => normalizeToken(t.key) === term) ??
+				s.noteTypes().find((t) => normalizeToken(t.label) === term);
+			if (match) typeId = match.id;
+		}
+
+		const qs = new URLSearchParams();
+		qs.set("limit", "20");
+		if (typeId !== "") {
+			qs.set("type_id", typeId);
+			qs.set("include_subtypes", "1");
+		}
+		const textTerm = parsed.textTerm.trim();
+		if (textTerm !== "") qs.set("q", textTerm);
+
+		try {
+			const res = await apiFetch(
+				`/api/nooks/${nookId}/notes/titles?${qs.toString()}`,
+				{ method: "GET" },
+			);
+			if (!res.ok) return;
+			const body = (await res.json()) as { notes?: NoteTitle[] };
+			setTitles(body.notes ?? []);
+			setTitlesLoaded(true);
+		} catch {
+			// best-effort — dropdown stays empty rather than throwing
+		}
+	};
+
+	const noteResults = createMemo(() => titles().slice(0, 12));
 
 	const query = createMemo(() => store()?.notesQuery() ?? "");
 
@@ -76,11 +123,23 @@ export function NookNotesSearchDropdown(props: NookNotesSearchDropdownProps) {
 
 	const onSearchInput = (val: string) => {
 		if (debounceTimer) clearTimeout(debounceTimer);
-		debounceTimer = setTimeout(
-			() => store()?.setNotesQuery(val),
-			SEARCH_DEBOUNCE_MS,
-		);
+		debounceTimer = setTimeout(() => {
+			// Keep store's notesQuery in sync so things like the
+			// "active filter" label memo stay accurate; the actual
+			// fetch now happens locally so we don't depend on the
+			// store's reactive effect for it.
+			store()?.setNotesQuery(val);
+			void loadTitles(val);
+		}, SEARCH_DEBOUNCE_MS);
 	};
+
+	// Reset cache when the user switches nooks — the next focus will
+	// fetch fresh titles for the new nook.
+	createEffect(() => {
+		store()?.nookId();
+		setTitlesLoaded(false);
+		setTitles([]);
+	});
 
 	const applyTypeSuggestion = (key: string) => {
 		const fill = `${key}: `;
@@ -96,6 +155,11 @@ export function NookNotesSearchDropdown(props: NookNotesSearchDropdownProps) {
 			closeTimeout = undefined;
 		}
 		setOpen(true);
+		// Lazy fetch: first focus per nook triggers the load. Reopens
+		// reuse the cached list until the user types or switches nooks.
+		if (!titlesLoaded()) {
+			void loadTitles(query());
+		}
 	};
 
 	const handleBlur = () => {
@@ -274,10 +338,59 @@ export function NookNotesSearchDropdown(props: NookNotesSearchDropdownProps) {
 									onClick={() => selectNote(n.id)}
 								>
 									<span>{n.title}</span>
-									<span class={styles["dropdown-meta"]}>{n.type}</span>
 								</button>
 							)}
 						</For>
+						<Show
+							when={
+								query().trim() !== "" &&
+								(store()?.headingMatches()?.length ?? 0) > 0
+							}
+						>
+							<div
+								style={{
+									padding: "4px 12px 2px",
+									"font-size": "0.65rem",
+									"font-weight": "600",
+									color: "var(--color-text-muted)",
+									"text-transform": "uppercase",
+									"letter-spacing": "0.05em",
+									"border-top": "1px solid var(--color-border-light, #eee)",
+									"margin-top": "2px",
+								}}
+							>
+								Heading matches
+							</div>
+							<For each={store()?.headingMatches() ?? []}>
+								{(h) => (
+									<button
+										type="button"
+										class={styles["dropdown-item"]}
+										onMouseDown={(e) => e.preventDefault()}
+										onClick={() => selectNote(h.noteId)}
+										style={{ "padding-left": `${12 + (h.level - 1) * 8}px` }}
+									>
+										<span
+											style={{
+												display: "flex",
+												"flex-direction": "column",
+												gap: "1px",
+											}}
+										>
+											<span>{h.text}</span>
+											<span
+												style={{
+													"font-size": "0.65rem",
+													color: "var(--color-text-muted)",
+												}}
+											>
+												{h.noteTitle}
+											</span>
+										</span>
+									</button>
+								)}
+							</For>
+						</Show>
 					</div>
 					{/* Create note options */}
 					<div class={styles.dropdownFooter}>

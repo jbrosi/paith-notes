@@ -5,61 +5,90 @@ declare(strict_types=1);
 namespace Paith\Notes\Api\Http\Controller;
 
 use Paith\Notes\Api\Http\Context;
+use Paith\Notes\Api\Http\Dto\JsonReader;
+use Paith\Notes\Api\Http\Dto\NoteTypeRequest;
 use Paith\Notes\Api\Http\HttpError;
 use Paith\Notes\Api\Http\JsonResponse;
 use Paith\Notes\Api\Http\Request;
 use Paith\Notes\Api\Http\Response;
+use Paith\Notes\Shared\Db\Row;
+use Paith\Notes\Shared\Db\Rows\NoteTypeRow;
+use Paith\Notes\Shared\Db\Rows\TypeAttributeRow;
+use Paith\Notes\Shared\Uuid;
 use PDO;
 use Throwable;
+use Paith\Notes\Api\Http\Auth\User;
 
 final class NoteTypesController
 {
-    private const ROOT_FILE_TYPE_KEY = 'file';
-    private const TYPE_ID_ALL = 'all';
+    private const DEFAULT_BASE_TYPE_KEY = 'base';
+    private const DEFAULT_FILE_TYPE_KEY = 'file';
+    private const DEFAULT_VIEW_TYPE_KEY = 'view';
 
     public function list(Request $request, Context $context): Response
     {
         $pdo = $context->pdo();
         $user = $context->user();
 
-        $nookId = trim($request->routeParam('nookId'));
-        if ($nookId === '') {
-            throw new HttpError('nookId is required', 400);
-        }
-        if (!self::isUuid($nookId)) {
-            throw new HttpError('nookId must be a UUID', 400);
-        }
+        $nookId = $request->requireUuidRouteParam('nookId');
 
-        $this->requireMember($pdo, $user, $nookId);
+        NookAccess::requireMember($pdo, $user, $nookId);
 
-        $this->ensureRootFileType($pdo, $nookId);
+        $baseTypeId = $this->ensureDefaultBaseType($pdo, $nookId);
+        $this->ensureDefaultFileType($pdo, $nookId, $baseTypeId);
+        $this->ensureDefaultViewType($pdo, $nookId, $baseTypeId);
 
         $stmt = $pdo->prepare(
-            'select id, key, label, description, parent_id, applies_to, created_at, updated_at '
+            'select id, key, label, description, parent_id, attribute_layout, config_overrides, created_at, updated_at '
             . 'from global.note_types where nook_id = :nook_id order by label asc'
         );
         $stmt->execute([':nook_id' => $nookId]);
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-        $types = [];
+        $typeRows = [];
         foreach ($rows as $r) {
             if (!is_array($r)) {
                 continue;
             }
-            $types[] = [
-                'id' => is_scalar($r['id'] ?? null) ? (string)$r['id'] : '',
-                'nook_id' => $nookId,
-                'key' => is_scalar($r['key'] ?? null) ? (string)$r['key'] : '',
-                'label' => is_scalar($r['label'] ?? null) ? (string)$r['label'] : '',
-                'description' => is_scalar($r['description'] ?? null) ? (string)$r['description'] : '',
-                'parent_id' => is_scalar($r['parent_id'] ?? null) ? (string)$r['parent_id'] : '',
-                'applies_to' => is_scalar($r['applies_to'] ?? null) ? (string)$r['applies_to'] : 'notes',
-                'created_at' => is_scalar($r['created_at'] ?? null) ? (string)$r['created_at'] : '',
-                'updated_at' => is_scalar($r['updated_at'] ?? null) ? (string)$r['updated_at'] : '',
+            $row = NoteTypeRow::fromRow($r);
+            $typeRows[$row->id] = $row;
+        }
+
+        // Bulk-load own attributes per type (frontend resolves inheritance via parent_id)
+        $attrStmt = $pdo->prepare(
+            'select id, type_id, name, key, kind, config, indexed, created_at, updated_at '
+            . 'from global.type_attributes where nook_id = :nook_id order by name asc'
+        );
+        $attrStmt->execute([':nook_id' => $nookId]);
+        $attrRows = $attrStmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $attrsByType = [];
+        foreach ($attrRows as $a) {
+            if (!is_array($a)) {
+                continue;
+            }
+            $attr = TypeAttributeRow::fromRow($a);
+            $attrsByType[$attr->typeId][] = $attr->toArray();
+        }
+
+        $types = [];
+        foreach ($typeRows as $id => $row) {
+            $types[] = ['nook_id' => $nookId] + $row->toArray() + [
+                'attributes' => $attrsByType[$id] ?? [],
             ];
         }
 
-        return JsonResponse::ok(['types' => $types]);
+        // Types version: max audit_meta id for type-related changes in this nook.
+        // Used by frontend to skip redundant reloads when WS event carries
+        // the same version it already has.
+        $versionStmt = $pdo->prepare(
+            "select coalesce(max(id), 0) from global.audit_meta "
+            . "where nook_id = :nook_id and table_name in ('note_types', 'type_attributes')"
+        );
+        $versionStmt->execute([':nook_id' => $nookId]);
+        $typesVersion = (int)$versionStmt->fetchColumn();
+
+        return JsonResponse::ok(['types' => $types, 'version' => $typesVersion]);
     }
 
     public function create(Request $request, Context $context): Response
@@ -67,48 +96,19 @@ final class NoteTypesController
         $pdo = $context->pdo();
         $user = $context->user();
 
-        $nookId = trim($request->routeParam('nookId'));
-        if ($nookId === '') {
-            throw new HttpError('nookId is required', 400);
-        }
-        if (!self::isUuid($nookId)) {
-            throw new HttpError('nookId must be a UUID', 400);
-        }
+        $nookId = $request->requireUuidRouteParam('nookId');
 
-        NookAccess::requireWriteAccess($pdo, $user, $nookId);
+        // Schema mutations (type create/update/delete + attribute
+        // create/update/delete) are owner-only. readwrite members
+        // can edit notes and attach files but can't reshape the
+        // schema they depend on.
+        NookAccess::requireOwner($pdo, $user, $nookId);
 
-        $data = $request->jsonBody();
+        $payload = NoteTypeRequest::fromJson($request->jsonBody());
 
-        $keyRaw = $data['key'] ?? '';
-        $key = is_string($keyRaw) ? trim($keyRaw) : '';
-        if ($key === '') {
-            throw new HttpError('key is required', 400);
-        }
-
-        $labelRaw = $data['label'] ?? '';
-        $label = is_string($labelRaw) ? trim($labelRaw) : '';
-        if ($label === '') {
-            throw new HttpError('label is required', 400);
-        }
-
-        $descriptionRaw = $data['description'] ?? '';
-        $description = is_string($descriptionRaw) ? $descriptionRaw : '';
-
-        $parentIdRaw = $data['parent_id'] ?? '';
-        $parentId = is_string($parentIdRaw) ? trim($parentIdRaw) : '';
-        if ($parentId !== '' && !self::isUuid($parentId)) {
-            throw new HttpError('parent_id must be a UUID', 400);
-        }
-
-        $appliesToRaw = $data['applies_to'] ?? 'notes';
-        $appliesTo = is_string($appliesToRaw) ? trim($appliesToRaw) : 'notes';
-        if (!in_array($appliesTo, ['notes', 'files'], true)) {
-            throw new HttpError('applies_to must be "notes" or "files"', 400);
-        }
-
-        if ($parentId !== '') {
+        if ($payload->parentId !== null) {
             $p = $pdo->prepare('select 1 from global.note_types where id = :id and nook_id = :nook_id');
-            $p->execute([':id' => $parentId, ':nook_id' => $nookId]);
+            $p->execute([':id' => $payload->parentId, ':nook_id' => $nookId]);
             if (!$p->fetchColumn()) {
                 throw new HttpError('parent not found', 404);
             }
@@ -118,16 +118,15 @@ final class NoteTypesController
             $pdo->beginTransaction();
 
             $stmt = $pdo->prepare(
-                'insert into global.note_types (nook_id, key, label, description, parent_id, applies_to) '
-                . 'values (:nook_id, :key, :label, :description, :parent_id, :applies_to) '
+                'insert into global.note_types (nook_id, key, label, description, parent_id) '
+                . 'values (:nook_id, :key, :label, :description, :parent_id) '
                 . 'returning id, created_at, updated_at'
             );
             $stmt->bindValue(':nook_id', $nookId);
-            $stmt->bindValue(':key', $key);
-            $stmt->bindValue(':label', $label);
-            $stmt->bindValue(':description', $description);
-            $stmt->bindValue(':parent_id', $parentId !== '' ? $parentId : null);
-            $stmt->bindValue(':applies_to', $appliesTo);
+            $stmt->bindValue(':key', $payload->key);
+            $stmt->bindValue(':label', $payload->label);
+            $stmt->bindValue(':description', $payload->description);
+            $stmt->bindValue(':parent_id', $payload->parentId);
             $stmt->execute();
 
             $row = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -137,19 +136,18 @@ final class NoteTypesController
 
             $pdo->commit();
 
-            $id = is_scalar($row['id'] ?? null) ? (string)$row['id'] : '';
-
             return JsonResponse::ok([
                 'type' => [
-                    'id' => $id,
+                    'id' => Row::str($row, 'id'),
                     'nook_id' => $nookId,
-                    'key' => $key,
-                    'label' => $label,
-                    'description' => $description,
-                    'parent_id' => $parentId,
-                    'applies_to' => $appliesTo,
-                    'created_at' => is_scalar($row['created_at'] ?? null) ? (string)$row['created_at'] : '',
-                    'updated_at' => is_scalar($row['updated_at'] ?? null) ? (string)$row['updated_at'] : '',
+                    'key' => $payload->key,
+                    'label' => $payload->label,
+                    'description' => $payload->description,
+                    'parent_id' => $payload->parentId ?? '',
+                    'attribute_layout' => null,
+                    'config_overrides' => (object)[],
+                    'created_at' => Row::str($row, 'created_at'),
+                    'updated_at' => Row::str($row, 'updated_at'),
                 ],
             ]);
         } catch (Throwable $e) {
@@ -165,23 +163,11 @@ final class NoteTypesController
         $pdo = $context->pdo();
         $user = $context->user();
 
-        $nookId = trim($request->routeParam('nookId'));
-        if ($nookId === '') {
-            throw new HttpError('nookId is required', 400);
-        }
-        if (!self::isUuid($nookId)) {
-            throw new HttpError('nookId must be a UUID', 400);
-        }
+        $nookId = $request->requireUuidRouteParam('nookId');
 
-        $typeId = trim($request->routeParam('typeId'));
-        if ($typeId === '') {
-            throw new HttpError('typeId is required', 400);
-        }
-        if (!self::isUuid($typeId)) {
-            throw new HttpError('typeId must be a UUID', 400);
-        }
+        $typeId = $request->requireUuidRouteParam('typeId');
 
-        NookAccess::requireWriteAccess($pdo, $user, $nookId);
+        NookAccess::requireOwner($pdo, $user, $nookId);
 
         $keyCheck = $pdo->prepare('select key from global.note_types where id = :id and nook_id = :nook_id');
         $keyCheck->execute([':id' => $typeId, ':nook_id' => $nookId]);
@@ -190,70 +176,55 @@ final class NoteTypesController
         if ($existingKey === '') {
             throw new HttpError('type not found', 404);
         }
-        if ($existingKey === self::ROOT_FILE_TYPE_KEY) {
-            throw new HttpError('root file type cannot be modified', 400);
-        }
 
-        $data = $request->jsonBody();
+        $payload = NoteTypeRequest::fromJson($request->jsonBody());
 
-        $keyRaw = $data['key'] ?? '';
-        $key = is_string($keyRaw) ? trim($keyRaw) : '';
-        if ($key === '') {
-            throw new HttpError('key is required', 400);
-        }
-
-        $labelRaw = $data['label'] ?? '';
-        $label = is_string($labelRaw) ? trim($labelRaw) : '';
-        if ($label === '') {
-            throw new HttpError('label is required', 400);
-        }
-
-        $descriptionRaw = $data['description'] ?? '';
-        $description = is_string($descriptionRaw) ? $descriptionRaw : '';
-
-        $parentIdRaw = $data['parent_id'] ?? '';
-        $parentId = is_string($parentIdRaw) ? trim($parentIdRaw) : '';
-        if ($parentId !== '' && !self::isUuid($parentId)) {
-            throw new HttpError('parent_id must be a UUID', 400);
-        }
-        if ($parentId === $typeId) {
+        if ($payload->parentId === $typeId) {
             throw new HttpError('parent_id cannot be self', 400);
         }
 
-        $appliesToRaw = $data['applies_to'] ?? 'notes';
-        $appliesTo = is_string($appliesToRaw) ? trim($appliesToRaw) : 'notes';
-        if (!in_array($appliesTo, ['notes', 'files'], true)) {
-            throw new HttpError('applies_to must be "notes" or "files"', 400);
-        }
-
-        if ($parentId !== '') {
+        if ($payload->parentId !== null) {
             $p = $pdo->prepare('select 1 from global.note_types where id = :id and nook_id = :nook_id');
-            $p->execute([':id' => $parentId, ':nook_id' => $nookId]);
+            $p->execute([':id' => $payload->parentId, ':nook_id' => $nookId]);
             if (!$p->fetchColumn()) {
                 throw new HttpError('parent not found', 404);
             }
         }
 
-        if ($key !== $existingKey) {
+        if ($payload->attributeLayout !== null) {
+            self::validateAttributeLayout($payload->attributeLayout);
+        }
+
+        if ($payload->key !== $existingKey) {
             $dupe = $pdo->prepare('select 1 from global.note_types where nook_id = :nook_id and key = :key and id != :id');
-            $dupe->execute([':nook_id' => $nookId, ':key' => $key, ':id' => $typeId]);
+            $dupe->execute([':nook_id' => $nookId, ':key' => $payload->key, ':id' => $typeId]);
             if ($dupe->fetchColumn()) {
                 throw new HttpError('key already exists', 409);
             }
         }
 
-        $stmt = $pdo->prepare(
-            'update global.note_types set key = :key, label = :label, description = :description, parent_id = :parent_id, applies_to = :applies_to, updated_at = now() '
-            . 'where id = :id and nook_id = :nook_id '
-            . 'returning description, created_at, updated_at'
-        );
+        $sql = 'update global.note_types set key = :key, label = :label, description = :description, parent_id = :parent_id';
+        if ($payload->attributeLayout !== null) {
+            $sql .= ', attribute_layout = :attribute_layout::jsonb';
+        }
+        if ($payload->configOverrides !== null) {
+            $sql .= ', config_overrides = :config_overrides::jsonb';
+        }
+        $sql .= ', updated_at = now() where id = :id and nook_id = :nook_id returning description, attribute_layout, config_overrides, created_at, updated_at';
+
+        $stmt = $pdo->prepare($sql);
         $stmt->bindValue(':id', $typeId);
         $stmt->bindValue(':nook_id', $nookId);
-        $stmt->bindValue(':key', $key);
-        $stmt->bindValue(':label', $label);
-        $stmt->bindValue(':description', $description);
-        $stmt->bindValue(':parent_id', $parentId !== '' ? $parentId : null);
-        $stmt->bindValue(':applies_to', $appliesTo);
+        $stmt->bindValue(':key', $payload->key);
+        $stmt->bindValue(':label', $payload->label);
+        $stmt->bindValue(':description', $payload->description);
+        $stmt->bindValue(':parent_id', $payload->parentId);
+        if ($payload->attributeLayout !== null) {
+            $stmt->bindValue(':attribute_layout', json_encode($payload->attributeLayout));
+        }
+        if ($payload->configOverrides !== null) {
+            $stmt->bindValue(':config_overrides', json_encode($payload->configOverrides));
+        }
         $stmt->execute();
 
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -265,13 +236,14 @@ final class NoteTypesController
             'type' => [
                 'id' => $typeId,
                 'nook_id' => $nookId,
-                'key' => $key,
-                'label' => $label,
-                'description' => is_scalar($row['description'] ?? null) ? (string)$row['description'] : $description,
-                'parent_id' => $parentId,
-                'applies_to' => $appliesTo,
-                'created_at' => is_scalar($row['created_at'] ?? null) ? (string)$row['created_at'] : '',
-                'updated_at' => is_scalar($row['updated_at'] ?? null) ? (string)$row['updated_at'] : '',
+                'key' => $payload->key,
+                'label' => $payload->label,
+                'description' => Row::str($row, 'description', $payload->description),
+                'parent_id' => $payload->parentId ?? '',
+                'attribute_layout' => Row::decodeJsonObject($row['attribute_layout'] ?? null) ?: null,
+                'config_overrides' => Row::decodeJsonObject($row['config_overrides'] ?? null) ?: (object)[],
+                'created_at' => Row::str($row, 'created_at'),
+                'updated_at' => Row::str($row, 'updated_at'),
             ],
         ]);
     }
@@ -281,34 +253,28 @@ final class NoteTypesController
         $pdo = $context->pdo();
         $user = $context->user();
 
-        $nookId = trim($request->routeParam('nookId'));
-        if ($nookId === '') {
-            throw new HttpError('nookId is required', 400);
-        }
-        if (!self::isUuid($nookId)) {
-            throw new HttpError('nookId must be a UUID', 400);
-        }
+        $nookId = $request->requireUuidRouteParam('nookId');
 
-        $typeId = trim($request->routeParam('typeId'));
-        if ($typeId === '') {
-            throw new HttpError('typeId is required', 400);
-        }
-        if (!self::isUuid($typeId)) {
-            throw new HttpError('typeId must be a UUID', 400);
-        }
+        $typeId = $request->requireUuidRouteParam('typeId');
 
-        NookAccess::requireWriteAccess($pdo, $user, $nookId);
+        NookAccess::requireOwner($pdo, $user, $nookId);
 
-        $keyCheck = $pdo->prepare('select key from global.note_types where id = :id and nook_id = :nook_id');
-        $keyCheck->execute([':id' => $typeId, ':nook_id' => $nookId]);
-        $existingKeyRaw = $keyCheck->fetchColumn();
-        $existingKey = is_scalar($existingKeyRaw) ? (string)$existingKeyRaw : '';
-        if ($existingKey === '') {
+        $typeCheck = $pdo->prepare('select 1 from global.note_types where id = :id and nook_id = :nook_id');
+        $typeCheck->execute([':id' => $typeId, ':nook_id' => $nookId]);
+        if (!$typeCheck->fetchColumn()) {
             throw new HttpError('type not found', 404);
         }
-        if ($existingKey === self::ROOT_FILE_TYPE_KEY) {
-            throw new HttpError('root file type cannot be deleted', 400);
+
+        // Prevent deletion if type has children
+        $childCheck = $pdo->prepare('select 1 from global.note_types where parent_id = :id and nook_id = :nook_id limit 1');
+        $childCheck->execute([':id' => $typeId, ':nook_id' => $nookId]);
+        if ($childCheck->fetchColumn()) {
+            throw new HttpError('cannot delete type that has child types — delete or reparent children first', 400);
         }
+
+        // Unset type_id on notes (attributes stay as inert JSONB)
+        $pdo->prepare('update global.notes set type_id = null where type_id = :type_id and nook_id = :nook_id')
+            ->execute([':type_id' => $typeId, ':nook_id' => $nookId]);
 
         $stmt = $pdo->prepare('delete from global.note_types where id = :id and nook_id = :nook_id returning id');
         $stmt->execute([':id' => $typeId, ':nook_id' => $nookId]);
@@ -323,318 +289,178 @@ final class NoteTypesController
         ]);
     }
 
-    public function notes(Request $request, Context $context): Response
+    /**
+     * Ensure the base type exists. All other types inherit from it.
+     * Returns the base type ID.
+     */
+    private function ensureDefaultBaseType(PDO $pdo, string $nookId): string
     {
-        $pdo = $context->pdo();
-        $user = $context->user();
-
-        $nookId = trim($request->routeParam('nookId'));
-        if ($nookId === '') {
-            throw new HttpError('nookId is required', 400);
-        }
-        if (!self::isUuid($nookId)) {
-            throw new HttpError('nookId must be a UUID', 400);
+        $check = $pdo->prepare('select id from global.note_types where nook_id = :nook_id and key = :key');
+        $check->execute([':nook_id' => $nookId, ':key' => self::DEFAULT_BASE_TYPE_KEY]);
+        $existing = $check->fetchColumn();
+        if ($existing) {
+            return (string)$existing;
         }
 
-        $typeId = trim($request->routeParam('typeId'));
-        if ($typeId === '') {
-            throw new HttpError('typeId is required', 400);
-        }
-
-        $this->requireMember($pdo, $user, $nookId);
-
-        $v = strtolower(trim($request->queryParam('include_subtypes')));
-        $includeSubtypes = in_array($v, ['1', 'true', 'yes', 'on'], true);
-
-        $limit = (int)trim($request->queryParam('limit'));
-        if ($limit === 0) {
-            $limit = 50;
-        }
-        if ($limit <= 0) {
-            $limit = 50;
-        }
-        if ($limit > 200) {
-            $limit = 200;
-        }
-
-        $cursor = trim($request->queryParam('cursor'));
-        $cursorCreatedAt = '';
-        $cursorId = '';
-        if ($cursor !== '') {
-            $decoded = base64_decode($cursor, true);
-            if (!is_string($decoded) || $decoded === '') {
-                throw new HttpError('cursor is invalid', 400);
-            }
-            $obj = json_decode($decoded, true);
-            if (!is_array($obj)) {
-                throw new HttpError('cursor is invalid', 400);
-            }
-            // Support both legacy {created_at, id} and current {created_at (sort_val), id}
-            $cursorCreatedAtRaw = $obj['created_at'] ?? '';
-            $cursorIdRaw = $obj['id'] ?? '';
-            $cursorCreatedAt = is_string($cursorCreatedAtRaw) ? trim($cursorCreatedAtRaw) : '';
-            $cursorId = is_string($cursorIdRaw) ? trim($cursorIdRaw) : '';
-            if ($cursorCreatedAt === '' || $cursorId === '' || !self::isUuid($cursorId)) {
-                throw new HttpError('cursor is invalid', 400);
-            }
-        }
-
-        $isAll = $typeId === self::TYPE_ID_ALL;
-        if (!$isAll && !self::isUuid($typeId)) {
-            throw new HttpError('typeId must be a UUID or "all"', 400);
-        }
-
-        if (!$isAll) {
-            $typeCheck = $pdo->prepare('select 1 from global.note_types where id = :id and nook_id = :nook_id');
-            $typeCheck->execute([':id' => $typeId, ':nook_id' => $nookId]);
-            if (!$typeCheck->fetchColumn()) {
-                throw new HttpError('type not found', 404);
-            }
-        }
-
-        // Sort param: newest (default), oldest, updated_newest, updated_oldest
-        $sortParam = strtolower(trim($request->queryParam('sort')));
-        if (!in_array($sortParam, ['newest', 'oldest', 'updated_newest', 'updated_oldest'], true)) {
-            $sortParam = 'newest';
-        }
-        $sortCol = str_starts_with($sortParam, 'updated') ? 'updated_at' : 'created_at';
-        $sortDir = str_ends_with($sortParam, 'oldest') ? 'asc' : 'desc';
-        $cursorOp = $sortDir === 'asc' ? '>' : '<';
-        $orderBy = "order by n.{$sortCol} {$sortDir}, n.id {$sortDir}";
-
-        $q = strtolower(trim($request->queryParam('q')));
-        $searchMode = strtolower(trim($request->queryParam('search_mode')));
-        if (!in_array($searchMode, ['and', 'or'], true)) {
-            $searchMode = 'and';
-        }
-
-        $search = \Paith\Notes\Shared\Search\SearchQueryParser::buildSearchClause($q, $searchMode);
-        $whereSearch = $search['where'];
-        // Boost search rank with total views (logarithmic to avoid popular notes dominating)
-        $searchRank = $search['rank'] !== '0'
-            ? '(' . $search['rank'] . ' + ln(1 + least(coalesce(ns.view_count, 0), 1000)) * 0.5)'
-            : '0';
-        $searchBindings = $search['bindings'];
-
-        $orderByWithRank = $searchRank !== '0'
-            ? "order by search_rank desc, n.{$sortCol} {$sortDir}, n.id {$sortDir}"
-            : $orderBy;
-
-        $kind = strtolower(trim($request->queryParam('kind')));
-        $whereKind = '';
-        if ($kind !== '') {
-            if (!in_array($kind, ['anything', 'file', 'graph'], true)) {
-                throw new HttpError('kind must be one of anything, file, graph', 400);
-            }
-            $whereKind = 'and n.type = :kind';
-        }
-
-        $unlinked = $request->queryParam('unlinked') === '1';
-        $whereUnlinked = $unlinked
-            ? 'and coalesce(ns.outgoing_links, 0) = 0 and coalesce(ns.incoming_links, 0) = 0
-               and coalesce(ns.outgoing_mentions, 0) = 0 and coalesce(ns.incoming_mentions, 0) = 0'
-            : '';
-
-        $whereCursor = '';
-        if ($cursor !== '') {
-            $whereCursor = "and (n.{$sortCol}, n.id) {$cursorOp} (:cursor_sort_val::timestamptz, :cursor_id::uuid)";
-        }
-
-        $limitPlusOne = $limit + 1;
-
-        $selectCols = "select n.id, n.title, n.type, n.type_id, n.created_at, n.updated_at,
-                    coalesce(ns.outgoing_mentions, 0) as outgoing_mentions_count,
-                    coalesce(ns.incoming_mentions, 0) as incoming_mentions_count,
-                    coalesce(ns.outgoing_links, 0) as outgoing_links_count,
-                    coalesce(ns.incoming_links, 0) as incoming_links_count,
-                    {$searchRank} as search_rank";
-        $joinCounts = '
-                left join global.note_stats ns on ns.note_id = n.id';
-
-        if ($isAll) {
-            $stmt = $pdo->prepare(
-                $selectCols . '
-                from global.notes n'
-                . $joinCounts . '
-                where n.nook_id = :nook_id ' . $whereCursor . '
-                ' . $whereSearch . '
-                ' . $whereKind . '
-                ' . $whereUnlinked . '
-                ' . $orderByWithRank . '
-                limit :limit'
-            );
-
-            $stmt->bindValue(':nook_id', $nookId);
-            $stmt->bindValue(':limit', $limitPlusOne, PDO::PARAM_INT);
-            foreach ($searchBindings as $param => $val) {
-                $stmt->bindValue($param, $val);
-            }
-            if ($kind !== '') {
-                $stmt->bindValue(':kind', $kind);
-            }
-            if ($cursor !== '') {
-                $stmt->bindValue(':cursor_sort_val', $cursorCreatedAt);
-                $stmt->bindValue(':cursor_id', $cursorId);
-            }
-            $stmt->execute();
-        } elseif ($includeSubtypes) {
-            $stmt = $pdo->prepare(
-                'with recursive type_tree as (
-                    select id from global.note_types where id = :type_id and nook_id = :nook_id
-                    union all
-                    select nt.id
-                    from global.note_types nt
-                    join type_tree tt on nt.parent_id = tt.id
-                    where nt.nook_id = :nook_id
-                )
-                ' . $selectCols . '
-                from global.notes n'
-                . $joinCounts . '
-                where n.nook_id = :nook_id and n.type_id in (select id from type_tree)
-                ' . $whereCursor . '
-                ' . $whereSearch . '
-                ' . $whereKind . '
-                ' . $whereUnlinked . '
-                ' . $orderByWithRank . '
-                limit :limit'
-            );
-
-            $stmt->bindValue(':nook_id', $nookId);
-            $stmt->bindValue(':type_id', $typeId);
-            $stmt->bindValue(':limit', $limitPlusOne, PDO::PARAM_INT);
-            foreach ($searchBindings as $param => $val) {
-                $stmt->bindValue($param, $val);
-            }
-            if ($kind !== '') {
-                $stmt->bindValue(':kind', $kind);
-            }
-            if ($cursor !== '') {
-                $stmt->bindValue(':cursor_sort_val', $cursorCreatedAt);
-                $stmt->bindValue(':cursor_id', $cursorId);
-            }
-            $stmt->execute();
-        } else {
-            $stmt = $pdo->prepare(
-                $selectCols . '
-                from global.notes n'
-                . $joinCounts . '
-                where n.nook_id = :nook_id and n.type_id = :type_id ' . $whereCursor . '
-                ' . $whereSearch . '
-                ' . $whereKind . '
-                ' . $whereUnlinked . '
-                ' . $orderByWithRank . '
-                limit :limit'
-            );
-
-            $stmt->bindValue(':nook_id', $nookId);
-            $stmt->bindValue(':type_id', $typeId);
-            $stmt->bindValue(':limit', $limitPlusOne, PDO::PARAM_INT);
-            foreach ($searchBindings as $param => $val) {
-                $stmt->bindValue($param, $val);
-            }
-            if ($kind !== '') {
-                $stmt->bindValue(':kind', $kind);
-            }
-            if ($cursor !== '') {
-                $stmt->bindValue(':cursor_sort_val', $cursorCreatedAt);
-                $stmt->bindValue(':cursor_id', $cursorId);
-            }
-            $stmt->execute();
-        }
-
-        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-        $notes = [];
-        $nextCursor = '';
-        $count = count($rows);
-        $hasMore = $count > $limit;
-        if ($hasMore) {
-            $rows = array_slice($rows, 0, $limit);
-        }
-
-        foreach ($rows as $r) {
-            if (!is_array($r)) {
-                continue;
-            }
-
-            $notes[] = [
-                'id' => is_scalar($r['id'] ?? null) ? (string)$r['id'] : '',
-                'nook_id' => $nookId,
-                'title' => is_scalar($r['title'] ?? null) ? (string)$r['title'] : '',
-                'type' => is_scalar($r['type'] ?? null) ? (string)$r['type'] : 'anything',
-                'type_id' => is_scalar($r['type_id'] ?? null) ? (string)$r['type_id'] : '',
-                'created_at' => is_scalar($r['created_at'] ?? null) ? (string)$r['created_at'] : '',
-                'updated_at' => is_scalar($r['updated_at'] ?? null) ? (string)$r['updated_at'] : '',
-                'outgoing_mentions_count' => is_scalar($r['outgoing_mentions_count'] ?? null) ? (int)$r['outgoing_mentions_count'] : 0,
-                'incoming_mentions_count' => is_scalar($r['incoming_mentions_count'] ?? null) ? (int)$r['incoming_mentions_count'] : 0,
-                'outgoing_links_count' => is_scalar($r['outgoing_links_count'] ?? null) ? (int)$r['outgoing_links_count'] : 0,
-                'incoming_links_count' => is_scalar($r['incoming_links_count'] ?? null) ? (int)$r['incoming_links_count'] : 0,
-            ];
-        }
-
-        if ($hasMore && $rows !== []) {
-            $last = $rows[count($rows) - 1];
-            if (is_array($last)) {
-                $lastSortVal = is_scalar($last[$sortCol] ?? null) ? (string)$last[$sortCol] : '';
-                $lastId = is_scalar($last['id'] ?? null) ? (string)$last['id'] : '';
-                if ($lastSortVal !== '' && $lastId !== '' && self::isUuid($lastId)) {
-                    $payload = json_encode(['created_at' => $lastSortVal, 'id' => $lastId]);
-                    if (is_string($payload)) {
-                        $nextCursor = base64_encode($payload);
-                    }
-                }
-            }
-        }
-
-        return JsonResponse::ok([
-            'notes' => $notes,
-            'next_cursor' => $nextCursor,
-        ]);
-    }
-
-    private function requireMember(PDO $pdo, array $user, string $nookId): array
-    {
-        $userId = is_scalar($user['id'] ?? null) ? (string)$user['id'] : '';
-        if ($userId === '') {
-            throw new HttpError('invalid user', 500);
-        }
-
-        $check = $pdo->prepare('select role from global.nook_members where nook_id = :nook_id and user_id = :user_id limit 1');
-        $check->execute([
+        $stmt = $pdo->prepare(
+            'insert into global.note_types (nook_id, key, label, description) '
+            . 'values (:nook_id, :key, :label, :description) '
+            . 'returning id'
+        );
+        $stmt->execute([
             ':nook_id' => $nookId,
-            ':user_id' => $userId,
+            ':key' => self::DEFAULT_BASE_TYPE_KEY,
+            ':label' => 'Note',
+            ':description' => 'Base type — all other types inherit its attributes',
         ]);
-        $row = $check->fetch(PDO::FETCH_ASSOC);
-        if (!is_array($row)) {
-            throw new HttpError('forbidden', 403);
+        $typeIdRaw = $stmt->fetchColumn();
+        $typeId = is_scalar($typeIdRaw) ? (string)$typeIdRaw : '';
+
+        if ($typeId !== '') {
+            $seedAttr = function (string $name, string $key, string $kind, array $config) use ($pdo, $nookId, $typeId): void {
+                $pdo->prepare(
+                    "insert into global.type_attributes (nook_id, type_id, name, key, kind, config) "
+                    . "values (:nook_id, :type_id, :name, :key, :kind, :config::jsonb) "
+                    . "on conflict do nothing"
+                )->execute([
+                    ':nook_id' => $nookId,
+                    ':type_id' => $typeId,
+                    ':name' => $name,
+                    ':key' => $key,
+                    ':kind' => $kind,
+                    ':config' => json_encode($config ?: (object)[]),
+                ]);
+            };
+
+            $seedAttr('Links', 'links', 'linked_notes', ['direction' => 'both', 'display' => 'list']);
+            $seedAttr('Mentions', 'mentions', 'mentions', ['direction' => 'both']);
+            $seedAttr('Content', 'content', 'content', ['mode' => 'markdown']);
+            $seedAttr('Info', 'info', 'metadata', ['show_version' => true, 'show_created' => true, 'show_updated' => true, 'show_views' => true]);
+            $seedAttr('Table of Contents', 'toc', 'toc', ['max_depth' => 3]);
+            $seedAttr('History', 'history', 'history', ['limit' => 5]);
+            $seedAttr('Source', 'source', 'source', []);
         }
-        return $row;
+
+        return $typeId;
     }
 
-    private function ensureRootFileType(PDO $pdo, string $nookId): void
+    private function ensureDefaultFileType(PDO $pdo, string $nookId, string $baseTypeId): void
     {
-        $check = $pdo->prepare('select 1 from global.note_types where nook_id = :nook_id and key = :key');
-        $check->execute([':nook_id' => $nookId, ':key' => self::ROOT_FILE_TYPE_KEY]);
+        $check = $pdo->prepare('select id from global.note_types where nook_id = :nook_id and key = :key');
+        $check->execute([':nook_id' => $nookId, ':key' => self::DEFAULT_FILE_TYPE_KEY]);
         if ($check->fetchColumn()) {
             return;
         }
 
         $stmt = $pdo->prepare(
-            'insert into global.note_types (nook_id, key, label, parent_id, applies_to) '
-            . "values (:nook_id, :key, :label, null, 'files')"
+            'insert into global.note_types (nook_id, key, label, parent_id) '
+            . 'values (:nook_id, :key, :label, :parent_id) '
+            . 'returning id'
         );
         $stmt->execute([
             ':nook_id' => $nookId,
-            ':key' => self::ROOT_FILE_TYPE_KEY,
-            ':label' => 'Files',
+            ':key' => self::DEFAULT_FILE_TYPE_KEY,
+            ':label' => 'File',
+            ':parent_id' => $baseTypeId !== '' ? $baseTypeId : null,
         ]);
+        $typeIdRaw = $stmt->fetchColumn();
+        $typeId = is_scalar($typeIdRaw) ? (string)$typeIdRaw : '';
+
+        if ($typeId !== '') {
+            $attrStmt = $pdo->prepare(
+                "insert into global.type_attributes (nook_id, type_id, name, kind, config) "
+                . "values (:nook_id, :type_id, 'File', 'file', '{\"display\": \"preview\"}'::jsonb) "
+                . "on conflict do nothing"
+            );
+            $attrStmt->execute([':nook_id' => $nookId, ':type_id' => $typeId]);
+        }
     }
 
-    private static function isUuid(string $value): bool
+    private function ensureDefaultViewType(PDO $pdo, string $nookId, string $baseTypeId): void
     {
-        return (bool)preg_match(
-            '/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i',
-            $value
+        $check = $pdo->prepare('select id from global.note_types where nook_id = :nook_id and key = :key');
+        $check->execute([':nook_id' => $nookId, ':key' => self::DEFAULT_VIEW_TYPE_KEY]);
+        if ($check->fetchColumn()) {
+            return;
+        }
+
+        $stmt = $pdo->prepare(
+            'insert into global.note_types (nook_id, key, label, parent_id) '
+            . 'values (:nook_id, :key, :label, :parent_id) '
+            . 'returning id'
         );
+        $stmt->execute([
+            ':nook_id' => $nookId,
+            ':key' => self::DEFAULT_VIEW_TYPE_KEY,
+            ':label' => 'View',
+            ':parent_id' => $baseTypeId !== '' ? $baseTypeId : null,
+        ]);
+        $typeIdRaw = $stmt->fetchColumn();
+        $typeId = is_scalar($typeIdRaw) ? (string)$typeIdRaw : '';
+
+        if ($typeId !== '') {
+            $attrStmt = $pdo->prepare(
+                "insert into global.type_attributes (nook_id, type_id, name, kind, config) "
+                . "values (:nook_id, :type_id, 'View', 'view', '{}'::jsonb) "
+                . "on conflict do nothing"
+            );
+            $attrStmt->execute([':nook_id' => $nookId, ':type_id' => $typeId]);
+        }
+    }
+
+    /** @param array<string, mixed> $layout */
+    private static function validateAttributeLayout(array $layout): void
+    {
+        $panels = $layout['panels'] ?? null;
+        if (!is_array($panels)) {
+            throw new HttpError('attribute_layout.panels must be an array', 400);
+        }
+
+        $validPositions = ['main', 'side-right', 'side-left'];
+        $seenKeys = [];
+        $seenAttrIds = [];
+        $mainCount = 0;
+
+        foreach ($panels as $panel) {
+            if (!is_array($panel)) {
+                throw new HttpError('each panel must be an object', 400);
+            }
+
+            $key = $panel['key'] ?? null;
+            if (!is_string($key) || trim($key) === '') {
+                throw new HttpError('panel.key is required', 400);
+            }
+            if (isset($seenKeys[$key])) {
+                throw new HttpError('duplicate panel key: ' . $key, 400);
+            }
+            $seenKeys[$key] = true;
+
+            $position = $panel['position'] ?? null;
+            if (!is_string($position) || !in_array($position, $validPositions, true)) {
+                throw new HttpError('panel.position must be one of: ' . implode(', ', $validPositions), 400);
+            }
+
+            if ($position === 'main') {
+                $mainCount++;
+            }
+
+            $attrs = $panel['attributes'] ?? [];
+            if (!is_array($attrs)) {
+                throw new HttpError('panel.attributes must be an array', 400);
+            }
+            foreach ($attrs as $attrId) {
+                if (!is_string($attrId)) {
+                    throw new HttpError('panel.attributes entries must be strings', 400);
+                }
+                if (isset($seenAttrIds[$attrId])) {
+                    throw new HttpError('attribute appears in multiple panels: ' . $attrId, 400);
+                }
+                $seenAttrIds[$attrId] = true;
+            }
+        }
+
+        if ($mainCount > 1) {
+            throw new HttpError('only one panel may have position "main"', 400);
+        }
     }
 }

@@ -5,14 +5,17 @@ declare(strict_types=1);
 namespace Paith\Notes\Api\Http;
 
 use FastRoute\Dispatcher;
+use Paith\Notes\Shared\Db\Row;
 use Throwable;
 
 final class Kernel
 {
     private Dispatcher $dispatcher;
 
+    /** @var array<string, list<Middleware>> */
     private array $prefixMiddlewares;
 
+    /** @param array<string, list<Middleware>> $prefixMiddlewares */
     public function __construct(Dispatcher $dispatcher, array $prefixMiddlewares)
     {
         $this->dispatcher = $dispatcher;
@@ -33,10 +36,7 @@ final class Kernel
             }
 
             $handler = $routeInfo[1];
-            $vars = $routeInfo[2] ?? [];
-            if (!is_array($vars)) {
-                $vars = [];
-            }
+            $vars = Row::stringKeyed($routeInfo[2] ?? null);
 
             $request = $request->withRouteParams($vars);
 
@@ -105,14 +105,10 @@ final class Kernel
         throw new HttpError('invalid handler', 500);
     }
 
+    /** @return list<Middleware> */
     private function middlewaresForPath(string $path): array
     {
-        $prefixes = [];
-        foreach ($this->prefixMiddlewares as $prefix => $_) {
-            if (is_string($prefix)) {
-                $prefixes[] = $prefix;
-            }
-        }
+        $prefixes = array_keys($this->prefixMiddlewares);
 
         usort($prefixes, static function (string $a, string $b): int {
             if ($a === '/' && $b !== '/') {
@@ -126,19 +122,11 @@ final class Kernel
 
         $mws = [];
         foreach ($prefixes as $prefix) {
-            $items = $this->prefixMiddlewares[$prefix] ?? null;
-            if (!is_array($items)) {
-                continue;
-            }
-
             if ($prefix !== '/' && !str_starts_with($path, $prefix)) {
                 continue;
             }
-
-            foreach ($items as $mw) {
-                if ($mw instanceof Middleware) {
-                    $mws[] = $mw;
-                }
+            foreach ($this->prefixMiddlewares[$prefix] ?? [] as $mw) {
+                $mws[] = $mw;
             }
         }
 

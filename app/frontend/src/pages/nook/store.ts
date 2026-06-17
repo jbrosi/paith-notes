@@ -6,12 +6,16 @@ import {
 	resolveTypeIdForTerm,
 } from "../../noteSearch";
 import type {
-	GraphViewProperties,
+	AttributeLayout,
+	HeadingMatch,
 	Mention,
 	Note,
+	NoteFile,
+	NoteHeading,
 	NoteHistoryEntry,
 	NoteSummary,
 	NoteType,
+	Panel,
 } from "./types";
 import {
 	MentionsResponseSchema,
@@ -20,12 +24,9 @@ import {
 	NoteTypeNotesResponseSchema,
 	NoteTypeResponseSchema,
 	NoteTypesListResponseSchema,
-	parseGraphProperties,
-	serializeGraphProperties,
 } from "./types";
 
 export function createNookStore(nookId: () => string) {
-	const fileInlineUrlCache = new Map<string, string>();
 	// Key: "nookId:noteId" → title
 	const noteTitleCache = new Map<string, string>();
 	const nookTitleCache = new Map<string, string>();
@@ -94,27 +95,6 @@ export function createNookStore(nookId: () => string) {
 		);
 	};
 	let lastDetailRequestId = 0;
-	const normalizeMimeType = (mime: string) => {
-		return String(mime ?? "")
-			.trim()
-			.toLowerCase()
-			.split(";")[0]
-			?.trim();
-	};
-	const normalizeExtension = (ext: string) => {
-		const e = String(ext ?? "")
-			.trim()
-			.toLowerCase();
-		if (e === "") return "";
-		return e.startsWith(".") ? e.slice(1) : e;
-	};
-	const filePublicPath = (noteId: string, ext: string) => {
-		const id = noteId.trim();
-		const n = nookId().trim();
-		if (id === "" || n === "") return "";
-		void ext;
-		return `/files/notes/${n}/files/${id}`;
-	};
 	const [nookName, setNookName] = createSignal<string>("");
 	const [nookRole, setNookRole] = createSignal<string>("unknown");
 	const canWrite = createMemo(() => {
@@ -131,21 +111,9 @@ export function createNookStore(nookId: () => string) {
 	const [selectedId, setSelectedId] = createSignal<string>("");
 	const [typeId, setTypeId] = createSignal<string>("");
 	const [title, setTitle] = createSignal<string>("");
-	const [titleIsManual, setTitleIsManual] = createSignal<boolean>(false);
+	const [_titleIsManual, setTitleIsManual] = createSignal<boolean>(false);
 	const [content, setContent] = createSignal<string>("");
-	const [type, setType] = createSignal<"anything" | "file" | "graph">(
-		"anything",
-	);
-	const [fileFilename, setFileFilename] = createSignal<string>("");
-	const [fileExtension, setFileExtension] = createSignal<string>("");
-	const [fileFilesize, setFileFilesize] = createSignal<string>("");
-	const [fileMimeType, setFileMimeType] = createSignal<string>("");
-	const fileContentType = createMemo(() => normalizeMimeType(fileMimeType()));
-	const [fileChecksum, setFileChecksum] = createSignal<string>("");
-	const [fileInlineUrl, setFileInlineUrl] = createSignal<string>("");
-	const [graphProperties, setGraphProperties] =
-		createSignal<GraphViewProperties | null>(null);
-	const [formerProperties, setFormerProperties] = createSignal<
+	const [noteAttributes, setNoteAttributes] = createSignal<
 		Record<string, unknown>
 	>({});
 	const [mode, setMode] = createSignal<"view" | "edit">("view");
@@ -163,44 +131,121 @@ export function createNookStore(nookId: () => string) {
 	const [incomingMentions, setIncomingMentions] = createSignal<Mention[]>([]);
 	const [noteVersion, setNoteVersion] = createSignal<number>(0);
 	const [viewCount, setViewCount] = createSignal<number>(0);
+	const [noteCreatedAt, setNoteCreatedAt] = createSignal<string>("");
+	const [noteUpdatedAt, setNoteUpdatedAt] = createSignal<string>("");
+	const [noteCreatedByName, setNoteCreatedByName] = createSignal<string>("");
+	const [noteHeadings, setNoteHeadings] = createSignal<NoteHeading[]>([]);
+	const [noteFiles, setNoteFiles] = createSignal<Record<string, NoteFile>>({});
+	const [headingMatches, setHeadingMatches] = createSignal<HeadingMatch[]>([]);
 	const [remoteVersion, setRemoteVersion] = createSignal<number>(0);
+	const [remoteNoteChanged, setRemoteNoteChanged] =
+		createSignal<boolean>(false);
 	const [noteViewers, setNoteViewers] = createSignal<
 		Array<{ user_id: string; user_name: string }>
 	>([]);
-	let presenceInterval: ReturnType<typeof setInterval> | null = null;
 
-	const pollPresence = async () => {
-		const nook = nookId();
-		const note = selectedId();
-		if (!nook || !note) return;
-		try {
-			const res = await apiFetch(`/api/nooks/${nook}/notes/${note}/presence`, {
-				method: "GET",
-			});
-			if (!res.ok) return;
-			const body = (await res.json()) as {
-				version?: number;
-				viewers?: Array<{ user_id: string; user_name: string }>;
-			};
-			if (body.version !== undefined) {
-				setRemoteVersion(body.version);
-			}
-			setNoteViewers(body.viewers ?? []);
-		} catch {
-			// best-effort
+	// ── WebSocket event connection ──────────────────────────────────────────
+	let ws: WebSocket | null = null;
+	let wsReconnectTimer: ReturnType<typeof setTimeout> | null = null;
+	let wsNookId = "";
+	let wsUserId = ""; // Our own user ID, received from server on connect
+
+	const wsSend = (data: Record<string, unknown>) => {
+		if (ws && ws.readyState === WebSocket.OPEN) {
+			ws.send(JSON.stringify(data));
 		}
 	};
 
-	const startPresencePolling = () => {
-		stopPresencePolling();
-		void pollPresence();
-		presenceInterval = setInterval(() => void pollPresence(), 30000);
+	const wsConnect = (nook: string) => {
+		wsDisconnect();
+		wsNookId = nook;
+		if (!nook) return;
+
+		const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
+		const url = `${proto}//${window.location.host}/ws/nooks/${encodeURIComponent(nook)}`;
+		const socket = new WebSocket(url);
+		ws = socket;
+
+		socket.onopen = () => {
+			// Send current viewing state
+			const note = selectedId();
+			if (note) wsSend({ type: "viewing", note_id: note });
+		};
+
+		socket.onmessage = (e) => {
+			try {
+				const msg = JSON.parse(String(e.data)) as Record<string, unknown>;
+				switch (msg.type) {
+					case "connected":
+						wsUserId = String(msg.user_id ?? "");
+						break;
+					case "types_changed": {
+						const v = typeof msg.version === "number" ? msg.version : 0;
+						if (v === 0 || v > typesVersion) {
+							void loadNoteTypes();
+						}
+						break;
+					}
+					case "note_changed": {
+						const changedId = String(msg.id ?? "");
+						void loadNotes({ reset: true });
+						if (changedId && changedId === selectedId()) {
+							if (isEditing()) {
+								// Show "updated by someone else" banner — user can
+								// choose to reload. Save conflict is still handled
+								// server-side via expected_version.
+								setRemoteNoteChanged(true);
+							} else {
+								void loadNoteDetail(changedId);
+								void loadMentions();
+							}
+						}
+						break;
+					}
+					case "links_changed":
+						void loadNotes({ reset: true });
+						if (selectedId()) void loadMentions();
+						break;
+					case "presence": {
+						const noteId = String(msg.note_id ?? "");
+						if (noteId === selectedId()) {
+							const all = Array.isArray(msg.viewers)
+								? (msg.viewers as Array<{ user_id: string; user_name: string }>)
+								: [];
+							// Filter out ourselves — only show other users
+							const others = all.filter((v) => v.user_id !== wsUserId);
+							setNoteViewers(others);
+						}
+						break;
+					}
+				}
+			} catch {
+				// ignore malformed messages
+			}
+		};
+
+		socket.onclose = () => {
+			ws = null;
+			// Reconnect after delay if we're still on this nook
+			if (wsNookId === nook) {
+				wsReconnectTimer = setTimeout(() => wsConnect(nook), 3000);
+			}
+		};
+
+		socket.onerror = () => {
+			// onclose will fire after onerror
+		};
 	};
 
-	const stopPresencePolling = () => {
-		if (presenceInterval) {
-			clearInterval(presenceInterval);
-			presenceInterval = null;
+	const wsDisconnect = () => {
+		if (wsReconnectTimer) {
+			clearTimeout(wsReconnectTimer);
+			wsReconnectTimer = null;
+		}
+		wsNookId = "";
+		if (ws) {
+			ws.close();
+			ws = null;
 		}
 		setNoteViewers([]);
 		setRemoteVersion(0);
@@ -222,9 +267,9 @@ export function createNookStore(nookId: () => string) {
 		createdAt: string;
 		title: string;
 		content: string;
+		typeId: string;
+		attributes: Record<string, unknown>;
 	} | null>(null);
-	const [fileUploadInProgress, setFileUploadInProgress] =
-		createSignal<boolean>(false);
 
 	const resolveTypeIdForTermInStore = (termRaw: string) =>
 		resolveTypeIdForTerm(noteTypes(), termRaw);
@@ -272,13 +317,14 @@ export function createNookStore(nookId: () => string) {
 		id: note.id,
 		title: note.title,
 		typeId: note.typeId,
-		type: note.type,
 		outgoingMentionsCount: 0,
 		incomingMentionsCount: 0,
 		outgoingLinksCount: 0,
 		incomingLinksCount: 0,
 		createdAt: note.createdAt,
 	});
+
+	let typesVersion = 0;
 
 	const loadNoteTypes = async () => {
 		if (nookId() === "") return;
@@ -298,6 +344,7 @@ export function createNookStore(nookId: () => string) {
 			const json = await res.json();
 			const body = NoteTypesListResponseSchema.parse(json);
 			setNoteTypes(body.types);
+			typesVersion = body.version;
 		} catch (e) {
 			setNoteTypes([]);
 			setError(String(e));
@@ -318,9 +365,6 @@ export function createNookStore(nookId: () => string) {
 		}
 
 		const parentId = input.parentId.trim();
-		const parent =
-			parentId === "" ? null : noteTypes().find((t) => t.id === parentId);
-		const appliesTo = parent ? parent.appliesTo : "notes";
 
 		setLoading(true);
 		setError("");
@@ -332,7 +376,6 @@ export function createNookStore(nookId: () => string) {
 					key,
 					label,
 					parent_id: parentId,
-					applies_to: appliesTo,
 				}),
 			});
 			if (!res.ok) {
@@ -342,7 +385,7 @@ export function createNookStore(nookId: () => string) {
 			}
 			const json = await res.json();
 			const body = NoteTypeResponseSchema.parse(json);
-			setNoteTypes([body.type, ...noteTypes()]);
+			await loadNoteTypes();
 			return body.type;
 		} catch (e) {
 			setError(String(e));
@@ -372,7 +415,6 @@ export function createNookStore(nookId: () => string) {
 						label,
 						description: type.description,
 						parent_id: type.parentId,
-						applies_to: type.appliesTo,
 					}),
 				},
 			);
@@ -381,11 +423,7 @@ export function createNookStore(nookId: () => string) {
 					`Failed to rename type: ${res.status} ${res.statusText}`,
 				);
 			}
-			const json = await res.json();
-			const body = NoteTypeResponseSchema.parse(json);
-			setNoteTypes(
-				noteTypes().map((t) => (t.id === body.type.id ? body.type : t)),
-			);
+			await loadNoteTypes();
 		} catch (e) {
 			setError(String(e));
 		} finally {
@@ -400,7 +438,6 @@ export function createNookStore(nookId: () => string) {
 			label: string;
 			description: string;
 			parentId: string;
-			appliesTo: "notes" | "files";
 		},
 	): Promise<NoteType | null> => {
 		if (nookId() === "") return null;
@@ -423,7 +460,6 @@ export function createNookStore(nookId: () => string) {
 						label,
 						description: next.description,
 						parent_id: next.parentId,
-						applies_to: next.appliesTo,
 					}),
 				},
 			);
@@ -434,9 +470,7 @@ export function createNookStore(nookId: () => string) {
 			}
 			const json = await res.json();
 			const body = NoteTypeResponseSchema.parse(json);
-			setNoteTypes(
-				noteTypes().map((t) => (t.id === body.type.id ? body.type : t)),
-			);
+			await loadNoteTypes();
 			return body.type;
 		} catch (e) {
 			setError(String(e));
@@ -460,7 +494,7 @@ export function createNookStore(nookId: () => string) {
 					`Failed to delete type: ${res.status} ${res.statusText}`,
 				);
 			}
-			setNoteTypes(noteTypes().filter((t) => t.id !== type.id));
+			await loadNoteTypes();
 			if (selectedTypeIds().has(type.id)) {
 				const next = new Set(selectedTypeIds());
 				next.delete(type.id);
@@ -486,22 +520,46 @@ export function createNookStore(nookId: () => string) {
 		if (mode() === "edit") setIsDirty(true);
 	};
 
+	const embeddedImageCache = new Map<string, string>();
 	const resolveEmbeddedImageSrc = async (noteId: string) => {
 		const id = noteId.trim();
-		if (id === "") return null;
-		if (nookId() === "") return null;
-		const cached = fileInlineUrlCache.get(id);
+		const nook = nookId();
+		if (id === "" || nook === "") return null;
+		const cached = embeddedImageCache.get(id);
 		if (cached) return cached;
 
 		const d = await loadNoteDetail(id);
 		if (!d) return null;
-		if (d.type !== "file") return null;
-		const mime = String(d.properties?.mime_type ?? "");
-		if (!mime.startsWith("image/")) return null;
-		const ext = String(d.properties?.extension ?? "");
-		const url = `${filePublicPath(id, ext)}?inline=1`;
-		if (url === "") return null;
-		fileInlineUrlCache.set(id, url);
+
+		// Find the first file with an image content_type from note.files.
+		// Prefer the server-signed URL (HMAC verified in nginx, no PHP roundtrip
+		// per render, 2hr cache-friendly); fall back to the legacy unsigned
+		// /files/<object_key> path only if the backend didn't include one (older
+		// API response, no session cookie issued the URL, etc.).
+		const files = d.files ?? {};
+		let imageFile: { object_key: string; signed_url?: string } | null = null;
+		for (const f of Object.values(files)) {
+			if (typeof f === "object" && f !== null && "mime_type" in f) {
+				const ct = String((f as Record<string, unknown>).mime_type ?? "");
+				if (ct.startsWith("image/")) {
+					const rec = f as Record<string, unknown>;
+					const signed =
+						typeof rec.signed_url === "string" ? rec.signed_url : "";
+					imageFile = {
+						object_key: String(rec.object_key ?? ""),
+						signed_url: signed || undefined,
+					};
+					break;
+				}
+			}
+		}
+		if (!imageFile?.object_key) {
+			return null;
+		}
+
+		const url =
+			imageFile.signed_url ?? `/files/${imageFile.object_key}?inline=1`;
+		embeddedImageCache.set(id, url);
 		return url;
 	};
 
@@ -546,9 +604,15 @@ export function createNookStore(nookId: () => string) {
 				setMentionCanEmbedImage(false);
 				return;
 			}
-			const ok =
-				d.type === "file" &&
-				String(d.properties?.mime_type ?? "").startsWith("image/");
+			const files = d.files ?? {};
+			const ok = Object.values(files).some(
+				(f) =>
+					typeof f === "object" &&
+					f !== null &&
+					String((f as Record<string, unknown>).mime_type ?? "").startsWith(
+						"image/",
+					),
+			);
 			setMentionCanEmbedImage(ok);
 		})();
 	});
@@ -634,7 +698,12 @@ export function createNookStore(nookId: () => string) {
 					actor: string;
 					user_name: string;
 					created_at: string;
-					note: { title: string; content: string };
+					note: {
+						title: string;
+						content: string;
+						type_id?: string;
+						attributes?: Record<string, unknown>;
+					};
 				};
 			};
 			const s = json?.snapshot;
@@ -649,80 +718,168 @@ export function createNookStore(nookId: () => string) {
 				createdAt: s.created_at,
 				title: s.note.title,
 				content: s.note.content,
+				typeId: s.note.type_id ?? "",
+				attributes: s.note.attributes ?? {},
 			});
 		} catch {
 			// best-effort
 		}
 	};
 
+	/** Resolve all attributes for a type, including inherited ones from ancestors. */
+	const resolveTypeAttributes = (typeId: string) => {
+		const types = noteTypes();
+		const typeMap = new Map(types.map((t) => [t.id, t]));
+		const seen = new Set<string>();
+		const attrs: (typeof types)[0]["attributes"] = [];
+		const namesSeen = new Set<string>();
+
+		let cur = typeId;
+		while (cur && !seen.has(cur)) {
+			seen.add(cur);
+			const t = typeMap.get(cur);
+			if (!t) break;
+			for (const a of t.attributes) {
+				const lower = a.name.toLowerCase();
+				if (!namesSeen.has(lower)) {
+					namesSeen.add(lower);
+					attrs.push(cur === typeId ? a : { ...a, inherited: true });
+				}
+			}
+			cur = t.parentId;
+		}
+		return attrs;
+	};
+
+	/** Resolve the panel layout for a type, merging inherited layouts from ancestors. */
+	const resolveTypeLayout = (typeId: string): Panel[] => {
+		const types = noteTypes();
+		const typeMap = new Map(types.map((t) => [t.id, t]));
+
+		// Collect layout chain from current type up to root
+		const chain: AttributeLayout[] = [];
+		const seen = new Set<string>();
+		let cur = typeId;
+		while (cur && !seen.has(cur)) {
+			seen.add(cur);
+			const t = typeMap.get(cur);
+			if (!t) break;
+			chain.push(t.attributeLayout);
+			cur = t.parentId;
+		}
+
+		// Merge from root down (parent first, child overrides)
+		const merged = new Map<string, Panel>();
+		for (let i = chain.length - 1; i >= 0; i--) {
+			const layout = chain[i];
+			if (!layout) continue;
+			for (const panel of layout.panels) {
+				const existing = merged.get(panel.key);
+				if (existing) {
+					// Shallow merge: child fields override parent
+					merged.set(panel.key, { ...existing, ...panel });
+				} else {
+					merged.set(panel.key, { ...panel });
+				}
+			}
+		}
+
+		// Filter hidden, collect result
+		const panels: Panel[] = [];
+		for (const p of merged.values()) {
+			if (p.hidden) continue;
+			panels.push(p);
+		}
+
+		// If no panels defined, return a default main panel
+		if (panels.length === 0) {
+			return [{ key: "main", position: "main", attributes: [] }];
+		}
+
+		return panels;
+	};
+
+	const findFileTypeAndAttr = (): { typeId: string; attrId: string } => {
+		const types = noteTypes();
+		const fileType = types.find((t) => t.key === "file");
+		if (!fileType)
+			throw new Error('No "File" type found — check your nook type settings');
+
+		const attrs = resolveTypeAttributes(fileType.id);
+		const fileAttr = attrs.find((a) => a.kind === "file");
+		if (!fileAttr)
+			throw new Error(
+				'The "File" type has no file attribute — add one in type settings',
+			);
+
+		return { typeId: fileType.id, attrId: fileAttr.id };
+	};
+
+	const uploadFileToNote = async (
+		nook: string,
+		file: File,
+		typeId: string,
+		attrId: string,
+	): Promise<Note | null> => {
+		const filename = file.name || "upload";
+		const ext = filename.includes(".") ? (filename.split(".").pop() ?? "") : "";
+
+		const initRes = await apiFetch(`/api/nooks/${nook}/file/attr-upload-url`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				filename,
+				extension: ext,
+				filesize: file.size,
+				mime_type: file.type,
+				type_id: typeId,
+				attribute_id: attrId,
+			}),
+		});
+		if (!initRes.ok) throw new Error("Failed to get upload URL");
+		const initData = (await initRes.json()) as {
+			upload_url: string;
+			upload_id: string;
+		};
+
+		const putRes = await fetch(initData.upload_url, {
+			method: "PUT",
+			credentials: "include",
+			body: file,
+		});
+		if (!putRes.ok) throw new Error("Upload failed");
+
+		const finRes = await apiFetch(`/api/nooks/${nook}/file/attr-finalize`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				upload_id: initData.upload_id,
+				type_id: typeId,
+				attribute_id: attrId,
+			}),
+		});
+		if (!finRes.ok) throw new Error("Finalize failed");
+
+		const finJson = await finRes.json();
+		return NoteResponseSchema.parse(finJson).note;
+	};
+
 	const uploadEmbeddedImage = async (file: File) => {
-		if (nookId() === "") return null;
+		const nook = nookId();
+		if (nook === "") return null;
 		setError("");
 		try {
-			const filename = file.name || "embedded";
-			const ext = filename.includes(".")
-				? (filename.split(".").pop() ?? "")
-				: "";
-			const mime = file.type;
-
-			const res = await apiFetch(`/api/nooks/${nookId()}/file/upload-url`, {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({
-					filename,
-					extension: ext,
-					filesize: file.size,
-					mime_type: mime,
-					checksum: "",
-				}),
-			});
-			if (!res.ok) {
-				throw new Error(
-					`Failed to get embedded upload URL: ${res.status} ${res.statusText}`,
-				);
-			}
-			const json = (await res.json()) as unknown as {
-				upload_url?: string;
-				upload_id?: string;
-			};
-			const uploadUrl = String(json?.upload_url ?? "");
-			const uploadId = String(json?.upload_id ?? "");
-			if (uploadUrl === "") {
-				throw new Error("Upload URL missing from response");
-			}
-			if (uploadId === "") {
-				throw new Error("Upload ID missing from response");
-			}
-
-			const putRes = await fetch(uploadUrl, {
-				method: "PUT",
-				credentials: "include",
-				body: file,
-			});
-			if (!putRes.ok) {
-				throw new Error(
-					`Embedded upload failed: ${putRes.status} ${putRes.statusText}`,
-				);
-			}
-
-			const finRes = await apiFetch(`/api/nooks/${nookId()}/file/finalize`, {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ upload_id: uploadId }),
-			});
-			if (!finRes.ok) {
-				throw new Error(
-					`Embedded finalize failed: ${finRes.status} ${finRes.statusText}`,
-				);
-			}
-			const finJson = await finRes.json();
-			const finBody = NoteResponseSchema.parse(finJson);
-			const note = finBody.note;
-			const noteId = note.id;
-			cacheTitles([{ id: noteId, title: note.title }]);
+			const target = findFileTypeAndAttr();
+			const note = await uploadFileToNote(
+				nook,
+				file,
+				target.typeId,
+				target.attrId,
+			);
+			if (!note) return null;
+			cacheTitles([{ id: note.id, title: note.title }]);
 			setNotes([toSummary(note), ...notes()]);
-
-			return noteId;
+			return note.id;
 		} catch (e) {
 			setError(String(e));
 			return null;
@@ -760,14 +917,19 @@ export function createNookStore(nookId: () => string) {
 		setError("");
 		try {
 			const qs = new URLSearchParams();
-			qs.set("include_subtypes", "1");
 			qs.set("limit", "50");
+			// Type filter is now a query param. "all" means "no filter"
+			// — omit type_id entirely rather than passing the sentinel.
+			if (typeForList !== "all") {
+				qs.set("type_id", typeForList);
+				qs.set("include_subtypes", "1");
+			}
 			if (q !== "") qs.set("q", q);
 			if (cursor !== "") qs.set("cursor", cursor);
 			if (parsed.unlinked) qs.set("unlinked", "1");
 
 			const res = await apiFetch(
-				`/api/nooks/${nookId()}/note-types/${typeForList}/notes?${qs.toString()}`,
+				`/api/nooks/${nookId()}/notes?${qs.toString()}`,
 				{ method: "GET", signal: abort.signal },
 			);
 			if (version !== loadNotesVersion) return;
@@ -790,6 +952,7 @@ export function createNookStore(nookId: () => string) {
 			cacheTitles(fetched.map((n) => ({ id: n.id, title: n.title })));
 			setNotes(rankNotesByQuery(nextNotes, q));
 			setNotesNextCursor(body.nextCursor);
+			if (reset) setHeadingMatches(body.headingMatches);
 		} catch (e) {
 			if (e instanceof DOMException && e.name === "AbortError") return;
 			if (version !== loadNotesVersion) return;
@@ -811,7 +974,6 @@ export function createNookStore(nookId: () => string) {
 		await loadNotes({ reset: true });
 		if (id === "") return;
 		await loadMentions();
-		void loadHistory();
 		void loadNoteDetail(id);
 	};
 
@@ -822,15 +984,9 @@ export function createNookStore(nookId: () => string) {
 		setTitle("New note");
 		setTitleIsManual(false);
 		setContent("");
-		setType("anything");
-		setFileFilename("");
-		setFileExtension("");
-		setFileFilesize("");
-		setFileMimeType("");
-		setFileChecksum("");
-		setGraphProperties(null);
-		setFormerProperties({});
+		setNoteAttributes({});
 		setError("");
+		setRemoteNoteChanged(false);
 		setMentionTargetId("");
 		setMentionEmbedImage(false);
 		setMode("edit");
@@ -839,44 +995,20 @@ export function createNookStore(nookId: () => string) {
 
 	const applyNoteDetail = (note: Note) => {
 		setIsDirty(false);
+		setRemoteNoteChanged(false);
 		setTypeId(String(note.typeId ?? "").trim());
 		setTitle(note.title);
 		setContent(note.content);
-		setType(
-			note.type === "file"
-				? "file"
-				: note.type === "graph"
-					? "graph"
-					: "anything",
-		);
-		setFileFilename(String(note.properties?.filename ?? ""));
-		setFileExtension(String(note.properties?.extension ?? ""));
-		setFileFilesize(String(note.properties?.filesize ?? ""));
-		setFileMimeType(String(note.properties?.mime_type ?? ""));
-		setFileChecksum(String(note.properties?.checksum ?? ""));
-		setGraphProperties(
-			note.type === "graph" ? parseGraphProperties(note.properties) : null,
-		);
-		if (note.type === "file") {
-			const extFromProps = normalizeExtension(
-				String(note.properties?.extension ?? ""),
-			);
-			const titleExt = (() => {
-				const t = String(note.title ?? "").trim();
-				if (t === "") return "";
-				const dot = t.lastIndexOf(".");
-				if (dot <= 0 || dot === t.length - 1) return "";
-				return normalizeExtension(t.slice(dot + 1));
-			})();
-			const ext = extFromProps !== "" ? extFromProps : titleExt;
-			setFileInlineUrl(`${filePublicPath(note.id, ext)}?inline=1`);
-		} else {
-			setFileInlineUrl("");
-		}
+
+		setNoteAttributes(note.attributes ?? {});
 		setTitleIsManual(true);
-		setFormerProperties(note.formerProperties ?? {});
 		setNoteVersion(note.version ?? 0);
 		setViewCount(note.viewCount ?? 0);
+		setNoteCreatedAt(note.createdAt ?? "");
+		setNoteUpdatedAt(note.updatedAt ?? "");
+		setNoteCreatedByName(note.createdByName ?? "");
+		setNoteHeadings(note.headings ?? []);
+		setNoteFiles(note.files ?? {});
 		setError("");
 		setMentionTargetId("");
 		setMentionEmbedImage(false);
@@ -888,55 +1020,12 @@ export function createNookStore(nookId: () => string) {
 		setSelectedId(note.id);
 		setTypeId(String(note.typeId ?? "").trim());
 		setTitle(note.title);
-		setType(
-			note.type === "file"
-				? "file"
-				: note.type === "graph"
-					? "graph"
-					: "anything",
-		);
-		setFormerProperties({});
-		setFileFilename("");
-		setFileExtension("");
-		setFileFilesize("");
-		setFileMimeType("");
-		setFileChecksum("");
-		setGraphProperties(null);
-		setFileInlineUrl("");
+		setNoteAttributes({});
 		setError("");
 		setMentionTargetId("");
 		setMentionEmbedImage(false);
 		void loadMentions();
-		void loadHistory();
 		void loadNoteDetail(note.id);
-	};
-
-	const loadFileInlineUrl = async () => {
-		const id = selectedId();
-		if (id === "") {
-			setFileInlineUrl("");
-			return;
-		}
-		if (type() !== "file") {
-			setFileInlineUrl("");
-			return;
-		}
-
-		const extFromState = normalizeExtension(fileExtension());
-		const titleExt = (() => {
-			const t = String(title() ?? "").trim();
-			if (t === "") return "";
-			const dot = t.lastIndexOf(".");
-			if (dot <= 0 || dot === t.length - 1) return "";
-			return normalizeExtension(t.slice(dot + 1));
-		})();
-		const ext = extFromState !== "" ? extFromState : titleExt;
-
-		try {
-			setFileInlineUrl(`${filePublicPath(id, ext)}?inline=1`);
-		} catch {
-			setFileInlineUrl("");
-		}
 	};
 
 	// Navigation callback — set by Nook.tsx to use the router's navigate()
@@ -995,20 +1084,37 @@ export function createNookStore(nookId: () => string) {
 		setContentFromUser(`${content()}${prefix}${text}`);
 	};
 
+	const setNoteAttribute = (attrId: string, value: unknown) => {
+		setNoteAttributes((prev) => ({ ...prev, [attrId]: value }));
+		setIsDirty(true);
+	};
+
+	const loadDetail = async () => {
+		const id = selectedId();
+		if (id) void loadNoteDetail(id);
+	};
+
 	const saveNote = async () => {
 		setConflictError(null);
 		if (!isEditing()) return;
-		const noteType = type();
 		const titleForSave = title().trim();
 		if (titleForSave === "") {
 			setError("Title is required");
 			return;
 		}
 
-		const properties =
-			noteType === "graph" && graphProperties()
-				? serializeGraphProperties(graphProperties() as GraphViewProperties)
-				: null;
+		// Validate attribute values before saving
+		const currentTypeId = typeId();
+		if (currentTypeId) {
+			const attrs = resolveTypeAttributes(currentTypeId);
+			const vals = noteAttributes();
+			const { validateNoteAttributes } = await import("./attributeValidation");
+			const errors = validateNoteAttributes(attrs, vals);
+			if (errors.length > 0) {
+				setError(errors.join("; "));
+				return;
+			}
+		}
 
 		setLoading(true);
 		setError("");
@@ -1024,7 +1130,7 @@ export function createNookStore(nookId: () => string) {
 						title: titleForSave,
 						content: content(),
 						type_id: typeId(),
-						...(properties ? { properties } : {}),
+						attributes: noteAttributes(),
 					}),
 				});
 				if (!res.ok) {
@@ -1050,7 +1156,7 @@ export function createNookStore(nookId: () => string) {
 						title: titleForSave,
 						content: content(),
 						type_id: typeId(),
-						...(properties ? { properties } : {}),
+						attributes: noteAttributes(),
 						...(noteVersion() > 0 ? { expected_version: noteVersion() } : {}),
 					}),
 				});
@@ -1117,7 +1223,7 @@ export function createNookStore(nookId: () => string) {
 			}
 
 			noteTitleCache.delete(id);
-			fileInlineUrlCache.delete(id);
+			embeddedImageCache.delete(id);
 			const nextNotes = notes().filter((n) => n.id !== id);
 			setNotes(nextNotes);
 
@@ -1172,15 +1278,7 @@ export function createNookStore(nookId: () => string) {
 				setTitle("");
 				setTitleIsManual(false);
 				setContent("");
-				setType("anything");
-				setFileFilename("");
-				setFileExtension("");
-				setFileFilesize("");
-				setFileMimeType("");
-				setFileChecksum("");
-				setGraphProperties(null);
-				setFileInlineUrl("");
-				setFormerProperties({});
+				setNoteAttributes({});
 				setMode("view");
 				setIsDirty(false);
 				setError("");
@@ -1193,166 +1291,41 @@ export function createNookStore(nookId: () => string) {
 				setMentionEmbedImage(false);
 			});
 			noteTitleCache.clear();
-			fileInlineUrlCache.clear();
+			embeddedImageCache.clear();
 		}
 	});
 
-	createEffect(() => {
-		void nookId();
-		void selectedTypeIds();
-		void notesQuery();
-		void loadNotes({ reset: true });
-	});
+	// (Previously: eager createEffect that called loadNotes on every
+	// nookId / selectedTypeIds / notesQuery change. Removed because
+	// the only consumer was the global notes-search dropdown, which
+	// now lazy-fetches its own lean titles list on focus via the
+	// /notes/titles endpoint. loadNotes stays available for callers
+	// that explicitly want the full notes list — e.g. NookUnlinkedNotes
+	// has its own state and never used this effect.)
 
-	createEffect(() => {
-		void selectedId();
-		void type();
-		void fileExtension();
-		void title();
-		void loadFileInlineUrl();
-	});
-
-	const doUploadFile = async (file: File, opts: { forceNew: boolean }) => {
-		const filename = file.name;
-		const ext = filename.includes(".") ? (filename.split(".").pop() ?? "") : "";
-		const mime = file.type;
-
-		let id = selectedId();
-		if (opts.forceNew) {
-			id = "";
-		}
-
-		const initPath =
-			id === ""
-				? `/api/nooks/${nookId()}/file/upload-url`
-				: `/api/nooks/${nookId()}/notes/${id}/file/upload-url`;
-
-		const res = await apiFetch(initPath, {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({
-				filename,
-				extension: ext,
-				filesize: file.size,
-				mime_type: mime,
-				checksum: "",
-			}),
-		});
-		if (!res.ok) {
-			throw new Error(
-				`Failed to get upload URL: ${res.status} ${res.statusText}`,
-			);
-		}
-		const json = (await res.json()) as unknown as {
-			upload_url?: string;
-			upload_id?: string;
-		};
-		const uploadUrl = String(json?.upload_url ?? "");
-		const uploadId = String(json?.upload_id ?? "");
-		if (uploadUrl === "") {
-			throw new Error("Upload URL missing from response");
-		}
-		if (uploadId === "") {
-			throw new Error("Upload ID missing from response");
-		}
-
-		const putRes = await fetch(uploadUrl, {
-			method: "PUT",
-			credentials: "include",
-			body: file,
-		});
-		if (!putRes.ok) {
-			throw new Error(`Upload failed: ${putRes.status} ${putRes.statusText}`);
-		}
-
-		const finRes = await apiFetch(
-			id === ""
-				? `/api/nooks/${nookId()}/file/finalize`
-				: `/api/nooks/${nookId()}/notes/${id}/file/finalize`,
-			{
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ upload_id: uploadId }),
-			},
-		);
-		if (!finRes.ok) {
-			throw new Error(`Finalize failed: ${finRes.status} ${finRes.statusText}`);
-		}
-
-		if (id === "") {
-			const finJson = await finRes.json();
-			const finBody = NoteResponseSchema.parse(finJson);
-			cacheTitles([{ id: finBody.note.id, title: finBody.note.title }]);
-			setNotes([toSummary(finBody.note), ...notes()]);
-			setSelectedId(finBody.note.id);
-			applyNoteDetail(finBody.note);
-			id = finBody.note.id;
-		}
-
-		setFileFilename(filename);
-		setFileExtension(ext);
-		setFileFilesize(String(file.size));
-		setFileMimeType(mime);
-		setFileChecksum("");
-		setGraphProperties(null);
-		setTitleFromUser(filename);
-		setContent("");
-		await loadNotes();
-		await loadFileInlineUrl();
-	};
-
-	const uploadFile = async (file: File) => {
-		if (!isEditing()) return;
-		if (type() !== "file") {
-			setError("Note type must be file");
-			return;
-		}
-
-		setFileUploadInProgress(true);
-		setLoading(true);
-		setError("");
-		try {
-			await doUploadFile(file, { forceNew: false });
-		} catch (e) {
-			setError(String(e));
-		} finally {
-			setLoading(false);
-			setFileUploadInProgress(false);
-		}
-	};
+	const uploadFile = async (_file: File) => {};
 
 	const quickUploadFile = async (file: File) => {
-		const previousMode = mode();
-
-		setMode("edit");
-		setType("file");
-		setSelectedId("");
-		setFileFilename("");
-
-		setFileUploadInProgress(true);
-		setLoading(true);
-		setError("");
-		try {
-			await doUploadFile(file, { forceNew: true });
-			setMode(previousMode);
-		} catch (e) {
-			setError(String(e));
-			setMode(previousMode);
-		} finally {
-			setLoading(false);
-			setFileUploadInProgress(false);
-		}
-	};
-
-	const downloadFile = async () => {
-		const id = selectedId();
-		if (id === "") return;
-		if (type() !== "file") return;
+		const nook = nookId();
+		if (!nook) return;
 
 		setLoading(true);
 		setError("");
 		try {
-			window.open(filePublicPath(id, fileExtension()), "_blank");
+			const target = findFileTypeAndAttr();
+			const note = await uploadFileToNote(
+				nook,
+				file,
+				target.typeId,
+				target.attrId,
+			);
+			if (!note) throw new Error("Upload failed");
+
+			cacheTitles([{ id: note.id, title: note.title }]);
+			setNotes([toSummary(note), ...notes()]);
+			// Navigate to the new note in edit mode so the user can adjust title/attributes
+			onNoteLinkClickInternal(note.id);
+			setMode("edit");
 		} catch (e) {
 			setError(String(e));
 		} finally {
@@ -1360,13 +1333,25 @@ export function createNookStore(nookId: () => string) {
 		}
 	};
 
-	// Start/stop presence polling based on selected note
+	const downloadFile = async () => {};
+
+	// Connect/disconnect WebSocket when nookId changes
+	createEffect(() => {
+		const nook = nookId();
+		if (nook) {
+			wsConnect(nook);
+		} else {
+			wsDisconnect();
+		}
+	});
+
+	// Tell the server which note we're viewing
 	createEffect(() => {
 		const note = selectedId();
-		if (note !== "") {
-			startPresencePolling();
-		} else {
-			stopPresencePolling();
+		wsSend({ type: "viewing", note_id: note });
+		if (!note) {
+			setNoteViewers([]);
+			setRemoteVersion(0);
 		}
 	});
 
@@ -1389,17 +1374,6 @@ export function createNookStore(nookId: () => string) {
 		setSelectedId,
 		title,
 		content,
-		type,
-		fileFilename,
-		fileExtension,
-		fileFilesize,
-		fileMimeType,
-		fileContentType,
-		fileChecksum,
-		fileInlineUrl,
-		graphProperties,
-		setGraphProperties,
-		formerProperties,
 		mode,
 		isDirty,
 		setIsDirty,
@@ -1411,19 +1385,11 @@ export function createNookStore(nookId: () => string) {
 		mentionCanEmbedImage,
 		outgoingMentions,
 		incomingMentions,
-		fileUploadInProgress,
 		isEditing,
 		setTitle: setTitleFromUser,
 		setContent: setContentFromUser,
 		confirmPendingNav,
 		cancelPendingNav,
-		setType,
-		setFileFilename,
-		setFileExtension,
-		setFileFilesize,
-		setFileMimeType,
-		setFileChecksum,
-		setFormerProperties,
 		setMode,
 		setMentionTargetId,
 		setMentionEmbedImage,
@@ -1437,6 +1403,9 @@ export function createNookStore(nookId: () => string) {
 		loadMoreNotes,
 		refreshCurrentNote,
 		loadMentions,
+		noteHeadings,
+		noteFiles,
+		headingMatches,
 		noteHistory,
 		loadHistory,
 		selectedVersion,
@@ -1448,7 +1417,12 @@ export function createNookStore(nookId: () => string) {
 		viewVersion,
 		noteVersion,
 		viewCount,
+		noteCreatedAt,
+		noteUpdatedAt,
+		noteCreatedByName,
 		noteHasUpdate: () => remoteVersion() > 0 && remoteVersion() > noteVersion(),
+		remoteNoteChanged,
+		dismissRemoteNoteChanged: () => setRemoteNoteChanged(false),
 		noteViewers,
 		conflictError,
 		resolveConflict,
@@ -1474,9 +1448,14 @@ export function createNookStore(nookId: () => string) {
 		uploadEmbeddedImage,
 		saveNote,
 		deleteNote,
+		noteAttributes,
+		setNoteAttribute,
+		loadDetail,
 		uploadFile,
 		quickUploadFile,
 		downloadFile,
+		resolveTypeAttributes,
+		resolveTypeLayout,
 		createNoteType,
 		renameNoteType,
 		updateNoteType,

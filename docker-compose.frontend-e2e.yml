@@ -14,6 +14,9 @@ services:
       KEYCLOAK_REALM: ${KEYCLOAK_REALM:-}
       KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:-}
       DEBUG_AUTH: ${DEBUG_AUTH:-0}
+      # Same fixed key on both app and files so PHP-signed URLs verify in qjs.
+      SESSION_SECRET: e2e-test-session-secret-not-for-production-use-32c
+      FILES_SIGNING_KEY: e2e-test-files-signing-key-not-for-production-use
     depends_on:
       - frontend
       - db
@@ -47,6 +50,8 @@ services:
     command: ["php", "/app/worker/worker.php"]
     environment:
       DATABASE_URL: "postgresql://paith:paith@db:5432/paith"
+      SESSION_SECRET: e2e-test-session-secret-not-for-production-use-32c
+      FILES_SIGNING_KEY: e2e-test-files-signing-key-not-for-production-use
     depends_on:
       db:
         condition: service_healthy
@@ -68,9 +73,10 @@ services:
       retries: 10
 
   files:
-    image: docker.io/nginx:1.29-alpine
+    build: ./docker/files
+    environment:
+      FILES_SIGNING_KEY: e2e-test-files-signing-key-not-for-production-use
     volumes:
-      - ./docker/files/nginx.conf:/etc/nginx/nginx.conf:ro
       - files_data:/data
     expose:
       - "8080"
