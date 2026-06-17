@@ -32,7 +32,9 @@ use Paith\Notes\Shared\Env;
  */
 final class UrlSigner
 {
-    public function __construct(private readonly string $key) {}
+    public function __construct(private readonly string $key)
+    {
+    }
 
     public static function fromEnv(): self
     {
