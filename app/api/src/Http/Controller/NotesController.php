@@ -8,6 +8,9 @@ use Paith\Notes\Api\Http\Service\AttributeValidator;
 use Paith\Notes\Api\Http\Service\DiffService;
 use Paith\Notes\Api\Http\Service\HeadingsService;
 use Paith\Notes\Api\Http\Service\MentionsService;
+use Paith\Notes\Api\Http\Auth\Cookies;
+use Paith\Notes\Api\Http\Auth\SessionStore;
+use Paith\Notes\Api\Http\Auth\UrlSigner;
 use Paith\Notes\Api\Http\Context;
 use Paith\Notes\Api\Http\Dto\CreateNoteRequest;
 use Paith\Notes\Api\Http\Dto\UpdateNoteRequest;
@@ -660,7 +663,13 @@ final class NotesController
             $note['section'] = $sectionContent;
         }
 
-        // Include file metadata from note_files
+        // Include file metadata from note_files. Each entry carries a
+        // session-bound HMAC `signed_url` so the frontend can `<img src=…>`
+        // straight at /files/ — nginx + qjs verify in-process, no PHP
+        // roundtrip per render and Cache-Control: private kicks in. The
+        // 2hr TTL matches AttributeFilesController so behavior is uniform.
+        // The version component of object_key is part of the HMAC canonical
+        // input — a v1 URL can never resolve to v2 content even if leaked.
         $nfStmt = $pdo->prepare(
             'select attribute_id, filename, extension, filesize, mime_type, checksum, file_version, object_key '
             . 'from global.note_files where note_id = :note_id'
@@ -668,15 +677,21 @@ final class NotesController
         $nfStmt->execute([':note_id' => $noteId]);
         $nfRows = $nfStmt->fetchAll(PDO::FETCH_ASSOC);
         $files = [];
-        foreach ($nfRows as $nf) {
-            if (!is_array($nf)) {
-                continue;
+        if ($nfRows !== []) {
+            $sessionId = $this->extractSessionId($request);
+            $signer    = UrlSigner::fromEnv();
+            foreach ($nfRows as $nf) {
+                if (!is_array($nf)) {
+                    continue;
+                }
+                $file = NoteFileMetadataRow::fromRow($nf);
+                if ($file->attributeId === null || $file->attributeId === '') {
+                    continue;
+                }
+                $entry = $file->toNoteDetailEntry();
+                $entry['signed_url'] = $this->signedInlineUrl($signer, $sessionId, $file);
+                $files[$file->attributeId] = $entry;
             }
-            $file = NoteFileMetadataRow::fromRow($nf);
-            if ($file->attributeId === null || $file->attributeId === '') {
-                continue;
-            }
-            $files[$file->attributeId] = $file->toNoteDetailEntry();
         }
         $note['files'] = $files === [] ? (object)[] : $files;
 
@@ -1511,4 +1526,48 @@ final class NotesController
 
         return implode("\n", $result);
     }
+
+    /**
+     * Read the session cookie value out of the request, ignoring obviously
+     * malformed input. Empty string is valid (matches the X-Nook-User dev
+     * bypass; the qjs handler verifies against the same empty value).
+     */
+    private function extractSessionId(Request $request): string
+    {
+        $cookieHeader = $request->header('Cookie');
+        if ($cookieHeader === '') {
+            return '';
+        }
+        $cookies = Cookies::parseCookieHeader($cookieHeader);
+        $sid = trim($cookies[SessionStore::cookieName()] ?? '');
+        return $sid !== '' && Uuid::isValid($sid) ? $sid : '';
+    }
+
+    /**
+     * Build a session-bound HMAC URL the browser can hit directly for inline
+     * embeds (img/video/audio src). 2hr TTL matches AttributeFilesController's
+     * download URLs; relative URL keeps it cache-key compact.
+     */
+    private function signedInlineUrl(UrlSigner $signer, string $sessionId, NoteFileMetadataRow $file): string
+    {
+        $exp = time() + self::SIGNED_INLINE_TTL_SECONDS;
+        $sig = $signer->sign(
+            objectKey: $file->objectKey,
+            exp: $exp,
+            sessionId: $sessionId,
+            filename: $file->filename,
+            contentType: $file->mimeType,
+            inline: true,
+        );
+        $query = http_build_query([
+            'exp'    => (string)$exp,
+            'sig'    => $sig,
+            'fn'     => $file->filename,
+            'ct'     => $file->mimeType,
+            'inline' => '1',
+        ], '', '&', PHP_QUERY_RFC3986);
+        return '/files/' . ltrim($file->objectKey, '/') . '?' . $query;
+    }
+
+    private const SIGNED_INLINE_TTL_SECONDS = 7200; // 2h
 }

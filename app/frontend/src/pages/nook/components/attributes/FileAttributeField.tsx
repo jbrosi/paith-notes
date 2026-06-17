@@ -95,10 +95,15 @@ export function FileAttributeField(props: {
 
 	const inlineUrl = () => {
 		if (!hasFile()) return "";
-		const ext = fileData()?.extension ?? "";
+		// Prefer the server-issued signed URL (nginx + qjs verify it in-process;
+		// no PHP roundtrip, Cache-Control: private kicks in). Falls back to the
+		// legacy unsigned path if the backend didn't include one — e.g. an older
+		// note response from before we started embedding signed_url.
+		const signed = fileData()?.signed_url ?? "";
+		if (signed) return signed;
 		const key = objectKey();
 		if (!key) return "";
-		return `/files/${key}${ext ? `.${ext}` : ""}?inline=1`;
+		return `/files/${key}?inline=1`;
 	};
 
 	const isEditable = () => !props.readonly && props.store.mode() === "edit";

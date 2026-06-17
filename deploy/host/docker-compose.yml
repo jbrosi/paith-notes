@@ -30,6 +30,7 @@ services:
       KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:-}
       KEYCLOAK_CLIENT_SECRET: ${KEYCLOAK_CLIENT_SECRET:-}
       SESSION_SECRET: ${SESSION_SECRET}
+      FILES_SIGNING_KEY: ${FILES_SIGNING_KEY}
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
       DEBUG_AUTH: ${DEBUG_AUTH:-0}
       # AI image generation — leave unset to disable (factory stubs out)
@@ -71,9 +72,15 @@ services:
   files:
     image: docker.io/nginx:1.29-alpine
     restart: unless-stopped
-    command: ["sh", "-lc", "mkdir -p /data/tmp /data/notes && chown -R nginx:nginx /data && exec nginx -g 'daemon off;'" ]
+    # Bare-image deploy avoids needing a custom build pipeline on the prod
+    # host. We install njs (with the qjs engine) on first boot, hard-fail
+    # on missing FILES_SIGNING_KEY, and only then exec nginx.
+    command: ["sh", "-lc", ": \"${FILES_SIGNING_KEY:?FILES_SIGNING_KEY must be set; generate with: openssl rand -hex 32}\" && apk add --no-cache nginx-module-njs && mkdir -p /data/tmp /data/notes && chown -R nginx:nginx /data && exec nginx -g 'daemon off;'" ]
+    environment:
+      FILES_SIGNING_KEY: ${FILES_SIGNING_KEY}
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./njs:/etc/nginx/njs:ro
       - files_data:/data
     expose:
       - "8080"

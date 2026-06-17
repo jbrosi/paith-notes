@@ -781,7 +781,36 @@ it('attribute-based file upload and download', function (): void {
     $downloadData = json_decode($downloadUrl['body'], true);
     expect($downloadData)->toBeArray();
     expect((string)($downloadData['download_url'] ?? ''))->toContain('http');
-    expect(isset($downloadData['expires_in']))->toBeTrue();
+    expect($downloadData['expires_in'] ?? null)->toBe(7200);
+
+    // Session-bound HMAC contract: URL must carry exp/sig/fn/ct/inline, the
+    // sig must match what UrlSigner produces on the same canonical input, and
+    // exp must be in the future. The qjs handler in docker/files/njs verifies
+    // against this same contract; if you change one side, change both.
+    $url = (string)$downloadData['download_url'];
+    $parsedQuery = [];
+    $qs = parse_url($url, PHP_URL_QUERY);
+    if (is_string($qs)) {
+        parse_str($qs, $parsedQuery);
+    }
+
+    expect((int)($parsedQuery['exp'] ?? 0))->toBeGreaterThan(time());
+    expect((string)($parsedQuery['fn'] ?? ''))->toBe('example.txt');
+    expect((string)($parsedQuery['ct'] ?? ''))->toBe('text/plain');
+    expect((string)($parsedQuery['inline'] ?? ''))->toBe('0');
+
+    $path = (string)parse_url($url, PHP_URL_PATH);
+    $objectKeyFromUrl = ltrim(substr($path, strlen('/files/')), '/');
+    $signer = Paith\Notes\Api\Http\Auth\UrlSigner::fromEnv();
+    $expectedSig = $signer->sign(
+        objectKey:   $objectKeyFromUrl,
+        exp:         (int)$parsedQuery['exp'],
+        sessionId:   '', // X-Nook-User dev bypass → no paith_session cookie
+        filename:    'example.txt',
+        contentType: 'text/plain',
+        inline:      false,
+    );
+    expect((string)($parsedQuery['sig'] ?? ''))->toBe($expectedSig);
 
     putenv('KEYCLOAK_ENABLED=' . (is_string($prevEnabled) ? $prevEnabled : ''));
 });

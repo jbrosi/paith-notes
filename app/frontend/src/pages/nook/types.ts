@@ -352,6 +352,10 @@ const NoteFileSchema = z.object({
 	checksum: z.string(),
 	file_version: z.number().int(),
 	object_key: z.string(),
+	// HMAC-signed URL ready for direct browser use. Optional because older
+	// API responses (pre signed_url) won't include it; callers fall back to
+	// building an unsigned /files/<object_key> path.
+	signed_url: z.string().optional(),
 });
 
 export type NoteFile = z.infer<typeof NoteFileSchema>;

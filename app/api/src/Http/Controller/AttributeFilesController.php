@@ -6,6 +6,7 @@ namespace Paith\Notes\Api\Http\Controller;
 
 use Paith\Notes\Api\Http\Auth\Cookies;
 use Paith\Notes\Api\Http\Auth\SessionStore;
+use Paith\Notes\Api\Http\Auth\UrlSigner;
 use Paith\Notes\Api\Http\Context;
 use Paith\Notes\Api\Http\HttpError;
 use Paith\Notes\Api\Http\JsonResponse;
@@ -32,6 +33,13 @@ use Paith\Notes\Api\Http\Auth\User;
  */
 final class AttributeFilesController
 {
+    /**
+     * TTL for session-bound HMAC download URLs. Long enough to cover a feature
+     * film + range-request reuse without re-signing; the frontend can re-fetch
+     * the URL via /download-url if a session lingers past this.
+     */
+    private const SIGNED_URL_TTL_SECONDS = 7200; // 2h
+
     /**
      * Generate an upload URL for a file attribute on an existing note.
      */
@@ -162,6 +170,7 @@ final class AttributeFilesController
     {
         $pdo = $context->pdo();
         $user = $context->user();
+        $sessionId = $this->extractSessionId($request);
 
         $nookId = self::requireUuid($request->routeParam('nookId'), 'nookId');
         $noteId = self::requireUuid($request->routeParam('noteId'), 'noteId');
@@ -186,14 +195,29 @@ final class AttributeFilesController
             throw new HttpError('file not found', 404);
         }
 
-        $inline = trim($request->queryParam('inline')) !== '';
+        $filename = Row::str($row, 'filename', 'download');
+        $mimeType = Row::str($row, 'mime_type');
+        $inline   = trim($request->queryParam('inline')) !== '';
+
+        // Session-bound HMAC URL — the files-container's qjs handler verifies
+        // it in-process (no PHP roundtrip, no DB hit, even on range requests).
+        // sessionId may be empty under the X-Nook-User dev bypass; both the
+        // PHP signing and the qjs verification see the same empty value, so
+        // the HMAC still matches. In prod (Keycloak) sessionId is the cookie
+        // and a leaked URL is useless without the issuing browser.
+        $exp = time() + self::SIGNED_URL_TTL_SECONDS;
+        $sig = UrlSigner::fromEnv()->sign($objectKey, $exp, $sessionId, $filename, $mimeType, $inline);
         $url = $this->filePublicUrlForRequest($request, $objectKey, [
-            'inline' => $inline ? '1' : '',
+            'exp'    => (string)$exp,
+            'sig'    => $sig,
+            'fn'     => $filename,
+            'ct'     => $mimeType,
+            'inline' => $inline ? '1' : '0',
         ]);
 
         return JsonResponse::ok([
             'download_url' => $url,
-            'expires_in' => 0,
+            'expires_in'   => self::SIGNED_URL_TTL_SECONDS,
         ]);
     }
 
