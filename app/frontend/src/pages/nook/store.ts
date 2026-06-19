@@ -101,6 +101,11 @@ export function createNookStore(nookId: () => string) {
 		const role = nookRole();
 		return role !== "unknown" && role !== "readonly";
 	});
+	// Bumps whenever a link is created/deleted anywhere in the UI so that
+	// LinkedNotesAttributeField (and other readers) re-fetch their slice
+	// without us threading a callback through every consumer.
+	const [linksRevision, setLinksRevision] = createSignal(0);
+	const bumpLinksRevision = () => setLinksRevision((v) => v + 1);
 	const [notes, setNotes] = createSignal<NoteSummary[]>([]);
 	const [notesNextCursor, setNotesNextCursor] = createSignal<string>("");
 	const [notesQuery, setNotesQuery] = createSignal<string>("");
@@ -301,13 +306,6 @@ export function createNookStore(nookId: () => string) {
 		const typedTypeId = resolveTypeIdForTermInStore(parsed.typeTerm);
 		if (typedTypeId !== "") return new Set([typedTypeId]);
 		return selectedTypeIds();
-	});
-
-	// Single active type for API — use first if multi, or "all"
-	const activeTypeId = createMemo(() => {
-		const ids = activeTypeIds();
-		if (ids.size === 1) return [...ids][0];
-		return "";
 	});
 
 	const isEditing = () => mode() === "edit";
@@ -899,17 +897,14 @@ export function createNookStore(nookId: () => string) {
 		const parsed = parseTypedSearch(notesQuery());
 		const typedTypeId = resolveTypeIdForTermInStore(parsed.typeTerm);
 		const selected = selectedTypeIds();
-		const typeForList = parsed.explicitNoType
-			? "all"
+		// Resolved type filter for the API: type:foo text syntax wins, otherwise
+		// fall through to the multi-select dropdown. explicitNoType (e.g. "no
+		// type:") suppresses any filter.
+		const typeIdsForList: string[] = parsed.explicitNoType
+			? []
 			: typedTypeId !== ""
-				? typedTypeId
-				: selected.size === 1
-					? [...selected][0]
-					: "all";
-		const multiTypeFilter =
-			!parsed.explicitNoType && typedTypeId === "" && selected.size > 1
-				? selected
-				: null;
+				? [typedTypeId]
+				: [...selected];
 		const cursor = reset ? "" : notesNextCursor();
 		const q = parsed.textTerm.trim();
 
@@ -918,10 +913,8 @@ export function createNookStore(nookId: () => string) {
 		try {
 			const qs = new URLSearchParams();
 			qs.set("limit", "50");
-			// Type filter is now a query param. "all" means "no filter"
-			// — omit type_id entirely rather than passing the sentinel.
-			if (typeForList !== "all") {
-				qs.set("type_id", typeForList);
+			if (typeIdsForList.length > 0) {
+				qs.set("type_ids", typeIdsForList.join(","));
 				qs.set("include_subtypes", "1");
 			}
 			if (q !== "") qs.set("q", q);
@@ -941,13 +934,7 @@ export function createNookStore(nookId: () => string) {
 			const json = await res.json();
 			if (version !== loadNotesVersion) return;
 			const body = NoteTypeNotesResponseSchema.parse(json);
-			let fetched = body.notes;
-			// Client-side filter when multiple types selected
-			if (multiTypeFilter) {
-				fetched = fetched.filter(
-					(n) => n.typeId !== "" && multiTypeFilter.has(n.typeId),
-				);
-			}
+			const fetched = body.notes;
 			const nextNotes = reset ? fetched : [...notes(), ...fetched];
 			cacheTitles(fetched.map((n) => ({ id: n.id, title: n.title })));
 			setNotes(rankNotesByQuery(nextNotes, q));
@@ -1186,6 +1173,10 @@ export function createNookStore(nookId: () => string) {
 				);
 				setSelectedId(body.note.id);
 				applyNoteDetail(body.note);
+				// PUT response is lean — no `files`, `headings`, etc. (see
+				// NotesController::update). Refetch via the full GET so
+				// embedded images, TOC and similar keep rendering after save.
+				void loadNoteDetail(body.note.id);
 				await loadMentions();
 				void loadHistory();
 			}
@@ -1396,8 +1387,9 @@ export function createNookStore(nookId: () => string) {
 		toggleSelectedTypeId,
 		clearSelectedTypes,
 		activeTypeIds,
+		linksRevision,
+		bumpLinksRevision,
 		setNotesQuery: (next: string) => setNotesQuery(String(next ?? "")),
-		activeTypeId,
 		setTypeId: (next: string) => setTypeId(next.trim()),
 		loadNotes,
 		loadMoreNotes,

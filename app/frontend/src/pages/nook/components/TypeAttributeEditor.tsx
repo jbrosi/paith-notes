@@ -247,6 +247,52 @@ export function TypeAttributeEditor(props: TypeAttributeEditorProps) {
 		await saveLayout(layout);
 	};
 
+	/**
+	 * Drag-and-drop reorder/move: removes attrId from its current panel and
+	 * inserts it into targetPanelKey either before `beforeAttrId` (when
+	 * dropped on a specific row) or at the end (when dropped on empty space
+	 * in a panel). By-id rather than by-index — no off-by-one when the
+	 * source and target panel are the same.
+	 */
+	const onDropAttribute = async (
+		attrId: string,
+		targetPanelKey: string,
+		beforeAttrId: string | null,
+	) => {
+		if (attrId === beforeAttrId) return;
+		const layout = getCurrentLayout();
+		// Locate source by scanning all panels — the dragging row may not know
+		// its own panel after a quick re-render.
+		const sourcePanel = layout.panels.find((p) =>
+			p.attributes.includes(attrId),
+		);
+		const targetPanel = layout.panels.find((p) => p.key === targetPanelKey);
+		if (!sourcePanel || !targetPanel) return;
+
+		sourcePanel.attributes = sourcePanel.attributes.filter(
+			(id) => id !== attrId,
+		);
+		if (beforeAttrId === null) {
+			targetPanel.attributes.push(attrId);
+		} else {
+			const idx = targetPanel.attributes.indexOf(beforeAttrId);
+			if (idx >= 0) targetPanel.attributes.splice(idx, 0, attrId);
+			else targetPanel.attributes.push(attrId);
+		}
+
+		await saveLayout(layout);
+	};
+
+	// Track the currently-dragged attribute so AttributeRow can highlight
+	// itself as a drop target and so we know what to move on drop.
+	const [draggingAttrId, setDraggingAttrId] = createSignal<string | null>(null);
+	const [dropTargetAttrId, setDropTargetAttrId] = createSignal<string | null>(
+		null,
+	);
+	const [dropTargetPanelKey, setDropTargetPanelKey] = createSignal<
+		string | null
+	>(null);
+
 	const onSaveEdit = async (
 		attr: TypeAttribute,
 		name: string,
@@ -580,21 +626,60 @@ export function TypeAttributeEditor(props: TypeAttributeEditorProps) {
 								/>
 							</Show>
 
-							<Show
-								when={panelAttrs().length > 0}
-								fallback={
-									<div
-										style={{
-											color: "var(--color-text-muted)",
-											"font-size": "12px",
-											"padding-left": "8px",
-										}}
-									>
-										No attributes in this panel.
-									</div>
-								}
+							<ul
+								aria-label={`${panel.label || panel.key} panel attributes`}
+								onDragOver={(e) => {
+									if (draggingAttrId() === null) return;
+									e.preventDefault();
+								}}
+								onDrop={(e) => {
+									const id = draggingAttrId();
+									if (id === null) return;
+									e.preventDefault();
+									// Drop on empty panel area = append to end.
+									const beforeId = dropTargetAttrId();
+									setDraggingAttrId(null);
+									setDropTargetAttrId(null);
+									setDropTargetPanelKey(null);
+									void onDropAttribute(id, panel.key, beforeId);
+								}}
+								style={{
+									"list-style": "none",
+									padding: "2px",
+									margin: 0,
+									display: "grid",
+									gap: "4px",
+									outline:
+										draggingAttrId() !== null &&
+										dropTargetAttrId() === null &&
+										dropTargetPanelKey() === panel.key
+											? "2px dashed var(--color-accent, #3b82f6)"
+											: "none",
+									"outline-offset": "2px",
+									"border-radius": "6px",
+									"min-height": "28px",
+								}}
 							>
-								<div style={{ display: "grid", gap: "4px" }}>
+								<Show
+									when={panelAttrs().length > 0}
+									fallback={
+										<li
+											onDragEnter={() => {
+												if (draggingAttrId() !== null) {
+													setDropTargetAttrId(null);
+													setDropTargetPanelKey(panel.key);
+												}
+											}}
+											style={{
+												color: "var(--color-text-muted)",
+												"font-size": "12px",
+												"padding-left": "8px",
+											}}
+										>
+											No attributes in this panel. Drop one here to assign it.
+										</li>
+									}
+								>
 									<For each={panelAttrs()}>
 										{(attr, index) => (
 											<Show
@@ -604,6 +689,38 @@ export function TypeAttributeEditor(props: TypeAttributeEditorProps) {
 														attr={attr}
 														panelKey={panel.key}
 														otherPanels={otherPanelKeys(panel.key)}
+														isDragging={draggingAttrId() === attr.id}
+														isDropTarget={dropTargetAttrId() === attr.id}
+														onDragStart={() => {
+															setDraggingAttrId(attr.id);
+															setDropTargetAttrId(null);
+															setDropTargetPanelKey(null);
+														}}
+														onDragEnd={() => {
+															setDraggingAttrId(null);
+															setDropTargetAttrId(null);
+															setDropTargetPanelKey(null);
+														}}
+														onDragOver={() => {
+															if (draggingAttrId() === null) return;
+															if (draggingAttrId() === attr.id) return;
+															setDropTargetAttrId(attr.id);
+															setDropTargetPanelKey(panel.key);
+														}}
+														onDragLeave={() => {
+															if (dropTargetAttrId() === attr.id) {
+																setDropTargetAttrId(null);
+															}
+														}}
+														onDrop={() => {
+															const id = draggingAttrId();
+															if (id === null) return;
+															const beforeId = attr.id;
+															setDraggingAttrId(null);
+															setDropTargetAttrId(null);
+															setDropTargetPanelKey(null);
+															void onDropAttribute(id, panel.key, beforeId);
+														}}
 														onEdit={() => setEditingId(attr.id)}
 														onDelete={
 															attr.inherited
@@ -673,8 +790,8 @@ export function TypeAttributeEditor(props: TypeAttributeEditorProps) {
 											</Show>
 										)}
 									</For>
-								</div>
-							</Show>
+								</Show>
+							</ul>
 						</div>
 					);
 				}}
@@ -859,6 +976,13 @@ function AttributeRow(props: {
 	attr: TypeAttribute;
 	panelKey: string;
 	otherPanels: Array<{ key: string; label: string }>;
+	isDragging?: boolean;
+	isDropTarget?: boolean;
+	onDragStart?: () => void;
+	onDragEnd?: () => void;
+	onDragOver?: () => void;
+	onDragLeave?: () => void;
+	onDrop?: () => void;
 	onEdit: () => void;
 	onDelete?: () => void;
 	onHide?: () => void;
@@ -868,17 +992,42 @@ function AttributeRow(props: {
 	onMoveToPanel: (toPanelKey: string) => void;
 }) {
 	return (
-		<div
+		<li
+			aria-label={`Attribute ${props.attr.name}`}
+			draggable={true}
+			onDragStart={(e) => {
+				e.dataTransfer?.setData("text/plain", props.attr.id);
+				if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
+				props.onDragStart?.();
+			}}
+			onDragEnd={() => props.onDragEnd?.()}
+			onDragOver={(e) => {
+				// preventDefault is required for the drop event to fire.
+				e.preventDefault();
+				if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+				props.onDragOver?.();
+			}}
+			onDragLeave={() => props.onDragLeave?.()}
+			onDrop={(e) => {
+				e.preventDefault();
+				e.stopPropagation();
+				props.onDrop?.();
+			}}
 			style={{
 				display: "flex",
 				"align-items": "center",
 				gap: "4px",
 				padding: "6px 8px",
-				border: "1px solid var(--color-border-light)",
+				border: props.isDropTarget
+					? "2px solid var(--color-accent, #3b82f6)"
+					: "1px solid var(--color-border-light)",
 				"border-radius": "6px",
 				background: props.attr.inherited
 					? "var(--color-bg-secondary)"
 					: "var(--color-bg)",
+				opacity: props.isDragging ? 0.4 : 1,
+				cursor: "grab",
+				transition: "border-color 80ms ease",
 			}}
 		>
 			<div
@@ -1020,7 +1169,7 @@ function AttributeRow(props: {
 					</Button>
 				</Show>
 			</Show>
-		</div>
+		</li>
 	);
 }
 

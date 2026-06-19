@@ -60,7 +60,12 @@ final class AttributeValidator
                 if ($display !== '' && !in_array($display, self::VALID_NUMBER_DISPLAYS, true)) {
                     throw new HttpError('number display must be one of: ' . implode(', ', array_map(fn($d) => $d === '' ? '(empty)' : $d, self::VALID_NUMBER_DISPLAYS)), 400);
                 }
-                if (isset($config['max'])) {
+                // `max` is the upper bound of the rating widget (e.g. 5 stars
+                // → max=5). It is meaningless for currency/duration/raw number
+                // displays and was previously rejecting amounts >100 on those
+                // — which is comical for a currency attribute. Only enforce
+                // the 1..100 range when display is actually "rating".
+                if ($display === 'rating' && isset($config['max'])) {
                     if (!is_numeric($config['max'])) {
                         throw new HttpError('number max must be numeric', 400);
                     }
