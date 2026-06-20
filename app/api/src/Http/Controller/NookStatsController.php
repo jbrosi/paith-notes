@@ -192,7 +192,7 @@ final class NookStatsController
         $offset = $offsetRaw !== '' ? max(0, (int)$offsetRaw) : 0;
 
         $stmt = $pdo->prepare(
-            'SELECT n.id, n.title, n.type, n.type_id, n.created_at, n.updated_at
+            'SELECT n.id, n.title, n.type_id, n.created_at, n.updated_at
              FROM global.notes n
              LEFT JOIN global.note_stats ns ON ns.note_id = n.id
              WHERE n.nook_id = :nook_id
@@ -215,7 +215,6 @@ final class NookStatsController
             $notes[] = [
                 'id' => Row::str($r, 'id'),
                 'title' => Row::str($r, 'title'),
-                'type' => Row::str($r, 'type', 'anything'),
                 'type_id' => Row::str($r, 'type_id'),
                 'created_at' => Row::str($r, 'created_at'),
                 'updated_at' => Row::str($r, 'updated_at'),

@@ -204,7 +204,7 @@ type TtsQueueOptions = {
  * No fetching, no sentence detection, no language plumbing on this side:
  * those moved into MCP. The frontend's only job is "decode + schedule".
  */
-export function createTtsQueue(opts: TtsQueueOptions = {}) {
+export function createTtsQueue(_opts: TtsQueueOptions = {}) {
 	const [isSpeaking, setSpeaking] = createSignal(false);
 	let cancelled = false;
 	let chunksReceived = 0;
