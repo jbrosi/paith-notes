@@ -2,6 +2,7 @@ import { useNavigate } from "@solidjs/router";
 import {
 	createEffect,
 	createMemo,
+	createSignal,
 	For,
 	onCleanup,
 	onMount,
@@ -12,6 +13,7 @@ import { Button } from "../../components/Button";
 import { MarkdownView } from "../../components/MarkdownView";
 import { useUi } from "../../ui/UiContext";
 import notesStyles from "../Notes.module.css";
+import { AddLinkForm } from "./components/AddLinkForm";
 import { NoteAttributeFields } from "./components/NoteAttributeFields";
 import { TitleSection } from "./components/TitleSection";
 import { NookToolbar } from "./NookToolbar";
@@ -28,6 +30,16 @@ export function NookMainPanel(props: NookMainPanelProps) {
 	const store = () => props.store;
 	const ui = useUi();
 	const navigate = useNavigate();
+	const [showAddLink, setShowAddLink] = createSignal(false);
+	const [addLinkError, setAddLinkError] = createSignal("");
+
+	createEffect(() => {
+		// Close the central add-link form when the user navigates to a
+		// different note (otherwise it stays open targeting a stale id).
+		void store().selectedId();
+		setShowAddLink(false);
+		setAddLinkError("");
+	});
 
 	createEffect(() => {
 		store().setMode(ui.mode());
@@ -309,8 +321,45 @@ export function NookMainPanel(props: NookMainPanelProps) {
 							}}
 							onDelete={store().deleteNote}
 							onToggleMode={ui.toggleMode}
+							onAddLink={() => setShowAddLink((v) => !v)}
 						/>
 					</div>
+
+					<Show when={showAddLink() && store().selectedId() !== ""}>
+						<div
+							style={{
+								padding: "8px 12px",
+								margin: "0 0 12px",
+								border: "1px solid var(--color-border-light, #e5e7eb)",
+								"border-radius": "6px",
+								background: "var(--color-bg-secondary, #f9fafb)",
+							}}
+						>
+							<Show when={addLinkError() !== ""}>
+								<pre
+									style={{
+										color: "var(--color-danger)",
+										"white-space": "pre-wrap",
+										"font-size": "0.75rem",
+										margin: "0 0 6px",
+									}}
+								>
+									{addLinkError()}
+								</pre>
+							</Show>
+							<AddLinkForm
+								store={store()}
+								nookId={store().nookId()}
+								noteId={store().selectedId()}
+								onLinkCreated={() => {
+									setShowAddLink(false);
+									setAddLinkError("");
+									store().bumpLinksRevision();
+								}}
+								onError={setAddLinkError}
+							/>
+						</div>
+					</Show>
 
 					<TitleSection store={store()} />
 					<NoteAttributeFields

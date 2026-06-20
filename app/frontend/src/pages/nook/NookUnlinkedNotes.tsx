@@ -7,7 +7,6 @@ import type { NookStore } from "./store";
 type UnlinkedNote = {
 	id: string;
 	title: string;
-	type: string;
 	type_id: string;
 	created_at: string;
 	updated_at: string;
