@@ -33,25 +33,28 @@ export function NookNotesSearchDropdown(props: NookNotesSearchDropdownProps) {
 		const nookId = s?.nookId() ?? "";
 		if (nookId === "") return;
 
-		// Honour type:foo prefix syntax (and the explicit-no-type
-		// marker): resolve the type key to its UUID by walking the
-		// loaded types, then pass type_id+include_subtypes to the
-		// lean endpoint. Falls back to no type filter when the term
-		// doesn't match anything or there's no type: prefix.
+		// Type filter precedence (matches the main list in store.ts):
+		// 1. `type:foo` text syntax → resolves to that single UUID
+		// 2. multi-select dropdown via store.activeTypeIds()
+		// 3. explicitNoType ("no type:") → suppresses filter
 		const parsed = parseTypedSearch(rawQuery);
-		let typeId = "";
-		if (parsed.typeTerm.trim() !== "" && s) {
-			const term = normalizeToken(parsed.typeTerm);
-			const match =
-				s.noteTypes().find((t) => normalizeToken(t.key) === term) ??
-				s.noteTypes().find((t) => normalizeToken(t.label) === term);
-			if (match) typeId = match.id;
+		let typeIds: string[] = [];
+		if (!parsed.explicitNoType) {
+			if (parsed.typeTerm.trim() !== "" && s) {
+				const term = normalizeToken(parsed.typeTerm);
+				const match =
+					s.noteTypes().find((t) => normalizeToken(t.key) === term) ??
+					s.noteTypes().find((t) => normalizeToken(t.label) === term);
+				if (match) typeIds = [match.id];
+			} else if (s) {
+				typeIds = [...s.activeTypeIds()];
+			}
 		}
 
 		const qs = new URLSearchParams();
 		qs.set("limit", "20");
-		if (typeId !== "") {
-			qs.set("type_id", typeId);
+		if (typeIds.length > 0) {
+			qs.set("type_ids", typeIds.join(","));
 			qs.set("include_subtypes", "1");
 		}
 		const textTerm = parsed.textTerm.trim();

@@ -2,7 +2,6 @@ import { createEffect, createMemo, createSignal, For } from "solid-js";
 import { apiFetch } from "../../../auth/keycloak";
 import { Button } from "../../../components/Button";
 import { RemoteNoteSearchSelect } from "../../../components/RemoteNoteSearchSelect";
-import css from "../NookNoteLinksPanel.module.css";
 import type { NookStore } from "../store";
 import {
 	type LinkPredicate,
@@ -12,6 +11,7 @@ import {
 	type NoteLink,
 	NoteLinkResponseSchema,
 } from "../types";
+import css from "./AddLinkForm.module.css";
 
 type Props = {
 	store: NookStore;
@@ -19,6 +19,19 @@ type Props = {
 	noteId: string;
 	onLinkCreated: (link: NoteLink) => void;
 	onError: (msg: string) => void;
+	/**
+	 * Restrict the predicate dropdown to these IDs. Pass a single-element
+	 * array to lock the predicate. Empty/undefined = show all predicates.
+	 * Used by LinkedNotesAttributeField to pre-fill from the attribute's
+	 * `filter_predicate_ids` configuration.
+	 */
+	predicateIdsAllowed?: string[];
+	/**
+	 * Further narrow the target-note search to these type IDs (AND with
+	 * the allowed-types derived from predicate rules). Same source as above
+	 * — from the attribute's `filter_type_ids`.
+	 */
+	targetTypeIdsAllowed?: string[];
 };
 
 export function AddLinkForm(props: Props) {
@@ -29,6 +42,17 @@ export function AddLinkForm(props: Props) {
 	const [targetNoteId, setTargetNoteId] = createSignal("");
 	const [startDate, setStartDate] = createSignal("");
 	const [endDate, setEndDate] = createSignal("");
+
+	const visiblePredicates = createMemo(() => {
+		const allowed = props.predicateIdsAllowed;
+		if (!allowed || allowed.length === 0) return predicates();
+		const set = new Set(allowed);
+		return predicates().filter((p) => set.has(p.id));
+	});
+
+	const predicateLocked = createMemo(
+		() => (props.predicateIdsAllowed?.length ?? 0) === 1,
+	);
 
 	const typeParentById = createMemo(() => {
 		const m = new Map<string, string>();
@@ -62,8 +86,13 @@ export function AddLinkForm(props: Props) {
 			if (!res.ok) throw new Error(`Failed: ${res.status}`);
 			const body = LinkPredicatesListResponseSchema.parse(await res.json());
 			setPredicates(body.predicates);
-			if (predicateId() === "" && body.predicates.length > 0) {
-				setPredicateId(body.predicates[0].id);
+			if (predicateId() === "") {
+				const allowed = props.predicateIdsAllowed ?? [];
+				const filtered =
+					allowed.length === 0
+						? body.predicates
+						: body.predicates.filter((p) => allowed.includes(p.id));
+				if (filtered.length > 0) setPredicateId(filtered[0].id);
 			}
 		} catch (e) {
 			setPredicates([]);
@@ -187,8 +216,18 @@ export function AddLinkForm(props: Props) {
 		const id = typeId.trim();
 		if (id === "") return false;
 		const allowed = allowedTargetTypeIds();
-		if (allowed.size === 0) return true;
-		for (const rootId of allowed) {
+		const matchedByRules = (() => {
+			if (allowed.size === 0) return true;
+			for (const rootId of allowed) {
+				if (id === rootId || isSameOrDescendant(id, rootId)) return true;
+			}
+			return false;
+		})();
+		if (!matchedByRules) return false;
+
+		const narrowing = props.targetTypeIdsAllowed ?? [];
+		if (narrowing.length === 0) return true;
+		for (const rootId of narrowing) {
 			if (id === rootId || isSameOrDescendant(id, rootId)) return true;
 		}
 		return false;
@@ -215,10 +254,10 @@ export function AddLinkForm(props: Props) {
 					<select
 						value={predicateId()}
 						onChange={(e) => setPredicateId(e.currentTarget.value)}
-						disabled={loading()}
+						disabled={loading() || predicateLocked()}
 						class={css.formInput}
 					>
-						<For each={predicates()}>
+						<For each={visiblePredicates()}>
 							{(p) => (
 								<option value={p.id}>
 									{p.key} ({p.forwardLabel} / {p.reverseLabel})

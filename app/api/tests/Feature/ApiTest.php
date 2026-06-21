@@ -1371,3 +1371,223 @@ it('attribute filters work on notes list', function (): void {
     expect(count($notes2))->toBe(1);
     expect($notes2[0]['title'])->toBe('Low');
 });
+
+it('multi-type filter (type_ids) returns notes of all selected types', function (): void {
+    $userId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa02';
+    $headers = ['X-Nook-User' => $userId, 'X-Nook-Groups' => 'paith/notes'];
+    App::handle('GET', '/api/me', $headers, '');
+
+    $nookId = json_decode(App::handle('POST', '/api/nooks', $headers, json_encode(['name' => 'Multi Type']))['body'], true)['nook']['id'];
+
+    $mkType = fn(string $key, string $label, string $parentId = '') => json_decode(
+        App::handle('POST', '/api/nooks/' . $nookId . '/note-types', $headers,
+            json_encode(['key' => $key, 'label' => $label, 'parent_id' => $parentId]))['body'],
+        true
+    )['type']['id'];
+    $tA = $mkType('alpha', 'Alpha');
+    $tB = $mkType('beta', 'Beta');
+    $tC = $mkType('gamma', 'Gamma');
+    $tBSub = $mkType('beta-sub', 'BetaSub', $tB);
+
+    $mkNote = fn(string $title, string $typeId) => App::handle('POST', '/api/nooks/' . $nookId . '/notes', $headers,
+        json_encode(['title' => $title, 'content' => '', 'type_id' => $typeId]));
+    $mkNote('A1', $tA);
+    $mkNote('A2', $tA);
+    $mkNote('B1', $tB);
+    $mkNote('BS1', $tBSub);
+    $mkNote('C1', $tC);
+
+    // type_ids without include_subtypes — exact match only.
+    $res = App::handle('GET', '/api/nooks/' . $nookId . '/notes?type_ids=' . $tA . ',' . $tB, $headers, '');
+    expect($res['status'])->toBe(200);
+    $titles = array_map(fn($n) => $n['title'], json_decode($res['body'], true)['notes']);
+    sort($titles);
+    expect($titles)->toBe(['A1', 'A2', 'B1']); // no BetaSub (no include_subtypes), no Gamma
+
+    // With include_subtypes the BetaSub note joins, Gamma still excluded.
+    $res2 = App::handle('GET', '/api/nooks/' . $nookId . '/notes?type_ids=' . $tA . ',' . $tB . '&include_subtypes=1', $headers, '');
+    $titles2 = array_map(fn($n) => $n['title'], json_decode($res2['body'], true)['notes']);
+    sort($titles2);
+    expect($titles2)->toBe(['A1', 'A2', 'B1', 'BS1']);
+
+    // /notes/titles (the search dropdown endpoint) honours the same param.
+    $res3 = App::handle('GET', '/api/nooks/' . $nookId . '/notes/titles?type_ids=' . $tA . ',' . $tC, $headers, '');
+    $titles3 = array_map(fn($n) => $n['title'], json_decode($res3['body'], true)['notes']);
+    sort($titles3);
+    expect($titles3)->toBe(['A1', 'A2', 'C1']);
+
+    // Legacy single type_id still works.
+    $res4 = App::handle('GET', '/api/nooks/' . $nookId . '/notes?type_id=' . $tA, $headers, '');
+    $titles4 = array_map(fn($n) => $n['title'], json_decode($res4['body'], true)['notes']);
+    sort($titles4);
+    expect($titles4)->toBe(['A1', 'A2']);
+});
+
+it('attribute_layout persists panel + attribute order across PUT/GET', function (): void {
+    // Covers the data model the DnD UI drives: each panel has an ordered
+    // list of attribute ids, and a panel.position. Reorder within main and
+    // moving an attribute to a side-right panel should both round-trip.
+    $userId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa07';
+    $headers = ['X-Nook-User' => $userId, 'X-Nook-Groups' => 'paith/notes'];
+    App::handle('GET', '/api/me', $headers, '');
+    $nookId = json_decode(App::handle('POST', '/api/nooks', $headers, json_encode(['name' => 'Layout']))['body'], true)['nook']['id'];
+    $typeId = json_decode(App::handle('POST', '/api/nooks/' . $nookId . '/note-types', $headers,
+        json_encode(['key' => 'tracked', 'label' => 'Tracked']))['body'], true)['type']['id'];
+
+    $mkAttr = fn(string $name) => json_decode(
+        App::handle('POST', '/api/nooks/' . $nookId . '/note-types/' . $typeId . '/attributes', $headers,
+            json_encode(['name' => $name, 'kind' => 'text']))['body'],
+        true,
+    )['attribute']['id'];
+    $a = $mkAttr('A');
+    $b = $mkAttr('B');
+    $c = $mkAttr('C');
+
+    // Reorder all three into main in [c, a, b], then move b to a side panel.
+    $layout = [
+        'panels' => [
+            ['key' => 'main', 'position' => 'main', 'attributes' => [$c, $a]],
+            ['key' => 'extra', 'position' => 'side-right', 'attributes' => [$b]],
+        ],
+    ];
+    $put = App::handle('PUT', '/api/nooks/' . $nookId . '/note-types/' . $typeId, $headers, json_encode([
+        'key' => 'tracked',
+        'label' => 'Tracked',
+        'attribute_layout' => $layout,
+    ]));
+    expect($put['status'])->toBe(200);
+
+    $get = App::handle('GET', '/api/nooks/' . $nookId . '/note-types', $headers, '');
+    expect($get['status'])->toBe(200);
+    $types = json_decode($get['body'], true)['types'];
+    $type = array_values(array_filter($types, fn($t) => $t['id'] === $typeId))[0];
+    $panels = $type['attribute_layout']['panels'];
+    expect($panels)->toHaveCount(2);
+    expect($panels[0]['key'])->toBe('main');
+    expect($panels[0]['position'])->toBe('main');
+    expect($panels[0]['attributes'])->toBe([$c, $a]);
+    expect($panels[1]['key'])->toBe('extra');
+    expect($panels[1]['position'])->toBe('side-right');
+    expect($panels[1]['attributes'])->toBe([$b]);
+});
+
+it('number attribute accepts currency/duration display + 3-letter ISO code', function (): void {
+    // Regression for "number (display): Invalid input" — the frontend Zod
+    // schema only allowed ["", "rating"] while the UI dropdown and backend
+    // both supported "duration" and "currency". The fix widened the
+    // frontend enum; this test pins the backend contract so a future
+    // tightening would surface immediately.
+    $userId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa05';
+    $headers = ['X-Nook-User' => $userId, 'X-Nook-Groups' => 'paith/notes'];
+    App::handle('GET', '/api/me', $headers, '');
+    $nookId = json_decode(App::handle('POST', '/api/nooks', $headers, json_encode(['name' => 'NumDisplay']))['body'], true)['nook']['id'];
+    $typeId = json_decode(App::handle('POST', '/api/nooks/' . $nookId . '/note-types', $headers,
+        json_encode(['key' => 'priced', 'label' => 'Priced']))['body'], true)['type']['id'];
+
+    $addAttr = fn(string $name, array $config) => App::handle(
+        'POST',
+        '/api/nooks/' . $nookId . '/note-types/' . $typeId . '/attributes',
+        $headers,
+        json_encode(['name' => $name, 'kind' => 'number', 'config' => $config]),
+    );
+
+    // currency display with explicit ISO code → accepted
+    $eur = $addAttr('Price EUR', ['display' => 'currency', 'currency' => 'EUR']);
+    expect($eur['status'])->toBe(200);
+
+    // currency display with default code → accepted (validator defaults to USD)
+    $defaultCcy = $addAttr('Price', ['display' => 'currency']);
+    expect($defaultCcy['status'])->toBe(200);
+
+    // duration display → accepted
+    $dur = $addAttr('Run time', ['display' => 'duration']);
+    expect($dur['status'])->toBe(200);
+
+    // Malformed currency → 400
+    $bad = $addAttr('Bad', ['display' => 'currency', 'currency' => 'U$D']);
+    expect($bad['status'])->toBe(400);
+
+    // Unknown display value → 400
+    $unknown = $addAttr('Unknown', ['display' => 'foobar']);
+    expect($unknown['status'])->toBe(400);
+});
+
+it('PUT /notes/{id} response shape stays compatible (regression: missing fields)', function (): void {
+    // Regression: the PUT response is intentionally lean (no `files`,
+    // `headings`, `updated_at`, etc.) while GET is full. The frontend
+    // works around it by refetching via GET after save. This test pins
+    // the lean shape so anyone widening the response also updates the
+    // store callsite (or breaks an explicit assertion here).
+    $userId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa06';
+    $headers = ['X-Nook-User' => $userId, 'X-Nook-Groups' => 'paith/notes'];
+    App::handle('GET', '/api/me', $headers, '');
+    $nookId = json_decode(App::handle('POST', '/api/nooks', $headers, json_encode(['name' => 'PutShape']))['body'], true)['nook']['id'];
+
+    $created = json_decode(App::handle('POST', '/api/nooks/' . $nookId . '/notes', $headers,
+        json_encode(['title' => 'Original', 'content' => 'hello']))['body'], true)['note'];
+    $noteId = $created['id'];
+
+    $res = App::handle('PUT', '/api/nooks/' . $nookId . '/notes/' . $noteId, $headers,
+        json_encode(['title' => 'Edited', 'content' => 'world']));
+    expect($res['status'])->toBe(200);
+    $note = json_decode($res['body'], true)['note'];
+
+    // Lean shape — these MUST be present.
+    expect($note)->toHaveKey('id');
+    expect($note)->toHaveKey('title');
+    expect($note)->toHaveKey('content');
+    expect($note)->toHaveKey('version');
+    expect($note['title'])->toBe('Edited');
+    expect($note['content'])->toBe('world');
+
+    // Documented absence — the frontend store relies on refetching via GET
+    // to populate these. If you add them here, also drop the
+    // `void loadNoteDetail(...)` workaround in store.ts saveNote().
+    expect($note)->not->toHaveKey('files');
+    expect($note)->not->toHaveKey('headings');
+});
+
+it('unlinked notes endpoint runs (regression: column n.type does not exist)', function (): void {
+    // Regression for a prod 500: the query referenced an n.type column
+    // that no longer exists on global.notes (only type_id remains).
+    $userId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa04';
+    $headers = ['X-Nook-User' => $userId, 'X-Nook-Groups' => 'paith/notes'];
+    App::handle('GET', '/api/me', $headers, '');
+    $nookId = json_decode(App::handle('POST', '/api/nooks', $headers, json_encode(['name' => 'Unlinked']))['body'], true)['nook']['id'];
+
+    $typeId = json_decode(App::handle('POST', '/api/nooks/' . $nookId . '/note-types', $headers,
+        json_encode(['key' => 'lone', 'label' => 'Lone']))['body'], true)['type']['id'];
+
+    App::handle('POST', '/api/nooks/' . $nookId . '/notes', $headers,
+        json_encode(['title' => 'Orphan', 'content' => '', 'type_id' => $typeId]));
+
+    $res = App::handle('GET', '/api/nooks/' . $nookId . '/unlinked-notes', $headers, '');
+    expect($res['status'])->toBe(200);
+    $body = json_decode($res['body'], true);
+    expect($body['notes'])->toBeArray();
+    expect(count($body['notes']))->toBeGreaterThanOrEqual(1);
+    // No more "type" field — only type_id remains.
+    foreach ($body['notes'] as $n) {
+        expect($n)->not->toHaveKey('type');
+        expect($n)->toHaveKey('type_id');
+    }
+});
+
+it('type_ids rejects malformed UUIDs and unknown types', function (): void {
+    $userId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa03';
+    $headers = ['X-Nook-User' => $userId, 'X-Nook-Groups' => 'paith/notes'];
+    App::handle('GET', '/api/me', $headers, '');
+    $nookId = json_decode(App::handle('POST', '/api/nooks', $headers, json_encode(['name' => 'Reject']))['body'], true)['nook']['id'];
+
+    $tA = json_decode(App::handle('POST', '/api/nooks/' . $nookId . '/note-types', $headers,
+        json_encode(['key' => 'alpha', 'label' => 'Alpha']))['body'], true)['type']['id'];
+
+    // Malformed UUID anywhere in the list → 400.
+    $bad = App::handle('GET', '/api/nooks/' . $nookId . '/notes?type_ids=' . $tA . ',not-a-uuid', $headers, '');
+    expect($bad['status'])->toBe(400);
+
+    // Well-formed but unknown UUID → 404 (matches single-type_id behaviour).
+    $unknown = '00000000-0000-4000-8000-000000000099';
+    $missing = App::handle('GET', '/api/nooks/' . $nookId . '/notes?type_ids=' . $tA . ',' . $unknown, $headers, '');
+    expect($missing['status'])->toBe(404);
+});
