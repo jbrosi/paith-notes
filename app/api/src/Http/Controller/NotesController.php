@@ -66,11 +66,8 @@ final class NotesController
         $limitRaw = $request->queryParam('limit');
         $limit = min(50, max(1, $limitRaw !== '' ? (int)$limitRaw : 20));
 
-        $typeId = trim($request->queryParam('type_id'));
-        $hasTypeFilter = $typeId !== '';
-        if ($hasTypeFilter && !Uuid::isValid($typeId)) {
-            throw new HttpError('type_id must be a UUID', 400);
-        }
+        $typeIds = self::parseTypeIdsParam($request);
+        $hasTypeFilter = $typeIds !== [];
         $v = strtolower(trim($request->queryParam('include_subtypes')));
         $includeSubtypes = in_array($v, ['1', 'true', 'yes', 'on'], true);
 
@@ -79,18 +76,25 @@ final class NotesController
         $whereType = '';
         $cteHead = '';
         $params = [':nook_id' => $nookId];
-        if ($hasTypeFilter && $includeSubtypes) {
-            $cteHead = 'with recursive type_tree as ('
-                . ' select id from global.note_types where id = :type_id and nook_id = :nook_id'
-                . ' union all'
-                . ' select nt.id from global.note_types nt join type_tree tt on nt.parent_id = tt.id'
-                . ' where nt.nook_id = :nook_id'
-                . ') ';
-            $whereType = ' and type_id in (select id from type_tree)';
-            $params[':type_id'] = $typeId;
-        } elseif ($hasTypeFilter) {
-            $whereType = ' and type_id = :type_id';
-            $params[':type_id'] = $typeId;
+        if ($hasTypeFilter) {
+            $tidPlaceholders = [];
+            foreach ($typeIds as $i => $tid) {
+                $ph = ':type_id_' . $i;
+                $tidPlaceholders[] = $ph;
+                $params[$ph] = $tid;
+            }
+            $tidList = implode(',', $tidPlaceholders);
+            if ($includeSubtypes) {
+                $cteHead = 'with recursive type_tree as ('
+                    . ' select id from global.note_types where id in (' . $tidList . ') and nook_id = :nook_id'
+                    . ' union all'
+                    . ' select nt.id from global.note_types nt join type_tree tt on nt.parent_id = tt.id'
+                    . ' where nt.nook_id = :nook_id'
+                    . ') ';
+                $whereType = ' and type_id in (select id from type_tree)';
+            } else {
+                $whereType = ' and type_id in (' . $tidList . ')';
+            }
         }
 
         $whereQ = '';
@@ -163,11 +167,8 @@ final class NotesController
 
         NookAccess::requireMember($pdo, $user, $nookId);
 
-        $typeId = trim($request->queryParam('type_id'));
-        $hasTypeFilter = $typeId !== '';
-        if ($hasTypeFilter && !Uuid::isValid($typeId)) {
-            throw new HttpError('type_id must be a UUID', 400);
-        }
+        $typeIds = self::parseTypeIdsParam($request);
+        $hasTypeFilter = $typeIds !== [];
 
         $v = strtolower(trim($request->queryParam('include_subtypes')));
         $includeSubtypes = in_array($v, ['1', 'true', 'yes', 'on'], true);
@@ -208,9 +209,17 @@ final class NotesController
         }
 
         if ($hasTypeFilter) {
-            $typeCheck = $pdo->prepare('select 1 from global.note_types where id = :id and nook_id = :nook_id');
-            $typeCheck->execute([':id' => $typeId, ':nook_id' => $nookId]);
-            if (!$typeCheck->fetchColumn()) {
+            $tidPlaceholders = [];
+            $checkParams = [':nook_id' => $nookId];
+            foreach ($typeIds as $i => $tid) {
+                $ph = ':id_' . $i;
+                $tidPlaceholders[] = $ph;
+                $checkParams[$ph] = $tid;
+            }
+            $tidList = implode(',', $tidPlaceholders);
+            $typeCheck = $pdo->prepare('select count(*) from global.note_types where id in (' . $tidList . ') and nook_id = :nook_id');
+            $typeCheck->execute($checkParams);
+            if ((int)$typeCheck->fetchColumn() !== count($typeIds)) {
                 throw new HttpError('type not found', 404);
             }
         }
@@ -268,6 +277,12 @@ final class NotesController
                     {$searchRank} as search_rank";
         $joinCounts = 'left join global.note_stats ns on ns.note_id = n.id';
 
+        $tidPlaceholders = [];
+        foreach ($typeIds as $i => $tid) {
+            $tidPlaceholders[] = ':type_id_' . $i;
+        }
+        $tidList = implode(',', $tidPlaceholders);
+
         if (!$hasTypeFilter) {
             $sql = $selectCols . ' from global.notes n ' . $joinCounts
                 . ' where n.nook_id = :nook_id ' . $whereCursor
@@ -281,7 +296,7 @@ final class NotesController
             $stmt->bindValue(':limit', $limitPlusOne, PDO::PARAM_INT);
         } elseif ($includeSubtypes) {
             $sql = 'with recursive type_tree as ('
-                . ' select id from global.note_types where id = :type_id and nook_id = :nook_id'
+                . ' select id from global.note_types where id in (' . $tidList . ') and nook_id = :nook_id'
                 . ' union all'
                 . ' select nt.id from global.note_types nt join type_tree tt on nt.parent_id = tt.id'
                 . ' where nt.nook_id = :nook_id'
@@ -296,11 +311,13 @@ final class NotesController
                 . ' limit :limit';
             $stmt = $pdo->prepare($sql);
             $stmt->bindValue(':nook_id', $nookId);
-            $stmt->bindValue(':type_id', $typeId);
+            foreach ($typeIds as $i => $tid) {
+                $stmt->bindValue(':type_id_' . $i, $tid);
+            }
             $stmt->bindValue(':limit', $limitPlusOne, PDO::PARAM_INT);
         } else {
             $sql = $selectCols . ' from global.notes n ' . $joinCounts
-                . ' where n.nook_id = :nook_id and n.type_id = :type_id '
+                . ' where n.nook_id = :nook_id and n.type_id in (' . $tidList . ') '
                 . $whereCursor
                 . ' ' . $whereSearch
                 . ' ' . $whereAttrFilter
@@ -309,7 +326,9 @@ final class NotesController
                 . ' limit :limit';
             $stmt = $pdo->prepare($sql);
             $stmt->bindValue(':nook_id', $nookId);
-            $stmt->bindValue(':type_id', $typeId);
+            foreach ($typeIds as $i => $tid) {
+                $stmt->bindValue(':type_id_' . $i, $tid);
+            }
             $stmt->bindValue(':limit', $limitPlusOne, PDO::PARAM_INT);
         }
 
@@ -1570,4 +1589,40 @@ final class NotesController
     }
 
     private const SIGNED_INLINE_TTL_SECONDS = 7200; // 2h
+
+    /**
+     * Parses `type_ids` (CSV) preferentially, falling back to legacy `type_id`
+     * (single UUID). Empty result means "no type filter". Throws 400 on a
+     * malformed UUID anywhere in the list — partial validation isn't useful.
+     *
+     * @return list<string>
+     */
+    private static function parseTypeIdsParam(Request $request): array
+    {
+        $multi = trim($request->queryParam('type_ids'));
+        if ($multi !== '') {
+            $ids = [];
+            foreach (explode(',', $multi) as $raw) {
+                $tid = trim($raw);
+                if ($tid === '') {
+                    continue;
+                }
+                if (!Uuid::isValid($tid)) {
+                    throw new HttpError('type_ids must be UUIDs', 400);
+                }
+                if (!in_array($tid, $ids, true)) {
+                    $ids[] = $tid;
+                }
+            }
+            return $ids;
+        }
+        $single = trim($request->queryParam('type_id'));
+        if ($single === '') {
+            return [];
+        }
+        if (!Uuid::isValid($single)) {
+            throw new HttpError('type_id must be a UUID', 400);
+        }
+        return [$single];
+    }
 }

@@ -2,6 +2,7 @@ import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import { apiFetch } from "../../../../auth/keycloak";
 import type { NookStore } from "../../store";
 import type { TypeAttribute } from "../../types";
+import { AddLinkForm } from "../AddLinkForm";
 import { FullscreenButton } from "./FullscreenButton";
 
 export type LinkedNoteItem = {
@@ -27,6 +28,8 @@ export function LinkedNotesAttributeField(props: {
 			direction: "outgoing" | "incoming";
 		}>
 	>([]);
+	const [showAddForm, setShowAddForm] = createSignal(false);
+	const [addError, setAddError] = createSignal("");
 
 	const config = () => {
 		const c = props.attr.config;
@@ -46,60 +49,71 @@ export function LinkedNotesAttributeField(props: {
 		};
 	};
 
-	// Fetch links when note changes
-	createEffect(() => {
+	const loadLinks = async () => {
 		const nookId = props.store.nookId();
 		const noteId = props.store.selectedId();
 		if (!nookId || !noteId) {
 			setLinks([]);
 			return;
 		}
-		void (async () => {
-			try {
-				const res = await apiFetch(
-					`/api/nooks/${nookId}/notes/${noteId}/links?direction=both&depth=1`,
-				);
-				if (!res.ok) return;
-				const body = (await res.json()) as {
-					links?: Array<{
-						source_note_id: string;
-						source_note_title?: string;
-						source_type_id?: string;
-						target_note_id: string;
-						target_note_title?: string;
-						target_type_id?: string;
-						forward_label?: string;
-						reverse_label?: string;
-						predicate_id?: string;
-					}>;
-				};
-				const result: typeof links extends () => infer T ? T : never = [];
-				for (const l of body.links ?? []) {
-					if (l.source_note_id === noteId) {
-						result.push({
-							noteId: l.target_note_id,
-							noteTitle: l.target_note_title ?? "",
-							typeId: l.target_type_id ?? "",
-							predicateId: l.predicate_id ?? "",
-							predicateLabel: l.forward_label ?? "",
-							direction: "outgoing",
-						});
-					} else {
-						result.push({
-							noteId: l.source_note_id,
-							noteTitle: l.source_note_title ?? "",
-							typeId: l.source_type_id ?? "",
-							predicateId: l.predicate_id ?? "",
-							predicateLabel: l.reverse_label ?? "",
-							direction: "incoming",
-						});
-					}
+		try {
+			const res = await apiFetch(
+				`/api/nooks/${nookId}/notes/${noteId}/links?direction=both&depth=1`,
+			);
+			if (!res.ok) return;
+			const body = (await res.json()) as {
+				links?: Array<{
+					source_note_id: string;
+					source_note_title?: string;
+					source_type_id?: string;
+					target_note_id: string;
+					target_note_title?: string;
+					target_type_id?: string;
+					forward_label?: string;
+					reverse_label?: string;
+					predicate_id?: string;
+				}>;
+			};
+			const result: typeof links extends () => infer T ? T : never = [];
+			for (const l of body.links ?? []) {
+				if (l.source_note_id === noteId) {
+					result.push({
+						noteId: l.target_note_id,
+						noteTitle: l.target_note_title ?? "",
+						typeId: l.target_type_id ?? "",
+						predicateId: l.predicate_id ?? "",
+						predicateLabel: l.forward_label ?? "",
+						direction: "outgoing",
+					});
+				} else {
+					result.push({
+						noteId: l.source_note_id,
+						noteTitle: l.source_note_title ?? "",
+						typeId: l.source_type_id ?? "",
+						predicateId: l.predicate_id ?? "",
+						predicateLabel: l.reverse_label ?? "",
+						direction: "incoming",
+					});
 				}
-				setLinks(result);
-			} catch {
-				setLinks([]);
 			}
-		})();
+			setLinks(result);
+		} catch {
+			setLinks([]);
+		}
+	};
+
+	createEffect(() => {
+		// Re-fetch when the selected note changes, or when any link is
+		// created/deleted elsewhere (e.g. the toolbar add-link form).
+		void props.store.linksRevision();
+		void loadLinks();
+	});
+
+	createEffect(() => {
+		// Reset the inline add form when the user navigates to a different note.
+		void props.store.selectedId();
+		setShowAddForm(false);
+		setAddError("");
 	});
 
 	const items = createMemo((): LinkedNoteItem[] => {
@@ -165,7 +179,51 @@ export function LinkedNotesAttributeField(props: {
 				<Show when={!props.fullscreen}>
 					<FullscreenButton attr={props.attr} store={props.store} />
 				</Show>
+				<Show when={props.store.canWrite() && props.store.selectedId() !== ""}>
+					<button
+						type="button"
+						onClick={() => setShowAddForm((v) => !v)}
+						style={{
+							background: "none",
+							border: "none",
+							color: "var(--link-color, #0066cc)",
+							cursor: "pointer",
+							"font-size": "0.7rem",
+							padding: "0",
+							"margin-left": "auto",
+						}}
+					>
+						{showAddForm() ? "Cancel" : "+ Add link"}
+					</button>
+				</Show>
 			</div>
+			<Show when={addError() !== ""}>
+				<pre
+					style={{
+						color: "var(--color-danger)",
+						"white-space": "pre-wrap",
+						"font-size": "0.7rem",
+						margin: "4px 0",
+					}}
+				>
+					{addError()}
+				</pre>
+			</Show>
+			<Show when={showAddForm()}>
+				<AddLinkForm
+					store={props.store}
+					nookId={props.store.nookId()}
+					noteId={props.store.selectedId()}
+					predicateIdsAllowed={config().filterPredicateIds}
+					targetTypeIdsAllowed={config().filterTypeIds}
+					onLinkCreated={() => {
+						setShowAddForm(false);
+						setAddError("");
+						props.store.bumpLinksRevision();
+					}}
+					onError={setAddError}
+				/>
+			</Show>
 			<Show
 				when={items().length > 0}
 				fallback={
