@@ -33,8 +33,16 @@ type ContextUsage = { ratio: number; level: "" | "warning" | "critical" };
 // (Kokoro for local, gpt-4o-mini-tts for OpenAI) speaks it. The
 // voice_lang request field defaults to "en"; no lang picker surfaced.
 
+// Extra context the voice path picks up alongside the transcript —
+// e.g. the identified speaker. Optional; manual-text submissions don't
+// supply it. Plumbed through to ChatPanel.send → MCP request body so
+// the system prompt can address the user by name when known.
+export type SendMeta = {
+	speaker?: string | null;
+};
+
 type Props = {
-	onSend: (text: string, model: string) => void;
+	onSend: (text: string, model: string, meta?: SendMeta) => void;
 	disabled: boolean;
 	model: string;
 	onModelChange: (model: string) => void;
@@ -67,13 +75,18 @@ export function ChatInput(props: Props) {
 
 	const recognizer = isSttSupported()
 		? createRecognizer({
-				onFinal: (transcript) => {
+				onFinal: (transcript, meta) => {
 					if (props.disabled) return;
 					// Voice-mode guidance lives in the MCP system prompt now (it's
 					// conditional on the `voice_mode` flag in the request body),
 					// so we just send the user's words verbatim. Keeping the
 					// transcript clean also makes saved conversations readable.
-					props.onSend(transcript, props.model);
+					// The optional meta.speaker rides along so MCP's system
+					// prompt can personalize when the voice container has
+					// identified an enrolled speaker.
+					props.onSend(transcript, props.model, {
+						speaker: meta?.speaker ?? null,
+					});
 				},
 				onError: (msg) => setVoiceError(msg),
 				// No `language` here — the server runs a constrained

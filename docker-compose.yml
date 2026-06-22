@@ -205,6 +205,11 @@ services:
       # Persist downloaded whisper models across container restarts so the
       # ~150MB base model isn't refetched every rebuild. HF_HOME points here.
       - voice_models:/app/models/whisper
+      # Persistent user data: speaker_enrollments.json lives here so
+      # voiceprints survive container rebuilds. Kept separate from the
+      # whisper model cache because conceptually different — model
+      # data is reproducible, enrollments are user-generated.
+      - voice_data:/app/data
     expose:
       - "8000"
     environment:
@@ -270,3 +275,4 @@ volumes:
   files_data:
   claude_state:
   voice_models:
+  voice_data:

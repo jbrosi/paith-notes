@@ -23,8 +23,16 @@ export function isTtsSupported(): boolean {
 	return typeof window !== "undefined" && typeof Audio !== "undefined";
 }
 
+export type RecognizerMeta = {
+	/** Speaker name when identified, null when no match (or no enrolled
+	 *  voices). Only set when the voice container's /stt response
+	 *  includes a `speaker` field — silently absent otherwise. */
+	speaker?: string | null;
+	speakerConfidence?: number;
+};
+
 type RecognizerOptions = {
-	onFinal: (text: string) => void;
+	onFinal: (text: string, meta?: RecognizerMeta) => void;
 	onError?: (msg: string) => void;
 	/**
 	 * BCP-47-ish short code passed to Whisper as a hard language hint.
@@ -131,9 +139,14 @@ export function createRecognizer(opts: RecognizerOptions) {
 						// preferred input.
 						const wav = vadUtils.encodeWAV(audio);
 						const blob = new Blob([wav], { type: "audio/wav" });
-						const text = await postForTranscript(blob, opts.language?.());
+						const result = await postForTranscript(blob, opts.language?.());
 						setInterim("");
-						if (text && !cancelled) opts.onFinal(text);
+						if (result.text && !cancelled) {
+							opts.onFinal(result.text, {
+								speaker: result.speaker,
+								speakerConfidence: result.speakerConfidence,
+							});
+						}
 					} catch (err) {
 						setInterim("");
 						opts.onError?.(
@@ -283,10 +296,16 @@ export async function awaitVoiceConsent(opts: {
 	});
 }
 
+type SttResponse = {
+	text: string;
+	speaker?: string | null;
+	speakerConfidence?: number;
+};
+
 async function postForTranscript(
 	blob: Blob,
 	language: string | undefined,
-): Promise<string> {
+): Promise<SttResponse> {
 	const form = new FormData();
 	form.append("audio", blob, "recording.wav");
 	// Whisper's language autodetect is unreliable on the short clips
@@ -305,8 +324,16 @@ async function postForTranscript(
 		const detail = await res.text().catch(() => "");
 		throw new Error(`STT ${res.status}: ${detail || res.statusText}`);
 	}
-	const data = (await res.json()) as { text?: string };
-	return (data.text ?? "").trim();
+	const data = (await res.json()) as {
+		text?: string;
+		speaker?: string | null;
+		speaker_confidence?: number;
+	};
+	return {
+		text: (data.text ?? "").trim(),
+		speaker: data.speaker ?? null,
+		speakerConfidence: data.speaker_confidence,
+	};
 }
 
 type TtsQueueOptions = {

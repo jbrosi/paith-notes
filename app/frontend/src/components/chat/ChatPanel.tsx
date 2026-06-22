@@ -150,7 +150,12 @@ async function fetchMessages(
 	const data = (await res.json()) as {
 		messages?: Array<{ role: string; content: unknown }>;
 	};
+	// Captures the leading timestamp; the [spoken by Name] tag may follow
+	// (see MCP's buildMessageText) but we only need the timestamp here.
 	const TS_RE = /^\[(\d{4}-\d{2}-\d{2}T\d{2}:\d{2})Z\]/;
+	// Pulls the speaker name from the metadata prefix when present.
+	const SPEAKER_RE =
+		/^\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}Z\] \[spoken by ([^\]]+)\]/;
 	const out: ChatMessageData[] = [];
 	for (const m of data.messages ?? []) {
 		if (m.role === "user") {
@@ -168,8 +173,10 @@ async function fetchMessages(
 				.join("");
 			const tsMatch = TS_RE.exec(text);
 			const sentAt = tsMatch ? new Date(`${tsMatch[1]}Z`).getTime() : undefined;
+			const speakerMatch = SPEAKER_RE.exec(text);
+			const speaker = speakerMatch ? speakerMatch[1] : null;
 			if (text.trim() && !text.includes("[nudge]"))
-				out.push({ role: "user", text, sentAt });
+				out.push({ role: "user", text, sentAt, speaker });
 		} else if (m.role === "assistant") {
 			const blocks = Array.isArray(m.content) ? m.content : [];
 			const text = blocks
@@ -762,7 +769,14 @@ export function ChatPanel(props: Props) {
 	};
 
 	// ── send message ─────────────────────────────────────────
-	const send = async (text: string, selectedModel: string) => {
+	// `meta.speaker` is forwarded from the voice path (recognizer's
+	// onFinal) when the voice container identified an enrolled speaker;
+	// it's omitted on manual text submissions.
+	const send = async (
+		text: string,
+		selectedModel: string,
+		meta?: { speaker?: string | null },
+	) => {
 		clearKeepAlive();
 		isNudge = false;
 		setError(null);
@@ -784,7 +798,12 @@ export function ChatPanel(props: Props) {
 		if (voiceMode()) tts.prime();
 		setMessages((prev) => [
 			...prev,
-			{ role: "user", text, sentAt: Date.now() } as ChatMessageData,
+			{
+				role: "user",
+				text,
+				sentAt: Date.now(),
+				speaker: meta?.speaker ?? null,
+			} as ChatMessageData,
 		]);
 		scrollToBottom(true);
 		setStreaming(true);
@@ -809,6 +828,7 @@ export function ChatPanel(props: Props) {
 						context_path: props.currentPath ?? undefined,
 						voice_mode: voiceMode(),
 						voice_lang: voiceLang(),
+						speaker_name: meta?.speaker ?? undefined,
 					}),
 					signal: abortCtrl.signal,
 				},

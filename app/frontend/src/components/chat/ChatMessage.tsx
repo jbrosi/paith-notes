@@ -27,7 +27,15 @@ export type MessageUsage = {
 };
 
 export type ChatMessageData =
-	| { role: "user"; text: string; sentAt?: number }
+	| {
+			role: "user";
+			text: string;
+			sentAt?: number;
+			/** Identified speaker name when the voice container matched
+			 *  the utterance to an enrolled voiceprint. Null/undefined
+			 *  means the speaker is unknown (typed text or no match). */
+			speaker?: string | null;
+	  }
 	| {
 			role: "assistant";
 			text: string;
@@ -61,12 +69,24 @@ type Props = {
 	inputDisabled?: boolean;
 };
 
-/** Strip the metadata prefix added by the backend (timestamp + optional note context). */
+/** Strip the metadata prefix added by the backend.
+ *  Format: `[<ISO timestamp>] [spoken by <name>]? [Note: "title" (id, type: t)]?\n`
+ *  All three brackets are optional except the timestamp; the order is
+ *  fixed (see MCP's buildMessageText). */
 const META_RE =
-	/^\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}Z\](?: \[Note: "[^"]*" \([^)]+\)])?\n/;
+	/^\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}Z\](?: \[spoken by [^\]]+\])?(?: \[Note: "[^"]*" \([^)]+\)])?\n/;
+/** Captures just the speaker name out of the metadata block when present. */
+const SPEAKER_RE = /^\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}Z\] \[spoken by ([^\]]+)\]/;
 
 function stripMeta(text: string): string {
 	return text.replace(META_RE, "");
+}
+
+/** Pull the speaker name out of the metadata prefix, if present. Used
+ *  to drive a "spoken by Anna" badge on the message bubble. */
+export function extractSpeaker(text: string): string | null {
+	const m = SPEAKER_RE.exec(text);
+	return m ? m[1] : null;
 }
 
 function formatTimeAgo(ms: number): string {
@@ -205,9 +225,31 @@ export function ChatMessage(props: Props) {
 	return (
 		<div class={`${styles.message} ${styles[m().role]}`}>
 			<Show when={m().role === "user"}>
-				<div class={styles.bubble}>
-					{stripMeta((m() as { text: string }).text)}
-				</div>
+				{(() => {
+					// Speaker attribution: prefer the explicit `speaker` field
+					// (set on real-time sends), fall back to parsing the
+					// `[spoken by …]` tag from the saved text (history reload).
+					const u = m() as { text: string; speaker?: string | null };
+					const speaker = u.speaker ?? extractSpeaker(u.text);
+					return (
+						<>
+							<Show when={speaker}>
+								<div
+									style={{
+										"font-size": "0.75rem",
+										color: "var(--color-text-secondary)",
+										"margin-bottom": "2px",
+										"text-align": "right",
+									}}
+									title="Identified by voiceprint"
+								>
+									🎤 {speaker}
+								</div>
+							</Show>
+							<div class={styles.bubble}>{stripMeta(u.text)}</div>
+						</>
+					);
+				})()}
 				<Show when={(m() as { sentAt?: number }).sentAt}>
 					<div style={{ "text-align": "right", "margin-top": "2px" }}>
 						<TimeAgo epoch={(m() as { sentAt: number }).sentAt} />

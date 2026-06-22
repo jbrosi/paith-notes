@@ -95,6 +95,10 @@ services:
   #     # Persist the faster-whisper model cache so it isn't refetched on
   #     # every container rebuild.
   #     - voice_models:/app/models/whisper
+  #     # Speaker-ID enrollments (speaker_enrollments.json) — user data,
+  #     # MUST survive container rebuilds. Kept separate from the model
+  #     # cache because conceptually different.
+  #     - voice_data:/app/data
   #   expose:
   #     - "8000"
   #   # GPU passthrough — uncomment with the nvidia-container-toolkit set up.
@@ -176,3 +180,4 @@ volumes:
   files_data:
   # db_data:
   # voice_models:
+  # voice_data:

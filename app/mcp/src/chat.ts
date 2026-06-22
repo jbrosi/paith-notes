@@ -608,9 +608,20 @@ function buildMessageText(
   message: string,
   contextNote?: { id: string; title: string; type?: string },
   prevContextNoteId?: string,
+  speakerName?: string | null,
 ): string {
   const ts = new Date().toISOString().slice(0, 16) + 'Z';
   let meta = `[${ts}]`;
+  // Per-message speaker attribution — in a living-room kiosk multiple
+  // family members can take turns within the same conversation, so
+  // attaching the speaker to the conversation (system prompt) misleads
+  // the model. We embed the name in the message text itself, in the
+  // same bracket-tag pattern as the timestamp; the frontend renders
+  // chat messages cleaned of these brackets so the human view stays
+  // readable.
+  if (speakerName) {
+    meta += ` [spoken by ${speakerName}]`;
+  }
   if (contextNote && contextNote.id !== prevContextNoteId) {
     meta += ` [Note: "${contextNote.title}" (${contextNote.id}, type: ${contextNote.type ?? 'note'})]`;
   }
@@ -679,6 +690,8 @@ General rules:
 - You have access to the user's notes via tools — never ask for a nook ID or note ID, use the IDs from tool results directly.
 - Only use tools when the user explicitly asks. Always tell the user what you are about to do before calling a tool.
 - When you need to make multiple independent tool calls, issue them all in a single response as parallel tool_use blocks rather than sequentially.
+
+Speaker attribution: user messages may include a \`[spoken by <name>]\` metadata tag in the leading bracket-prefix (alongside the timestamp). This means voice identified an enrolled household member by their voiceprint. Treat each message's speaker independently — multiple people can share a single conversation, so do NOT assume the speaker stays constant across messages. When a name is present, address that person by name where natural and use it to disambiguate "I/me/my" references. When no \`[spoken by]\` tag is present, the speaker is unknown (typed text, an unenrolled guest, or a clip that didn't match any voiceprint) — treat them as anonymous and don't ask for their identity unless directly relevant.
 
 **search_notes behavior:** The q parameter is optional — omit it or pass an empty string to list all notes (optionally filtered by type_id). Do NOT search for common words like "a" or "the" to find all notes. Multiple words are automatically split: by default all must match (AND). Use search_mode="or" if you want any word to match. The same applies to explore_notes q parameter.
 
@@ -1167,7 +1180,11 @@ export function createChatRouter(apiBase: string): Router {
     }
 
     const nook_id = validateNookId(String(req.params.nookId));
-    const { message, model, conversation_id, context_note_id, context_note_title, context_note_type, voice_mode, voice_lang } = req.body as Record<string, unknown>;
+    const { message, model, conversation_id, context_note_id, context_note_title, context_note_type, voice_mode, voice_lang, speaker_name } = req.body as Record<string, unknown>;
+    const speakerName =
+      typeof speaker_name === 'string' && speaker_name.trim() !== ''
+        ? speaker_name.trim()
+        : null;
 
     if (typeof message !== 'string' || message.trim() === '') {
       res.status(400).json({ error: 'message is required' });
@@ -1210,7 +1227,7 @@ export function createChatRouter(apiBase: string): Router {
       // Load history and append new user message with metadata prefix
       const history = await loadHistory(convId, cookieHeader, apiBase);
       const prevContextNoteId = findPreviousContextNoteId(history);
-      const messageText = buildMessageText(message as string, contextNote, prevContextNoteId);
+      const messageText = buildMessageText(message as string, contextNote, prevContextNoteId, speakerName);
       const userMessage: Anthropic.MessageParam = {
         role: 'user',
         content: [{ type: 'text', text: messageText }],
