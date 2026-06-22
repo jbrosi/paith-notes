@@ -1051,7 +1051,27 @@ async function streamConversation(
                       resultContent = await executeTool(t.name, t.input, apiBase, cookie, nookId, memoryNookId ?? undefined);
                     }
                   } catch (err) {
-                    resultContent = `Error: ${err instanceof Error ? err.message : 'unknown'}`;
+                    const msg = err instanceof Error ? err.message : String(err);
+                    // undici/Node's native fetch reports the underlying
+                    // network/TLS/DNS failure in `err.cause`, not in
+                    // `err.message`. Surface it so we don't have to
+                    // guess at "fetch failed" being one of a dozen things.
+                    const cause =
+                      err instanceof Error && 'cause' in err
+                        ? (err as Error & { cause?: unknown }).cause
+                        : undefined;
+                    const causeStr =
+                      cause instanceof Error
+                        ? `${cause.name}: ${cause.message}`
+                        : cause !== undefined
+                          ? String(cause)
+                          : '';
+                    console.error(
+                      `[tool] ${t.name} failed:`, msg,
+                      causeStr ? `cause=${causeStr}` : '',
+                      'input=', JSON.stringify(t.input).slice(0, 400),
+                    );
+                    resultContent = `Error: ${msg}${causeStr ? ` (${causeStr})` : ''}`;
                     isError = true;
                   }
 

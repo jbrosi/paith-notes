@@ -1,3 +1,4 @@
+import { fetchWithRetry } from './fetch-retry.js';
 import type { ToolModule } from './types.js';
 
 // Weather via Open-Meteo (https://open-meteo.com). Free, no API key,
@@ -44,7 +45,7 @@ const handlers: ToolModule['handlers'] = {
     if (!location) throw new Error('location is required');
 
     const geoUrl = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(location)}&count=1&language=en&format=json`;
-    const geoRes = await fetch(geoUrl);
+    const geoRes = await fetchWithRetry(geoUrl);
     if (!geoRes.ok) {
       throw new Error(`open-meteo geocoding ${geoRes.status}`);
     }
@@ -65,7 +66,9 @@ const handlers: ToolModule['handlers'] = {
       timezone: tz,
       forecast_days: '3',
     });
-    const fcRes = await fetch(`https://api.open-meteo.com/v1/forecast?${fcParams}`);
+    const fcRes = await fetchWithRetry(
+      `https://api.open-meteo.com/v1/forecast?${fcParams}`,
+    );
     if (!fcRes.ok) {
       throw new Error(`open-meteo forecast ${fcRes.status}`);
     }

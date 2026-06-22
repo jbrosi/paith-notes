@@ -1,3 +1,4 @@
+import { fetchWithRetry } from './fetch-retry.js';
 import type { ToolModule } from './types.js';
 
 // Wikipedia via the public REST API (https://en.wikipedia.org/api/rest_v1/).
@@ -79,7 +80,9 @@ const handlers: ToolModule['handlers'] = {
     if (!query) throw new Error('query is required');
     const lang = safeLang(input.lang);
     const url = `https://${lang}.wikipedia.org/w/rest.php/v1/search/page?q=${encodeURIComponent(query)}&limit=5`;
-    const res = await fetch(url, { headers: { 'User-Agent': 'paith-notes/1.0 (kiosk)' } });
+    const res = await fetchWithRetry(url, {
+      headers: { 'User-Agent': 'paith-notes/1.0 (kiosk)' },
+    });
     if (!res.ok) throw new Error(`wikipedia search ${res.status}`);
     const data = (await res.json()) as SearchResponse;
     const pages = (data.pages ?? []).map((p) => ({
@@ -96,7 +99,9 @@ const handlers: ToolModule['handlers'] = {
     if (!title) throw new Error('title is required');
     const lang = safeLang(input.lang);
     const url = `https://${lang}.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title.replace(/ /g, '_'))}`;
-    const res = await fetch(url, { headers: { 'User-Agent': 'paith-notes/1.0 (kiosk)' } });
+    const res = await fetchWithRetry(url, {
+      headers: { 'User-Agent': 'paith-notes/1.0 (kiosk)' },
+    });
     if (res.status === 404) {
       return JSON.stringify({ lang, title, error: 'Article not found — call wikipedia_search first to find the exact title.' });
     }

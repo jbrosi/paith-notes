@@ -28,6 +28,15 @@ services:
     build:
       context: ./app/mcp
       target: dev
+    # Pin a stable public DNS resolver. The docker-embedded resolver
+    # (127.0.0.11) intermittently returns EAI_AGAIN for outbound
+    # hostnames like api.open-meteo.com / en.wikipedia.org, which
+    # undici (node's fetch) doesn't retry — tools error out with the
+    # unhelpful "fetch failed". 1.1.1.1 + 8.8.8.8 is the same belt-
+    # and-suspenders most Docker dev guides recommend.
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
     volumes:
       - ./app/mcp/src:/app/src
     ports:
