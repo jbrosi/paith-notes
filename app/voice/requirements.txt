@@ -14,5 +14,5 @@ requests==2.33.0
 # the same onnxruntime kokoro already uses. Total install footprint
 # ~150MB vs ~700MB for the Resemblyzer/torch route. Activation is
 # implicit: empty enrollment DB → /identify always returns null.
-sherpa-onnx==1.12.13
+sherpa-onnx==1.13.3
 soundfile==0.13.1

@@ -789,22 +789,49 @@ def _encode_chunk(samples: np.ndarray, sample_rate: int) -> bytes:
 def _pick_lang_from_candidates(model, audio_path: str) -> Optional[str]:
     """Run Whisper's language detector and return the highest-scoring
     candidate from WHISPER_LANGUAGE_CANDIDATES. detect_language only runs
-    the encoder + lang head (cheap vs full transcribe); we average the
-    per-segment probability dicts so a single noisy first segment can't
-    skew the call. Returns None on failure so the caller can fall back to
-    full autodetect."""
+    the encoder + lang head (cheap vs full transcribe). Returns None on
+    failure so the caller can fall back to full autodetect.
+
+    faster-whisper changed the return shape of detect_language across
+    versions — older builds returned per-segment dicts, newer ones
+    return a sorted list of (lang_code, probability) tuples. We sniff
+    both and defensively handle either."""
     try:
         from faster_whisper.audio import decode_audio
 
         audio_array = decode_audio(audio_path, sampling_rate=16000)
-        _, _, per_seg_probs = model.detect_language(audio_array)
-        if not per_seg_probs:
+        _, _, all_probs = model.detect_language(audio_array)
+        if not all_probs:
             return None
+
         scores: Dict[str, float] = {c: 0.0 for c in WHISPER_LANGUAGE_CANDIDATES}
-        for probs in per_seg_probs:
-            for c in scores:
-                scores[c] += probs.get(c, 0.0)
+        first = all_probs[0]
+
+        if isinstance(first, dict):
+            # Older shape: list of per-segment {lang: prob} dicts.
+            # Average across segments so one noisy segment can't skew.
+            for probs in all_probs:
+                for c in scores:
+                    scores[c] += probs.get(c, 0.0)
+        elif isinstance(first, (list, tuple)) and len(first) == 2:
+            # Newer shape: sorted list of (lang_code, prob) tuples.
+            # Either a flat list or a per-segment list of lists — we
+            # handle both by iterating one level deep.
+            iterables = all_probs if isinstance(first[0], (list, tuple)) else [all_probs]
+            for seg in iterables:
+                for code, prob in seg:
+                    if code in scores:
+                        scores[code] += float(prob)
+        else:
+            log.warning(
+                "detect_language returned unknown shape (%s); falling back",
+                type(first).__name__,
+            )
+            return None
+
         best = max(scores, key=scores.get)
+        if scores[best] <= 0.0:
+            return None  # nothing in our candidate set got any signal
         log.info(
             "constrained autodetect: picked %s from %s (scores=%s)",
             best,
