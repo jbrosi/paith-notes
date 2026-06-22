@@ -106,6 +106,31 @@ services:
   #   #           count: 1
   #   #           capabilities: [gpu]
 
+  # Optional: wake-word sidecar (KIOSK ONLY).
+  # The browser opens a WebSocket and streams raw mic audio constantly
+  # so openWakeWord can listen for the wake word. CRITICAL: this means
+  # always-on mic — only deploy this container on the *same machine* as
+  # the browser kiosk, with the port bound to 127.0.0.1 ONLY. If you
+  # expose this to your LAN you've created a household-wide microphone
+  # bug. The deployment shape is:
+  #   - Kiosk machine runs Chromium pointed at the app + this container
+  #     locally; browser connects to ws://localhost:8889/listen.
+  #   - Audio stream stays on-device. Only after wake-fire does the
+  #     browser switch to its regular VAD-endpointed recording and POST
+  #     the recognized utterance to the (potentially remote) voice
+  #     service. The wake stream itself never leaves the kiosk.
+  # wake:
+  #   image: ${WAKE_IMAGE:-ghcr.io/OWNER/REPO/wake:latest}
+  #   restart: unless-stopped
+  #   environment:
+  #     # Pick from openWakeWord's bundled set: alexa, hey_jarvis,
+  #     # hey_mycroft, hey_rhasspy, weather, timer. Comma-separated for
+  #     # multiple. Custom .onnx models can be bind-mounted.
+  #     OPENWAKEWORD_MODELS: ${WAKE_WORD_MODEL:-alexa}
+  #     WAKE_THRESHOLD: ${WAKE_THRESHOLD:-0.5}
+  #   ports:
+  #     - "127.0.0.1:8889:8889"   # NEVER bind on 0.0.0.0 — see warning above
+
   # Optional: MCP server for AI integrations
   # mcp:
   #   image: ${MCP_IMAGE:-ghcr.io/OWNER/REPO/mcp:latest}

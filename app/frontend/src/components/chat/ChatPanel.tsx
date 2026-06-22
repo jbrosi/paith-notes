@@ -290,6 +290,17 @@ export function ChatPanel(props: Props) {
 	let keepAliveTimer: ReturnType<typeof setTimeout> | null = null;
 	let isNudge = false;
 
+	// Wake-word fires while the assistant is mid-response should cancel
+	// what's in progress (TTS audio + the in-flight LLM stream) so the
+	// user can immediately ask their new question. tts.cancel() drains
+	// the audio queue; abortCtrl.abort() trips the fetch in send() which
+	// flips streaming() back to false via its catch block. The recognizer
+	// then starts cleanly on top.
+	const interruptVoice = () => {
+		tts.cancel();
+		abortCtrl?.abort();
+	};
+
 	const KEEP_ALIVE_MS = 4 * 60 * 1000; // 4 minutes
 
 	const clearKeepAlive = () => {
@@ -984,6 +995,7 @@ export function ChatPanel(props: Props) {
 						voiceLang={voiceLang()}
 						onVoiceLangChange={setVoiceLang}
 						voiceStatus={voiceStatus()}
+						onInterruptVoice={interruptVoice}
 					/>
 				</div>
 			</Show>
@@ -1149,6 +1161,7 @@ export function ChatPanel(props: Props) {
 						voiceLang={voiceLang()}
 						onVoiceLangChange={setVoiceLang}
 						voiceStatus={voiceStatus()}
+						onInterruptVoice={interruptVoice}
 						contextUsage={contextUsage()}
 					/>
 				</div>

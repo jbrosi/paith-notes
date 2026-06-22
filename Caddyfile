@@ -13,7 +13,12 @@
         Cross-Origin-Opener-Policy   "same-origin"
         Cross-Origin-Resource-Policy "same-origin"
         Permissions-Policy "accelerometer=(), autoplay=(), camera=(), clipboard-read=(self), clipboard-write=(self), display-capture=(), encrypted-media=(), fullscreen=(self), geolocation=(), gyroscope=(), magnetometer=(), microphone=(self), midi=(), payment=(), picture-in-picture=(), publickey-credentials-get=(), screen-wake-lock=(), sync-xhr=(), usb=(), web-share=(self), xr-spatial-tracking=()"
-        Content-Security-Policy-Report-Only "default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' blob:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; frame-src 'self'; frame-ancestors 'self'; object-src 'none'; base-uri 'self'; form-action 'self'"
+        # connect-src includes ws://localhost:8889 for the optional wake-word
+        # sidecar (KIOSK ONLY — see app/wake/ + deploy/host/docker-compose.yml).
+        # The browser opens a WebSocket and streams mic audio TO LOCALHOST
+        # only; the sidecar runs locally on the kiosk machine. Without this
+        # allowlist entry the browser CSP blocks the WS connection.
+        Content-Security-Policy-Report-Only "default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' blob:; connect-src 'self' ws://localhost:8889; worker-src 'self'; manifest-src 'self'; frame-src 'self'; frame-ancestors 'self'; object-src 'none'; base-uri 'self'; form-action 'self'"
         -Server
     }
 

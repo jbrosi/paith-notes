@@ -1,7 +1,24 @@
-import { createSignal, Show } from "solid-js";
+import { createEffect, createSignal, onCleanup, Show } from "solid-js";
 import { useFeatures } from "../../features";
 import styles from "./ChatInput.module.css";
 import { createRecognizer, isSttSupported, isTtsSupported } from "./voice";
+import { createWakeListener, isWakeSupported } from "./wake";
+
+// Wake-word sidecar config. Empty URL → no hands-free, voice mode stays
+// push-to-talk-only (the default for non-kiosk deployments). When set,
+// the sidecar must be on the SAME machine as the browser; the URL is
+// typically ws://localhost:8889/listen. See app/wake/ for the sidecar.
+const WAKE_URL = (
+	(import.meta.env.VITE_WAKE_WORD_URL as string | undefined) ?? ""
+).trim();
+// Display label shown in the kiosk's "Say <X> to start" prompt. Doesn't
+// have to match the openWakeWord model name exactly — pick whatever
+// matches what users actually say. e.g. model="alexa", label="Alexa".
+const WAKE_LABEL = (
+	(import.meta.env.VITE_WAKE_WORD_LABEL as string | undefined) ??
+	"the wake word"
+).trim();
+const WAKE_AVAILABLE = WAKE_URL !== "" && isWakeSupported();
 
 const MODELS = [
 	{ value: "claude-sonnet-4-6", label: "Sonnet 4.6" },
@@ -32,6 +49,10 @@ type Props = {
 	// the kiosk user has feedback during the gap between transcript and
 	// first audio chunk.
 	voiceStatus?: "idle" | "thinking" | "speaking";
+	// Called when the wake word fires while the assistant is mid-turn
+	// (thinking or speaking). Cancels TTS playback + aborts the in-flight
+	// LLM stream so the user's new utterance gets a clean slate.
+	onInterruptVoice?: () => void;
 	contextUsage?: ContextUsage;
 };
 
@@ -86,6 +107,59 @@ export function ChatInput(props: Props) {
 		}
 	};
 
+	// Wake-word lifecycle. Sequential mic ownership: wake holds the mic
+	// while idle, releases on wake fire so the VAD recognizer can take
+	// over, then re-takes the mic once recording + TTS playback finish.
+	// Gated on voice mode being on AND no other voice phase running.
+	// Echo cancellation in getUserMedia keeps the assistant's own TTS
+	// from re-triggering, but we also pause wake during "speaking" as
+	// belt-and-suspenders for noisy speakers.
+	let wakeListener: ReturnType<typeof createWakeListener> | null = null;
+	const tearDownWake = () => {
+		if (wakeListener) {
+			wakeListener.stop();
+			wakeListener = null;
+		}
+	};
+	const [wakeActive, setWakeActive] = createSignal(false);
+	if (WAKE_AVAILABLE) {
+		createEffect(() => {
+			// Wake is active whenever voice mode is on AND the recognizer
+			// isn't currently holding the mic for VAD. We deliberately do
+			// NOT gate on thinking/speaking — the user should be able to
+			// say "Alexa" mid-reply to interrupt; the onWake handler then
+			// cancels what's in progress via onInterruptVoice.
+			const wantWake = (props.voiceMode ?? false) && !recognizer?.isListening();
+			if (wantWake && !wakeListener) {
+				wakeListener = createWakeListener({
+					url: WAKE_URL,
+					onWake: () => {
+						// Hand the mic off from wake to VAD. The recognizer
+						// acquires getUserMedia itself, so we must tear down
+						// the wake stream first or both will fight for the mic.
+						tearDownWake();
+						setWakeActive(false);
+						// Cancel any in-flight TTS + LLM stream so the new
+						// utterance starts on a clean slate. Safe to call
+						// when nothing's in progress (no-ops).
+						props.onInterruptVoice?.();
+						void recognizer?.start();
+					},
+					onError: (msg) => {
+						setVoiceError(msg);
+						setWakeActive(false);
+					},
+				});
+				void wakeListener.start();
+				setWakeActive(true);
+			} else if (!wantWake && wakeListener) {
+				tearDownWake();
+				setWakeActive(false);
+			}
+		});
+		onCleanup(tearDownWake);
+	}
+
 	// Single status line above the textarea. Priority:
 	//   1. Any non-empty recognizer interim — covers "Waiting…",
 	//      "Listening…", and the post-VAD "Thinking…" that the recognizer
@@ -101,6 +175,8 @@ export function ChatInput(props: Props) {
 		const s = props.voiceStatus ?? "idle";
 		if (s === "thinking") return "Thinking…";
 		if (s === "speaking") return "Speaking…";
+		// Kiosk-friendly wake prompt only when nothing else is happening.
+		if (wakeActive()) return `Say "${WAKE_LABEL}" to start…`;
 		return "";
 	};
 	const statusVisible = () => statusText() !== "";

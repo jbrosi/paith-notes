@@ -100,6 +100,12 @@ services:
       VITE_KEYCLOAK_URL: ${KEYCLOAK_BASE_URL:-}
       VITE_KEYCLOAK_REALM: ${KEYCLOAK_REALM:-}
       VITE_KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:-}
+      # Wake-word sidecar URL (KIOSK ONLY). Empty disables — voice mode
+      # stays push-to-talk. Set to ws://localhost:8889/listen when the
+      # `wake` profile is up (`COMPOSE_PROFILES=wake docker compose up`).
+      VITE_WAKE_WORD_URL: ${WAKE_WORD_URL:-}
+      # Display string for the kiosk's "Say <X> to start" prompt.
+      VITE_WAKE_WORD_LABEL: ${WAKE_WORD_LABEL:-Alexa}
       MCP_URL: http://mcp:3000
     volumes:
       - ./app/frontend:/app/frontend
@@ -214,6 +220,34 @@ services:
     #         - driver: nvidia
     #           count: 1
     #           capabilities: [gpu]
+    restart: unless-stopped
+
+  # Optional wake-word sidecar for hands-free kiosk testing. The browser
+  # opens a WebSocket and streams mic audio; on wake fire, the browser
+  # switches to the regular VAD-endpointed recording. Bind to 127.0.0.1
+  # so the always-on mic stream stays on this device — never reachable
+  # from the local network. Disable by default in dev (set profile to
+  # opt in: `COMPOSE_PROFILES=wake docker compose up`).
+  wake:
+    image: ${WAKE_IMAGE:-notes-wake}
+    profiles: ["wake"]
+    build:
+      context: ./app/wake
+      target: dev
+    volumes:
+      - ./app/wake/src:/app/src
+    ports:
+      # Host-only binding: only processes on this machine (the kiosk's
+      # browser) can talk to the wake socket. Don't expose on 0.0.0.0.
+      - "127.0.0.1:8889:8889"
+    environment:
+      # Pick from openWakeWord's bundled set: alexa, hey_jarvis,
+      # hey_mycroft, hey_rhasspy, weather, timer. Comma-separated for
+      # multiple. Custom .onnx models can be referenced by absolute path.
+      OPENWAKEWORD_MODELS: ${WAKE_WORD_MODEL:-alexa}
+      # Tune for your room: 0.5 default; 0.6-0.7 for noisier rooms;
+      # 0.4-0.45 if wakes are getting missed.
+      WAKE_THRESHOLD: ${WAKE_THRESHOLD:-0.5}
     restart: unless-stopped
 
 volumes:
