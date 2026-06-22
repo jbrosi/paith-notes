@@ -41,11 +41,16 @@ type ContextUsage = { ratio: number; level: "" | "warning" | "critical" };
 // voice_lang request field defaults to "en"; no lang picker surfaced.
 
 // Extra context the voice path picks up alongside the transcript —
-// e.g. the identified speaker. Optional; manual-text submissions don't
-// supply it. Plumbed through to ChatPanel.send → MCP request body so
-// the system prompt can address the user by name when known.
+// the identified speaker, the language/duration Whisper reported.
+// Optional; manual-text submissions don't supply it. Plumbed through
+// to ChatPanel.send → MCP request body so the system prompt can
+// address the user by name when known. Also surfaces in the chat UI
+// debug overlay (when debugMode is on).
 export type SendMeta = {
 	speaker?: string | null;
+	speakerConfidence?: number;
+	language?: string;
+	durationSec?: number;
 };
 
 type Props = {
@@ -94,6 +99,9 @@ export function ChatInput(props: Props) {
 					// identified an enrolled speaker.
 					props.onSend(transcript, props.model, {
 						speaker: meta?.speaker ?? null,
+						speakerConfidence: meta?.speakerConfidence,
+						language: meta?.language,
+						durationSec: meta?.durationSec,
 					});
 				},
 				onError: (msg) => setVoiceError(msg),

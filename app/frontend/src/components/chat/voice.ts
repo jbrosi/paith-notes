@@ -29,6 +29,10 @@ export type RecognizerMeta = {
 	 *  includes a `speaker` field — silently absent otherwise. */
 	speaker?: string | null;
 	speakerConfidence?: number;
+	/** Whisper-reported language code (autodetect, or pinned). */
+	language?: string;
+	/** Audio clip length in seconds (Whisper-reported). */
+	durationSec?: number;
 };
 
 type RecognizerOptions = {
@@ -145,6 +149,8 @@ export function createRecognizer(opts: RecognizerOptions) {
 							opts.onFinal(result.text, {
 								speaker: result.speaker,
 								speakerConfidence: result.speakerConfidence,
+								language: result.language,
+								durationSec: result.durationSec,
 							});
 						}
 					} catch (err) {
@@ -300,6 +306,8 @@ type SttResponse = {
 	text: string;
 	speaker?: string | null;
 	speakerConfidence?: number;
+	language?: string;
+	durationSec?: number;
 };
 
 async function postForTranscript(
@@ -328,11 +336,15 @@ async function postForTranscript(
 		text?: string;
 		speaker?: string | null;
 		speaker_confidence?: number;
+		language?: string;
+		duration?: number;
 	};
 	return {
 		text: (data.text ?? "").trim(),
 		speaker: data.speaker ?? null,
 		speakerConfidence: data.speaker_confidence,
+		language: data.language,
+		durationSec: data.duration,
 	};
 }
 

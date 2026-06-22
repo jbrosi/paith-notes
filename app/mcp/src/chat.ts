@@ -1228,6 +1228,11 @@ export function createChatRouter(apiBase: string): Router {
       const history = await loadHistory(convId, cookieHeader, apiBase);
       const prevContextNoteId = findPreviousContextNoteId(history);
       const messageText = buildMessageText(message as string, contextNote, prevContextNoteId, speakerName);
+      // Trace: show the metadata prefix MCP just prepended so we can
+      // sanity-check that speaker tagging is actually reaching Claude.
+      // Logging only the first 200 chars to keep the line readable —
+      // the metadata prefix is short and lives at the start.
+      console.log(`[chat] user message prefix: ${messageText.slice(0, 200).replace(/\n/g, ' \\n ')}`);
       const userMessage: Anthropic.MessageParam = {
         role: 'user',
         content: [{ type: 'text', text: messageText }],

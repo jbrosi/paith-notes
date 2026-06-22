@@ -775,7 +775,12 @@ export function ChatPanel(props: Props) {
 	const send = async (
 		text: string,
 		selectedModel: string,
-		meta?: { speaker?: string | null },
+		meta?: {
+			speaker?: string | null;
+			speakerConfidence?: number;
+			language?: string;
+			durationSec?: number;
+		},
 	) => {
 		clearKeepAlive();
 		isNudge = false;
@@ -803,6 +808,9 @@ export function ChatPanel(props: Props) {
 				text,
 				sentAt: Date.now(),
 				speaker: meta?.speaker ?? null,
+				speakerConfidence: meta?.speakerConfidence,
+				language: meta?.language,
+				durationSec: meta?.durationSec,
 			} as ChatMessageData,
 		]);
 		scrollToBottom(true);
@@ -1103,9 +1111,9 @@ export function ChatPanel(props: Props) {
 				</div>
 				<div class={styles.newChatArea}>
 					<ChatInput
-						onSend={(text, m) => {
+						onSend={(text, m, meta) => {
 							startNewChat();
-							void send(text, m);
+							void send(text, m, meta);
 						}}
 						disabled={false}
 						model={model()}
@@ -1267,7 +1275,7 @@ export function ChatPanel(props: Props) {
 						</button>
 					</Show>
 					<ChatInput
-						onSend={(text, m) => void send(text, m)}
+						onSend={(text, m, meta) => void send(text, m, meta)}
 						disabled={
 							streaming() || reconnecting() || pendingApproval() !== null
 						}

@@ -35,6 +35,12 @@ export type ChatMessageData =
 			 *  the utterance to an enrolled voiceprint. Null/undefined
 			 *  means the speaker is unknown (typed text or no match). */
 			speaker?: string | null;
+			/** Cosine-similarity score 0-1 from speaker matching. */
+			speakerConfidence?: number;
+			/** Whisper-reported language code. */
+			language?: string;
+			/** Audio clip length in seconds. */
+			durationSec?: number;
 	  }
 	| {
 			role: "assistant";
@@ -229,7 +235,13 @@ export function ChatMessage(props: Props) {
 					// Speaker attribution: prefer the explicit `speaker` field
 					// (set on real-time sends), fall back to parsing the
 					// `[spoken by …]` tag from the saved text (history reload).
-					const u = m() as { text: string; speaker?: string | null };
+					const u = m() as {
+						text: string;
+						speaker?: string | null;
+						speakerConfidence?: number;
+						language?: string;
+						durationSec?: number;
+					};
 					const speaker = u.speaker ?? extractSpeaker(u.text);
 					return (
 						<>
@@ -247,6 +259,44 @@ export function ChatMessage(props: Props) {
 								</div>
 							</Show>
 							<div class={styles.bubble}>{stripMeta(u.text)}</div>
+							<Show
+								when={
+									props.debugMode &&
+									(u.language ||
+										u.durationSec !== undefined ||
+										u.speakerConfidence !== undefined)
+								}
+							>
+								<div
+									style={{
+										"font-size": "0.7rem",
+										color: "var(--color-text-faint, #999)",
+										"margin-top": "2px",
+										"text-align": "right",
+										"font-variant-numeric": "tabular-nums",
+									}}
+								>
+									<Show when={u.language}>
+										<span title="Detected language">{u.language}</span>
+									</Show>
+									<Show when={u.durationSec !== undefined}>
+										<span
+											style={{ "margin-left": "8px" }}
+											title="Recorded audio length"
+										>
+											{u.durationSec?.toFixed(1)}s
+										</span>
+									</Show>
+									<Show when={u.speakerConfidence !== undefined}>
+										<span
+											style={{ "margin-left": "8px" }}
+											title="Speaker-match cosine similarity"
+										>
+											🎤 {(u.speakerConfidence ?? 0).toFixed(2)}
+										</span>
+									</Show>
+								</div>
+							</Show>
 						</>
 					);
 				})()}
