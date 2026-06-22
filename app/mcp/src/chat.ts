@@ -3,6 +3,7 @@ import type express from 'express';
 import Anthropic from '@anthropic-ai/sdk';
 import rateLimit from 'express-rate-limit';
 import { TOOLS, executeTool } from './chat-tools.js';
+import { optionalAutoApprovedTools } from './tools/registry.js';
 import { runSearchAgent, type SearchAgentContext } from './search-agent.js';
 import { VoiceTagStripper, SentenceBuffer } from './voice-tag.js';
 
@@ -290,7 +291,9 @@ const CONTEXT_SOFT_THRESHOLD = 0.5;     // 50% — gentle nudge on topic shifts
 const CONTEXT_WARNING_THRESHOLD = 0.7;  // 70% — show indicator, suggest new chat
 const CONTEXT_CRITICAL_THRESHOLD = 0.9; // 90% — strongly encourage new chat
 
-// Tools that are always safe to auto-execute (read-only / non-destructive)
+// Tools that are always safe to auto-execute (read-only / non-destructive).
+// Core list lives here; optional tool modules contribute their own
+// auto-approved names via the registry (e.g. weather + wikipedia).
 const ALWAYS_AUTO_TOOLS = new Set([
   'list_note_types',
   'list_type_attributes',
@@ -301,6 +304,7 @@ const ALWAYS_AUTO_TOOLS = new Set([
   'memory_create',
   'memory_update',
   'ask_user',
+  ...optionalAutoApprovedTools,
 ]);
 
 function sse(res: express.Response, event: string, data: unknown): void {

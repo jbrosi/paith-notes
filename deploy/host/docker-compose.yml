@@ -147,6 +147,12 @@ services:
   #     OPENAI_API_KEY: ${OPENAI_API_KEY:-}
   #     OPENAI_TTS_MODEL: ${OPENAI_TTS_MODEL:-gpt-4o-mini-tts}
   #     OPENAI_TTS_VOICE: ${OPENAI_TTS_VOICE:-nova}
+  #     # Optional external tool modules — registered into the LLM toolset
+  #     # only when enabled. Each disabled tool contributes zero tokens to
+  #     # the system prompt. See app/mcp/src/tools/ for module sources.
+  #     WEATHER_TOOL_ENABLED: ${WEATHER_TOOL_ENABLED:-0}
+  #     WIKIPEDIA_TOOL_ENABLED: ${WIKIPEDIA_TOOL_ENABLED:-0}
+  #     # image-gen self-gates on OPENAI_API_KEY presence (no separate flag).
   #   depends_on:
   #     - app
 
