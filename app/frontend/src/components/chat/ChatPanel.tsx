@@ -207,17 +207,28 @@ export function ChatPanel(props: Props) {
 	const [quickReplyDismissed, setQuickReplyDismissed] = createSignal(false);
 	const [voiceMode, setVoiceMode] = createSignal(false);
 	const [voiceLang, setVoiceLang] = createSignal("en");
+	// Derived status for the kiosk-friendly "Thinking…" / "Speaking…"
+	// line above the chat input. Only active in voice mode — outside of
+	// it the regular streaming spinner / message bubbles carry the load.
+	// Order matters: "speaking" wins because once audio starts playing
+	// the model may still be generating (streaming() stays true) and we
+	// want to reflect the user-perceptible state.
+	const voiceStatus = (): "idle" | "thinking" | "speaking" => {
+		if (!voiceMode()) return "idle";
+		if (tts.isSpeaking()) return "speaking";
+		if (streaming()) return "thinking";
+		return "idle";
+	};
 	// MCP synthesizes server-side now; createTtsQueue is just a decoder +
 	// Web Audio scheduler. Frontend never POSTs to /tts directly anymore.
 	const tts = createTtsQueue({ debug: () => true });
 
 	// Don't cancel TTS when the approval modal opens. The pre-tool
 	// announcement ("I'll add that to your notes now") is queued before
-	// awaiting_approval — for slow engines like F5 it's still in the
-	// prebuffer when the event arrives, so cancelling here drops it before
-	// it ever plays. The audio is short and lets the user hear what the
-	// assistant is asking permission for; if they want silence they can
-	// hit Stop or just deny the action.
+	// awaiting_approval and may still be in the prebuffer when the event
+	// arrives, so cancelling here would drop it before it ever plays. The
+	// audio is short and lets the user hear what the assistant is asking
+	// permission for; if they want silence they can hit Stop or deny.
 
 	// L1 progress indicator for image generation: tracks the wall-clock
 	// start of an approved generate_image call so the UI can show
@@ -682,6 +693,16 @@ export function ChatPanel(props: Props) {
 		clearKeepAlive();
 		isNudge = false;
 		setError(null);
+		// TEMPORARY guard until chat is decoupled from nooks: today the MCP
+		// route is /nooks/:nookId/chat, so an empty contextNookId would POST
+		// to /nooks//chat and 404 silently. The VAD recognizer can fire
+		// from contexts where no nook is selected (e.g. the global chat
+		// panel mounted in App.tsx), so we have to catch that here. Remove
+		// this once the chat route is moved off the nook URL.
+		if (!props.contextNookId) {
+			setError("Open a nook to chat — the chat is still nook-scoped for now.");
+			return;
+		}
 		setModel(selectedModel);
 		setQuickReplyDismissed(false);
 		// AudioContext.resume() only honors a recent user gesture; chunks
@@ -962,6 +983,7 @@ export function ChatPanel(props: Props) {
 						onVoiceModeChange={setVoiceMode}
 						voiceLang={voiceLang()}
 						onVoiceLangChange={setVoiceLang}
+						voiceStatus={voiceStatus()}
 					/>
 				</div>
 			</Show>
@@ -1126,6 +1148,7 @@ export function ChatPanel(props: Props) {
 						onVoiceModeChange={setVoiceMode}
 						voiceLang={voiceLang()}
 						onVoiceLangChange={setVoiceLang}
+						voiceStatus={voiceStatus()}
 						contextUsage={contextUsage()}
 					/>
 				</div>

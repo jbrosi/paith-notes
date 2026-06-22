@@ -4,6 +4,9 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "copy-vad-assets": "node scripts/copy-vad-assets.mjs",
+    "predev": "yarn run copy-vad-assets",
+    "prebuild": "yarn run copy-vad-assets",
     "dev": "vite --host 0.0.0.0 --port 5173 --strictPort",
     "build": "vite build",
     "lint": "biome lint ./src",
@@ -19,6 +22,7 @@
   },
   "dependencies": {
     "@milkdown/crepe": "^7.21.2",
+    "@ricky0123/vad-web": "^0.0.30",
     "@solidjs/router": "^0.16.1",
     "d3": "^7.9.0",
     "highlight.js": "^11.11.1",

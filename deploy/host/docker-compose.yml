@@ -37,9 +37,12 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       IMAGE_PROVIDER: ${IMAGE_PROVIDER:-}
       IMAGE_MODEL: ${IMAGE_MODEL:-}
-      # Set to 1 only when a `voice` service is deployed. Drives the UI gate
-      # via /api/me — when 0/unset the chat hides the mic + voice-mode toggle.
+      # /api/me reports features.voice = true when VOICE_ENABLED=1. The
+      # voice container is required for STT regardless of TTS path — mic
+      # audio is always proxied to voice:8000/stt by Caddy, never OpenAI.
+      # VOICE_PROVIDER only switches the TTS leg (local kokoro vs OpenAI).
       VOICE_ENABLED: ${VOICE_ENABLED:-0}
+      VOICE_PROVIDER: ${VOICE_PROVIDER:-local}
     depends_on:
       - files
     volumes:
@@ -59,6 +62,50 @@ services:
     volumes:
       - files_data:/data
 
+  # Optional: local voice service (Kokoro TTS + faster-whisper STT)
+  # Required whenever the mic icon is on — STT always runs here (user mic
+  # audio never leaves the box). Caddy proxies /api/voice/* → voice:8000.
+  # VOICE_PROVIDER=openai on the mcp service only swaps the TTS leg; STT
+  # still hits this container. No public port; MCP reaches it on the
+  # compose network at http://voice:8000.
+  # voice:
+  #   image: ${VOICE_IMAGE:-ghcr.io/OWNER/REPO/voice:latest}
+  #   restart: unless-stopped
+  #   # Hard-fail on missing bearer token. Anyone with compose-network
+  #   # access can otherwise hit /stt and /tts unauthenticated.
+  #   # Generate with: openssl rand -hex 32
+  #   command: ["sh", "-lc", ": \"${VOICE_TOKEN:?VOICE_TOKEN must be set; generate with: openssl rand -hex 32}\" && exec uvicorn main:app --host 0.0.0.0 --port 8000 --app-dir /app/src"]
+  #   environment:
+  #     VOICE_TOKEN: ${VOICE_TOKEN}
+  #     # small/int8 on CPU is the safe default. Bump to large-v3 + GPU
+  #     # for production-grade STT (needs nvidia-container-toolkit + the
+  #     # deploy.resources block below).
+  #     WHISPER_MODEL: ${WHISPER_MODEL:-small}
+  #     WHISPER_DEVICE: ${WHISPER_DEVICE:-cpu}
+  #     WHISPER_COMPUTE_TYPE: ${WHISPER_COMPUTE_TYPE:-int8}
+  #     WHISPER_LANGUAGE: ${WHISPER_LANGUAGE:-}
+  #     # Constrain Whisper autodetect to these languages — default en,de
+  #     # prevents misfires to Arabic on short clips. Empty = full
+  #     # 99-language autodetect.
+  #     WHISPER_LANGUAGE_CANDIDATES: ${WHISPER_LANGUAGE_CANDIDATES:-en,de}
+  #     KOKORO_VOICE: ${KOKORO_VOICE:-af_heart}
+  #     # Eagerly load both engines at boot so the first request is fast.
+  #     PRELOAD_MODELS: "kokoro,whisper"
+  #   volumes:
+  #     # Persist the faster-whisper model cache so it isn't refetched on
+  #     # every container rebuild.
+  #     - voice_models:/app/models/whisper
+  #   expose:
+  #     - "8000"
+  #   # GPU passthrough — uncomment with the nvidia-container-toolkit set up.
+  #   # deploy:
+  #   #   resources:
+  #   #     reservations:
+  #   #       devices:
+  #   #         - driver: nvidia
+  #   #           count: 1
+  #   #           capabilities: [gpu]
+
   # Optional: MCP server for AI integrations
   # mcp:
   #   image: ${MCP_IMAGE:-ghcr.io/OWNER/REPO/mcp:latest}
@@ -69,6 +116,12 @@ services:
   #     API_BASE_URL: http://app:8000
   #     MCP_SERVER_URL: ${MCP_SERVER_URL:-}
   #     ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+  #     # Set VOICE_PROVIDER=openai to use OpenAI TTS instead of the local
+  #     # voice container. Skips the voice service entirely from this stack.
+  #     VOICE_PROVIDER: ${VOICE_PROVIDER:-local}
+  #     OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+  #     OPENAI_TTS_MODEL: ${OPENAI_TTS_MODEL:-gpt-4o-mini-tts}
+  #     OPENAI_TTS_VOICE: ${OPENAI_TTS_VOICE:-nova}
   #   depends_on:
   #     - app
 
@@ -91,3 +144,4 @@ services:
 volumes:
   files_data:
   # db_data:
+  # voice_models:

@@ -1,3 +1,4 @@
+import { MicVAD, utils as vadUtils } from "@ricky0123/vad-web";
 import { createSignal, onCleanup } from "solid-js";
 
 // Backend voice service for the mic upload. TTS no longer goes through a
@@ -6,11 +7,14 @@ import { createSignal, onCleanup } from "solid-js";
 const STT_ENDPOINT = "/api/voice/stt";
 
 export function isSttSupported(): boolean {
+	// The recognizer needs getUserMedia, AudioWorklet (for the VAD's
+	// processor node), and WebAssembly (for the Silero ONNX model).
 	return (
 		typeof window !== "undefined" &&
-		typeof window.MediaRecorder !== "undefined" &&
 		typeof navigator !== "undefined" &&
-		!!navigator.mediaDevices?.getUserMedia
+		!!navigator.mediaDevices?.getUserMedia &&
+		typeof AudioWorkletNode !== "undefined" &&
+		typeof WebAssembly !== "undefined"
 	);
 }
 
@@ -19,163 +23,177 @@ export function isTtsSupported(): boolean {
 	return typeof window !== "undefined" && typeof Audio !== "undefined";
 }
 
-function pickRecorderMime(): string {
-	if (typeof MediaRecorder === "undefined") return "";
-	const candidates = [
-		"audio/webm;codecs=opus",
-		"audio/webm",
-		"audio/mp4",
-		"audio/ogg;codecs=opus",
-	];
-	for (const c of candidates) {
-		if (MediaRecorder.isTypeSupported(c)) return c;
-	}
-	return "";
-}
-
 type RecognizerOptions = {
 	onFinal: (text: string) => void;
 	onError?: (msg: string) => void;
+	/**
+	 * BCP-47-ish short code passed to Whisper as a hard language hint.
+	 * Whisper's autodetect is unreliable on the short (~2-3s) clips that
+	 * Silero VAD produces — it often falls back to Arabic for English
+	 * utterances. Pinning the language fixes that. Defaults to "en".
+	 */
+	language?: () => string;
 };
 
 /**
- * Tap-to-record recognizer backed by MediaRecorder + the /stt endpoint.
- * No interim results — Whisper batch-transcribes after the recording stops.
- * The `interim` signal is reused as a status line ("Transcribing…") so the
- * existing ChatInput UI doesn't need to change.
+ * Tap-to-record recognizer backed by Silero VAD (browser-side) and the
+ * /stt endpoint. The VAD endpoints the utterance automatically — speech
+ * starts the capture, ~1 second of silence ends it and triggers the
+ * upload. The user never taps "stop" in the normal path; tapping the mic
+ * during a recording cancels it instead. Silero is fully on-device (ONNX
+ * via onnxruntime-web), so no audio leaves the page until the explicit
+ * POST.
+ *
+ * The exposed API (isListening, interim, start, stop) mirrors the
+ * previous MediaRecorder-based recognizer so ChatInput needs no changes.
+ * `interim` doubles as a status line ("Listening for speech…" →
+ * "Listening…" → "Transcribing…") since Whisper still runs as a single
+ * batch transcription after the upload.
  */
 export function createRecognizer(opts: RecognizerOptions) {
 	const [isListening, setListening] = createSignal(false);
 	const [interim, setInterim] = createSignal("");
-	let recorder: MediaRecorder | null = null;
-	let stream: MediaStream | null = null;
-	let chunks: Blob[] = [];
-	let stopRequested = false;
+	let vad: MicVAD | null = null;
+	// Flipped by stop() so an in-flight onSpeechEnd drops the audio
+	// instead of POSTing after the user cancelled.
+	let cancelled = false;
 
-	const releaseStream = () => {
-		if (stream) {
-			for (const t of stream.getTracks()) t.stop();
-			stream = null;
-		}
-	};
-
-	const teardown = () => {
-		if (recorder && recorder.state !== "inactive") {
+	const teardown = async () => {
+		if (vad) {
+			const v = vad;
+			vad = null;
 			try {
-				recorder.stop();
+				await v.destroy();
 			} catch {
-				// ignore
+				// already torn down — destroy() is idempotent enough
 			}
 		}
-		releaseStream();
-		recorder = null;
-		chunks = [];
-		stopRequested = false;
 		setListening(false);
 		setInterim("");
 	};
 
 	const start = async () => {
-		if (recorder) return;
-		stopRequested = false;
-		chunks = [];
-		setInterim("");
+		if (vad) return;
+		cancelled = false;
+		// Status progression:
+		//   "Waiting…"  — mic open, VAD running, no speech detected yet
+		//   "Listening…" — VAD picked up speech, currently capturing
+		//   "Thinking…" — VAD ended, /stt + LLM in flight
+		// (then ChatPanel's voiceStatus takes over with Thinking/Speaking)
+		setInterim("Waiting…");
 		try {
-			stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+			vad = await MicVAD.new({
+				// v5 is the newer Silero model — higher accuracy at the cost
+				// of slightly more CPU. Both run easily on a phone.
+				model: "v5",
+				// Asset paths populated by scripts/copy-vad-assets.mjs at
+				// dev/build time; served from public/ with correct MIME by
+				// Vite's built-in handler (see vite.config.js for the
+				// query-strip middleware that keeps import-analysis off
+				// these URLs).
+				baseAssetPath: "/vad/",
+				onnxWASMBasePath: "/onnx/",
+				// Endpointing thresholds:
+				// - redemptionMs=1500 — wait 1.5s after speech drops below
+				//   the negative threshold before declaring end. Default
+				//   (~750ms) cuts mid-sentence on natural pauses.
+				// - minSpeechMs=400 — utterance must be ≥400ms to count.
+				//   Default (~300ms) sometimes fires on a single loud
+				//   word; 400ms weeds out coughs/chair scrapes.
+				// - preSpeechPadMs=300 — keep 300ms of audio captured
+				//   BEFORE the detected speech-start. Whisper transcribes
+				//   noticeably worse when the first phoneme is clipped.
+				redemptionMs: 1500,
+				minSpeechMs: 400,
+				preSpeechPadMs: 300,
+				onSpeechStart: () => {
+					// VAD just detected speech — switch from "Waiting…" so
+					// the user gets immediate feedback that the mic actually
+					// heard them. The pulse animation in ChatInput
+					// reinforces the live-capture state.
+					setInterim("Listening…");
+				},
+				onSpeechEnd: async (audio) => {
+					if (cancelled) return;
+					// Release the mic before transcribing — keeping it open
+					// during the upload would spike battery for no reason and
+					// could confuse echo cancellation if TTS replies start
+					// playing before /stt returns.
+					await teardown();
+					// Merge "transcribing" into "thinking" — from the user's
+					// perspective these are the same "waiting on the system"
+					// state. ChatPanel's voiceStatus takes over once /stt
+					// returns and the LLM stream starts.
+					setInterim("Thinking…");
+					try {
+						// Silero emits 16kHz mono float32 — encodeWAV defaults
+						// to PCM/16kHz/mono/16-bit, matching faster-whisper's
+						// preferred input.
+						const wav = vadUtils.encodeWAV(audio);
+						const blob = new Blob([wav], { type: "audio/wav" });
+						const text = await postForTranscript(blob, opts.language?.());
+						setInterim("");
+						if (text && !cancelled) opts.onFinal(text);
+					} catch (err) {
+						setInterim("");
+						opts.onError?.(
+							err instanceof Error ? err.message : "Transcription failed.",
+						);
+					}
+				},
+				onVADMisfire: () => {
+					// Captured something but it was too short to count as
+					// speech (a cough, a chair scrape, the tail of a wake
+					// word, etc.). Drop back to "Waiting…" — the model is
+					// still active, just hasn't heard a real utterance.
+					setInterim("Waiting…");
+				},
+			});
+			await vad.start();
+			setListening(true);
+			setInterim("Waiting…");
 		} catch (err) {
 			const msg = err instanceof Error ? err.message : String(err);
 			opts.onError?.(
 				msg.includes("denied") || msg.includes("Permission")
 					? "Microphone permission denied."
-					: `Could not access microphone: ${msg}`,
+					: `Could not start microphone: ${msg}`,
 			);
-			return;
-		}
-
-		const mime = pickRecorderMime();
-		try {
-			recorder = mime
-				? new MediaRecorder(stream, { mimeType: mime })
-				: new MediaRecorder(stream);
-		} catch (err) {
-			releaseStream();
-			opts.onError?.(
-				err instanceof Error ? err.message : "MediaRecorder failed to start.",
-			);
-			return;
-		}
-
-		recorder.ondataavailable = (e) => {
-			if (e.data && e.data.size > 0) chunks.push(e.data);
-		};
-
-		recorder.onerror = (e) => {
-			const evt = e as unknown as { error?: { message?: string } };
-			opts.onError?.(evt.error?.message ?? "Recording error.");
-			teardown();
-		};
-
-		recorder.onstop = async () => {
-			releaseStream();
-			setListening(false);
-			if (!stopRequested || chunks.length === 0) {
-				setInterim("");
-				recorder = null;
-				return;
-			}
-			const blob = new Blob(chunks, {
-				type: recorder?.mimeType || "audio/webm",
-			});
-			chunks = [];
-			recorder = null;
-			setInterim("Transcribing…");
-			try {
-				const text = await postForTranscript(blob);
-				setInterim("");
-				if (text) opts.onFinal(text);
-			} catch (err) {
-				setInterim("");
-				opts.onError?.(
-					err instanceof Error ? err.message : "Transcription failed.",
-				);
-			}
-		};
-
-		try {
-			recorder.start();
-			setListening(true);
-		} catch (err) {
-			teardown();
-			opts.onError?.(
-				err instanceof Error ? err.message : "Failed to start recording.",
-			);
+			await teardown();
 		}
 	};
 
 	const stop = () => {
-		if (!recorder) return;
-		stopRequested = true;
-		if (recorder.state !== "inactive") {
-			try {
-				recorder.stop();
-			} catch {
-				teardown();
-			}
-		}
+		// Fire-and-forget cancel: the call sites (toggleMic, submit) don't
+		// await this and they shouldn't have to. The VAD destroy is async
+		// but the user-facing state flips immediately.
+		if (!vad) return;
+		cancelled = true;
+		void teardown();
 	};
 
-	onCleanup(teardown);
+	onCleanup(() => {
+		cancelled = true;
+		void teardown();
+	});
 
 	return { start, stop, isListening, interim };
 }
 
-async function postForTranscript(blob: Blob): Promise<string> {
+async function postForTranscript(
+	blob: Blob,
+	language: string | undefined,
+): Promise<string> {
 	const form = new FormData();
-	form.append("audio", blob, "recording.webm");
-	// No language hint — let Whisper autodetect. Forcing the wrong language
-	// produces garbled English-shaped output from German speech and vice
-	// versa; autodetect picks the dominant language per clip.
-	const res = await fetch(STT_ENDPOINT, {
+	form.append("audio", blob, "recording.wav");
+	// Whisper's language autodetect is unreliable on the short clips
+	// Silero VAD produces — it often guesses Arabic for English speech.
+	// Pinning the language from the UI's voiceLang signal (defaults to
+	// "en") avoids that. Empty/undefined still falls through to autodetect.
+	const url = language
+		? `${STT_ENDPOINT}?language=${encodeURIComponent(language)}`
+		: STT_ENDPOINT;
+	const res = await fetch(url, {
 		method: "POST",
 		credentials: "include",
 		body: form,
@@ -453,29 +471,8 @@ export function createTtsQueue(_opts: TtsQueueOptions = {}) {
 	return { enqueueAudioBytes, prime, cancel, isSpeaking };
 }
 
-// Map dropdown values (incl. engine-pinning pseudo-langs like "en-cb") to
-// the language NAME shown to the LLM. The model picks its reply language
-// from this string, so it must be unambiguous English.
-const VOICE_LANG_NAMES: Record<string, string> = {
-	en: "English",
-	"en-us": "English",
-	"en-gb": "English",
-	"en-cb": "English",
-	"en-f5": "English",
-	de: "German",
-	"de-f5": "German",
-};
-
-export function voiceModeInstruction(lang: string | undefined): string {
-	const langName = VOICE_LANG_NAMES[lang ?? ""] ?? "English";
-	return (
-		`[Voice mode is active. ALWAYS reply in ${langName}, regardless of the ` +
-		`language the user wrote in — the user has selected ${langName} as the ` +
-		`spoken output language. Respond conversationally in 1-3 short sentences. ` +
-		`No markdown, no code blocks, no bullet lists — your reply will be read aloud. ` +
-		`If you need to show structured content, do the work via tools and give a brief spoken summary. ` +
-		`When announcing a tool call, say one short conversational sentence about what you're doing ` +
-		`(e.g. 'Let me look that up' or 'Saving that to memory now') — never read out tool names, ` +
-		`UUIDs, IDs, JSON, or parameter values; the UI shows those visually.]`
-	);
-}
+// Voice-mode guidance now lives in MCP's system prompt (conditional on
+// the request's `voice_mode` flag), so the frontend no longer needs to
+// prepend an instruction blob to each user message. Whisper auto-detects
+// the input language and OpenAI TTS infers the output language from the
+// model's response text — no language picker required.

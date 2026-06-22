@@ -1,12 +1,7 @@
 import { createSignal, Show } from "solid-js";
 import { useFeatures } from "../../features";
 import styles from "./ChatInput.module.css";
-import {
-	createRecognizer,
-	isSttSupported,
-	isTtsSupported,
-	voiceModeInstruction,
-} from "./voice";
+import { createRecognizer, isSttSupported, isTtsSupported } from "./voice";
 
 const MODELS = [
 	{ value: "claude-sonnet-4-6", label: "Sonnet 4.6" },
@@ -16,20 +11,10 @@ const MODELS = [
 
 type ContextUsage = { ratio: number; level: "" | "warning" | "critical" };
 
-// Languages exposed in the picker. The backend supports more (Kokoro covers
-// es/fr/hi/it/ja/pt-br/zh; Piper auto-downloads nl/pl/pt/ru/sv/tr/uk on first
-// use) — start with the two we actually use and extend when needed.
-// Voice mode is currently locked to Kokoro English — the dropdown and
-// non-EN options are commented out until we re-validate the other engines
-// (Chatterbox / F5-DE). The model is instructed to translate any input to
-// English in voice mode so a single hardcoded lang is enough.
-// const VOICE_LANGS = [
-// 	{ value: "en", label: "EN" },
-// 	{ value: "de", label: "DE" },
-// 	{ value: "en-cb", label: "EN (Chatterbox)" },
-// 	{ value: "en-f5", label: "EN (F5-TTS)" },
-// 	{ value: "de-f5", label: "DE (F5-TTS)" },
-// ];
+// Voice is multilingual end-to-end: Whisper auto-detects the input
+// language, Claude replies in the same language, and the TTS engine
+// (Kokoro for local, gpt-4o-mini-tts for OpenAI) speaks it. The
+// voice_lang request field defaults to "en"; no lang picker surfaced.
 
 type Props = {
 	onSend: (text: string, model: string) => void;
@@ -41,6 +26,12 @@ type Props = {
 	onVoiceModeChange?: (v: boolean) => void;
 	voiceLang?: string;
 	onVoiceLangChange?: (lang: string) => void;
+	// "thinking" while the LLM is generating but no audio has played
+	// yet; "speaking" once TTS playback starts. Idle outside voice mode
+	// and between turns. Drives the status line above the textarea so
+	// the kiosk user has feedback during the gap between transcript and
+	// first audio chunk.
+	voiceStatus?: "idle" | "thinking" | "speaking";
 	contextUsage?: ContextUsage;
 };
 
@@ -56,17 +47,17 @@ export function ChatInput(props: Props) {
 		? createRecognizer({
 				onFinal: (transcript) => {
 					if (props.disabled) return;
-					// Voice mode toggle gates whether the assistant *speaks*; for the
-					// user side, a voice-mode hint is prepended so the model answers
-					// in a speakable shape (and in the user's selected output lang).
-					// Hardcoded "en" — voice mode is locked to Kokoro English until
-					// we re-enable the lang dropdown above.
-					const payload = props.voiceMode
-						? `${voiceModeInstruction("en")}\n\n${transcript}`
-						: transcript;
-					props.onSend(payload, props.model);
+					// Voice-mode guidance lives in the MCP system prompt now (it's
+					// conditional on the `voice_mode` flag in the request body),
+					// so we just send the user's words verbatim. Keeping the
+					// transcript clean also makes saved conversations readable.
+					props.onSend(transcript, props.model);
 				},
 				onError: (msg) => setVoiceError(msg),
+				// No `language` here — the server runs a constrained
+				// autodetect over WHISPER_LANGUAGE_CANDIDATES (default
+				// en,de), which is more reliable on short clips than
+				// either pinning or full 99-lang autodetect.
 			})
 		: null;
 
@@ -74,10 +65,7 @@ export function ChatInput(props: Props) {
 		const t = text().trim();
 		if (!t || props.disabled) return;
 		recognizer?.stop();
-		const payload = props.voiceMode
-			? `${voiceModeInstruction("en")}\n\n${t}`
-			: t;
-		props.onSend(payload, props.model);
+		props.onSend(t, props.model);
 		setText("");
 	};
 
@@ -98,12 +86,33 @@ export function ChatInput(props: Props) {
 		}
 	};
 
+	// Single status line above the textarea. Priority:
+	//   1. Any non-empty recognizer interim — covers "Waiting…",
+	//      "Listening…", and the post-VAD "Thinking…" that the recognizer
+	//      keeps set while /stt is in flight. Checking interim *before*
+	//      isListening closes the brief gap after onSpeechEnd where
+	//      isListening flips false but the upload is still mid-air.
+	//   2. ChatPanel-supplied voiceStatus — covers the LLM-streaming
+	//      ("Thinking…") and TTS-playing ("Speaking…") phases that the
+	//      recognizer doesn't know about.
+	const statusText = (): string => {
+		const interim = recognizer?.interim() ?? "";
+		if (interim) return interim;
+		const s = props.voiceStatus ?? "idle";
+		if (s === "thinking") return "Thinking…";
+		if (s === "speaking") return "Speaking…";
+		return "";
+	};
+	const statusVisible = () => statusText() !== "";
+
 	return (
 		<div class={styles.form}>
-			<Show when={recognizer?.isListening()}>
+			<Show when={statusVisible()}>
 				<div class={styles.interim} aria-live="polite">
-					<span class={styles.micPulse} aria-hidden="true" />
-					{recognizer?.interim() || "Listening…"}
+					<Show when={recognizer?.isListening()}>
+						<span class={styles.micPulse} aria-hidden="true" />
+					</Show>
+					{statusText()}
 				</div>
 			</Show>
 			<Show when={voiceError() !== null}>
@@ -130,16 +139,16 @@ export function ChatInput(props: Props) {
 						disabled={props.disabled}
 						title={
 							recognizer?.isListening()
-								? "Stop listening and send"
+								? "Cancel recording — recording auto-submits when you pause"
 								: "Voice input"
 						}
 						aria-label={
 							recognizer?.isListening()
-								? "Stop listening and send"
+								? "Cancel recording"
 								: "Start voice input"
 						}
 					>
-						{recognizer?.isListening() ? "■" : "🎤"}
+						{recognizer?.isListening() ? "✕" : "🎤"}
 					</button>
 				</Show>
 				<button
@@ -182,26 +191,6 @@ export function ChatInput(props: Props) {
 						<span>Voice mode</span>
 					</label>
 				</Show>
-				{/*
-				Voice language picker — temporarily hidden. Voice mode is locked
-				to Kokoro English on the local container; the model is told to
-				translate any input into English (see voiceModeInstruction). Bring
-				this back together with the VOICE_LANGS array at the top once the
-				other engines (Chatterbox / F5-DE) are wired and stable again.
-				<Show when={voiceCapable && props.onVoiceLangChange}>
-					<select
-						class={styles.voiceLang}
-						value={props.voiceLang ?? "en"}
-						onChange={(e) => props.onVoiceLangChange?.(e.currentTarget.value)}
-						disabled={props.disabled}
-						title="Voice language (used for both mic transcription and spoken replies)"
-					>
-						{VOICE_LANGS.map((l) => (
-							<option value={l.value}>{l.label}</option>
-						))}
-					</select>
-				</Show>
-				*/}
 				<Show when={(props.contextUsage?.ratio ?? 0) > 0}>
 					{(() => {
 						const usage = () => props.contextUsage ?? { ratio: 0, level: "" };

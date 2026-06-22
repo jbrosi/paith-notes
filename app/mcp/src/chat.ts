@@ -4,13 +4,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import rateLimit from 'express-rate-limit';
 import { TOOLS, executeTool } from './chat-tools.js';
 import { runSearchAgent, type SearchAgentContext } from './search-agent.js';
-
-// Engines whose voice-service synth holds a per-engine generation lock and
-// can take many minutes per sentence on CPU. For these we MUST NOT fire
-// the next sentence's fetch until the previous one has been fully drained,
-// otherwise undici's 5-min headersTimeout fires on the queued requests
-// before sentence 1 finishes. Kokoro is fast + lockless so eager fires.
-const SLOW_SERIAL_ENGINES = new Set(['f5', 'chatterbox']);
+import { VoiceTagStripper, SentenceBuffer } from './voice-tag.js';
 
 function buildConversationSummary(messages: Anthropic.MessageParam[], maxLength = 500): string {
   const parts: string[] = [];
@@ -46,22 +40,26 @@ const MAX_AUTO_DEPTH = 8;
 // Voice service for the integrated TTS pipeline. MCP forwards text deltas
 // it produces into the streaming TTS endpoint and re-emits the resulting
 // audio chunks on the same SSE the frontend already listens to.
-// VOICE_BASE_URL points at the default voice service (the local compose
-// container — Kokoro / Chatterbox / Piper). VOICE_F5_URL is an optional
-// second URL for a GPU-accelerated F5 pod: when set, requests whose
-// resolved engine is "f5" are routed there instead, everything else
-// stays on the local URL. STT is *not* routed through here — the
-// frontend hits /api/voice/stt directly via Caddy which always proxies
-// to the local container, so the user's mic audio never leaves the home
-// network even when TTS runs in the cloud.
+// VOICE_BASE_URL points at the voice container (Kokoro TTS). STT is *not*
+// routed through here — the frontend hits /api/voice/stt directly via
+// Caddy, which always proxies to the local container so the user's mic
+// audio never leaves the home network even when TTS runs in the cloud.
 const VOICE_BASE_URL = process.env.VOICE_BASE_URL ?? 'http://voice:8000';
-const VOICE_F5_URL = (process.env.VOICE_F5_URL ?? '').trim();
-// Shared bearer secret matching each voice service's VOICE_TOKEN. Empty
+// Shared bearer secret matching the voice service's VOICE_TOKEN. Empty
 // disables auth (fine for the local compose default; required when the
-// URL is public). VOICE_F5_TOKEN falls back to VOICE_TOKEN when unset
-// for the common case of using the same secret on both endpoints.
+// URL is public).
 const VOICE_TOKEN = (process.env.VOICE_TOKEN ?? '').trim();
-const VOICE_F5_TOKEN = (process.env.VOICE_F5_TOKEN ?? VOICE_TOKEN).trim();
+
+// VOICE_PROVIDER=openai routes all TTS to OpenAI's /v1/audio/speech instead
+// of the local Kokoro container, and unlocks per-sentence delivery
+// instructions via the `<voice instr>` model output convention. STT still
+// goes to the local voice container regardless. Defaults to `local`.
+const VOICE_PROVIDER = (process.env.VOICE_PROVIDER ?? 'local').trim().toLowerCase();
+const OPENAI_API_KEY = (process.env.OPENAI_API_KEY ?? '').trim();
+// gpt-4o-mini-tts is the cheapest tier ($0.05/1M chars equiv) and is the
+// only model that honours the `instructions` field.
+const OPENAI_TTS_MODEL = (process.env.OPENAI_TTS_MODEL ?? 'gpt-4o-mini-tts').trim();
+const OPENAI_TTS_VOICE = (process.env.OPENAI_TTS_VOICE ?? 'nova').trim();
 
 // Sentence-end detection — fires when `.!?` (optionally followed by a
 // closing quote/bracket) is followed by whitespace, or on a newline.
@@ -82,8 +80,8 @@ function stripForSpeech(text: string): string {
     // [[note:UUID]] is a UI-only marker — the user sees a clickable title;
     // for TTS we drop it entirely (no graceful spoken equivalent).
     .replace(NOTE_REF_RE, '')
-    // Bare UUIDs (tool inputs, IDs the model wrote into prose) — F5 will
-    // happily try to enunciate every digit and burn minutes of synth time.
+    // Bare UUIDs (tool inputs, IDs the model wrote into prose) — TTS
+    // would otherwise enunciate every digit and burn synth time.
     .replace(UUID_RE, '')
     .replace(/^#{1,6}\s+/gm, '')
     .replace(/(\*\*|__)(.*?)\1/g, '$2')
@@ -102,69 +100,73 @@ function stripForSpeech(text: string): string {
  * laptop that can run two or three concurrent Kokoro syntheses, this
  * accumulates a buffer and the client never starves between sentences.
  */
-// Frontend-only pseudo-langs that pin a specific engine for testing. Real
-// lang code goes to the voice service; engine override forces routing.
-const LANG_ENGINE_OVERRIDES: Record<string, { lang: string; engine: string }> = {
-  'en-cb': { lang: 'en', engine: 'chatterbox' },
-  'en-f5': { lang: 'en', engine: 'f5' },
-  'de-f5': { lang: 'de', engine: 'f5' },
-};
-
 class VoiceStreamer {
   private pending: Promise<void> = Promise.resolve();
   private res: express.Response;
   private lang: string;
-  private engine: string | null;
   private seq = 0;
+  // Snapshot env once at construction so a hot-reload (or test override)
+  // is the only way to flip provider mid-process.
+  private provider: 'local' | 'openai' =
+    VOICE_PROVIDER === 'openai' && OPENAI_API_KEY ? 'openai' : 'local';
 
   constructor(res: express.Response, lang: string) {
     this.res = res;
-    const override = LANG_ENGINE_OVERRIDES[lang];
-    this.lang = override?.lang ?? lang;
-    this.engine = override?.engine ?? null;
+    this.lang = lang;
+    if (VOICE_PROVIDER === 'openai' && !OPENAI_API_KEY) {
+      console.warn(
+        '[voice] VOICE_PROVIDER=openai but OPENAI_API_KEY is unset — falling back to local voice service.',
+      );
+    }
   }
 
-  enqueueSentence(rawSentence: string): void {
+  enqueueSentence(rawSentence: string, instructions?: string | null): void {
     const clean = stripForSpeech(rawSentence);
     if (!clean) return;
     const seq = ++this.seq;
     console.log(
-      `[voice] #${seq} enqueue lang=${this.lang} engine=${this.engine ?? 'auto'} chars=${clean.length} text=${JSON.stringify(clean.slice(0, 60))}`,
+      `[voice] #${seq} enqueue provider=${this.provider} lang=${this.lang} chars=${clean.length}` +
+        (instructions ? ` instr=${JSON.stringify(instructions.slice(0, 60))}` : '') +
+        ` text=${JSON.stringify(clean.slice(0, 60))}`,
     );
     const doFetch = () => {
-      // F5 goes to the GPU pod when configured; everything else (and F5
-      // when VOICE_F5_URL is unset) stays on the local container. We
-      // could fall through to local on missing pod URL, but the local
-      // service may not even have F5 deps installed — better to fail
-      // fast with a clear message than to surprise-time-out.
-      if (this.engine === 'f5' && !VOICE_F5_URL) {
-        return Promise.reject(
-          new Error('voice: f5 engine requested but VOICE_F5_URL is unset'),
-        );
+      if (this.provider === 'openai') {
+        return fetch('https://api.openai.com/v1/audio/speech', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${OPENAI_API_KEY}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: OPENAI_TTS_MODEL,
+            input: clean,
+            voice: OPENAI_TTS_VOICE,
+            // OpenAI returns the full audio per request; `mp3` is the
+            // browser-friendliest format that AudioContext.decodeAudioData
+            // accepts everywhere.
+            response_format: 'mp3',
+            // Only `gpt-4o-mini-tts` honours `instructions`; older tiers
+            // silently ignore it, so we always pass it when present.
+            ...(instructions ? { instructions } : {}),
+          }),
+        });
       }
-      const useF5Pod = this.engine === 'f5' && VOICE_F5_URL;
-      const url = useF5Pod ? VOICE_F5_URL : VOICE_BASE_URL;
-      const token = useF5Pod ? VOICE_F5_TOKEN : VOICE_TOKEN;
-      return fetch(`${url}/tts/stream`, {
+      return fetch(`${VOICE_BASE_URL}/tts/stream`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          ...(VOICE_TOKEN ? { Authorization: `Bearer ${VOICE_TOKEN}` } : {}),
         },
         body: JSON.stringify({
           text: clean,
           lang: this.lang,
-          ...(this.engine ? { engine: this.engine } : {}),
         }),
       });
     };
-    // Eager for fast/parallel-safe engines (Kokoro): the next request goes
-    // out while we're still draining the current one — keeps the pipeline
-    // saturated. Lazy for engines that serialize on a gen lock at the voice
-    // service: firing N parallel fetches would just queue dead connections
-    // and trip undici's 5-min headersTimeout.
-    const eager = !this.engine || !SLOW_SERIAL_ENGINES.has(this.engine);
-    const fetchPromise = eager ? doFetch() : null;
+    // Eager fetch: the next request goes out while we're still draining
+    // the current one. Kokoro is fast and lockless, so the pipeline stays
+    // saturated and the client never starves between sentences.
+    const fetchPromise = doFetch();
     // Optional client-side debug: emit a structured event the frontend can
     // surface in a debug panel without parsing log lines.
     sse(this.res, 'voice_debug', {
@@ -178,45 +180,68 @@ class VoiceStreamer {
     this.pending = this.pending.then(async () => {
       const fetchStartedAt = Date.now();
       try {
-        const r = await (fetchPromise ?? doFetch());
+        const r = await fetchPromise;
         const synthFirstByteMs = Date.now() - fetchStartedAt;
         if (!r.ok || !r.body) {
-          console.error(`[voice] #${seq} tts failed status=${r.status}`);
+          // Read body for diagnostics — TTS providers return JSON error
+          // details (e.g. "Incorrect API key", "model not accessible by
+          // this project") that the raw status code hides.
+          const errBody = await r.text().catch(() => '<unreadable>');
+          console.error(
+            `[voice] #${seq} tts failed status=${r.status} body=${errBody.slice(0, 500)}`,
+          );
           sse(this.res, 'voice_debug', {
             seq,
             kind: 'error',
             status: r.status,
+            body: errBody.slice(0, 500),
           });
           return;
         }
-        const reader = r.body.getReader();
-        let buf = new Uint8Array(0);
         let chunkIdx = 0;
         let totalBytes = 0;
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          if (value) {
-            // Reader's Uint8Array may be backed by SharedArrayBuffer; copy
-            // into a fresh ArrayBuffer-backed buffer for type compatibility
-            // and so subsequent subarray() slices outlive the reader.
-            const copy = new Uint8Array(value.length);
-            copy.set(value);
-            buf = concatU8(buf, copy);
-          }
-          while (buf.length >= 4) {
-            const length =
-              (buf[0] << 24) | (buf[1] << 16) | (buf[2] << 8) | buf[3];
-            if (buf.length < 4 + length) break;
-            const chunk = buf.subarray(4, 4 + length);
-            chunkIdx++;
-            totalBytes += chunk.length;
-            sse(this.res, 'audio_chunk', {
-              seq,
-              chunk: chunkIdx,
-              data: Buffer.from(chunk).toString('base64'),
-            });
-            buf = buf.subarray(4 + length);
+
+        if (this.provider === 'openai') {
+          // OpenAI returns a single encoded audio body per request — no
+          // framing. AudioContext.decodeAudioData needs the whole MP3 to
+          // decode anyway, so we buffer and emit it as one chunk.
+          const ab = await r.arrayBuffer();
+          const all = new Uint8Array(ab);
+          chunkIdx = 1;
+          totalBytes = all.length;
+          sse(this.res, 'audio_chunk', {
+            seq,
+            chunk: chunkIdx,
+            data: Buffer.from(all).toString('base64'),
+          });
+        } else {
+          const reader = r.body.getReader();
+          let buf = new Uint8Array(0);
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            if (value) {
+              // Reader's Uint8Array may be backed by SharedArrayBuffer; copy
+              // into a fresh ArrayBuffer-backed buffer for type compatibility
+              // and so subsequent subarray() slices outlive the reader.
+              const copy = new Uint8Array(value.length);
+              copy.set(value);
+              buf = concatU8(buf, copy);
+            }
+            while (buf.length >= 4) {
+              const length =
+                (buf[0] << 24) | (buf[1] << 16) | (buf[2] << 8) | buf[3];
+              if (buf.length < 4 + length) break;
+              const chunk = buf.subarray(4, 4 + length);
+              chunkIdx++;
+              totalBytes += chunk.length;
+              sse(this.res, 'audio_chunk', {
+                seq,
+                chunk: chunkIdx,
+                data: Buffer.from(chunk).toString('base64'),
+              });
+              buf = buf.subarray(4 + length);
+            }
           }
         }
         const totalMs = Date.now() - fetchStartedAt;
@@ -615,6 +640,7 @@ function buildSystemPrompt(
   memoryNotes?: InstructionNote[],
   handbookNookId?: string | null,
   handbookNotes?: InstructionNote[],
+  voiceMode?: boolean,
 ): string {
   const nookDisplay = nookName ? `"${nookName}" (${nookId})` : `"${nookId}"`;
   const roleInfo = nookRole ? ` The user's role in this nook is "${nookRole}".` : '';
@@ -726,6 +752,32 @@ The more context has been used, the more you should encourage this. After saving
     `**User message metadata:** Each user message starts with a timestamp in brackets, and when the viewed note changes, a [Note: "title" (id, type: kind)] tag. When the user says "this note", "the current note", "my note", "here", or similar, they mean the note from the most recent [Note: ...] tag in the conversation. Use its ID directly without asking.\n\nTo read the current note, use get_note (user confirms). When asked about context: (1) call explore_notes(note_id="<id from latest Note tag>", direction="both") — free, (2) call get_note_mentions — free, (3) memory_search. Issue independent calls in parallel.`,
   );
 
+  if (voiceMode) {
+    parts.push(
+      `**Voice mode is active.** Your reply will be spoken aloud, sentence by sentence.
+
+- Respond conversationally in 1–3 short sentences. No markdown, no code blocks, no bullet lists, no headings — none of that survives synthesis.
+- Reply in the same language the user wrote in. The TTS engine is multilingual; mixing English and German in one response is fine if the user does.
+- If you need to show structured content, do the work via tools and give a brief spoken summary.
+- When announcing a tool call, say one short conversational sentence about what you're doing (e.g. "Let me look that up" or "Saving that to memory now") — never read out tool names, UUIDs, IDs, JSON, or parameter values; the UI shows those visually.
+
+You may shape how individual sentences are spoken by **prefixing them** with a double-bracket marker:
+
+  [[voice: warm, slow, smiling]] Welcome back.
+  Most sentences should have no marker — flowing prose sounds best.
+  [[voice: conspiratorial whisper]] Here's the secret.
+
+The bracketed value is a free-form delivery hint (tone, pace, emotion, accent, persona). Use it sparingly — tagging every sentence sounds artificial. Reserve it for genuine emphasis, character voices, or tone shifts.
+
+**Strict rules — read these:**
+- The marker MUST start with \`[[voice:\` (note the \`voice:\` prefix — without it, the bracket is treated as a regular note link like \`[[note:…]]\` and the inflection is ignored).
+- A marker applies to **exactly one sentence — the one it prefixes**. There is no "carryover" semantic. If you want three consecutive sentences to share the same delivery, prefix each one: \`[[voice: excited]] One! [[voice: excited]] Two! [[voice: excited]] Three!\`. Markers don't accumulate or persist.
+- The marker is stripped from the visible transcript, so the user sees clean text and hears the inflected audio.
+
+Do NOT use other formats — no XML tags, no \`<voice>\`, no \`<parameter>\`. Only \`[[voice: …]]\` is parsed.`,
+    );
+  }
+
   return parts.join('\n\n');
 }
 
@@ -749,18 +801,17 @@ async function streamConversation(
   // terminal event and the trailing audio_chunk SSE writes (which the
   // flush is still pushing) get stranded in the receive buffer.
   const trailing: Array<{ event: string; data: unknown }> = [];
-  let voiceBuf = '';
-  // Drain whatever sentence boundaries already closed in voiceBuf, leaving
-  // any trailing partial sentence behind for the next delta.
+  // Voice tag stripper + sentence buffer. Together they: (a) strip
+  // `<voice instr="...">…</voice>` from the text the user sees in the
+  // transcript, (b) pair each spoken sentence with the active instruction
+  // (if any) at sentence-start, (c) cope with tags split across token
+  // deltas. Both are no-ops when voice mode is off.
+  const tagStripper = voiceStreamer ? new VoiceTagStripper() : null;
+  const sentenceBuf = voiceStreamer ? new SentenceBuffer() : null;
   const drainVoiceBuf = (): void => {
-    if (!voiceStreamer) return;
-    while (true) {
-      const m = SENTENCE_END.exec(voiceBuf);
-      if (!m) break;
-      const end = m.index + m[0].length;
-      const sentence = voiceBuf.slice(0, end).trim();
-      voiceBuf = voiceBuf.slice(end);
-      if (sentence) voiceStreamer.enqueueSentence(sentence);
+    if (!voiceStreamer || !sentenceBuf) return;
+    for (const s of sentenceBuf.extract()) {
+      voiceStreamer.enqueueSentence(s.text, s.instr);
     }
   };
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -789,7 +840,7 @@ async function streamConversation(
     nookRole = found?.role ?? '';
   }
 
-  const baseSystemPrompt = buildSystemPrompt(nookId, nookName, nookRole, memoryNookId, nookInstructions, memoryNotes, handbookNookId, handbookNotes);
+  const baseSystemPrompt = buildSystemPrompt(nookId, nookName, nookRole, memoryNookId, nookInstructions, memoryNotes, handbookNookId, handbookNotes, !!voice);
   const contextLimit = MODEL_CONTEXT_LIMITS[model] ?? DEFAULT_CONTEXT_LIMIT;
 
   // IDs of instruction notes that can be auto-read without user approval
@@ -865,11 +916,23 @@ async function streamConversation(
 
         if (event.type === 'content_block_delta') {
           if (event.delta.type === 'text_delta') {
-            currentText += event.delta.text;
-            sse(res, 'text_delta', { delta: event.delta.text });
-            if (voiceStreamer) {
-              voiceBuf += event.delta.text;
+            if (voiceStreamer && tagStripper && sentenceBuf) {
+              // Run the raw delta through the stripper FIRST so the
+              // user-visible delta + the saved transcript stay free of
+              // `<voice instr>` wrappers. The stripper also tells us
+              // which segment belongs to which active instruction; the
+              // sentence buffer then yields complete sentences with the
+              // instruction snapshotted at sentence-start.
+              const { visible, segments } = tagStripper.push(event.delta.text);
+              if (visible) {
+                currentText += visible;
+                sse(res, 'text_delta', { delta: visible });
+              }
+              sentenceBuf.pushAll(segments);
               drainVoiceBuf();
+            } else {
+              currentText += event.delta.text;
+              sse(res, 'text_delta', { delta: event.delta.text });
             }
           } else if (event.delta.type === 'input_json_delta' && currentTool) {
             currentTool.partialInput += event.delta.partial_json;
@@ -884,9 +947,16 @@ async function streamConversation(
           }
           // Flush whatever trailing text didn't end with sentence punctuation
           // — the model often ends a turn on a single noun or short clause.
-          if (voiceStreamer && voiceBuf.trim()) {
-            voiceStreamer.enqueueSentence(voiceBuf);
-            voiceBuf = '';
+          if (voiceStreamer && tagStripper && sentenceBuf) {
+            const tail = tagStripper.flush();
+            if (tail.visible) {
+              currentText += tail.visible;
+              sse(res, 'text_delta', { delta: tail.visible });
+            }
+            sentenceBuf.pushAll(tail.segments);
+            for (const s of sentenceBuf.flush()) {
+              voiceStreamer.enqueueSentence(s.text, s.instr);
+            }
           }
           if (currentTool) {
             const toolInput = JSON.parse(currentTool.partialInput || '{}') as Record<string, unknown>;

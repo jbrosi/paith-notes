@@ -53,13 +53,14 @@
         # Strip the /api/voice prefix before forwarding — the Python service
         # only knows about /stt and /tts. Matched before @php so the /api/*
         # PHP catch-all doesn't swallow these.
-        # 10 min timeout because Chatterbox on CPU does ~1000 generation
-        # steps per sentence at a few it/s. Kokoro + Piper are sub-second.
+        # Generous timeout for STT on CPU with large-v3 + a max-size (25MB)
+        # upload — transcription can take a couple of minutes there. Kokoro
+        # TTS is sub-second so the timeout is irrelevant for /tts.
         uri strip_prefix /api/voice
         reverse_proxy voice:8000 {
             transport http {
-                read_timeout 600s
-                write_timeout 600s
+                read_timeout 180s
+                write_timeout 180s
             }
         }
     }

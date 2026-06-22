@@ -40,6 +40,13 @@ services:
       KEYCLOAK_REALM: ${KEYCLOAK_REALM:-master}
       API_BASE_URL: http://app:8000
       MCP_SERVER_URL: ${MCP_SERVER_URL:-https://mcp.paith.example.com}
+      # VOICE_PROVIDER=openai routes TTS to OpenAI's /v1/audio/speech
+      # (instructable per-sentence delivery; drops the local voice
+      # container entirely). Leave unset to keep the local Kokoro path.
+      VOICE_PROVIDER: ${VOICE_PROVIDER:-local}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_TTS_MODEL: ${OPENAI_TTS_MODEL:-gpt-4o-mini-tts}
+      OPENAI_TTS_VOICE: ${OPENAI_TTS_VOICE:-nova}
     depends_on:
       - app
     restart: unless-stopped
@@ -67,9 +74,12 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       IMAGE_PROVIDER: ${IMAGE_PROVIDER:-}
       IMAGE_MODEL: ${IMAGE_MODEL:-}
-      # When 0/unset, /api/me reports features.voice = false and the UI
-      # hides the mic + voice-mode toggle (no /api/voice/* calls fired).
+      # /api/me reports features.voice = true when VOICE_ENABLED=1. The
+      # voice container is required for STT regardless of TTS path — mic
+      # audio is always proxied to voice:8000/stt by Caddy, never OpenAI.
+      # VOICE_PROVIDER only switches the TTS leg (local kokoro vs OpenAI).
       VOICE_ENABLED: ${VOICE_ENABLED:-0}
+      VOICE_PROVIDER: ${VOICE_PROVIDER:-local}
     depends_on:
       - frontend
       - db
@@ -172,20 +182,38 @@ services:
     volumes:
       - ./app/voice/src:/app/src
       # Persist downloaded whisper models across container restarts so the
-      # ~150MB base model isn't refetched every rebuild.
-      # Holds both the whisper model and the ~1.5GB Chatterbox weights
-      # (HF_HOME points here; chatterbox uses huggingface_hub cache under hub/).
+      # ~150MB base model isn't refetched every rebuild. HF_HOME points here.
       - voice_models:/app/models/whisper
-      # Drop a 6–10s real human-voice WAV at app/voice/voices/default.wav
-      # to override Chatterbox's built-in (male) default.
-      - ./app/voice/voices:/app/voices
     expose:
       - "8000"
     environment:
+      # Model defaults: small/int8 on CPU is fine for testing. For real use
+      # bump to large-v3 + GPU (see GPU block below). large-v3 captures
+      # non-verbal cues (laughs, sighs, pauses) far more reliably than base.
       WHISPER_MODEL: ${WHISPER_MODEL:-small}
       WHISPER_DEVICE: ${WHISPER_DEVICE:-cpu}
       WHISPER_COMPUTE_TYPE: ${WHISPER_COMPUTE_TYPE:-int8}
       WHISPER_LANGUAGE: ${WHISPER_LANGUAGE:-}
+      # Comma-separated languages the server constrains autodetect to when
+      # the request doesn't pin one. Default "en,de" — restrict to your
+      # actual spoken languages so Whisper can't misfire to e.g. Arabic on
+      # short clips. Empty disables the constraint (full 99-lang autodetect).
+      WHISPER_LANGUAGE_CANDIDATES: ${WHISPER_LANGUAGE_CANDIDATES:-en,de}
+      # Optional `initial_prompt` for faster-whisper — seeds the model so it
+      # actually emits the non-verbal markers it occasionally captures.
+      # Override (or set empty) to disable.
+      WHISPER_INITIAL_PROMPT: ${WHISPER_INITIAL_PROMPT:-}
+    # GPU passthrough — uncomment once nvidia-container-toolkit is set up in
+    # the host VM. RTX 2070 (8GB) runs large-v3 at float16 comfortably,
+    # ~150–300ms per typical utterance vs 1–3s on CPU. With OpenAI handling
+    # TTS, Whisper is the only thing in this container that benefits from GPU.
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
     restart: unless-stopped
 
 volumes:
