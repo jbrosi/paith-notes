@@ -1,8 +1,15 @@
-import { createEffect, createSignal, onCleanup, Show } from "solid-js";
+import { createEffect, createSignal, lazy, onCleanup, Show } from "solid-js";
 import { useFeatures } from "../../features";
 import styles from "./ChatInput.module.css";
 import { createRecognizer, isSttSupported, isTtsSupported } from "./voice";
 import { createWakeListener, isWakeSupported } from "./wake";
+
+// Lazy-load the enrollment modal so its CSS + MediaRecorder logic
+// don't ship in the initial chat bundle. The modal is rare-use
+// (users open it once or twice ever).
+const VoiceEnrollment = lazy(() =>
+	import("./VoiceEnrollment").then((m) => ({ default: m.VoiceEnrollment })),
+);
 
 // Wake-word sidecar config. Empty URL → no hands-free, voice mode stays
 // push-to-talk-only (the default for non-kiosk deployments). When set,
@@ -68,6 +75,7 @@ type Props = {
 export function ChatInput(props: Props) {
 	const [text, setText] = createSignal("");
 	const [voiceError, setVoiceError] = createSignal<string | null>(null);
+	const [enrollmentOpen, setEnrollmentOpen] = createSignal(false);
 	const features = useFeatures();
 	const sttSupported = () => features().voice && isSttSupported();
 	const ttsSupported = () => features().voice && isTtsSupported();
@@ -286,6 +294,14 @@ export function ChatInput(props: Props) {
 						/>
 						<span>Voice mode</span>
 					</label>
+					<button
+						type="button"
+						class={styles.voiceProfilesBtn}
+						onClick={() => setEnrollmentOpen(true)}
+						title="Manage voice profiles (enroll yourself so the assistant can identify you by voice)"
+					>
+						🎙️ Profiles
+					</button>
 				</Show>
 				<Show when={(props.contextUsage?.ratio ?? 0) > 0}>
 					{(() => {
@@ -341,6 +357,9 @@ export function ChatInput(props: Props) {
 					})()}
 				</Show>
 			</div>
+			<Show when={enrollmentOpen()}>
+				<VoiceEnrollment onClose={() => setEnrollmentOpen(false)} />
+			</Show>
 		</div>
 	);
 }
