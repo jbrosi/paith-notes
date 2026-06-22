@@ -837,6 +837,7 @@ export function ChatPanel(props: Props) {
 						voice_mode: voiceMode(),
 						voice_lang: voiceLang(),
 						speaker_name: meta?.speaker ?? undefined,
+						speaker_confidence: meta?.speakerConfidence ?? undefined,
 					}),
 					signal: abortCtrl.signal,
 				},

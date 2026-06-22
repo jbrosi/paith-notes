@@ -609,6 +609,7 @@ function buildMessageText(
   contextNote?: { id: string; title: string; type?: string },
   prevContextNoteId?: string,
   speakerName?: string | null,
+  speakerConfidence?: number | null,
 ): string {
   const ts = new Date().toISOString().slice(0, 16) + 'Z';
   let meta = `[${ts}]`;
@@ -618,9 +619,15 @@ function buildMessageText(
   // the model. We embed the name in the message text itself, in the
   // same bracket-tag pattern as the timestamp; the frontend renders
   // chat messages cleaned of these brackets so the human view stays
-  // readable.
+  // readable. Confidence is a 0-1 cosine score from the voiceprint
+  // match — passed through so Claude can soften the identification
+  // when the score is barely above the server-side threshold.
   if (speakerName) {
-    meta += ` [spoken by ${speakerName}]`;
+    const conf =
+      typeof speakerConfidence === 'number'
+        ? ` (confidence ${speakerConfidence.toFixed(2)})`
+        : '';
+    meta += ` [spoken by ${speakerName}${conf}]`;
   }
   if (contextNote && contextNote.id !== prevContextNoteId) {
     meta += ` [Note: "${contextNote.title}" (${contextNote.id}, type: ${contextNote.type ?? 'note'})]`;
@@ -691,7 +698,7 @@ General rules:
 - Only use tools when the user explicitly asks. Always tell the user what you are about to do before calling a tool.
 - When you need to make multiple independent tool calls, issue them all in a single response as parallel tool_use blocks rather than sequentially.
 
-Speaker attribution: user messages may include a \`[spoken by <name>]\` metadata tag in the leading bracket-prefix (alongside the timestamp). This means voice identified an enrolled household member by their voiceprint. Treat each message's speaker independently — multiple people can share a single conversation, so do NOT assume the speaker stays constant across messages. When a name is present, address that person by name where natural and use it to disambiguate "I/me/my" references. When no \`[spoken by]\` tag is present, the speaker is unknown (typed text, an unenrolled guest, or a clip that didn't match any voiceprint) — treat them as anonymous and don't ask for their identity unless directly relevant.
+Speaker attribution: user messages may include a \`[spoken by <name> (confidence X.XX)]\` metadata tag in the leading bracket-prefix (alongside the timestamp). This means voice identified an enrolled household member by their voiceprint. Treat each message's speaker independently — multiple people can share a single conversation, so do NOT assume the speaker stays constant across messages. When a name is present, address that person by name where natural and use it to disambiguate "I/me/my" references. The confidence (0-1 cosine score, already clipped server-side at ~0.70) is a hint: ≥0.85 is a strong match (use the name confidently), 0.70-0.85 is a soft match (you can use the name but don't make identity-critical decisions on it — if the user contradicts, believe them). When no \`[spoken by]\` tag is present at all, the speaker is unknown (typed text, an unenrolled guest, or a clip that didn't match any voiceprint) — treat them as anonymous and don't ask for their identity unless directly relevant.
 
 **search_notes behavior:** The q parameter is optional — omit it or pass an empty string to list all notes (optionally filtered by type_id). Do NOT search for common words like "a" or "the" to find all notes. Multiple words are automatically split: by default all must match (AND). Use search_mode="or" if you want any word to match. The same applies to explore_notes q parameter.
 
@@ -1180,10 +1187,18 @@ export function createChatRouter(apiBase: string): Router {
     }
 
     const nook_id = validateNookId(String(req.params.nookId));
-    const { message, model, conversation_id, context_note_id, context_note_title, context_note_type, voice_mode, voice_lang, speaker_name } = req.body as Record<string, unknown>;
+    const { message, model, conversation_id, context_note_id, context_note_title, context_note_type, voice_mode, voice_lang, speaker_name, speaker_confidence } = req.body as Record<string, unknown>;
     const speakerName =
       typeof speaker_name === 'string' && speaker_name.trim() !== ''
         ? speaker_name.trim()
+        : null;
+    // Pair the name with its confidence so Claude knows whether to act
+    // on identification or treat it as a soft hint. Clamp to a sane
+    // range and round so we don't paste arbitrary float precision into
+    // the prompt.
+    const speakerConfidence =
+      typeof speaker_confidence === 'number' && Number.isFinite(speaker_confidence)
+        ? Math.max(0, Math.min(1, Math.round(speaker_confidence * 100) / 100))
         : null;
 
     if (typeof message !== 'string' || message.trim() === '') {
@@ -1227,7 +1242,7 @@ export function createChatRouter(apiBase: string): Router {
       // Load history and append new user message with metadata prefix
       const history = await loadHistory(convId, cookieHeader, apiBase);
       const prevContextNoteId = findPreviousContextNoteId(history);
-      const messageText = buildMessageText(message as string, contextNote, prevContextNoteId, speakerName);
+      const messageText = buildMessageText(message as string, contextNote, prevContextNoteId, speakerName, speakerConfidence);
       // Trace: show the metadata prefix MCP just prepended so we can
       // sanity-check that speaker tagging is actually reaching Claude.
       // Logging only the first 200 chars to keep the line readable —

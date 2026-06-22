@@ -76,13 +76,16 @@ type Props = {
 };
 
 /** Strip the metadata prefix added by the backend.
- *  Format: `[<ISO timestamp>] [spoken by <name>]? [Note: "title" (id, type: t)]?\n`
+ *  Format: `[<ISO timestamp>] [spoken by <name> (confidence X.XX)?]? [Note: "title" (id, type: t)]?\n`
  *  All three brackets are optional except the timestamp; the order is
  *  fixed (see MCP's buildMessageText). */
 const META_RE =
 	/^\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}Z\](?: \[spoken by [^\]]+\])?(?: \[Note: "[^"]*" \([^)]+\)])?\n/;
-/** Captures just the speaker name out of the metadata block when present. */
-const SPEAKER_RE = /^\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}Z\] \[spoken by ([^\]]+)\]/;
+/** Captures speaker name (group 1) and optional confidence (group 2)
+ *  from the metadata prefix when present. Confidence is optional so
+ *  older saved conversations (without the score) still parse. */
+const SPEAKER_RE =
+	/^\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}Z\] \[spoken by ([^\](]+?)(?: \(confidence ([\d.]+)\))?\]/;
 
 function stripMeta(text: string): string {
 	return text.replace(META_RE, "");
@@ -92,7 +95,16 @@ function stripMeta(text: string): string {
  *  to drive a "spoken by Anna" badge on the message bubble. */
 export function extractSpeaker(text: string): string | null {
 	const m = SPEAKER_RE.exec(text);
-	return m ? m[1] : null;
+	return m ? m[1].trim() : null;
+}
+
+/** Pull the speaker-match confidence from the metadata prefix, if
+ *  the tag includes it. Older saved messages won't have it. */
+export function extractSpeakerConfidence(text: string): number | null {
+	const m = SPEAKER_RE.exec(text);
+	if (!m || !m[2]) return null;
+	const n = Number.parseFloat(m[2]);
+	return Number.isFinite(n) ? n : null;
 }
 
 function formatTimeAgo(ms: number): string {
@@ -232,9 +244,9 @@ export function ChatMessage(props: Props) {
 		<div class={`${styles.message} ${styles[m().role]}`}>
 			<Show when={m().role === "user"}>
 				{(() => {
-					// Speaker attribution: prefer the explicit `speaker` field
-					// (set on real-time sends), fall back to parsing the
-					// `[spoken by …]` tag from the saved text (history reload).
+					// Speaker attribution: prefer the explicit fields (set on
+					// real-time sends), fall back to parsing the `[spoken by …]`
+					// tag from the saved text (history reload).
 					const u = m() as {
 						text: string;
 						speaker?: string | null;
@@ -243,6 +255,12 @@ export function ChatMessage(props: Props) {
 						durationSec?: number;
 					};
 					const speaker = u.speaker ?? extractSpeaker(u.text);
+					const confidence =
+						u.speakerConfidence ?? extractSpeakerConfidence(u.text);
+					const badgeTitle =
+						confidence != null
+							? `Identified by voiceprint (confidence ${confidence.toFixed(2)})`
+							: "Identified by voiceprint";
 					return (
 						<>
 							<Show when={speaker}>
@@ -253,7 +271,7 @@ export function ChatMessage(props: Props) {
 										"margin-bottom": "2px",
 										"text-align": "right",
 									}}
-									title="Identified by voiceprint"
+									title={badgeTitle}
 								>
 									🎤 {speaker}
 								</div>
