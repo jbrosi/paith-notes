@@ -180,6 +180,109 @@ export function createRecognizer(opts: RecognizerOptions) {
 	return { start, stop, isListening, interim };
 }
 
+// Cached AudioContext for one-shot local TTS playback (consent prompts
+// etc.). Reused across calls so the first user-gesture-triggered call
+// can resume() it and subsequent ones inherit the "running" state —
+// browsers gate AudioContext.start on a recent user gesture.
+let _speakCtx: AudioContext | null = null;
+
+function getSpeakCtx(): AudioContext | null {
+	if (_speakCtx) return _speakCtx;
+	const AC: typeof AudioContext | undefined =
+		window.AudioContext ??
+		(window as unknown as { webkitAudioContext?: typeof AudioContext })
+			.webkitAudioContext;
+	if (!AC) return null;
+	_speakCtx = new AC();
+	return _speakCtx;
+}
+
+/**
+ * Synthesize `text` via the local voice service and play it back, awaiting
+ * `ended`. Used for system-spoken prompts (e.g. voice consent for tool
+ * approval) where the existing chat-SSE TTS pipeline doesn't apply.
+ * Always hits the local /api/voice/tts (Kokoro) — even when MCP is
+ * configured to route chat TTS through OpenAI — because these are short
+ * system prompts and the local path is faster + free.
+ */
+export async function speakLocal(text: string, lang = "en"): Promise<void> {
+	const ctx = getSpeakCtx();
+	if (!ctx) throw new Error("AudioContext not supported");
+	if (ctx.state === "suspended") {
+		try {
+			await ctx.resume();
+		} catch {
+			/* may stay suspended without recent gesture; play will fail below */
+		}
+	}
+	const res = await fetch("/api/voice/tts", {
+		method: "POST",
+		credentials: "include",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ text, lang }),
+	});
+	if (!res.ok) {
+		throw new Error(`tts ${res.status}: ${await res.text().catch(() => "")}`);
+	}
+	const buf = await res.arrayBuffer();
+	const audioBuf = await ctx.decodeAudioData(buf.slice(0));
+	await new Promise<void>((resolve) => {
+		const source = ctx.createBufferSource();
+		source.buffer = audioBuf;
+		source.connect(ctx.destination);
+		source.onended = () => resolve();
+		source.start();
+	});
+}
+
+/**
+ * Voice consent: speak `prompt`, capture one VAD-endpointed utterance,
+ * return the transcript. Caller does the keyword matching (yes/no in
+ * the language(s) it cares about) so the matcher can live near the
+ * intent it's matching against. Throws on TTS/STT errors so the caller
+ * can fall back to the manual modal flow.
+ *
+ * Used by the ChatPanel approval-modal flow when voice mode is on —
+ * see the consent createEffect there.
+ */
+export async function awaitVoiceConsent(opts: {
+	prompt: string;
+	lang?: string;
+	/** Hard timeout in ms (default 15s). On timeout resolves to "" so
+	 *  the caller can treat silence as deny. */
+	timeoutMs?: number;
+}): Promise<string> {
+	await speakLocal(opts.prompt, opts.lang ?? "en");
+	// Capture one utterance via a transient VAD recognizer. Not the
+	// ChatInput recognizer — that one's onFinal feeds the regular
+	// message-submit flow, which is the opposite of what consent wants.
+	const timeoutMs = opts.timeoutMs ?? 15000;
+	return new Promise<string>((resolve, reject) => {
+		let settled = false;
+		const settle = (text: string) => {
+			if (settled) return;
+			settled = true;
+			rec.stop();
+			clearTimeout(timer);
+			resolve(text);
+		};
+		const fail = (e: Error) => {
+			if (settled) return;
+			settled = true;
+			rec.stop();
+			clearTimeout(timer);
+			reject(e);
+		};
+		const rec = createRecognizer({
+			onFinal: (text) => settle(text),
+			onError: (msg) => fail(new Error(msg)),
+			language: opts.lang ? () => opts.lang as string : undefined,
+		});
+		const timer = setTimeout(() => settle(""), timeoutMs);
+		void rec.start();
+	});
+}
+
 async function postForTranscript(
 	blob: Blob,
 	language: string | undefined,

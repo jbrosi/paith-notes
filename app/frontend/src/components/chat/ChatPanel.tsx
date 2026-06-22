@@ -17,7 +17,65 @@ import {
 } from "./ChatMessage";
 import styles from "./ChatPanel.module.css";
 import { ToolApproval } from "./ToolApproval";
-import { createTtsQueue } from "./voice";
+import { awaitVoiceConsent, createTtsQueue } from "./voice";
+
+// Short verb phrase per tool name for voice-mode consent prompts. We
+// deliberately do NOT read the tool's inputs aloud (note titles, prompts,
+// etc.) — those can be long, contain proper nouns Whisper mangles, or
+// leak content the user doesn't want spoken in a shared room. Approval
+// shifts to "do you trust the model to do this kind of thing?" rather
+// than "verify every parameter by ear."
+const TOOL_VERBS: Record<string, string> = {
+	create_note: "create a note",
+	update_note: "update a note",
+	delete_note: "delete a note",
+	create_note_type: "create a new note type",
+	update_note_type: "update a note type",
+	create_note_link: "link two notes",
+	generate_image: "generate an image",
+	start_new_chat: "start a new chat",
+	explore_notes: "explore notes",
+	search_notes: "search your notes",
+	search_all_nooks: "search across all your nooks",
+	get_note_history: "read note history",
+	compare_note_versions: "compare note versions",
+	get_note_version: "read an older version",
+	get_note_summary: "summarize a note",
+	get_note_section: "read part of a note",
+	open_note: "open a note",
+};
+
+function buildConsentPrompt(tools: ReadonlyArray<{ name: string }>): string {
+	const verbs = tools.map(
+		(t) => TOOL_VERBS[t.name] ?? t.name.replace(/_/g, " "),
+	);
+	const unique = Array.from(new Set(verbs));
+	const list =
+		unique.length === 1
+			? unique[0]
+			: unique.length === 2
+				? `${unique[0]} and ${unique[1]}`
+				: `${unique.slice(0, -1).join(", ")}, and ${unique[unique.length - 1]}`;
+	return `I want to ${list}. Should I?`;
+}
+
+// Loose keyword matchers for EN + DE. Word-boundary regex (no exact
+// phrase requirement) so "yes please go ahead" and "ja klar mach das"
+// both match. Ambiguous results (both approve + deny words, or
+// neither) → re-ask once, then deny on second ambiguity.
+const APPROVE_RE =
+	/\b(yes|yeah|yep|yup|sure|ok|okay|confirm|please|do it|go ahead|ja|jo|jep|klar|mach|los|sicher|bestätigt|bestätigen|bestätige)\b/i;
+const DENY_RE =
+	/\b(no|nope|cancel|stop|abort|don'?t|nein|nicht|niemals|abbrechen|stopp|halt|abbruch)\b/i;
+function matchConsent(transcript: string): "approve" | "deny" | "ambiguous" {
+	const t = transcript.trim();
+	if (!t) return "ambiguous";
+	const approve = APPROVE_RE.test(t);
+	const deny = DENY_RE.test(t);
+	if (approve && !deny) return "approve";
+	if (deny && !approve) return "deny";
+	return "ambiguous";
+}
 
 type ConversationSummary = {
 	id: string;
@@ -213,8 +271,12 @@ export function ChatPanel(props: Props) {
 	// Order matters: "speaking" wins because once audio starts playing
 	// the model may still be generating (streaming() stays true) and we
 	// want to reflect the user-perceptible state.
-	const voiceStatus = (): "idle" | "thinking" | "speaking" => {
+	const voiceStatus = (): "idle" | "thinking" | "speaking" | "consent" => {
 		if (!voiceMode()) return "idle";
+		// "consent" gates the wake listener in ChatInput off while the
+		// approval modal is being voice-handled, so wake and the
+		// transient consent recognizer don't fight for the mic.
+		if (pendingApproval()) return "consent";
 		if (tts.isSpeaking()) return "speaking";
 		if (streaming()) return "thinking";
 		return "idle";
@@ -881,6 +943,44 @@ export function ChatPanel(props: Props) {
 				setError(err.message);
 		}
 	};
+
+	// ── voice consent (kiosk hands-free approval) ────────────
+	// When the approval modal opens in voice mode, TTS the short prompt
+	// ("I want to update a note. Should I?") and listen for one
+	// utterance. Loose yes/no matching across EN+DE; ambiguous → re-ask
+	// once, then deny. The manual Approve/Deny buttons remain active in
+	// parallel so the user can override with a click if they prefer.
+	createEffect(() => {
+		const pa = pendingApproval();
+		if (!pa) return;
+		if (!voiceMode()) return;
+		let aborted = false;
+		void (async () => {
+			try {
+				const lang = voiceLang() || "en";
+				const prompt = buildConsentPrompt(pa.tools);
+				let transcript = await awaitVoiceConsent({ prompt, lang });
+				if (aborted) return;
+				let decision = matchConsent(transcript);
+				if (decision === "ambiguous") {
+					transcript = await awaitVoiceConsent({
+						prompt: "Sorry, please say yes or no.",
+						lang,
+					});
+					if (aborted) return;
+					decision = matchConsent(transcript);
+				}
+				if (aborted) return;
+				void submitToolResults(decision === "approve");
+			} catch (e) {
+				// TTS / mic / network error — fall back to the manual modal.
+				console.warn("[voice consent] falling back to manual modal:", e);
+			}
+		})();
+		onCleanup(() => {
+			aborted = true;
+		});
+	});
 
 	// ── helpers ──────────────────────────────────────────────
 	const formatDate = (iso: string) => {

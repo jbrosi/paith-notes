@@ -44,11 +44,12 @@ type Props = {
 	voiceLang?: string;
 	onVoiceLangChange?: (lang: string) => void;
 	// "thinking" while the LLM is generating but no audio has played
-	// yet; "speaking" once TTS playback starts. Idle outside voice mode
-	// and between turns. Drives the status line above the textarea so
-	// the kiosk user has feedback during the gap between transcript and
-	// first audio chunk.
-	voiceStatus?: "idle" | "thinking" | "speaking";
+	// yet; "speaking" once TTS playback starts; "consent" while a
+	// voice-handled tool-approval modal is taking the mic via its own
+	// transient recognizer. Drives the status line above the textarea
+	// and gates the wake listener so multiple voice paths can't fight
+	// for the microphone.
+	voiceStatus?: "idle" | "thinking" | "speaking" | "consent";
 	// Called when the wake word fires while the assistant is mid-turn
 	// (thinking or speaking). Cancels TTS playback + aborts the in-flight
 	// LLM stream so the user's new utterance gets a clean slate.
@@ -125,11 +126,17 @@ export function ChatInput(props: Props) {
 	if (WAKE_AVAILABLE) {
 		createEffect(() => {
 			// Wake is active whenever voice mode is on AND the recognizer
-			// isn't currently holding the mic for VAD. We deliberately do
-			// NOT gate on thinking/speaking — the user should be able to
-			// say "Alexa" mid-reply to interrupt; the onWake handler then
-			// cancels what's in progress via onInterruptVoice.
-			const wantWake = (props.voiceMode ?? false) && !recognizer?.isListening();
+			// isn't currently holding the mic for VAD AND the consent
+			// flow isn't running (consent has its own transient recognizer
+			// — two recognizers fighting for the mic deadlocks). We
+			// deliberately do NOT gate on thinking/speaking — the user
+			// should be able to say "Alexa" mid-reply to interrupt; the
+			// onWake handler then cancels what's in progress via
+			// onInterruptVoice.
+			const wantWake =
+				(props.voiceMode ?? false) &&
+				!recognizer?.isListening() &&
+				(props.voiceStatus ?? "idle") !== "consent";
 			if (wantWake && !wakeListener) {
 				wakeListener = createWakeListener({
 					url: WAKE_URL,
