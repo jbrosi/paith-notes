@@ -3,14 +3,111 @@ import type express from 'express';
 import Anthropic from '@anthropic-ai/sdk';
 import rateLimit from 'express-rate-limit';
 import { TOOLS, executeTool } from './chat-tools.js';
+import { optionalAutoApprovedTools } from './tools/registry.js';
 import { runSearchAgent, type SearchAgentContext } from './search-agent.js';
+import { runEditNoteAgent } from './edit-agent.js';
+import { VoiceTagStripper, SentenceBuffer } from './voice-tag.js';
+import { VoiceStreamer } from './chat/voice.js';
+import {
+  fetchHandbookNotes,
+  fetchInstructionNotes,
+  fetchMemoryInstructionNotes,
+  type InstructionNote,
+  loadHistory,
+  phpApi,
+  recordNoteConvLink,
+  resolveHandbookNookId,
+  resolveMemoryNookId,
+  resolveNookName,
+  saveMessages,
+  verifySession,
+} from './chat/api.js';
+import { buildSystemPrompt } from './chat/system-prompt.js';
+import { mapWithConcurrency } from './concurrency.js';
 
-// Engines whose voice-service synth holds a per-engine generation lock and
-// can take many minutes per sentence on CPU. For these we MUST NOT fire
-// the next sentence's fetch until the previous one has been fully drained,
-// otherwise undici's 5-min headersTimeout fires on the queued requests
-// before sentence 1 finishes. Kokoro is fast + lockless so eager fires.
-const SLOW_SERIAL_ENGINES = new Set(['f5', 'chatterbox']);
+// Cap on parallel tool executions per turn. The Anthropic API encourages
+// fan-out (multiple tool_use blocks in one assistant turn), but unbounded
+// parallel writes can saturate FrankenPHP workers + the Postgres pool and
+// surface as flaky network errors. 3 is conservative — bump if the
+// upstream stack grows.
+const TOOL_CONCURRENCY = 3;
+
+/**
+ * Inject synthetic tool_result blocks for any tool_use that isn't matched
+ * by a real result in the immediately-following user message.
+ *
+ * The Anthropic API requires every tool_use in an assistant turn to be
+ * paired with a tool_result in the next user turn — otherwise it 400s.
+ * That contract breaks whenever a /chat/tool-result POST never reaches us
+ * (network drop, browser tab close, server crash mid-execution): the
+ * persisted history ends with assistant{tool_use ...} and the user's next
+ * /chat message lands as a plain text user turn, leaving the tool_uses
+ * orphaned. Without this fixup, the conversation becomes permanently
+ * stuck on a 400 and the user has to start a new chat.
+ *
+ * We fix this at API-call time only — never write the synthetics back to
+ * the DB, so the human-readable transcript stays clean. Idempotent:
+ * re-running on already-sanitized history is a no-op (a real tool_result
+ * exists, so we don't inject).
+ */
+export function sanitizeOrphanedToolUses(messages: Anthropic.MessageParam[]): Anthropic.MessageParam[] {
+  const TIMEOUT_MESSAGE =
+    'This tool call was interrupted before a result could be returned '
+    + '(likely a network drop or session timeout). The action may or may '
+    + 'not have actually completed on the server. If continuing depends '
+    + 'on knowing the outcome, ask the user to confirm or re-run.';
+
+  const out: Anthropic.MessageParam[] = [];
+  for (let i = 0; i < messages.length; i++) {
+    const m = messages[i];
+    out.push(m);
+    if (m.role !== 'assistant' || !Array.isArray(m.content)) continue;
+
+    const toolUseIds: string[] = [];
+    for (const block of m.content) {
+      if (typeof block === 'object' && block !== null && 'type' in block && block.type === 'tool_use' && 'id' in block) {
+        toolUseIds.push(String(block.id));
+      }
+    }
+    if (toolUseIds.length === 0) continue;
+
+    const next = messages[i + 1];
+    const matchedIds = new Set<string>();
+    if (next && next.role === 'user' && Array.isArray(next.content)) {
+      for (const b of next.content) {
+        if (typeof b === 'object' && b !== null && 'type' in b && b.type === 'tool_result' && 'tool_use_id' in b) {
+          matchedIds.add(String(b.tool_use_id));
+        }
+      }
+    }
+    const missing = toolUseIds.filter(id => !matchedIds.has(id));
+    if (missing.length === 0) continue;
+
+    const syntheticResults: Anthropic.ToolResultBlockParam[] = missing.map(id => ({
+      type: 'tool_result',
+      tool_use_id: id,
+      content: TIMEOUT_MESSAGE,
+      is_error: true,
+    }));
+
+    if (next && next.role === 'user') {
+      // Merge synthetics into the front of the existing user message so the
+      // turn alternation stays valid (Anthropic rejects consecutive
+      // same-role messages). Normalize string content to a text block.
+      const nextContent = Array.isArray(next.content)
+        ? next.content
+        : [{ type: 'text' as const, text: String(next.content) }];
+      out.push({ role: 'user', content: [...syntheticResults, ...nextContent] });
+      i++; // skip the original `next`, we just replaced it
+    } else {
+      // No following user message (or next is an assistant turn — shouldn't
+      // happen but be defensive). Insert a standalone user message with the
+      // synthetic results so the next assistant turn has its required pair.
+      out.push({ role: 'user', content: syntheticResults });
+    }
+  }
+  return out;
+}
 
 function buildConversationSummary(messages: Anthropic.MessageParam[], maxLength = 500): string {
   const parts: string[] = [];
@@ -30,252 +127,112 @@ function buildConversationSummary(messages: Anthropic.MessageParam[], maxLength 
   return parts.join('\n');
 }
 
-async function resolveNookName(nookId: string, cookie: string, apiBase: string): Promise<string> {
-  try {
-    const data = await phpApi('GET', '/api/nooks', cookie, apiBase) as { nooks?: Array<{ id: string; name: string }> } | null;
-    return data?.nooks?.find(n => n.id === nookId)?.name ?? '';
-  } catch {
-    return '';
-  }
-}
-
-const DEFAULT_MODEL = 'claude-sonnet-4-6';
+const DEFAULT_MODEL = 'claude-sonnet-5';
 const MAX_TOKENS    = 8096;
 const MAX_AUTO_DEPTH = 8;
 
-// Voice service for the integrated TTS pipeline. MCP forwards text deltas
-// it produces into the streaming TTS endpoint and re-emits the resulting
-// audio chunks on the same SSE the frontend already listens to.
-// VOICE_BASE_URL points at the default voice service (the local compose
-// container — Kokoro / Chatterbox / Piper). VOICE_F5_URL is an optional
-// second URL for a GPU-accelerated F5 pod: when set, requests whose
-// resolved engine is "f5" are routed there instead, everything else
-// stays on the local URL. STT is *not* routed through here — the
-// frontend hits /api/voice/stt directly via Caddy which always proxies
-// to the local container, so the user's mic audio never leaves the home
-// network even when TTS runs in the cloud.
-const VOICE_BASE_URL = process.env.VOICE_BASE_URL ?? 'http://voice:8000';
-const VOICE_F5_URL = (process.env.VOICE_F5_URL ?? '').trim();
-// Shared bearer secret matching each voice service's VOICE_TOKEN. Empty
-// disables auth (fine for the local compose default; required when the
-// URL is public). VOICE_F5_TOKEN falls back to VOICE_TOKEN when unset
-// for the common case of using the same secret on both endpoints.
-const VOICE_TOKEN = (process.env.VOICE_TOKEN ?? '').trim();
-const VOICE_F5_TOKEN = (process.env.VOICE_F5_TOKEN ?? VOICE_TOKEN).trim();
 
-// Sentence-end detection — fires when `.!?` (optionally followed by a
-// closing quote/bracket) is followed by whitespace, or on a newline.
-// Same regex shape as the previous frontend splitter but centralized here.
-const SENTENCE_END = /([.!?]+["')\]]*\s+|\n+)/;
+// Context window limits per model (input tokens), matching Anthropic's
+// documented hard limits. Haiku 4.5 caps at 200K; the 4.6+ generation and
+// Sonnet 5 all have 1M-token windows.
+const MODEL_CONTEXT_LIMITS: Record<string, number> = {
+  'claude-sonnet-5': 1_000_000,
+  'claude-sonnet-4-6': 1_000_000,
+  'claude-opus-4-6': 1_000_000,
+  'claude-opus-4-7': 1_000_000,
+  'claude-opus-4-8': 1_000_000,
+  'claude-haiku-4-5-20251001': 200_000,
+};
+// Fall back to Haiku's 200K when we don't recognize the model — the safer
+// direction (more, not less, "new chat" pressure) if the model actually
+// has a smaller window than we assume.
+const DEFAULT_CONTEXT_LIMIT = 200_000;
+// Pressure thresholds for 1M-context models. We pay for the big window
+// but proactively steer toward new chats — users generally prefer fresh
+// context per topic, and the AI's memory tool + save-conversation-to-note
+// preserve continuity across chats when it actually matters. Cost isn't
+// the driver here; usability is (long chats accumulate stale reasoning,
+// harder to recall what was said 200 turns ago, etc).
+//
+// Behavior:
+//   • SOFT (10%, ~100K) — topic-switch-conditional nudge. Once any real
+//     conversation has accumulated, offer a fresh start on topic changes.
+//   • WARNING (20%, ~200K) — unconditional "consider a new chat" nudge.
+//     Meaningful conversation length; save-to-memory prompt starts here.
+//   • CRITICAL (40%, ~400K) — strong "you should really start fresh"
+//     push. Still leaves 600K headroom for genuine long-form work
+//     sessions that need to continue.
+const CONTEXT_SOFT_THRESHOLD = 0.10;    // ~100K — topic-switch trigger
+const CONTEXT_WARNING_THRESHOLD = 0.20; // ~200K — unconditional suggestion
+const CONTEXT_CRITICAL_THRESHOLD = 0.40; // ~400K — strongly encourage new chat
 
-// Strip markdown-y bits that sound bad read aloud (code fences, link
-// targets, leading heading markers, UUID-shaped tokens like note IDs).
-// Mirrors the old frontend cleanup plus voice-specific scrubbing.
-const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
-const NOTE_REF_RE = /\[\[note:[^\]]+\]\]/g;
-function stripForSpeech(text: string): string {
-  return text
-    .replace(/```[\s\S]*?```/g, ' ')
-    .replace(/`([^`]+)`/g, '$1')
-    .replace(/!\[[^\]]*\]\([^)]+\)/g, '')
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-    // [[note:UUID]] is a UI-only marker — the user sees a clickable title;
-    // for TTS we drop it entirely (no graceful spoken equivalent).
-    .replace(NOTE_REF_RE, '')
-    // Bare UUIDs (tool inputs, IDs the model wrote into prose) — F5 will
-    // happily try to enunciate every digit and burn minutes of synth time.
-    .replace(UUID_RE, '')
-    .replace(/^#{1,6}\s+/gm, '')
-    .replace(/(\*\*|__)(.*?)\1/g, '$2')
-    .replace(/(\*|_)(.*?)\1/g, '$2')
-    .trim();
-}
+// Tools that are always safe to auto-execute (read-only / non-destructive).
+// Core list lives here; optional tool modules contribute their own
+// auto-approved names via the registry (e.g. weather + wikipedia).
+/**
+ * Tools that never execute on the MCP side — they're dispatched back
+ * to the frontend, which reads / mutates its live editor buffer and
+ * POSTs the actual result via /chat/tool-result with a
+ * `frontend_result` field. MCP threads the frontend's answer straight
+ * through as the tool_result and continues the Anthropic loop.
+ *
+ * Kept as a Set so the routing check is O(1) and colocated with the
+ * auto-approve list for easy comparison.
+ */
+const FRONTEND_TOOLS = new Set([
+  'get_current_editor',
+  'get_current_editor_toc',
+  'get_current_editor_part',
+  'edit_current_editor',
+]);
 
 /**
- * Streams sentences to the voice service eagerly (fires fetch the moment a
- * sentence boundary closes) while emitting the resulting audio chunks to
- * the client in strict submission order.
- *
- * "Eager fetch + ordered drain" is the trick: by the time we get to
- * sentence N's drain, the voice service has often already produced its
- * chunks because N's fetch went out while N-1 was still being read. On a
- * laptop that can run two or three concurrent Kokoro syntheses, this
- * accumulates a buffer and the client never starves between sentences.
+ * Compact metadata about the user's currently-open editor. Rides on
+ * chat POSTs so the AI knows an editor is open and which note it's on
+ * — but the actual content stays in the browser and is read/written
+ * via the frontend-executed tools above.
  */
-// Frontend-only pseudo-langs that pin a specific engine for testing. Real
-// lang code goes to the voice service; engine override forces routing.
-const LANG_ENGINE_OVERRIDES: Record<string, { lang: string; engine: string }> = {
-  'en-cb': { lang: 'en', engine: 'chatterbox' },
-  'en-f5': { lang: 'en', engine: 'f5' },
-  'de-f5': { lang: 'de', engine: 'f5' },
-};
+type EditorStateMeta =
+  | { is_open: true; note_id: string; nook_id: string; title: string; version: number; chars: number }
+  | { is_open: false };
 
-class VoiceStreamer {
-  private pending: Promise<void> = Promise.resolve();
-  private res: express.Response;
-  private lang: string;
-  private engine: string | null;
-  private seq = 0;
-
-  constructor(res: express.Response, lang: string) {
-    this.res = res;
-    const override = LANG_ENGINE_OVERRIDES[lang];
-    this.lang = override?.lang ?? lang;
-    this.engine = override?.engine ?? null;
-  }
-
-  enqueueSentence(rawSentence: string): void {
-    const clean = stripForSpeech(rawSentence);
-    if (!clean) return;
-    const seq = ++this.seq;
-    console.log(
-      `[voice] #${seq} enqueue lang=${this.lang} engine=${this.engine ?? 'auto'} chars=${clean.length} text=${JSON.stringify(clean.slice(0, 60))}`,
-    );
-    const doFetch = () => {
-      // F5 goes to the GPU pod when configured; everything else (and F5
-      // when VOICE_F5_URL is unset) stays on the local container. We
-      // could fall through to local on missing pod URL, but the local
-      // service may not even have F5 deps installed — better to fail
-      // fast with a clear message than to surprise-time-out.
-      if (this.engine === 'f5' && !VOICE_F5_URL) {
-        return Promise.reject(
-          new Error('voice: f5 engine requested but VOICE_F5_URL is unset'),
-        );
-      }
-      const useF5Pod = this.engine === 'f5' && VOICE_F5_URL;
-      const url = useF5Pod ? VOICE_F5_URL : VOICE_BASE_URL;
-      const token = useF5Pod ? VOICE_F5_TOKEN : VOICE_TOKEN;
-      return fetch(`${url}/tts/stream`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({
-          text: clean,
-          lang: this.lang,
-          ...(this.engine ? { engine: this.engine } : {}),
-        }),
-      });
-    };
-    // Eager for fast/parallel-safe engines (Kokoro): the next request goes
-    // out while we're still draining the current one — keeps the pipeline
-    // saturated. Lazy for engines that serialize on a gen lock at the voice
-    // service: firing N parallel fetches would just queue dead connections
-    // and trip undici's 5-min headersTimeout.
-    const eager = !this.engine || !SLOW_SERIAL_ENGINES.has(this.engine);
-    const fetchPromise = eager ? doFetch() : null;
-    // Optional client-side debug: emit a structured event the frontend can
-    // surface in a debug panel without parsing log lines.
-    sse(this.res, 'voice_debug', {
-      seq,
-      kind: 'sentence_enqueued',
-      chars: clean.length,
-      text: clean.slice(0, 80),
-    });
-    // Chain the drain after any previously queued drains so chunks reach
-    // the SSE in the order their source sentences came in.
-    this.pending = this.pending.then(async () => {
-      const fetchStartedAt = Date.now();
-      try {
-        const r = await (fetchPromise ?? doFetch());
-        const synthFirstByteMs = Date.now() - fetchStartedAt;
-        if (!r.ok || !r.body) {
-          console.error(`[voice] #${seq} tts failed status=${r.status}`);
-          sse(this.res, 'voice_debug', {
-            seq,
-            kind: 'error',
-            status: r.status,
-          });
-          return;
-        }
-        const reader = r.body.getReader();
-        let buf = new Uint8Array(0);
-        let chunkIdx = 0;
-        let totalBytes = 0;
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          if (value) {
-            // Reader's Uint8Array may be backed by SharedArrayBuffer; copy
-            // into a fresh ArrayBuffer-backed buffer for type compatibility
-            // and so subsequent subarray() slices outlive the reader.
-            const copy = new Uint8Array(value.length);
-            copy.set(value);
-            buf = concatU8(buf, copy);
-          }
-          while (buf.length >= 4) {
-            const length =
-              (buf[0] << 24) | (buf[1] << 16) | (buf[2] << 8) | buf[3];
-            if (buf.length < 4 + length) break;
-            const chunk = buf.subarray(4, 4 + length);
-            chunkIdx++;
-            totalBytes += chunk.length;
-            sse(this.res, 'audio_chunk', {
-              seq,
-              chunk: chunkIdx,
-              data: Buffer.from(chunk).toString('base64'),
-            });
-            buf = buf.subarray(4 + length);
-          }
-        }
-        const totalMs = Date.now() - fetchStartedAt;
-        console.log(
-          `[voice] #${seq} done chunks=${chunkIdx} bytes=${totalBytes} ttfb=${synthFirstByteMs}ms total=${totalMs}ms`,
-        );
-        sse(this.res, 'voice_debug', {
-          seq,
-          kind: 'sentence_done',
-          chunks: chunkIdx,
-          bytes: totalBytes,
-          ttfb_ms: synthFirstByteMs,
-          total_ms: totalMs,
-        });
-      } catch (e) {
-        console.error(`[voice] #${seq} drain error`, e);
-        sse(this.res, 'voice_debug', {
-          seq,
-          kind: 'error',
-          message: e instanceof Error ? e.message : String(e),
-        });
-      }
-    });
-  }
-
-  async flush(): Promise<void> {
-    await this.pending;
-  }
+function normalizeEditorState(raw: unknown): EditorStateMeta {
+  if (typeof raw !== 'object' || raw === null) return { is_open: false };
+  const r = raw as Record<string, unknown>;
+  if (r.is_open !== true) return { is_open: false };
+  const noteId = typeof r.note_id === 'string' ? r.note_id.trim() : '';
+  if (!noteId) return { is_open: false };
+  return {
+    is_open: true,
+    note_id: noteId,
+    nook_id: typeof r.nook_id === 'string' ? r.nook_id : '',
+    title: typeof r.title === 'string' ? r.title : '',
+    version: typeof r.version === 'number' ? r.version : 0,
+    chars: typeof r.chars === 'number' ? r.chars : 0,
+  };
 }
 
-function concatU8(a: Uint8Array, b: Uint8Array): Uint8Array<ArrayBuffer> {
-  const out = new Uint8Array(new ArrayBuffer(a.length + b.length));
-  out.set(a, 0);
-  out.set(b, a.length);
-  return out;
-}
-
-// Context window limits per model (input tokens)
-const MODEL_CONTEXT_LIMITS: Record<string, number> = {
-  'claude-sonnet-4-6': 200000,
-  'claude-opus-4-6': 200000,
-  'claude-haiku-4-5-20251001': 200000,
-};
-const DEFAULT_CONTEXT_LIMIT = 200000;
-const CONTEXT_SOFT_THRESHOLD = 0.5;     // 50% — gentle nudge on topic shifts
-const CONTEXT_WARNING_THRESHOLD = 0.7;  // 70% — show indicator, suggest new chat
-const CONTEXT_CRITICAL_THRESHOLD = 0.9; // 90% — strongly encourage new chat
-
-// Tools that are always safe to auto-execute (read-only / non-destructive)
 const ALWAYS_AUTO_TOOLS = new Set([
   'list_note_types',
   'list_type_attributes',
   'list_link_predicates',
   'get_note_mentions',
+  // Read-only, returns just headings (no body, no attributes) — cheap
+  // navigation primitive for large notes; safe to auto-approve.
+  'get_note_toc',
+  // Bounded char-range read of a single note; same trust level as
+  // get_note but cheaper. Auto-approve so the AI can navigate big
+  // notes without nagging the user for every section read.
+  'get_note_part',
+  // Find-in-note returns match positions + context only (not the
+  // whole note); read-only. Auto-approve.
+  'search_in_note',
   'memory_search',
   'memory_get',
   'memory_create',
   'memory_update',
   'ask_user',
+  ...optionalAutoApprovedTools,
 ]);
 
 function sse(res: express.Response, event: string, data: unknown): void {
@@ -290,96 +247,6 @@ function sseHeaders(res: express.Response): void {
   res.flushHeaders();
 }
 
-// ─── Forward-auth ─────────────────────────────────────────────────────────────
-
-async function verifySession(cookieHeader: string, apiBase: string): Promise<boolean> {
-  const res = await fetch(`${apiBase}/api/chat/auth`, {
-    headers: { Cookie: cookieHeader },
-  });
-  return res.ok;
-}
-
-// ─── PHP API helpers ─────────────────────────────────────────────────────────
-
-async function phpApi(
-  method: string,
-  path: string,
-  cookie: string,
-  apiBase: string,
-  body?: unknown,
-): Promise<unknown> {
-  const res = await fetch(`${apiBase}${path}`, {
-    method,
-    headers: {
-      Cookie: cookie,
-      'Content-Type': 'application/json',
-      'X-Nook-Actor': 'ai',
-    },
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
-  const text = await res.text();
-  if (!res.ok) throw new Error(`PHP API ${res.status}: ${text}`);
-  return text ? JSON.parse(text) : null;
-}
-
-type PhpMessage = {
-  id: string;
-  role: 'user' | 'assistant';
-  content: Anthropic.MessageParam['content'];
-  model?: string | null;
-};
-
-async function loadHistory(
-  conversationId: string,
-  cookie: string,
-  apiBase: string,
-): Promise<Anthropic.MessageParam[]> {
-  const data = await phpApi('GET', `/api/conversations/${conversationId}/messages`, cookie, apiBase) as { messages: PhpMessage[] };
-  return data.messages.map(m => ({ role: m.role, content: m.content }));
-}
-
-type SavedBlock = { id: string; blockType: string; toolUseId?: string };
-type SavedTurn  = { turnId: string; role: string; blocks: SavedBlock[] };
-
-async function saveMessages(
-  conversationId: string,
-  messages: Array<{ role: string; content: unknown; model?: string | null }>,
-  cookie: string,
-  apiBase: string,
-): Promise<SavedTurn[]> {
-  const data = await phpApi(
-    'POST',
-    `/api/conversations/${conversationId}/messages`,
-    cookie,
-    apiBase,
-    { messages },
-  ) as { turns?: Array<{ turn_id: string; role: string; blocks: Array<{ id: string; block_type: string; tool_use_id?: string }> }> };
-
-  return (data.turns ?? []).map(t => ({
-    turnId: t.turn_id,
-    role: t.role,
-    blocks: (t.blocks ?? []).map(b => ({
-      id: b.id,
-      blockType: b.block_type,
-      toolUseId: b.tool_use_id,
-    })),
-  }));
-}
-
-async function recordNoteConvLink(
-  noteId: string,
-  conversationId: string,
-  blockId: string | undefined,
-  apiBase: string,
-  cookie: string,
-): Promise<void> {
-  try {
-    await phpApi('POST', `/api/conversations/${conversationId}/note-links`, cookie, apiBase, {
-      note_id: noteId,
-      block_id: blockId ?? null,
-    });
-  } catch { /* best-effort */ }
-}
 
 // ─── Display name resolution ─────────────────────────────────────────────────
 
@@ -459,6 +326,11 @@ async function resolveDisplayNames(
 // ─── Auto-execution helpers ───────────────────────────────────────────────────
 
 function isAutoExecutable(toolName: string, input?: Record<string, unknown>, instructionNoteIds?: Set<string>): boolean {
+  // Frontend-executed tools are never auto-executed on MCP — they need
+  // to be dispatched back to the browser. Explicit false so we don't
+  // accidentally add one to ALWAYS_AUTO_TOOLS and end up trying to
+  // execute it here.
+  if (FRONTEND_TOOLS.has(toolName)) return false;
   if (ALWAYS_AUTO_TOOLS.has(toolName)) return true;
   // get_note is auto-approved for AI instruction notes and search_all_nooks
   if (toolName === 'get_note' && instructionNoteIds && typeof input?.note_id === 'string') {
@@ -468,93 +340,6 @@ function isAutoExecutable(toolName: string, input?: Record<string, unknown>, ins
   return false;
 }
 
-// ─── AI memory nook ──────────────────────────────────────────────────────────
-
-async function resolveMemoryNookId(cookie: string, apiBase: string): Promise<string | null> {
-  try {
-    const data = await phpApi('GET', '/api/nooks/ai-memory', cookie, apiBase) as { nook?: { id?: string } };
-    return data?.nook?.id ?? null;
-  } catch {
-    return null;
-  }
-}
-
-// ─── Handbook nook ────────────────────────────────────────────────────────────
-
-async function resolveHandbookNookId(cookie: string, apiBase: string): Promise<string | null> {
-  try {
-    const data = await phpApi('GET', '/api/nooks/handbook', cookie, apiBase) as { nook?: { id?: string } };
-    return data?.nook?.id ?? null;
-  } catch {
-    return null;
-  }
-}
-
-async function fetchHandbookNotes(handbookNookId: string, cookie: string, apiBase: string): Promise<InstructionNote[]> {
-  try {
-    const data = await phpApi(
-      'GET',
-      `/api/nooks/${encodeURIComponent(handbookNookId)}/note-types/all/notes?limit=50&sort=updated_newest`,
-      cookie,
-      apiBase,
-    ) as { notes?: Array<{ id: string; title: string }> };
-    return (data?.notes ?? []).map(n => ({ id: n.id, title: n.title }));
-  } catch {
-    return [];
-  }
-}
-
-// ─── AI Instructions ─────────────────────────────────────────────────────────
-
-type InstructionNote = { id: string; title: string };
-
-async function fetchInstructionNotes(
-  nookId: string,
-  cookie: string,
-  apiBase: string,
-): Promise<InstructionNote[]> {
-  try {
-    // First resolve the 'ai-instruction' type key to its UUID
-    const typesData = await phpApi(
-      'GET',
-      `/api/nooks/${encodeURIComponent(nookId)}/note-types`,
-      cookie,
-      apiBase,
-    ) as { types?: Array<{ id: string; key: string }> };
-    const instructionType = typesData?.types?.find(t => t.key === 'ai-instruction');
-    if (!instructionType) return [];
-
-    // Fetch notes of that type
-    const data = await phpApi(
-      'GET',
-      `/api/nooks/${encodeURIComponent(nookId)}/note-types/${instructionType.id}/notes?limit=50`,
-      cookie,
-      apiBase,
-    ) as { notes?: Array<{ id: string; title: string }> };
-    return (data?.notes ?? []).map(n => ({ id: n.id, title: n.title }));
-  } catch {
-    return [];
-  }
-}
-
-async function fetchMemoryInstructionNotes(
-  memoryNookId: string,
-  cookie: string,
-  apiBase: string,
-): Promise<InstructionNote[]> {
-  try {
-    // In the memory nook, all notes serve as context — just get recent ones as summaries
-    const data = await phpApi(
-      'GET',
-      `/api/nooks/${encodeURIComponent(memoryNookId)}/note-types/all/notes?limit=20&sort=updated_newest`,
-      cookie,
-      apiBase,
-    ) as { notes?: Array<{ id: string; title: string }> };
-    return (data?.notes ?? []).map(n => ({ id: n.id, title: n.title }));
-  } catch {
-    return [];
-  }
-}
 
 // ─── Message metadata helpers ─────────────────────────────────────────────────
 
@@ -579,9 +364,27 @@ function buildMessageText(
   message: string,
   contextNote?: { id: string; title: string; type?: string },
   prevContextNoteId?: string,
+  speakerName?: string | null,
+  speakerConfidence?: number | null,
 ): string {
   const ts = new Date().toISOString().slice(0, 16) + 'Z';
   let meta = `[${ts}]`;
+  // Per-message speaker attribution — in a living-room kiosk multiple
+  // family members can take turns within the same conversation, so
+  // attaching the speaker to the conversation (system prompt) misleads
+  // the model. We embed the name in the message text itself, in the
+  // same bracket-tag pattern as the timestamp; the frontend renders
+  // chat messages cleaned of these brackets so the human view stays
+  // readable. Confidence is a 0-1 cosine score from the voiceprint
+  // match — passed through so Claude can soften the identification
+  // when the score is barely above the server-side threshold.
+  if (speakerName) {
+    const conf =
+      typeof speakerConfidence === 'number'
+        ? ` (confidence ${speakerConfidence.toFixed(2)})`
+        : '';
+    meta += ` [spoken by ${speakerName}${conf}]`;
+  }
   if (contextNote && contextNote.id !== prevContextNoteId) {
     meta += ` [Note: "${contextNote.title}" (${contextNote.id}, type: ${contextNote.type ?? 'note'})]`;
   }
@@ -604,131 +407,6 @@ function addCacheBreakpoint(msgs: Anthropic.MessageParam[]): Anthropic.MessagePa
   return [...msgs.slice(0, lastIdx), { ...lastMsg, content }];
 }
 
-// ─── System prompt ────────────────────────────────────────────────────────────
-
-function buildSystemPrompt(
-  nookId: string,
-  nookName: string,
-  nookRole: string,
-  memoryNookId?: string | null,
-  nookInstructions?: InstructionNote[],
-  memoryNotes?: InstructionNote[],
-  handbookNookId?: string | null,
-  handbookNotes?: InstructionNote[],
-): string {
-  const nookDisplay = nookName ? `"${nookName}" (${nookId})` : `"${nookId}"`;
-  const roleInfo = nookRole ? ` The user's role in this nook is "${nookRole}".` : '';
-  const parts = [
-    `You are an assistant integrated into paith notes. You are operating in nook ${nookDisplay}.${roleInfo}
-
-CRITICAL — Note link format:
-Every time you mention a note by name in your response text, you MUST use the [[note:...]] syntax. The UI automatically replaces this with a clickable link showing the note's title — the user never sees the UUID. NEVER write bare UUIDs, shortened IDs, or note titles as plain text when you know the note's ID. NEVER truncate UUIDs. Always use the complete UUID.
-
-For notes in the CURRENT nook: [[note:<noteId>]]
-For notes in a DIFFERENT nook (cross-nook): [[note:<nookId>/<noteId>]]
-
-You MUST ALWAYS use the cross-nook format [[note:nookId/noteId]] in your chat responses and when writing AI memory notes — because conversations and memories are stored separately from the user's nooks. Without the nook ID prefix, links will not resolve.
-
-Examples:
-- Same nook: "I found context in [[note:a1b2c3d4-e5f6-7890-abcd-ef1234567890]]."
-- Cross-nook: "Related to [[note:b55dbf0d-a2bc-46a2-b296-ef71cd2306a3/a1b2c3d4-e5f6-7890-abcd-ef1234567890]]."
-- WRONG: "I found relevant context in b12d16a3..."
-- WRONG: "I found relevant context in the note 'Meeting Notes'."
-To embed a file note as an image: ![alt text](note:<full_uuid>) or ![alt text](note:<nookId>/<noteId>)
-
-Page links — when you want to link users to specific app pages (not note content), use standard markdown links with these URL patterns:
-- Nook dashboard: [Nook Name](/nooks/{nookId})
-- Note: [Note Title](/nooks/{nookId}/notes/{noteId})
-- Note at version: [v3](/nooks/{nookId}/notes/{noteId}/v/{version})
-- Version diff: [compare v2→v5](/nooks/{nookId}/notes/{noteId}/compare/{fromVersion}/{toVersion})
-- Diff with current: [compare v2→current](/nooks/{nookId}/notes/{noteId}/compare/{fromVersion})
-- Note history: [history](/nooks/{nookId}/notes/{noteId}/history)
-Use [[note:...]] for referencing notes by name, but use page links when directing users to specific views like diffs, versions, or dashboards.
-
-General rules:
-- You have access to the user's notes via tools — never ask for a nook ID or note ID, use the IDs from tool results directly.
-- Only use tools when the user explicitly asks. Always tell the user what you are about to do before calling a tool.
-- When you need to make multiple independent tool calls, issue them all in a single response as parallel tool_use blocks rather than sequentially.
-
-**search_notes behavior:** The q parameter is optional — omit it or pass an empty string to list all notes (optionally filtered by type_id). Do NOT search for common words like "a" or "the" to find all notes. Multiple words are automatically split: by default all must match (AND). Use search_mode="or" if you want any word to match. The same applies to explore_notes q parameter.
-
-**search_agent:** When you need to research a topic across multiple notes, use the search_agent tool instead of searching manually. The search agent runs in its own context window, can search and read notes across all accessible nooks, and returns ranked results with relevant excerpts — keeping this conversation's context clean. The user must approve before it runs. Always tell the user what you're about to search for before calling it. Use it for:
-- Broad research questions ("find everything about X")
-- Questions that may require reading multiple notes to synthesize an answer
-- When context usage is high and you need to search
-For simple, targeted lookups (one search + one note read), use search_notes/get_note directly — the search agent adds overhead for trivial queries.
-
-**Tool approval:** The following tools auto-execute without user approval: get_note_mentions, list_note_types, list_type_attributes, list_link_predicates, and all memory_* tools (memory_search, memory_get, memory_create, memory_update). All other tools (get_note, create_note, update_note, delete_note, create_note_link, open_note, create_note_type, update_note_type, search_agent) require user confirmation.
-
-**Mermaid diagrams:** Both note content and your chat responses support mermaid diagrams via fenced code blocks (\`\`\`mermaid). Use them when visualizing relationships, flows, timelines, or architectures would help the user. The UI renders them as interactive SVGs.`,
-    memoryNookId
-      ? `**AI Memory:** You have a personal memory nook for this user (ID: ${memoryNookId}). Use the memory_* tools (memory_search, memory_get, memory_create, memory_update) to store and retrieve knowledge about the user — preferences, facts, communication style, corrections, project context. These are auto-approved and persist across all nooks and conversations.
-
-At the start of each conversation, proactively search user memory with memory_search() to recall relevant context. When the user shares preferences or corrects you, store it in user memory immediately.
-
-**Memory retrieval protocol:** Before answering any question about past context or preferences: (1) call memory_search(q="<topic>") to find relevant memories, (2) call memory_get on matches to read full content. Only after checking memory should you search the current nook's notes.
-
-When you create or update a memory note, the system automatically links it to the current conversation — this builds a knowledge trail showing why each memory exists and which conversations contributed to it.`
-      : '',
-    `**Note type taxonomy:** You can help the user manage their note taxonomy. Use list_note_types to see the full hierarchy before suggesting or creating types. When creating a type, always tell the user where in the hierarchy it will appear (e.g. "Creating 'Employee' as a subtype of 'Person'"). You can update a type's label or description with update_note_type. Never create a type without showing the user what you're about to create and where it fits.
-
-**IMPORTANT — Always assign a type when creating notes:** Every note MUST have a type_id. Before creating a note, call list_note_types (auto-approved) to see available types and pick the best fit. If a matching type exists (e.g. "meeting", "person", "recipe"), use it. If nothing specific fits, use the base type (key: "base" — you can pass the key string "base" as type_id). Never create a note without type_id.`,
-    `**Type attributes:** Each type can have structured attributes (text, number, boolean, date, date_range, select, file, graph, view, multi_select, url, linked_notes, mentions, history, toc, metadata, content). Use list_type_attributes to see what a type supports — this returns attribute IDs, names, kinds, config, and inheritance info. When creating or updating notes, pass attribute values in the "attributes" field as { "<attribute_uuid>": value }. Example workflow:
-1. list_note_types to find the type
-2. list_type_attributes to see its attributes and their UUIDs
-3. create_note with type_id and attributes: { "<rating_attr_id>": 5, "<author_attr_id>": "Le Guin" }
-
-Attribute kinds and value formats:
-- text: string value
-- number: numeric value
-- boolean: true/false
-- date: "YYYY-MM-DD" string
-- date_range: { "from": "YYYY-MM-DD", "to": "YYYY-MM-DD" }
-- select: string matching one of the configured options
-- multi_select: array of strings matching configured options
-- url: string URL
-- file: managed by the file upload system (don't set directly)
-- graph: { rootNoteId: "<uuid>", depth?: 2, layout?: "force"|"tree"|"radial", ... }
-- linked_notes, mentions, history, toc, metadata, content: presentational — rendered by the UI based on type config, no note-level value needed
-
-**Attribute inheritance:** Attributes are inherited from parent types down the type hierarchy. When you call list_type_attributes, each attribute includes:
-- "inherited": true/false — whether it comes from an ancestor type
-- "overridden": true/false — whether this type has customized the inherited attribute's config
-Sub-types can override inherited attribute config (e.g. change display settings), hide inherited attributes entirely, or reorder them. Hidden attributes won't appear in list_type_attributes results — so only write to attributes that are listed. Only write values for data-bearing kinds (text, number, boolean, date, date_range, select, multi_select, url, graph). Presentational kinds (linked_notes, mentions, history, toc, metadata, content) are rendered automatically by the UI.`,
-    `**Conversation hygiene:** When you notice the user switching to a completely different topic, gently suggest starting a new chat — this keeps conversations focused and searchable. Before they do, offer to:
-- Save nook-specific outcomes/decisions as a note in the current nook (using create_note)
-- Save personal preferences or cross-nook context to memory (using memory_create/memory_update)
-The more context has been used, the more you should encourage this. After saving, tell the user to click "New chat" to continue fresh.`,
-  ];
-
-  if (nookInstructions && nookInstructions.length > 0) {
-    const list = nookInstructions.map(n => `- "${n.title}" (ID: ${n.id})`).join('\n');
-    parts.push(
-      `**Nook-specific AI instructions:** The following instruction notes exist in this nook. Reading these via get_note is FREE (auto-approved, no user confirmation needed). Read any that are relevant to the user's current request:\n${list}\n\nThese contain nook-specific guidelines — formatting rules, domain knowledge, conventions, etc.`,
-    );
-  }
-
-  if (memoryNotes && memoryNotes.length > 0) {
-    const list = memoryNotes.map(n => `- "${n.title}" (ID: ${n.id})`).join('\n');
-    parts.push(
-      `**Personal memory notes:** The following memory notes exist about your relationship with this user. Reading these via get_note is FREE (auto-approved):\n${list}\n\nThese contain personal preferences, past context, corrections. You do NOT need to read all of them — pick based on relevance to the current conversation.`,
-    );
-  }
-
-  if (handbookNookId && handbookNotes && handbookNotes.length > 0) {
-    const list = handbookNotes.map(n => `- "${n.title}" (ID: ${n.id})`).join('\n');
-    parts.push(
-      `**Application Handbook** (nook ID: ${handbookNookId}): A read-only handbook is available with documentation about this application. Reading these notes via get_note is FREE (auto-approved, pass nook_id="${handbookNookId}"). Consult these when the user asks about how the application works, features, or capabilities:\n${list}\n\nUse the cross-nook link format [[note:${handbookNookId}/<noteId>]] when referencing handbook notes in your responses.`,
-    );
-  }
-
-  parts.push(
-    `**User message metadata:** Each user message starts with a timestamp in brackets, and when the viewed note changes, a [Note: "title" (id, type: kind)] tag. When the user says "this note", "the current note", "my note", "here", or similar, they mean the note from the most recent [Note: ...] tag in the conversation. Use its ID directly without asking.\n\nTo read the current note, use get_note (user confirms). When asked about context: (1) call explore_notes(note_id="<id from latest Note tag>", direction="both") — free, (2) call get_note_mentions — free, (3) memory_search. Issue independent calls in parallel.`,
-  );
-
-  return parts.join('\n\n');
-}
-
 // ─── Core streaming function ─────────────────────────────────────────────────
 
 async function streamConversation(
@@ -742,6 +420,7 @@ async function streamConversation(
   contextNote?: { id: string; title: string; type?: string },
   memoryNookId?: string | null,
   voice?: { lang: string } | null,
+  editorState?: EditorStateMeta,
 ): Promise<void> {
   const voiceStreamer = voice ? new VoiceStreamer(res, voice.lang) : null;
   // Terminal events (done/awaiting_approval/error) must be emitted AFTER
@@ -749,18 +428,17 @@ async function streamConversation(
   // terminal event and the trailing audio_chunk SSE writes (which the
   // flush is still pushing) get stranded in the receive buffer.
   const trailing: Array<{ event: string; data: unknown }> = [];
-  let voiceBuf = '';
-  // Drain whatever sentence boundaries already closed in voiceBuf, leaving
-  // any trailing partial sentence behind for the next delta.
+  // Voice tag stripper + sentence buffer. Together they: (a) strip
+  // `<voice instr="...">…</voice>` from the text the user sees in the
+  // transcript, (b) pair each spoken sentence with the active instruction
+  // (if any) at sentence-start, (c) cope with tags split across token
+  // deltas. Both are no-ops when voice mode is off.
+  const tagStripper = voiceStreamer ? new VoiceTagStripper() : null;
+  const sentenceBuf = voiceStreamer ? new SentenceBuffer() : null;
   const drainVoiceBuf = (): void => {
-    if (!voiceStreamer) return;
-    while (true) {
-      const m = SENTENCE_END.exec(voiceBuf);
-      if (!m) break;
-      const end = m.index + m[0].length;
-      const sentence = voiceBuf.slice(0, end).trim();
-      voiceBuf = voiceBuf.slice(end);
-      if (sentence) voiceStreamer.enqueueSentence(sentence);
+    if (!voiceStreamer || !sentenceBuf) return;
+    for (const s of sentenceBuf.extract()) {
+      voiceStreamer.enqueueSentence(s.text, s.instr);
     }
   };
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -789,7 +467,7 @@ async function streamConversation(
     nookRole = found?.role ?? '';
   }
 
-  const baseSystemPrompt = buildSystemPrompt(nookId, nookName, nookRole, memoryNookId, nookInstructions, memoryNotes, handbookNookId, handbookNotes);
+  const baseSystemPrompt = buildSystemPrompt(nookId, nookName, nookRole, memoryNookId, nookInstructions, memoryNotes, handbookNookId, handbookNotes, !!voice);
   const contextLimit = MODEL_CONTEXT_LIMITS[model] ?? DEFAULT_CONTEXT_LIMIT;
 
   // IDs of instruction notes that can be auto-read without user approval
@@ -799,8 +477,12 @@ async function streamConversation(
     ...handbookNotes.map(n => n.id),
   ]);
 
-  // mutable copy we extend on each auto-execute loop
-  const msgs: Anthropic.MessageParam[] = [...messages];
+  // mutable copy we extend on each auto-execute loop. Sanitize first so
+  // any orphaned tool_use from a previously-interrupted turn (network
+  // drop before the tool_result POST landed) gets a synthetic "timeout"
+  // result attached — otherwise the API hard-fails with 400 and the
+  // user is stuck unable to continue the conversation.
+  const msgs: Anthropic.MessageParam[] = sanitizeOrphanedToolUses([...messages]);
   let lastInputTokens = 0;
 
   try {
@@ -811,15 +493,52 @@ async function streamConversation(
       ];
       if (lastInputTokens > 0) {
         const ratio = lastInputTokens / contextLimit;
+        // Shared cadence rule for the WARNING/CRITICAL tiers: the AI
+        // gets the same hint on every subsequent turn once it fires, so
+        // without this it would nag reply-after-reply. Tell it to
+        // suggest once, respect the user's choice, and only re-mention
+        // periodically as context continues to accumulate.
+        const cadenceNote =
+          ' If you already suggested a new chat earlier in this conversation and the user chose to continue, respect that — do not repeat the suggestion on every turn. As a rough rhythm, only re-mention it if roughly another 100K tokens have accumulated since your last suggestion, or if the user brings it up.';
         let pressureHint = '';
         if (ratio > CONTEXT_CRITICAL_THRESHOLD) {
-          pressureHint = '**CRITICAL — Context window is ' + Math.round(ratio * 100) + '% full.** You MUST:\n1. Keep responses very concise\n2. Strongly encourage the user to start a new chat\n3. Offer to summarize key outcomes/decisions into a memory note before they do\n4. After saving to memory, tell the user to click "New chat" to continue fresh';
+          pressureHint =
+            '**CRITICAL — Context window is ' + Math.round(ratio * 100) + '% full.** You MUST:\n' +
+            '1. Keep responses very concise\n' +
+            '2. Strongly encourage the user to start a new chat\n' +
+            '3. Offer to summarize key outcomes/decisions into a memory note before they do\n' +
+            '4. After saving to memory, tell the user to click "New chat" to continue fresh\n' +
+            cadenceNote;
         } else if (ratio > CONTEXT_WARNING_THRESHOLD) {
-          pressureHint = '**Context window is ' + Math.round(ratio * 100) + '% full.** Suggest starting a new chat soon. Offer to summarize outcomes to memory first. Keep responses concise.';
+          pressureHint =
+            '**Context window is ' + Math.round(ratio * 100) + '% full.** ' +
+            'Suggest starting a new chat soon. Offer to summarize outcomes to memory first. Keep responses concise.' +
+            cadenceNote;
         } else if (ratio > CONTEXT_SOFT_THRESHOLD) {
+          // SOFT is already self-limiting — its hint is topic-switch-
+          // conditional, so it doesn't need the cadence rule.
           pressureHint = '**Context note:** Window is ' + Math.round(ratio * 100) + '% full. If the user switches topics or you sense a natural break, gently suggest starting a new chat. No need to force it.';
         }
         if (pressureHint) systemBlocks.push({ type: 'text', text: pressureHint });
+      }
+
+      // Editor state — tell the AI what the user is currently editing.
+      // Uncached (fresh per turn) because it changes with every message.
+      // Content is NOT included — the AI reads/writes via the
+      // get_current_editor / edit_current_editor tools, which round-
+      // trip to the frontend for a live answer.
+      if (editorState?.is_open) {
+        const editorHint =
+          `**Editor state:** The user currently has a note open in edit mode:\n` +
+          `- note_id: ${editorState.note_id}\n` +
+          `- nook_id: ${editorState.nook_id}\n` +
+          `- title: ${JSON.stringify(editorState.title)}\n` +
+          `- version: ${editorState.version}\n` +
+          `- chars: ${editorState.chars}\n\n` +
+          `Use get_current_editor / get_current_editor_toc / get_current_editor_part to read the LIVE (in-browser, possibly-unsaved) content. ` +
+          `Prefer edit_current_editor over edit_note when editing THIS note — direct disk edits would race with the user's typing. ` +
+          `For any other note, use the disk tools (get_note / edit_note) as usual.`;
+        systemBlocks.push({ type: 'text', text: editorHint });
       }
 
       // Add cache breakpoint to last message for conversation history caching
@@ -865,11 +584,23 @@ async function streamConversation(
 
         if (event.type === 'content_block_delta') {
           if (event.delta.type === 'text_delta') {
-            currentText += event.delta.text;
-            sse(res, 'text_delta', { delta: event.delta.text });
-            if (voiceStreamer) {
-              voiceBuf += event.delta.text;
+            if (voiceStreamer && tagStripper && sentenceBuf) {
+              // Run the raw delta through the stripper FIRST so the
+              // user-visible delta + the saved transcript stay free of
+              // `<voice instr>` wrappers. The stripper also tells us
+              // which segment belongs to which active instruction; the
+              // sentence buffer then yields complete sentences with the
+              // instruction snapshotted at sentence-start.
+              const { visible, segments } = tagStripper.push(event.delta.text);
+              if (visible) {
+                currentText += visible;
+                sse(res, 'text_delta', { delta: visible });
+              }
+              sentenceBuf.pushAll(segments);
               drainVoiceBuf();
+            } else {
+              currentText += event.delta.text;
+              sse(res, 'text_delta', { delta: event.delta.text });
             }
           } else if (event.delta.type === 'input_json_delta' && currentTool) {
             currentTool.partialInput += event.delta.partial_json;
@@ -884,9 +615,16 @@ async function streamConversation(
           }
           // Flush whatever trailing text didn't end with sentence punctuation
           // — the model often ends a turn on a single noun or short clause.
-          if (voiceStreamer && voiceBuf.trim()) {
-            voiceStreamer.enqueueSentence(voiceBuf);
-            voiceBuf = '';
+          if (voiceStreamer && tagStripper && sentenceBuf) {
+            const tail = tagStripper.flush();
+            if (tail.visible) {
+              currentText += tail.visible;
+              sse(res, 'text_delta', { delta: tail.visible });
+            }
+            sentenceBuf.pushAll(tail.segments);
+            for (const s of sentenceBuf.flush()) {
+              voiceStreamer.enqueueSentence(s.text, s.instr);
+            }
           }
           if (currentTool) {
             const toolInput = JSON.parse(currentTool.partialInput || '{}') as Record<string, unknown>;
@@ -947,11 +685,14 @@ async function streamConversation(
             }));
 
             if (toolsPayload.every(t => isAutoExecutable(t.name, t.input, instructionNoteIds))) {
-              // Auto-execute all tools, loop for next AI turn
+              // Auto-execute all tools, loop for next AI turn. Capped at
+              // TOOL_CONCURRENCY in-flight to avoid saturating PHP workers.
               const assistantBlocks = savedAssistantTurns[0]?.blocks ?? [];
 
-              const resultBlocks: Anthropic.ToolResultBlockParam[] = await Promise.all(
-                toolsPayload.map(async (t, i): Promise<Anthropic.ToolResultBlockParam> => {
+              const resultBlocks: Anthropic.ToolResultBlockParam[] = await mapWithConcurrency(
+                toolsPayload,
+                TOOL_CONCURRENCY,
+                async (t, i): Promise<Anthropic.ToolResultBlockParam> => {
                   let resultContent: string;
                   let isError = false;
                   try {
@@ -973,11 +714,51 @@ async function streamConversation(
                         (status) => sse(res, 'search_agent_progress', { tool_use_id: t.id, status }),
                         agentCtx,
                       );
+                    } else if (t.name === 'edit_note_agent') {
+                      const targetNookId = typeof t.input.nook_id === 'string' && t.input.nook_id.trim() !== ''
+                        ? t.input.nook_id.trim() : nookId;
+                      const contextMode = t.input.context === 'fresh' ? 'fresh' : 'inherit';
+                      resultContent = await runEditNoteAgent({
+                        task: String(t.input.task ?? ''),
+                        noteId: String(t.input.note_id ?? ''),
+                        nookId: targetNookId,
+                        contextMode,
+                        model,
+                        apiBase,
+                        cookie,
+                        memoryNookId: memoryNookId ?? undefined,
+                        onProgress: (status) => sse(res, 'edit_agent_progress', { tool_use_id: t.id, status }),
+                        // For inherit mode: hand over the main system prompt
+                        // + the message history so the sub-agent inherits the
+                        // cached prefix. For fresh mode these are ignored.
+                        mainSystemPrompt: baseSystemPrompt,
+                        mainMessages: msgs,
+                      });
                     } else {
                       resultContent = await executeTool(t.name, t.input, apiBase, cookie, nookId, memoryNookId ?? undefined);
                     }
                   } catch (err) {
-                    resultContent = `Error: ${err instanceof Error ? err.message : 'unknown'}`;
+                    const msg = err instanceof Error ? err.message : String(err);
+                    // undici/Node's native fetch reports the underlying
+                    // network/TLS/DNS failure in `err.cause`, not in
+                    // `err.message`. Surface it so we don't have to
+                    // guess at "fetch failed" being one of a dozen things.
+                    const cause =
+                      err instanceof Error && 'cause' in err
+                        ? (err as Error & { cause?: unknown }).cause
+                        : undefined;
+                    const causeStr =
+                      cause instanceof Error
+                        ? `${cause.name}: ${cause.message}`
+                        : cause !== undefined
+                          ? String(cause)
+                          : '';
+                    console.error(
+                      `[tool] ${t.name} failed:`, msg,
+                      causeStr ? `cause=${causeStr}` : '',
+                      'input=', JSON.stringify(t.input).slice(0, 400),
+                    );
+                    resultContent = `Error: ${msg}${causeStr ? ` (${causeStr})` : ''}`;
                     isError = true;
                   }
 
@@ -996,7 +777,7 @@ async function streamConversation(
                   return isError
                     ? { type: 'tool_result', tool_use_id: t.id, content: resultContent, is_error: true }
                     : { type: 'tool_result', tool_use_id: t.id, content: resultContent };
-                }),
+                },
               );
 
               await saveMessages(
@@ -1011,7 +792,15 @@ async function streamConversation(
               // break out of `for await` to loop again
               break;
             } else {
-              // Needs user approval
+              // Needs user approval OR frontend execution. Frontend
+              // tools (get_current_editor / edit_current_editor / …)
+              // don't need a UI approval — the frontend answers them
+              // silently and POSTs `frontend_result`. We still ride the
+              // same `awaiting_approval` SSE + /chat/tool-result plumbing
+              // (single-hop back to MCP with the outcomes bundled).
+              const frontendExecutedIds = toolsPayload
+                .filter(t => FRONTEND_TOOLS.has(t.name))
+                .map(t => t.id);
               const displayNames = await resolveDisplayNames(toolsPayload, nookId, apiBase, cookie, memoryNookId);
               trailing.push({
                 event: 'awaiting_approval',
@@ -1021,6 +810,7 @@ async function streamConversation(
                   display_names: displayNames,
                   nook_name: nookName,
                   nook_id: nookId,
+                  frontend_executed_tool_ids: frontendExecutedIds,
                 },
               });
               return;
@@ -1073,7 +863,19 @@ export function createChatRouter(apiBase: string): Router {
     }
 
     const nook_id = validateNookId(String(req.params.nookId));
-    const { message, model, conversation_id, context_note_id, context_note_title, context_note_type, voice_mode, voice_lang } = req.body as Record<string, unknown>;
+    const { message, model, conversation_id, context_note_id, context_note_title, context_note_type, voice_mode, voice_lang, speaker_name, speaker_confidence, editor_state } = req.body as Record<string, unknown>;
+    const speakerName =
+      typeof speaker_name === 'string' && speaker_name.trim() !== ''
+        ? speaker_name.trim()
+        : null;
+    // Pair the name with its confidence so Claude knows whether to act
+    // on identification or treat it as a soft hint. Clamp to a sane
+    // range and round so we don't paste arbitrary float precision into
+    // the prompt.
+    const speakerConfidence =
+      typeof speaker_confidence === 'number' && Number.isFinite(speaker_confidence)
+        ? Math.max(0, Math.min(1, Math.round(speaker_confidence * 100) / 100))
+        : null;
 
     if (typeof message !== 'string' || message.trim() === '') {
       res.status(400).json({ error: 'message is required' });
@@ -1116,7 +918,12 @@ export function createChatRouter(apiBase: string): Router {
       // Load history and append new user message with metadata prefix
       const history = await loadHistory(convId, cookieHeader, apiBase);
       const prevContextNoteId = findPreviousContextNoteId(history);
-      const messageText = buildMessageText(message as string, contextNote, prevContextNoteId);
+      const messageText = buildMessageText(message as string, contextNote, prevContextNoteId, speakerName, speakerConfidence);
+      // Trace: show the metadata prefix MCP just prepended so we can
+      // sanity-check that speaker tagging is actually reaching Claude.
+      // Logging only the first 200 chars to keep the line readable —
+      // the metadata prefix is short and lives at the start.
+      console.log(`[chat] user message prefix: ${messageText.slice(0, 200).replace(/\n/g, ' \\n ')}`);
       const userMessage: Anthropic.MessageParam = {
         role: 'user',
         content: [{ type: 'text', text: messageText }],
@@ -1127,7 +934,8 @@ export function createChatRouter(apiBase: string): Router {
       sseHeaders(res);
       sse(res, 'conversation', { conversation_id: convId });
 
-      await streamConversation(res, history, resolvedModel, convId, cookieHeader, apiBase, nook_id, contextNote, memoryNookId, voice);
+      const editorState = normalizeEditorState(editor_state);
+      await streamConversation(res, history, resolvedModel, convId, cookieHeader, apiBase, nook_id, contextNote, memoryNookId, voice, editorState);
     } catch (err) {
       if (!res.headersSent) {
         res.status(500).json({ error: err instanceof Error ? err.message : 'unknown error' });
@@ -1149,8 +957,24 @@ export function createChatRouter(apiBase: string): Router {
 
     const nook_id = validateNookId(String(req.params.nookId));
 
-    type ToolResult = { tool_use_id: string; tool_name: string; tool_input: Record<string, unknown>; approved: boolean };
-    const { conversation_id, model, tool_results, context_note_id, context_note_title, context_note_type, voice_mode, voice_lang } = req.body as {
+    /**
+     * ToolResult shape from the frontend:
+     *   - approved: user's approval flag (unchanged from before)
+     *   - frontend_result: OPTIONAL, present when the frontend executed
+     *     the tool itself (e.g. get_current_editor / edit_current_editor).
+     *     When present, MCP uses this directly as the tool_result content
+     *     and skips its own execution path. `is_error` lets the frontend
+     *     signal a failed edit (not_found / ambiguous) without shape-
+     *     matching heuristics on the content string.
+     */
+    type ToolResult = {
+      tool_use_id: string;
+      tool_name: string;
+      tool_input: Record<string, unknown>;
+      approved: boolean;
+      frontend_result?: { content: string; is_error?: boolean };
+    };
+    const { conversation_id, model, tool_results, context_note_id, context_note_title, context_note_type, voice_mode, voice_lang, editor_state } = req.body as {
       conversation_id: string;
       model?: string;
       tool_results: ToolResult[];
@@ -1159,6 +983,7 @@ export function createChatRouter(apiBase: string): Router {
       context_note_type?: string;
       voice_mode?: boolean;
       voice_lang?: string;
+      editor_state?: unknown;
     };
     const voice = voice_mode === true
       ? { lang: typeof voice_lang === 'string' && voice_lang ? voice_lang : 'en' }
@@ -1210,10 +1035,22 @@ export function createChatRouter(apiBase: string): Router {
         return searchAgentCtx;
       };
 
-      const resultBlocks: Anthropic.ToolResultBlockParam[] = await Promise.all(
-        tool_results.map(async (tr): Promise<Anthropic.ToolResultBlockParam> => {
+      // Execute approved tools with bounded concurrency so a 5-way fan-out
+      // doesn't saturate FrankenPHP workers + Postgres connections.
+      const resultBlocks: Anthropic.ToolResultBlockParam[] = await mapWithConcurrency(
+        tool_results,
+        TOOL_CONCURRENCY,
+        async (tr): Promise<Anthropic.ToolResultBlockParam> => {
           if (!tr.approved) {
             return { type: 'tool_result', tool_use_id: tr.tool_use_id, content: 'User denied this action.' };
+          }
+          // Frontend-executed: the browser already ran the tool and
+          // baked the result into `frontend_result`. Thread it straight
+          // through — MCP does no execution.
+          if (tr.frontend_result && typeof tr.frontend_result === 'object') {
+            return tr.frontend_result.is_error
+              ? { type: 'tool_result', tool_use_id: tr.tool_use_id, content: tr.frontend_result.content, is_error: true }
+              : { type: 'tool_result', tool_use_id: tr.tool_use_id, content: tr.frontend_result.content };
           }
           try {
             let result: string;
@@ -1229,6 +1066,31 @@ export function createChatRouter(apiBase: string): Router {
                 (status) => sse(res, 'search_agent_progress', { tool_use_id: tr.tool_use_id, status }),
                 await getSearchAgentCtx(),
               );
+            } else if (tr.tool_name === 'edit_note_agent') {
+              // Approval flow doesn't have main-loop sys-prompt + msgs in
+              // scope (they belong to the streaming endpoint that just
+              // ended). Run the agent in fresh-context mode here: the
+              // edit cost is still isolated from the main conversation,
+              // we just lose the cached-prefix optimization.
+              const targetNookId = typeof tr.tool_input.nook_id === 'string'
+                && tr.tool_input.nook_id.trim() !== ''
+                ? tr.tool_input.nook_id.trim()
+                : nook_id;
+              result = await runEditNoteAgent({
+                task: String(tr.tool_input.task ?? ''),
+                noteId: String(tr.tool_input.note_id ?? ''),
+                nookId: targetNookId,
+                // Forced fresh — we don't have the main conversation's
+                // prefix here, and reconstructing it from /messages
+                // would double the request cost for marginal benefit
+                // (the user is paying through approval anyway).
+                contextMode: 'fresh',
+                model: resolvedModel,
+                apiBase,
+                cookie: cookieHeader,
+                memoryNookId: memNookId ?? undefined,
+                onProgress: (status) => sse(res, 'edit_agent_progress', { tool_use_id: tr.tool_use_id, status }),
+              });
             } else {
               result = await executeTool(tr.tool_name, tr.tool_input, apiBase, cookieHeader, nook_id, memNookId ?? undefined);
             }
@@ -1241,7 +1103,7 @@ export function createChatRouter(apiBase: string): Router {
               is_error: true,
             };
           }
-        }),
+        },
       );
 
       // Save tool results as a user message

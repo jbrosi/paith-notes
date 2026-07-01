@@ -1,9 +1,17 @@
+import dns from 'node:dns';
 import express from 'express';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { initAuth, extractToken, unauthorized, getIssuer } from './auth.js';
 import { registerTools } from './tools.js';
 import { createChatRouter } from './chat.js';
+
+// Force IPv4-first DNS resolution. node:22's native fetch (undici)
+// prefers IPv6 and hangs when the Docker bridge network has no working
+// IPv6 path — outbound calls to e.g. Open-Meteo or Wikipedia fail with
+// the unhelpful "fetch failed" while wget/curl from the same container
+// work because they default to IPv4. This brings fetch back in line.
+dns.setDefaultResultOrder('ipv4first');
 
 const {
   KEYCLOAK_BASE_URL,

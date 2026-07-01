@@ -214,8 +214,8 @@ it('uses the generated_image type and populates typed attributes in ai-memory', 
     $typeRow = $pdo->query("select key from global.note_types where id = " . $pdo->quote($body['note']['type_id']))->fetch(PDO::FETCH_ASSOC);
     expect($typeRow['key'])->toBe('generated_image');
 
-    // All 10 telemetry attributes should be present on the type
-    $expectedKeys = ['prompt', 'revised_prompt', 'size', 'quality', 'transparent', 'model', 'cost_usd', 'input_tokens', 'output_tokens', 'duration_ms'];
+    // All telemetry attributes should be present on the type
+    $expectedKeys = ['prompt', 'revised_prompt', 'source_note_ids', 'size', 'quality', 'transparent', 'model', 'cost_usd', 'input_tokens', 'output_tokens', 'duration_ms'];
     $attrRows = $pdo->query(
         "select key from global.type_attributes where type_id = " . $pdo->quote($body['note']['type_id']) . " order by key"
     )->fetchAll(PDO::FETCH_COLUMN);
@@ -289,6 +289,7 @@ it('seeds a default attribute_layout on generated_image: main = [file, content],
     expect($byKey['details']['attributes'])->toBe([
         $attrIdByKey['prompt'],
         $attrIdByKey['revised_prompt'],
+        $attrIdByKey['source_note_ids'],
         $attrIdByKey['size'],
         $attrIdByKey['quality'],
         $attrIdByKey['transparent'],
@@ -411,6 +412,171 @@ it('rejects a refine_note_id that targets a note in a different nook', function 
         'summary' => 'x',
     ]));
     expect($res['status'])->toBe(404);
+});
+
+it('edits from a source note: prior generated_image fed as the input', function (): void {
+    // Create a fresh generated_image first so we have a real on-disk
+    // file + note id to point source_note_ids at. The fake generator
+    // tags edited revised_prompts with "[edited from N source(s)]"
+    // so we can detect the edit branch without snooping the transport.
+    $pdo = test_pdo();
+    [$headers] = aiImagesSetup('eee000000001');
+
+    $first = App::handle('POST', '/api/nooks/ai-memory/ai-images', $headers, json_encode([
+        'prompt' => "child's drawing of a fox",
+        'summary' => 'Original drawing.',
+    ]));
+    expect($first['status'])->toBe(200, $first['body']);
+    $firstBody = json_decode($first['body'], true);
+    $sourceNoteId = $firstBody['note']['id'];
+
+    $second = App::handle('POST', '/api/nooks/ai-memory/ai-images', $headers, json_encode([
+        'prompt' => 'enhance this drawing — sharper lines and richer colours',
+        'summary' => 'Enhancement pass on the drawing.',
+        'source_note_ids' => [$sourceNoteId],
+    ]));
+    expect($second['status'])->toBe(200, $second['body']);
+    $secondBody = json_decode($second['body'], true);
+
+    expect($secondBody['note']['id'])->not->toBe($sourceNoteId);
+    // Edit branch is detectable via the FakeImageGenerator's tag
+    expect($secondBody['revised_prompt'])->toContain('[edited from 1 source(s)]');
+
+    // source_note_ids attribute stored on the new note
+    $typeId = $secondBody['note']['type_id'];
+    $byKey = [];
+    foreach ($pdo->query("select key, id from global.type_attributes where type_id = " . $pdo->quote($typeId))->fetchAll(PDO::FETCH_ASSOC) as $r) {
+        $byKey[$r['key']] = $r['id'];
+    }
+    $attrs = json_decode($pdo->query("select attributes from global.notes where id = " . $pdo->quote($secondBody['note']['id']))->fetchColumn(), true);
+    expect($attrs[$byKey['source_note_ids']])->toBe([$sourceNoteId]);
+});
+
+it('refinement re-uses the original source so iterations stay anchored to the input', function (): void {
+    $pdo = test_pdo();
+    [$headers] = aiImagesSetup('eee000000002');
+
+    // Source note (the "drawing").
+    $src = App::handle('POST', '/api/nooks/ai-memory/ai-images', $headers, json_encode([
+        'prompt' => 'a quick scribble',
+        'summary' => 'The drawing.',
+    ]));
+    $sourceNoteId = json_decode($src['body'], true)['note']['id'];
+
+    // First enhancement pass (creates output note with source attached).
+    $v1 = App::handle('POST', '/api/nooks/ai-memory/ai-images', $headers, json_encode([
+        'prompt' => 'enhance the scribble',
+        'summary' => 'First enhancement.',
+        'source_note_ids' => [$sourceNoteId],
+    ]));
+    expect($v1['status'])->toBe(200, $v1['body']);
+    $outputNoteId = json_decode($v1['body'], true)['note']['id'];
+
+    // Refinement omits source_note_ids — should inherit from prior.
+    $v2 = App::handle('POST', '/api/nooks/ai-memory/ai-images', $headers, json_encode([
+        'prompt' => 'try again with more saturation',
+        'summary' => 'Second pass.',
+        'refine_note_id' => $outputNoteId,
+    ]));
+    expect($v2['status'])->toBe(200, $v2['body']);
+    $v2Body = json_decode($v2['body'], true);
+
+    // Still routed through the edit branch — original source re-fed
+    expect($v2Body['revised_prompt'])->toContain('[edited from 1 source(s)]');
+
+    // source_note_ids attribute still references the original drawing
+    $typeId = $v2Body['note']['type_id'];
+    $byKey = [];
+    foreach ($pdo->query("select key, id from global.type_attributes where type_id = " . $pdo->quote($typeId))->fetchAll(PDO::FETCH_ASSOC) as $r) {
+        $byKey[$r['key']] = $r['id'];
+    }
+    $attrs = json_decode($pdo->query("select attributes from global.notes where id = " . $pdo->quote($outputNoteId))->fetchColumn(), true);
+    expect($attrs[$byKey['source_note_ids']])->toBe([$sourceNoteId]);
+});
+
+it('refinement of a pure text-to-image auto-feeds the prior output as the edit anchor', function (): void {
+    // First generation: no sources. Pure text-to-image.
+    [$headers] = aiImagesSetup('eee000000010');
+    $first = App::handle('POST', '/api/nooks/ai-memory/ai-images', $headers, json_encode([
+        'prompt' => 'a fox in the snow',
+        'summary' => 'Original take.',
+    ]));
+    expect($first['status'])->toBe(200, $first['body']);
+    $noteId = json_decode($first['body'], true)['note']['id'];
+
+    // Refinement without source_note_ids — should auto-feed the prior
+    // output back as the edit anchor (ChatGPT-style iteration).
+    $second = App::handle('POST', '/api/nooks/ai-memory/ai-images', $headers, json_encode([
+        'prompt' => 'shift the palette to dusk tones',
+        'refine_note_id' => $noteId,
+        'summary' => 'Dusk palette pass.',
+    ]));
+    expect($second['status'])->toBe(200, $second['body']);
+    $secondBody = json_decode($second['body'], true);
+
+    // FakeImageGenerator.edit tags revised_prompt with [edited from N source(s)]
+    expect($secondBody['revised_prompt'])->toContain('[edited from 1 source(s)]');
+
+    // But source_note_ids attribute stays empty — the auto-anchor is an
+    // internal mechanism, not user-facing semantics. The user didn't
+    // provide explicit sources, so none get persisted.
+    $pdo = test_pdo();
+    $typeId = $secondBody['note']['type_id'];
+    $byKey = [];
+    foreach ($pdo->query("select key, id from global.type_attributes where type_id = " . $pdo->quote($typeId))->fetchAll(PDO::FETCH_ASSOC) as $r) {
+        $byKey[$r['key']] = $r['id'];
+    }
+    $attrs = json_decode($pdo->query("select attributes from global.notes where id = " . $pdo->quote($noteId))->fetchColumn(), true);
+    expect($attrs[$byKey['source_note_ids']])->toBe([]);
+});
+
+it('explicit source_note_ids: [] on refine opts out of the auto edit-anchor', function (): void {
+    [$headers] = aiImagesSetup('eee000000011');
+    $first = App::handle('POST', '/api/nooks/ai-memory/ai-images', $headers, json_encode([
+        'prompt' => 'a fox',
+        'summary' => 'Original.',
+    ]));
+    $noteId = json_decode($first['body'], true)['note']['id'];
+
+    $second = App::handle('POST', '/api/nooks/ai-memory/ai-images', $headers, json_encode([
+        'prompt' => 'completely different composition — try a wolf instead',
+        'refine_note_id' => $noteId,
+        'summary' => 'Restart from text.',
+        'source_note_ids' => [],
+    ]));
+    expect($second['status'])->toBe(200, $second['body']);
+    $secondBody = json_decode($second['body'], true);
+
+    // Pure text-to-image regenerate — no [edited from ...] tag from the fake.
+    expect($secondBody['revised_prompt'])->not->toContain('[edited from');
+});
+
+it('rejects a source_note_ids entry that is not a UUID', function (): void {
+    [$headers] = aiImagesSetup('eee000000003');
+
+    $res = App::handle('POST', '/api/nooks/ai-memory/ai-images', $headers, json_encode([
+        'prompt' => 'x',
+        'summary' => 'x',
+        'source_note_ids' => ['not-a-uuid'],
+    ]));
+    expect($res['status'])->toBe(400);
+    expect(json_decode($res['body'], true)['error'])->toContain('UUID');
+});
+
+it('rejects a source note that has no image file attached', function (): void {
+    [$headers, $nookId] = aiImagesSetup('eee000000004');
+
+    // Plain note with no attached file
+    $note = App::handle('POST', "/api/nooks/{$nookId}/notes", $headers, json_encode(['title' => 'no-file']));
+    $plainId = json_decode($note['body'], true)['note']['id'];
+
+    $res = App::handle('POST', '/api/nooks/ai-memory/ai-images', $headers, json_encode([
+        'prompt' => 'enhance please',
+        'summary' => 'x',
+        'source_note_ids' => [$plainId],
+    ]));
+    expect($res['status'])->toBe(400);
+    expect(json_decode($res['body'], true)['error'])->toContain('no attached file');
 });
 
 it('rejects refining a note that is not a generated_image', function (): void {

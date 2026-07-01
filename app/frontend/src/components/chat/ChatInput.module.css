@@ -120,6 +120,22 @@
 	cursor: not-allowed;
 }
 
+.voiceProfilesBtn {
+	padding: 2px 6px;
+	font-size: 0.75rem;
+	border: 1px solid var(--color-border-medium);
+	border-radius: 4px;
+	background: var(--color-bg-secondary);
+	color: var(--color-text-muted);
+	cursor: pointer;
+	font-family: inherit;
+}
+
+.voiceProfilesBtn:hover {
+	background: var(--color-bg);
+	color: var(--color-text);
+}
+
 .micBtn {
 	flex-shrink: 0;
 	padding: 8px 12px;

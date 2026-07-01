@@ -4,3 +4,7 @@ dist
 cypress/screenshots
 cypress/videos
 cypress/downloads
+# Build artifacts copied from node_modules by scripts/copy-vad-assets.mjs.
+# Regenerated on every `yarn dev` / `yarn build`; never edit by hand.
+public/vad/
+public/onnx/

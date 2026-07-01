@@ -27,7 +27,21 @@ export type MessageUsage = {
 };
 
 export type ChatMessageData =
-	| { role: "user"; text: string; sentAt?: number }
+	| {
+			role: "user";
+			text: string;
+			sentAt?: number;
+			/** Identified speaker name when the voice container matched
+			 *  the utterance to an enrolled voiceprint. Null/undefined
+			 *  means the speaker is unknown (typed text or no match). */
+			speaker?: string | null;
+			/** Cosine-similarity score 0-1 from speaker matching. */
+			speakerConfidence?: number;
+			/** Whisper-reported language code. */
+			language?: string;
+			/** Audio clip length in seconds. */
+			durationSec?: number;
+	  }
 	| {
 			role: "assistant";
 			text: string;
@@ -61,12 +75,36 @@ type Props = {
 	inputDisabled?: boolean;
 };
 
-/** Strip the metadata prefix added by the backend (timestamp + optional note context). */
+/** Strip the metadata prefix added by the backend.
+ *  Format: `[<ISO timestamp>] [spoken by <name> (confidence X.XX)?]? [Note: "title" (id, type: t)]?\n`
+ *  All three brackets are optional except the timestamp; the order is
+ *  fixed (see MCP's buildMessageText). */
 const META_RE =
-	/^\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}Z\](?: \[Note: "[^"]*" \([^)]+\)])?\n/;
+	/^\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}Z\](?: \[spoken by [^\]]+\])?(?: \[Note: "[^"]*" \([^)]+\)])?\n/;
+/** Captures speaker name (group 1) and optional confidence (group 2)
+ *  from the metadata prefix when present. Confidence is optional so
+ *  older saved conversations (without the score) still parse. */
+const SPEAKER_RE =
+	/^\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}Z\] \[spoken by ([^\](]+?)(?: \(confidence ([\d.]+)\))?\]/;
 
 function stripMeta(text: string): string {
 	return text.replace(META_RE, "");
+}
+
+/** Pull the speaker name out of the metadata prefix, if present. Used
+ *  to drive a "spoken by Anna" badge on the message bubble. */
+export function extractSpeaker(text: string): string | null {
+	const m = SPEAKER_RE.exec(text);
+	return m ? m[1].trim() : null;
+}
+
+/** Pull the speaker-match confidence from the metadata prefix, if
+ *  the tag includes it. Older saved messages won't have it. */
+export function extractSpeakerConfidence(text: string): number | null {
+	const m = SPEAKER_RE.exec(text);
+	if (!m || !m[2]) return null;
+	const n = Number.parseFloat(m[2]);
+	return Number.isFinite(n) ? n : null;
 }
 
 function formatTimeAgo(ms: number): string {
@@ -110,6 +148,12 @@ const TOOL_LABELS: Record<string, string> = {
 	explore_notes: "Exploring notes",
 	delete_note: "Deleting note",
 	create_note_link: "Linking notes",
+	delete_note_link: "Removing link",
+	edit_note: "Editing note",
+	read_note_lines: "Reading note",
+	get_note_toc: "Reading note outline",
+	get_note_part: "Reading note section",
+	search_in_note: "Searching within note",
 	create_note_type: "Creating type",
 	update_note_type: "Updating type",
 	memory_create: "Saving to memory",
@@ -117,6 +161,7 @@ const TOOL_LABELS: Record<string, string> = {
 	memory_search: "Searching memory",
 	memory_get: "Reading memory",
 	search_agent: "Researching",
+	edit_note_agent: "Editing note (sub-agent)",
 };
 
 /** Unescape JSON string escapes for display */
@@ -205,9 +250,81 @@ export function ChatMessage(props: Props) {
 	return (
 		<div class={`${styles.message} ${styles[m().role]}`}>
 			<Show when={m().role === "user"}>
-				<div class={styles.bubble}>
-					{stripMeta((m() as { text: string }).text)}
-				</div>
+				{(() => {
+					// Speaker attribution: prefer the explicit fields (set on
+					// real-time sends), fall back to parsing the `[spoken by …]`
+					// tag from the saved text (history reload).
+					const u = m() as {
+						text: string;
+						speaker?: string | null;
+						speakerConfidence?: number;
+						language?: string;
+						durationSec?: number;
+					};
+					const speaker = u.speaker ?? extractSpeaker(u.text);
+					const confidence =
+						u.speakerConfidence ?? extractSpeakerConfidence(u.text);
+					const badgeTitle =
+						confidence != null
+							? `Identified by voiceprint (confidence ${confidence.toFixed(2)})`
+							: "Identified by voiceprint";
+					return (
+						<>
+							<Show when={speaker}>
+								<div
+									style={{
+										"font-size": "0.75rem",
+										color: "var(--color-text-secondary)",
+										"margin-bottom": "2px",
+										"text-align": "right",
+									}}
+									title={badgeTitle}
+								>
+									🎤 {speaker}
+								</div>
+							</Show>
+							<div class={styles.bubble}>{stripMeta(u.text)}</div>
+							<Show
+								when={
+									props.debugMode &&
+									(u.language ||
+										u.durationSec !== undefined ||
+										u.speakerConfidence !== undefined)
+								}
+							>
+								<div
+									style={{
+										"font-size": "0.7rem",
+										color: "var(--color-text-faint, #999)",
+										"margin-top": "2px",
+										"text-align": "right",
+										"font-variant-numeric": "tabular-nums",
+									}}
+								>
+									<Show when={u.language}>
+										<span title="Detected language">{u.language}</span>
+									</Show>
+									<Show when={u.durationSec !== undefined}>
+										<span
+											style={{ "margin-left": "8px" }}
+											title="Recorded audio length"
+										>
+											{u.durationSec?.toFixed(1)}s
+										</span>
+									</Show>
+									<Show when={u.speakerConfidence !== undefined}>
+										<span
+											style={{ "margin-left": "8px" }}
+											title="Speaker-match cosine similarity"
+										>
+											🎤 {(u.speakerConfidence ?? 0).toFixed(2)}
+										</span>
+									</Show>
+								</div>
+							</Show>
+						</>
+					);
+				})()}
 				<Show when={(m() as { sentAt?: number }).sentAt}>
 					<div style={{ "text-align": "right", "margin-top": "2px" }}>
 						<TimeAgo epoch={(m() as { sentAt: number }).sentAt} />

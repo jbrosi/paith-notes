@@ -89,8 +89,8 @@ export function EditorSection(props: { store: NookStore }) {
 									],
 								});
 							}}
-							resolveEmbeddedImageSrc={(id) =>
-								props.store.resolveEmbeddedImageSrc(id)
+							resolveEmbeddedImageSrc={(id, nookId) =>
+								props.store.resolveEmbeddedImageSrc(id, nookId)
 							}
 							uploadEmbeddedImage={(f) => props.store.uploadEmbeddedImage(f)}
 							resolveNoteTitle={resolveNoteTitle}
@@ -123,8 +123,8 @@ export function EditorSection(props: { store: NookStore }) {
 			>
 				<MarkdownView
 					content={props.store.content()}
-					resolveEmbeddedImageSrc={(id) =>
-						props.store.resolveEmbeddedImageSrc(id)
+					resolveEmbeddedImageSrc={(id, nookId) =>
+						props.store.resolveEmbeddedImageSrc(id, nookId)
 					}
 				/>
 			</Show>

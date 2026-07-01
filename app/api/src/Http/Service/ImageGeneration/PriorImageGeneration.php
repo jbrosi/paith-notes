@@ -22,6 +22,7 @@ final readonly class PriorImageGeneration
     /**
      * @param array<string, string> $attributesByKey  attribute key (slug) → attribute id
      * @param array<string, mixed> $priorAttributes   attribute id → stored value, as read from the note
+     * @param list<string> $priorSourceNoteIds         source notes the prior generation was edited from, empty for pure text-to-image
      */
     public function __construct(
         public string $noteId,
@@ -32,6 +33,7 @@ final readonly class PriorImageGeneration
         public array $priorAttributes,
         public string $priorContent,
         public int $priorFileVersion,
+        public array $priorSourceNoteIds,
     ) {
     }
 }

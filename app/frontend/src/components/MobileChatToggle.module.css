@@ -1,0 +1,54 @@
+/* Hidden by default (desktop); revealed only on narrow viewports where
+ * the Nav bar is cramped and the sidebar toggle is hard to find. Kept
+ * at z-index above the chat sidebar's own content so tapping the FAB
+ * while chat is open still routes to this button. */
+
+.fab {
+	display: none;
+}
+
+@media (width <= 1024px) {
+	.fab {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		position: fixed;
+		bottom: 16px;
+		right: 16px;
+		width: 52px;
+		height: 52px;
+		border-radius: 50%;
+		border: none;
+		background: var(--color-primary, #3b82f6);
+		color: white;
+		box-shadow:
+			0 4px 12px rgb(0 0 0 / 25%),
+			0 1px 3px rgb(0 0 0 / 15%);
+		cursor: pointer;
+		z-index: 500;
+		transition:
+			background 0.15s ease,
+			transform 0.15s ease;
+		-webkit-tap-highlight-color: transparent;
+	}
+
+	.fab:hover {
+		background: var(--color-primary-hover, #2563eb);
+	}
+
+	.fab:active {
+		transform: scale(0.94);
+	}
+}
+
+/* When chat is open the FAB flips into a subdued "close" affordance —
+ * still visible so the user can tap to hide, but visually secondary so
+ * it doesn't fight the chat UI for attention. */
+.fabActive {
+	background: rgb(60 60 60 / 88%) !important;
+	color: white;
+}
+
+.fabActive:hover {
+	background: rgb(40 40 40 / 95%) !important;
+}

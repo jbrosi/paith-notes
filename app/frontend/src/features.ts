@@ -15,10 +15,24 @@ export async function loadFeatures(): Promise<void> {
 	inflight = (async () => {
 		try {
 			const res = await apiFetch("/api/me", { method: "GET" });
-			if (!res.ok) return;
+			if (!res.ok) {
+				console.warn(
+					`[features] /api/me returned ${res.status}; voice stays disabled`,
+				);
+				return;
+			}
 			const body = (await res.json()) as { features?: Partial<Features> };
-			setFeatures({ voice: body.features?.voice === true });
-		} catch {
+			const next = { voice: body.features?.voice === true };
+			console.log(
+				"[features] loaded:",
+				next,
+				"(raw features payload:",
+				body.features,
+				")",
+			);
+			setFeatures(next);
+		} catch (e) {
+			console.warn("[features] /api/me fetch failed:", e);
 		} finally {
 			inflight = null;
 		}

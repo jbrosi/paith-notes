@@ -5,6 +5,17 @@ import {
 	rankNotesByQuery,
 	resolveTypeIdForTerm,
 } from "../../noteSearch";
+import {
+	clearLocalDraft,
+	deleteServerDraft,
+	fetchServerDraft,
+	isDraftNewer,
+	type NoteDraft,
+	putServerDraft,
+	readLocalDraft,
+	writeLocalDraft,
+} from "./noteDraftSync";
+import { createNoteTypeActions } from "./noteTypes";
 import type {
 	AttributeLayout,
 	HeadingMatch,
@@ -123,6 +134,19 @@ export function createNookStore(nookId: () => string) {
 	>({});
 	const [mode, setMode] = createSignal<"view" | "edit">("view");
 	const [isDirty, setIsDirty] = createSignal<boolean>(false);
+
+	// Per-user unsaved-edit buffer for the currently open note. Set by
+	// applyNoteDetail when it discovers a draft newer than the note's own
+	// updated_at (either from sessionStorage or the server GET). The
+	// editor surfaces a banner giving the user Restore / Discard.
+	const [draftAvailable, setDraftAvailable] = createSignal<NoteDraft | null>(
+		null,
+	);
+	// Latch that flips true once applyNoteDetail has completed for the
+	// current note. Autosave gates on this to avoid the classic race
+	// where a stale empty (title,content) briefly fires and clobbers the
+	// server draft before the fetched detail lands.
+	const [draftAutosaveArmed, setDraftAutosaveArmed] = createSignal(false);
 	type PendingNav = { proceed: () => void | Promise<void> };
 	const [pendingNav, setPendingNav] = createSignal<PendingNav | null>(null);
 	const [loading, setLoading] = createSignal<boolean>(false);
@@ -186,7 +210,7 @@ export function createNookStore(nookId: () => string) {
 						break;
 					case "types_changed": {
 						const v = typeof msg.version === "number" ? msg.version : 0;
-						if (v === 0 || v > typesVersion) {
+						if (v === 0 || v > getTypesVersion()) {
 							void loadNoteTypes();
 						}
 						break;
@@ -322,191 +346,28 @@ export function createNookStore(nookId: () => string) {
 		createdAt: note.createdAt,
 	});
 
-	let typesVersion = 0;
-
-	const loadNoteTypes = async () => {
-		if (nookId() === "") return;
-		try {
-			const res = await apiFetch(`/api/nooks/${nookId()}/note-types`, {
-				method: "GET",
-			});
-			if (res.status === 401) {
-				if (noteTypes().length > 0) setNoteTypes([]);
-				return;
-			}
-			if (!res.ok) {
-				throw new Error(
-					`Failed to load note types: ${res.status} ${res.statusText}`,
-				);
-			}
-			const json = await res.json();
-			const body = NoteTypesListResponseSchema.parse(json);
-			setNoteTypes(body.types);
-			typesVersion = body.version;
-		} catch (e) {
-			setNoteTypes([]);
-			setError(String(e));
-		}
-	};
-
-	const createNoteType = async (input: {
-		key: string;
-		label: string;
-		parentId: string;
-	}): Promise<NoteType | null> => {
-		if (nookId() === "") return null;
-		const key = input.key.trim();
-		const label = input.label.trim();
-		if (key === "" || label === "") {
-			setError("Key and label are required");
-			return null;
-		}
-
-		const parentId = input.parentId.trim();
-
-		setLoading(true);
-		setError("");
-		try {
-			const res = await apiFetch(`/api/nooks/${nookId()}/note-types`, {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({
-					key,
-					label,
-					parent_id: parentId,
-				}),
-			});
-			if (!res.ok) {
-				throw new Error(
-					`Failed to create type: ${res.status} ${res.statusText}`,
-				);
-			}
-			const json = await res.json();
-			const body = NoteTypeResponseSchema.parse(json);
-			await loadNoteTypes();
-			return body.type;
-		} catch (e) {
-			setError(String(e));
-			return null;
-		} finally {
-			setLoading(false);
-		}
-	};
-
-	const renameNoteType = async (type: NoteType, nextLabel: string) => {
-		if (nookId() === "") return;
-		const label = nextLabel.trim();
-		if (label === "") {
-			setError("Label is required");
-			return;
-		}
-		setLoading(true);
-		setError("");
-		try {
-			const res = await apiFetch(
-				`/api/nooks/${nookId()}/note-types/${type.id}`,
-				{
-					method: "PUT",
-					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({
-						key: type.key,
-						label,
-						description: type.description,
-						parent_id: type.parentId,
-					}),
-				},
-			);
-			if (!res.ok) {
-				throw new Error(
-					`Failed to rename type: ${res.status} ${res.statusText}`,
-				);
-			}
-			await loadNoteTypes();
-		} catch (e) {
-			setError(String(e));
-		} finally {
-			setLoading(false);
-		}
-	};
-
-	const updateNoteType = async (
-		type: NoteType,
-		next: {
-			key: string;
-			label: string;
-			description: string;
-			parentId: string;
-		},
-	): Promise<NoteType | null> => {
-		if (nookId() === "") return null;
-		const key = next.key.trim();
-		const label = next.label.trim();
-		if (key === "" || label === "") {
-			setError("Key and label are required");
-			return null;
-		}
-		setLoading(true);
-		setError("");
-		try {
-			const res = await apiFetch(
-				`/api/nooks/${nookId()}/note-types/${type.id}`,
-				{
-					method: "PUT",
-					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({
-						key,
-						label,
-						description: next.description,
-						parent_id: next.parentId,
-					}),
-				},
-			);
-			if (!res.ok) {
-				throw new Error(
-					`Failed to update type: ${res.status} ${res.statusText}`,
-				);
-			}
-			const json = await res.json();
-			const body = NoteTypeResponseSchema.parse(json);
-			await loadNoteTypes();
-			return body.type;
-		} catch (e) {
-			setError(String(e));
-			return null;
-		} finally {
-			setLoading(false);
-		}
-	};
-
-	const deleteNoteType = async (type: NoteType) => {
-		if (nookId() === "") return;
-		setLoading(true);
-		setError("");
-		try {
-			const res = await apiFetch(
-				`/api/nooks/${nookId()}/note-types/${type.id}`,
-				{ method: "DELETE" },
-			);
-			if (!res.ok) {
-				throw new Error(
-					`Failed to delete type: ${res.status} ${res.statusText}`,
-				);
-			}
-			await loadNoteTypes();
-			if (selectedTypeIds().has(type.id)) {
-				const next = new Set(selectedTypeIds());
-				next.delete(type.id);
-				setSelectedTypeIds(next);
-			}
-			if (typeId() === type.id) {
-				setTypeId("");
-			}
-		} catch (e) {
-			setError(String(e));
-		} finally {
-			setLoading(false);
-		}
-	};
+	// Note-type CRUD lives in ./noteTypes.ts. Signals + setters flow in
+	// via the deps bundle so this store keeps ownership of state while
+	// the CRUD flow itself is testable in isolation. The `getTypesVersion`
+	// getter is what the WS reconnect handler probes to skip stale reloads.
+	const {
+		loadNoteTypes,
+		createNoteType,
+		renameNoteType,
+		updateNoteType,
+		deleteNoteType,
+		getTypesVersion,
+	} = createNoteTypeActions({
+		nookId,
+		noteTypes,
+		setNoteTypes,
+		setLoading,
+		setError,
+		selectedTypeIds,
+		setSelectedTypeIds,
+		typeId,
+		setTypeId,
+	});
 
 	const setTitleFromUser = (next: string) => {
 		setTitle(next);
@@ -519,14 +380,42 @@ export function createNookStore(nookId: () => string) {
 	};
 
 	const embeddedImageCache = new Map<string, string>();
-	const resolveEmbeddedImageSrc = async (noteId: string) => {
+	// Fetch a note from an arbitrary nook without touching selected-note
+	// state — used for cross-nook image embeds (e.g. assistant-generated
+	// images that live in the AI memory nook but are rendered inside a
+	// chat surface mounted under a different nook). loadNoteDetail can't
+	// be reused because it mutates current-note state on success.
+	const fetchNoteFromNook = async (
+		noteId: string,
+		targetNookId: string,
+	): Promise<Note | null> => {
+		try {
+			const res = await apiFetch(`/api/nooks/${targetNookId}/notes/${noteId}`, {
+				method: "GET",
+			});
+			if (!res.ok) return null;
+			const json = await res.json();
+			return NoteResponseSchema.parse(json).note;
+		} catch {
+			return null;
+		}
+	};
+	const resolveEmbeddedImageSrc = async (
+		noteId: string,
+		embedNookId?: string,
+	) => {
 		const id = noteId.trim();
-		const nook = nookId();
-		if (id === "" || nook === "") return null;
-		const cached = embeddedImageCache.get(id);
+		const currentNook = nookId();
+		const targetNook = embedNookId?.trim() || currentNook;
+		if (id === "" || targetNook === "") return null;
+		const cacheKey = `${targetNook}:${id}`;
+		const cached = embeddedImageCache.get(cacheKey);
 		if (cached) return cached;
 
-		const d = await loadNoteDetail(id);
+		const d =
+			targetNook === currentNook
+				? await loadNoteDetail(id)
+				: await fetchNoteFromNook(id, targetNook);
 		if (!d) return null;
 
 		// Find the first file with an image content_type from note.files.
@@ -557,7 +446,7 @@ export function createNookStore(nookId: () => string) {
 
 		const url =
 			imageFile.signed_url ?? `/files/${imageFile.object_key}?inline=1`;
-		embeddedImageCache.set(id, url);
+		embeddedImageCache.set(cacheKey, url);
 		return url;
 	};
 
@@ -967,8 +856,24 @@ export function createNookStore(nookId: () => string) {
 	const newNote = () => {
 		setSelectedId("");
 		const ids = selectedTypeIds();
-		setTypeId(ids.size === 1 ? [...ids][0] : "");
-		setTitle("New note");
+		// Type resolution for new notes:
+		//   1. If the user has narrowed the notes list to exactly one type,
+		//      inherit that type (matches their obvious intent).
+		//   2. Otherwise default to the nook's "base" note type so create
+		//      always succeeds without forcing a type decision up front.
+		//      The user can still switch via TitleSection's type picker
+		//      before pressing Create.
+		if (ids.size === 1) {
+			setTypeId([...ids][0]);
+		} else {
+			const base = noteTypes().find((t) => t.key === "base");
+			setTypeId(base?.id ?? "");
+		}
+		// Empty title — force the user to name the note before saving.
+		// The Save button in NookToolbar is already disabled on empty
+		// title, and TitleSection auto-focuses the input for new notes,
+		// so the intent is clear: type a title, then Save.
+		setTitle("");
 		setTitleIsManual(false);
 		setContent("");
 		setNoteAttributes({});
@@ -978,9 +883,18 @@ export function createNookStore(nookId: () => string) {
 		setMentionEmbedImage(false);
 		setMode("edit");
 		setIsDirty(false);
+		// Drop URL back to the nook root. Without this, if we're currently
+		// on /nooks/X/notes/Y the URL→store sync (Nook.tsx) will re-load Y
+		// and clobber this fresh draft as soon as its in-flight fetch lands.
+		navigatorFn?.("", nookId());
 	};
 
 	const applyNoteDetail = (note: Note) => {
+		// Disarm autosave until we've finished writing this note's real
+		// values. Otherwise the transient set-to-note-content step below
+		// would look like a real edit and get uploaded as a draft.
+		setDraftAutosaveArmed(false);
+		setDraftAvailable(null);
 		setIsDirty(false);
 		setRemoteNoteChanged(false);
 		setTypeId(String(note.typeId ?? "").trim());
@@ -999,6 +913,35 @@ export function createNookStore(nookId: () => string) {
 		setError("");
 		setMentionTargetId("");
 		setMentionEmbedImage(false);
+
+		// Now check for a pending draft. sessionStorage first (synchronous,
+		// no waiting on the network), server GET in the background — if
+		// the server has a newer draft we upgrade the banner to that.
+		if (note.id) {
+			const local = readLocalDraft(note.id);
+			if (local && isDraftNewer(local.updatedAt, note.updatedAt ?? "")) {
+				setDraftAvailable(local);
+			}
+			// Fire-and-forget server check — the AI or another tab may have
+			// written a draft this session doesn't know about.
+			void fetchServerDraft(nookId(), note.id).then((res) => {
+				if (!res?.draft) return;
+				// Only replace the banner if this note is still selected —
+				// user may have navigated away in the meantime.
+				if (selectedId() !== note.id) return;
+				const currentBanner = draftAvailable();
+				const serverIsNewer = isDraftNewer(
+					res.draft.updatedAt,
+					currentBanner?.updatedAt ?? note.updatedAt ?? "",
+				);
+				if (serverIsNewer) setDraftAvailable(res.draft);
+			});
+		}
+
+		// Arm on the next microtask so this same batch of setters doesn't
+		// fire the autosave effect. queueMicrotask flushes after Solid's
+		// current update cycle, which is enough.
+		queueMicrotask(() => setDraftAutosaveArmed(true));
 	};
 
 	const selectNote = (note: NoteSummary) => {
@@ -1037,16 +980,22 @@ export function createNookStore(nookId: () => string) {
 		onNoteLinkClickInternal(noteId, targetNookId);
 	};
 
-	/** Load a note by ID into the store (called by URL→store sync) */
-	const loadNoteById = async (noteId: string) => {
+	/** Load a note by ID into the store (called by URL→store sync). The
+	 * optional isStillValid guard lets the caller cancel a stale load —
+	 * e.g. the user navigated away (or clicked New note) while the fetch
+	 * was in flight; without it the eventual selectNote clobbers the new
+	 * draft. */
+	const loadNoteById = async (noteId: string, isStillValid?: () => boolean) => {
+		const stillValid = () => (isStillValid ? isStillValid() : true);
 		const found = notes().find((n) => n.id === noteId);
 		if (found) {
-			selectNote(found);
+			if (stillValid()) selectNote(found);
 			return;
 		}
 		// Note not in current list — fetch it directly instead of reloading
 		// the full list (which races with the reactive loadNotes effect).
 		const detail = await loadNoteDetail(noteId);
+		if (!stillValid()) return;
 		if (!detail) {
 			setError(`Note not found: ${noteId}`);
 			return;
@@ -1079,6 +1028,155 @@ export function createNookStore(nookId: () => string) {
 	const loadDetail = async () => {
 		const id = selectedId();
 		if (id) void loadNoteDetail(id);
+	};
+
+	// ─── Draft autosave ──────────────────────────────────────────────
+	// Two debounced writers with different cadences. Recovery loss is
+	// bounded by whichever tier is fresher, so we tolerate a fairly
+	// quiet server cadence.
+	//
+	//   local  — 10s   sessionStorage (per-tab, cheap, cleared on close)
+	//   server — 60s   note_drafts row (per-user, survives disconnect)
+	//
+	// visibilitychange flushes both immediately so a tab close within
+	// the debounce window still captures the latest state.
+	let draftLocalTimer: number | null = null;
+	let draftServerTimer: number | null = null;
+	// Latest (t, c) captured while a debounce is pending. Solid tracks
+	// signal reads inside effects, but the timeout callback runs later
+	// where those tracked reads no longer apply — so we snapshot here.
+	let pendingDraft: {
+		id: string;
+		nookId: string;
+		t: string;
+		c: string;
+	} | null = null;
+	const DRAFT_LOCAL_DEBOUNCE_MS = 10_000;
+	const DRAFT_SERVER_DEBOUNCE_MS = 60_000;
+
+	const flushLocalDraft = () => {
+		if (draftLocalTimer !== null) {
+			window.clearTimeout(draftLocalTimer);
+			draftLocalTimer = null;
+		}
+		if (!pendingDraft) return;
+		writeLocalDraft(pendingDraft.id, {
+			noteId: pendingDraft.id,
+			title: pendingDraft.t,
+			content: pendingDraft.c,
+			version: 0,
+			updatedAt: new Date().toISOString(),
+		});
+	};
+
+	const flushServerDraft = () => {
+		if (draftServerTimer !== null) {
+			window.clearTimeout(draftServerTimer);
+			draftServerTimer = null;
+		}
+		if (!pendingDraft) return;
+		void putServerDraft(
+			pendingDraft.nookId,
+			pendingDraft.id,
+			pendingDraft.t,
+			pendingDraft.c,
+		);
+	};
+
+	// Global tab-visibility hook: user is about to leave / minimize.
+	// Best chance to persist unsaved work before the tab is gone.
+	if (typeof document !== "undefined") {
+		document.addEventListener("visibilitychange", () => {
+			if (document.visibilityState === "hidden") {
+				flushLocalDraft();
+				flushServerDraft();
+			}
+		});
+	}
+
+	createEffect(() => {
+		if (!draftAutosaveArmed()) return;
+		if (!isEditing()) return;
+		const id = selectedId();
+		if (!id) return;
+
+		// Read title/content — Solid tracks these reads so the effect
+		// re-fires on any change.
+		const t = title();
+		const c = content();
+
+		// Only autosave once the note has diverged from its saved state.
+		// Otherwise every reload would upload a "draft" that matches the
+		// server and add noise.
+		if (!isDirty()) return;
+
+		pendingDraft = { id, nookId: nookId(), t, c };
+
+		if (draftLocalTimer !== null) window.clearTimeout(draftLocalTimer);
+		draftLocalTimer = window.setTimeout(() => {
+			draftLocalTimer = null;
+			flushLocalDraft();
+		}, DRAFT_LOCAL_DEBOUNCE_MS);
+
+		if (draftServerTimer !== null) window.clearTimeout(draftServerTimer);
+		draftServerTimer = window.setTimeout(() => {
+			draftServerTimer = null;
+			flushServerDraft();
+		}, DRAFT_SERVER_DEBOUNCE_MS);
+	});
+
+	/**
+	 * Surgical find-and-replace against the live editor buffer. Matches
+	 * the shape of the server-side edit_note endpoint but stays entirely
+	 * in-browser — the AI's edit lands in the same buffer the user is
+	 * typing into, and autosave will pick it up on the next debounce
+	 * tick. Returns the result the AI needs to see as its tool_result.
+	 *
+	 * Requires isEditing() — a view-mode edit would surprise the user by
+	 * silently mutating a note they thought was static.
+	 */
+	const editCurrentEditor = (
+		find: string,
+		replace: string,
+	): { applied: boolean; error?: string; newContent?: string } => {
+		if (!isEditing()) {
+			return { applied: false, error: "editor is not in edit mode" };
+		}
+		const current = content();
+		const first = current.indexOf(find);
+		if (first === -1) return { applied: false, error: "not_found" };
+		const second = current.indexOf(find, first + find.length);
+		if (second !== -1) return { applied: false, error: "ambiguous" };
+		const next =
+			current.slice(0, first) + replace + current.slice(first + find.length);
+		setContentFromUser(next);
+		return { applied: true, newContent: next };
+	};
+
+	const applyDraft = () => {
+		const d = draftAvailable();
+		if (!d) return;
+		batch(() => {
+			setTitle(d.title);
+			setContent(d.content);
+			setIsDirty(true);
+			setDraftAvailable(null);
+		});
+	};
+
+	const discardDraft = () => {
+		const id = selectedId();
+		setDraftAvailable(null);
+		if (!id) return;
+		// Any in-flight debounce also becomes stale — don't let a flush
+		// resurrect the discarded content a few seconds after clear.
+		if (draftLocalTimer !== null) window.clearTimeout(draftLocalTimer);
+		if (draftServerTimer !== null) window.clearTimeout(draftServerTimer);
+		draftLocalTimer = null;
+		draftServerTimer = null;
+		pendingDraft = null;
+		clearLocalDraft(id);
+		void deleteServerDraft(nookId(), id);
 	};
 
 	const saveNote = async () => {
@@ -1131,8 +1229,27 @@ export function createNookStore(nookId: () => string) {
 				setNotes([toSummary(body.note), ...notes()]);
 				setSelectedId(body.note.id);
 				applyNoteDetail(body.note);
+				// Save succeeded — any pending draft on the *new* id shouldn't
+				// persist. (New-note drafts before save use the empty id as
+				// key; nothing to clear locally, but the server-side has no
+				// draft yet either.)
+				// Save landed on disk — kill any in-flight debounce so the
+				// timer doesn't fire a moment later and re-upload the same
+				// content as a "draft" that's now identical to the note.
+				if (draftLocalTimer !== null) window.clearTimeout(draftLocalTimer);
+				if (draftServerTimer !== null) window.clearTimeout(draftServerTimer);
+				draftLocalTimer = null;
+				draftServerTimer = null;
+				pendingDraft = null;
+				clearLocalDraft(body.note.id);
+				void deleteServerDraft(nookId(), body.note.id);
 				await loadMentions();
 				void loadHistory();
+				// Sync URL with the just-created id so refresh keeps the
+				// note open and any later URL→store re-runs match. Without
+				// this we left the URL on /nooks/X (where New note had
+				// dropped it) while the store held the new id.
+				onNoteLinkClickInternal(body.note.id);
 			} else {
 				const res = await apiFetch(`/api/nooks/${nookId()}/notes/${id}`, {
 					method: "PUT",
@@ -1173,6 +1290,16 @@ export function createNookStore(nookId: () => string) {
 				);
 				setSelectedId(body.note.id);
 				applyNoteDetail(body.note);
+				// Save landed on disk — kill any in-flight debounce so the
+				// timer doesn't fire a moment later and re-upload the same
+				// content as a "draft" that's now identical to the note.
+				if (draftLocalTimer !== null) window.clearTimeout(draftLocalTimer);
+				if (draftServerTimer !== null) window.clearTimeout(draftServerTimer);
+				draftLocalTimer = null;
+				draftServerTimer = null;
+				pendingDraft = null;
+				clearLocalDraft(body.note.id);
+				void deleteServerDraft(nookId(), body.note.id);
 				// PUT response is lean — no `files`, `headings`, etc. (see
 				// NotesController::update). Refetch via the full GET so
 				// embedded images, TOC and similar keep rendering after save.
@@ -1440,6 +1567,10 @@ export function createNookStore(nookId: () => string) {
 		uploadEmbeddedImage,
 		saveNote,
 		deleteNote,
+		draftAvailable,
+		applyDraft,
+		discardDraft,
+		editCurrentEditor,
 		noteAttributes,
 		setNoteAttribute,
 		loadDetail,

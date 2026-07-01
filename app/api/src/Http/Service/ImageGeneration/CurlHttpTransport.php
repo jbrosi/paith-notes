@@ -58,4 +58,77 @@ final class CurlHttpTransport implements HttpTransport
 
         return ['status' => $status, 'body' => $body];
     }
+
+    public function postMultipart(string $url, array $headers, array $parts, int $timeoutSeconds): array
+    {
+        if ($url === '') {
+            throw new HttpError('image provider URL is empty', 502);
+        }
+        if ($parts === []) {
+            throw new HttpError('refusing to POST an empty multipart body', 502);
+        }
+
+        // Build the body manually rather than handing CURLFile a temp
+        // file — sources arrive as bytes in memory, and writing them
+        // to /tmp just to satisfy CURLFile is needless IO that also
+        // leaves cleanup as a footgun.
+        $boundary = 'paith-' . bin2hex(random_bytes(16));
+        $body = $this->buildMultipartBody($parts, $boundary);
+
+        $headerLines = ['Content-Type: multipart/form-data; boundary=' . $boundary];
+        foreach ($headers as $name => $value) {
+            // Caller-provided Content-Type is ignored on purpose —
+            // multipart needs the boundary param we just generated.
+            if (strcasecmp($name, 'Content-Type') === 0) {
+                continue;
+            }
+            $headerLines[] = $name . ': ' . $value;
+        }
+
+        $ch = curl_init();
+        if ($ch === false) {
+            throw new HttpError('failed to initialize HTTP client', 502);
+        }
+
+        curl_setopt($ch, CURLOPT_URL, $url);
+        curl_setopt($ch, CURLOPT_POST, true);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, $body);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, $headerLines);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_TIMEOUT, $timeoutSeconds);
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
+
+        $respBody = curl_exec($ch);
+        if ($respBody === false || $respBody === true) {
+            throw new HttpError('image provider transport error: ' . curl_error($ch), 502);
+        }
+        $status = curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+
+        return ['status' => $status, 'body' => $respBody];
+    }
+
+    /**
+     * @param list<array{name: string, value: string, filename?: string, contentType?: string}> $parts
+     */
+    private function buildMultipartBody(array $parts, string $boundary): string
+    {
+        $crlf = "\r\n";
+        $body = '';
+        foreach ($parts as $p) {
+            $body .= '--' . $boundary . $crlf;
+            $name = $p['name'];
+            $filename = $p['filename'] ?? null;
+            if ($filename !== null) {
+                $contentType = $p['contentType'] ?? 'application/octet-stream';
+                $body .= 'Content-Disposition: form-data; name="' . $name . '"; filename="' . $filename . '"' . $crlf;
+                $body .= 'Content-Type: ' . $contentType . $crlf;
+            } else {
+                $body .= 'Content-Disposition: form-data; name="' . $name . '"' . $crlf;
+            }
+            $body .= $crlf;
+            $body .= $p['value'] . $crlf;
+        }
+        $body .= '--' . $boundary . '--' . $crlf;
+        return $body;
+    }
 }

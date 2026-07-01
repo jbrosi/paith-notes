@@ -19,6 +19,11 @@ final readonly class GenerateImageRequest
 {
     private const ALLOWED_SIZES = ['1024x1024', '1024x1536', '1536x1024', 'auto'];
     private const ALLOWED_QUALITIES = ['low', 'medium', 'high', 'auto'];
+    private const UUID_REGEX = '/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i';
+    /** Cap on input images per call. gpt-image-1 accepts more, but
+     * this many is well beyond any realistic UX and bounds the
+     * multipart size we put on the wire. */
+    private const MAX_SOURCE_NOTES = 4;
 
     /** Default quality for AI-initiated generation — keeps cost bounded for iteration. */
     public const DEFAULT_QUALITY = 'low';
@@ -28,6 +33,13 @@ final readonly class GenerateImageRequest
      * "AI explicitly chose vs. didn't say" distinction — refinements
      * inherit any omitted field from the prior note, and new-note
      * generation falls back to controller-level defaults.
+     *
+     * `sourceNoteIds` is null (not omitted) only when the AI didn't
+     * pass the field at all — refinements then inherit the prior
+     * note's sources. An explicit `[]` means "drop the sources for
+     * this refinement, go back to pure text-to-image".
+     *
+     * @param list<string>|null $sourceNoteIds
      */
     public function __construct(
         public string $prompt,
@@ -36,6 +48,7 @@ final readonly class GenerateImageRequest
         public ?string $quality,
         public ?string $summary,
         public ?string $refineNoteId,
+        public ?array $sourceNoteIds,
     ) {
     }
 
@@ -76,6 +89,31 @@ final readonly class GenerateImageRequest
         $summary = JsonReader::optionalTrimmedString($data, 'summary');
         $refineNoteId = JsonReader::optionalTrimmedString($data, 'refine_note_id');
 
+        $sourceNoteIds = null;
+        if (array_key_exists('source_note_ids', $data)) {
+            $raw = $data['source_note_ids'];
+            if (!is_array($raw)) {
+                throw new HttpError('source_note_ids must be an array of UUIDs', 400);
+            }
+            $sourceNoteIds = [];
+            foreach ($raw as $entry) {
+                if (!is_string($entry)) {
+                    throw new HttpError('source_note_ids entries must be UUID strings', 400);
+                }
+                $entry = trim($entry);
+                if ($entry === '') {
+                    continue;
+                }
+                if (preg_match(self::UUID_REGEX, $entry) !== 1) {
+                    throw new HttpError('source_note_ids entries must be UUIDs', 400);
+                }
+                $sourceNoteIds[] = $entry;
+            }
+            if (count($sourceNoteIds) > self::MAX_SOURCE_NOTES) {
+                throw new HttpError('source_note_ids cap is ' . self::MAX_SOURCE_NOTES, 400);
+            }
+        }
+
         return new self(
             prompt: $prompt,
             size: $size !== '' ? $size : null,
@@ -83,6 +121,7 @@ final readonly class GenerateImageRequest
             quality: $quality !== '' ? $quality : null,
             summary: $summary !== '' ? $summary : null,
             refineNoteId: $refineNoteId !== '' ? $refineNoteId : null,
+            sourceNoteIds: $sourceNoteIds,
         );
     }
 
