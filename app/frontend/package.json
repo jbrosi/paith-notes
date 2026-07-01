@@ -32,7 +32,7 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.4.16",
+    "@biomejs/biome": "^2.5.0",
     "@types/d3": "^7.4.3",
     "autoprefixer": "^10.4.24",
     "cypress": "^15.17.0",
@@ -41,7 +41,7 @@
     "stylelint-config-standard": "^39.0.1",
     "typescript": "^6.0.2",
     "vite": "^8.0.16",
-    "vite-plugin-checker": "^0.14.1",
+    "vite-plugin-checker": "^0.14.4",
     "vite-plugin-solid": "^2.10.0"
   }
 }
