@@ -28,6 +28,13 @@ export function NookToolbar(props: NookToolbarProps) {
 					<Button
 						onClick={props.onSave}
 						disabled={props.loading || props.title.trim() === ""}
+						title={
+							props.loading
+								? "Saving / loading in progress"
+								: props.title.trim() === ""
+									? "Title is required"
+									: "Save"
+						}
 					>
 						Save
 					</Button>

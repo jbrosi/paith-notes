@@ -22,7 +22,25 @@ use Paith\Notes\Api\Http\HttpError;
 interface ImageGenerator
 {
     /**
+     * Text-to-image. The provider produces a fresh image from `prompt`
+     * alone — no input image is referenced.
+     *
      * @throws HttpError on validation failures (400) or upstream errors (502)
      */
     public function generate(string $prompt, ImageGenerationOptions $options): GeneratedImage;
+
+    /**
+     * Image-to-image. The provider takes one or more `sources` as
+     * input and produces a new image guided by `prompt`. Used for
+     * "enhance my daughter's drawing" / "the same image but with a
+     * sunset" style workflows where the source must stay the anchor
+     * across iterations.
+     *
+     * The sources are bytes-in-memory rather than paths so this layer
+     * doesn't have to know about the controller's on-disk file layout.
+     *
+     * @param list<SourceImage> $sources  at least one
+     * @throws HttpError on validation failures (400) or upstream errors (502)
+     */
+    public function edit(string $prompt, array $sources, ImageGenerationOptions $options): GeneratedImage;
 }

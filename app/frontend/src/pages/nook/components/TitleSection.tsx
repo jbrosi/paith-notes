@@ -10,6 +10,8 @@ export function TitleSection(props: { store: NookStore }) {
 	let titleInputRef: HTMLInputElement | undefined;
 
 	const isVisible = () => true;
+	const isNewUnsaved = () =>
+		props.store.selectedId() === "" && props.store.mode() === "edit";
 
 	const types = createMemo(() => props.store.noteTypes());
 
@@ -78,9 +80,26 @@ export function TitleSection(props: { store: NookStore }) {
 						onInput={(e) => props.store.setTitle(e.currentTarget.value)}
 						onBlur={() => setEditingTitle(false)}
 						onKeyDown={(e) => {
-							if (e.key === "Enter" || e.key === "Escape")
+							if (e.key === "Escape") {
 								setEditingTitle(false);
+								return;
+							}
+							if (e.key === "Enter") {
+								// New notes: Enter submits the create so the user
+								// never has to hunt for a Save button. Existing
+								// notes: Enter just closes the title editor —
+								// keeps Ctrl+S / toolbar Save as the canonical
+								// save path so it stays predictable.
+								if (isNewUnsaved() && props.store.title().trim() !== "") {
+									e.preventDefault();
+									void props.store.saveNote();
+									setEditingTitle(false);
+								} else {
+									setEditingTitle(false);
+								}
+							}
 						}}
+						placeholder={isNewUnsaved() ? "Title this note…" : ""}
 						class={styles.titleInput}
 					/>
 				</Show>

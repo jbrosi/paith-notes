@@ -28,6 +28,15 @@ services:
     build:
       context: ./app/mcp
       target: dev
+    # Pin a stable public DNS resolver. The docker-embedded resolver
+    # (127.0.0.11) intermittently returns EAI_AGAIN for outbound
+    # hostnames like api.open-meteo.com / en.wikipedia.org, which
+    # undici (node's fetch) doesn't retry — tools error out with the
+    # unhelpful "fetch failed". 1.1.1.1 + 8.8.8.8 is the same belt-
+    # and-suspenders most Docker dev guides recommend.
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
     volumes:
       - ./app/mcp/src:/app/src
     ports:
@@ -40,6 +49,19 @@ services:
       KEYCLOAK_REALM: ${KEYCLOAK_REALM:-master}
       API_BASE_URL: http://app:8000
       MCP_SERVER_URL: ${MCP_SERVER_URL:-https://mcp.paith.example.com}
+      # VOICE_PROVIDER=openai routes TTS to OpenAI's /v1/audio/speech
+      # (instructable per-sentence delivery; drops the local voice
+      # container entirely). Leave unset to keep the local Kokoro path.
+      VOICE_PROVIDER: ${VOICE_PROVIDER:-local}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_TTS_MODEL: ${OPENAI_TTS_MODEL:-gpt-4o-mini-tts}
+      OPENAI_TTS_VOICE: ${OPENAI_TTS_VOICE:-nova}
+      # Optional external tools registered into the LLM toolset only
+      # when enabled. Disabled (0/unset) tools contribute zero bytes to
+      # the system prompt. See app/mcp/src/tools/ for module sources.
+      WEATHER_TOOL_ENABLED: ${WEATHER_TOOL_ENABLED:-0}
+      WIKIPEDIA_TOOL_ENABLED: ${WIKIPEDIA_TOOL_ENABLED:-0}
+      # image-gen self-gates on OPENAI_API_KEY presence (no separate flag).
     depends_on:
       - app
     restart: unless-stopped
@@ -67,9 +89,12 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       IMAGE_PROVIDER: ${IMAGE_PROVIDER:-}
       IMAGE_MODEL: ${IMAGE_MODEL:-}
-      # When 0/unset, /api/me reports features.voice = false and the UI
-      # hides the mic + voice-mode toggle (no /api/voice/* calls fired).
+      # /api/me reports features.voice = true when VOICE_ENABLED=1. The
+      # voice container is required for STT regardless of TTS path — mic
+      # audio is always proxied to voice:8000/stt by Caddy, never OpenAI.
+      # VOICE_PROVIDER only switches the TTS leg (local kokoro vs OpenAI).
       VOICE_ENABLED: ${VOICE_ENABLED:-0}
+      VOICE_PROVIDER: ${VOICE_PROVIDER:-local}
     depends_on:
       - frontend
       - db
@@ -90,6 +115,12 @@ services:
       VITE_KEYCLOAK_URL: ${KEYCLOAK_BASE_URL:-}
       VITE_KEYCLOAK_REALM: ${KEYCLOAK_REALM:-}
       VITE_KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:-}
+      # Wake-word sidecar URL (KIOSK ONLY). Empty disables — voice mode
+      # stays push-to-talk. Set to ws://localhost:8889/listen when the
+      # `wake` profile is up (`COMPOSE_PROFILES=wake docker compose up`).
+      VITE_WAKE_WORD_URL: ${WAKE_WORD_URL:-}
+      # Display string for the kiosk's "Say <X> to start" prompt.
+      VITE_WAKE_WORD_LABEL: ${WAKE_WORD_LABEL:-Alexa}
       MCP_URL: http://mcp:3000
     volumes:
       - ./app/frontend:/app/frontend
@@ -172,20 +203,71 @@ services:
     volumes:
       - ./app/voice/src:/app/src
       # Persist downloaded whisper models across container restarts so the
-      # ~150MB base model isn't refetched every rebuild.
-      # Holds both the whisper model and the ~1.5GB Chatterbox weights
-      # (HF_HOME points here; chatterbox uses huggingface_hub cache under hub/).
+      # ~150MB base model isn't refetched every rebuild. HF_HOME points here.
       - voice_models:/app/models/whisper
-      # Drop a 6–10s real human-voice WAV at app/voice/voices/default.wav
-      # to override Chatterbox's built-in (male) default.
-      - ./app/voice/voices:/app/voices
+      # Persistent user data: speaker_enrollments.json lives here so
+      # voiceprints survive container rebuilds. Kept separate from the
+      # whisper model cache because conceptually different — model
+      # data is reproducible, enrollments are user-generated.
+      - voice_data:/app/data
     expose:
       - "8000"
     environment:
+      # Model defaults: small/int8 on CPU is fine for testing. For real use
+      # bump to large-v3 + GPU (see GPU block below). large-v3 captures
+      # non-verbal cues (laughs, sighs, pauses) far more reliably than base.
       WHISPER_MODEL: ${WHISPER_MODEL:-small}
       WHISPER_DEVICE: ${WHISPER_DEVICE:-cpu}
       WHISPER_COMPUTE_TYPE: ${WHISPER_COMPUTE_TYPE:-int8}
       WHISPER_LANGUAGE: ${WHISPER_LANGUAGE:-}
+      # Comma-separated languages the server constrains autodetect to when
+      # the request doesn't pin one. Default "en,de" — restrict to your
+      # actual spoken languages so Whisper can't misfire to e.g. Arabic on
+      # short clips. Empty disables the constraint (full 99-lang autodetect).
+      WHISPER_LANGUAGE_CANDIDATES: ${WHISPER_LANGUAGE_CANDIDATES:-en,de}
+      # Optional `initial_prompt` for faster-whisper — seeds the model so it
+      # actually emits the non-verbal markers it occasionally captures.
+      # Override (or set empty) to disable.
+      WHISPER_INITIAL_PROMPT: ${WHISPER_INITIAL_PROMPT:-}
+    # GPU passthrough — uncomment once nvidia-container-toolkit is set up in
+    # the host VM. RTX 2070 (8GB) runs large-v3 at float16 comfortably,
+    # ~150–300ms per typical utterance vs 1–3s on CPU. With OpenAI handling
+    # TTS, Whisper is the only thing in this container that benefits from GPU.
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+    restart: unless-stopped
+
+  # Optional wake-word sidecar for hands-free kiosk testing. The browser
+  # opens a WebSocket and streams mic audio; on wake fire, the browser
+  # switches to the regular VAD-endpointed recording. Bind to 127.0.0.1
+  # so the always-on mic stream stays on this device — never reachable
+  # from the local network. Disable by default in dev (set profile to
+  # opt in: `COMPOSE_PROFILES=wake docker compose up`).
+  wake:
+    image: ${WAKE_IMAGE:-notes-wake}
+    profiles: ["wake"]
+    build:
+      context: ./app/wake
+      target: dev
+    volumes:
+      - ./app/wake/src:/app/src
+    ports:
+      # Host-only binding: only processes on this machine (the kiosk's
+      # browser) can talk to the wake socket. Don't expose on 0.0.0.0.
+      - "127.0.0.1:8889:8889"
+    environment:
+      # Pick from openWakeWord's bundled set: alexa, hey_jarvis,
+      # hey_mycroft, hey_rhasspy, weather, timer. Comma-separated for
+      # multiple. Custom .onnx models can be referenced by absolute path.
+      OPENWAKEWORD_MODELS: ${WAKE_WORD_MODEL:-alexa}
+      # Tune for your room: 0.5 default; 0.6-0.7 for noisier rooms;
+      # 0.4-0.45 if wakes are getting missed.
+      WAKE_THRESHOLD: ${WAKE_THRESHOLD:-0.5}
     restart: unless-stopped
 
 volumes:
@@ -193,3 +275,4 @@ volumes:
   files_data:
   claude_state:
   voice_models:
+  voice_data:

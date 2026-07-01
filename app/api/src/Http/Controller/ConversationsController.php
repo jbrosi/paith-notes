@@ -22,7 +22,7 @@ use Paith\Notes\Api\Http\Auth\User;
 
 final class ConversationsController
 {
-    private const DEFAULT_MODEL = 'claude-sonnet-4-6';
+    private const DEFAULT_MODEL = 'claude-sonnet-5';
 
     public function create(Request $request, Context $context): Response
     {
@@ -460,6 +460,225 @@ final class ConversationsController
             $out[$convId][] = ConversationBlockRow::fromRow($row)->toBlockArray();
         }
         return $out;
+    }
+
+    /**
+     * POST /conversations/{conversationId}/save-as-note
+     * body: { nook_id: string }
+     *
+     * Save the text portion of one conversation as a note in a chosen
+     * nook. Reuses the export-style markdown but drops non-text blocks
+     * (tool_use / tool_result / image outputs) — the point of saving
+     * is to capture the human-facing outcome, not the mechanics.
+     *
+     * Creates the note as `base` type (bootstrapping if the nook
+     * doesn't have one yet, same fallback pattern as elsewhere).
+     */
+    public function saveAsNote(Request $request, Context $context): Response
+    {
+        $pdo = $context->pdo();
+        $user = $context->user();
+
+        $convId = trim($request->routeParam('conversationId'));
+        if (!Uuid::isValid($convId)) {
+            throw new HttpError('conversationId must be a UUID', 400);
+        }
+
+        $body = $request->jsonBody();
+        $nookId = JsonReader::requireUuid($body, 'nook_id');
+
+        // Ownership (conversation) + write access (target nook). Both
+        // checks fire independently — user might own the conversation
+        // but not have write access on the target nook.
+        $conv = $this->requireConversationOwner($pdo, $user, $convId);
+        NookAccess::requireWriteAccess($pdo, $user, $nookId);
+
+        // Load conversation metadata + blocks. exportMine goes through
+        // a grouped-by-conv fetch that scans all the user's convs; for
+        // one-shot save we query for just this conv, cheaper.
+        $convMeta = self::fetchConversationById($pdo, $convId);
+        if ($convMeta === null) {
+            throw new HttpError('conversation not found', 404);
+        }
+        $blocks = self::fetchBlocksForConversation($pdo, $convId);
+
+        // Text-only render — see renderConversationMarkdownTextOnly.
+        $markdown = self::renderConversationMarkdownTextOnly($convMeta, $blocks);
+
+        // Resolve the base type for the target nook, bootstrapping if
+        // needed (same pattern AiImagesController uses for the file type).
+        $baseTypeId = self::ensureBaseType($pdo, $nookId);
+
+        // Title: use conversation title if present, else a stub with the
+        // conversation's created_at date so the note is still findable.
+        $title = $convMeta['title'] !== ''
+            ? $convMeta['title']
+            : 'Conversation ' . substr($convMeta['created_at'], 0, 10);
+
+        // Insert the note. Attributes empty — a plain base note.
+        $stmt = $pdo->prepare(
+            'insert into global.notes (nook_id, created_by, title, content, type_id, attributes) '
+            . "values (:nook_id, :created_by, :title, :content, :type_id, '{}'::jsonb) "
+            . 'returning id, created_at, version'
+        );
+        $stmt->execute([
+            ':nook_id' => $nookId,
+            ':created_by' => $user->id,
+            ':title' => $title,
+            ':content' => $markdown,
+            ':type_id' => $baseTypeId !== '' ? $baseTypeId : null,
+        ]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!is_array($row)) {
+            throw new HttpError('failed to create note', 500);
+        }
+
+        return JsonResponse::ok([
+            'note' => [
+                'id' => Row::str($row, 'id'),
+                'nook_id' => $nookId,
+                'title' => $title,
+                'created_at' => Row::str($row, 'created_at'),
+                'version' => Row::int($row, 'version'),
+            ],
+        ]);
+    }
+
+    /**
+     * @return array{id: string, title: string, model: string, created_at: string, updated_at: string}|null
+     */
+    private static function fetchConversationById(PDO $pdo, string $convId): ?array
+    {
+        $stmt = $pdo->prepare(
+            'select id, title, model, created_at, updated_at '
+            . 'from global.conversations where id = :id limit 1'
+        );
+        $stmt->execute([':id' => $convId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!is_array($row)) {
+            return null;
+        }
+        return [
+            'id' => Row::str($row, 'id'),
+            'title' => Row::str($row, 'title'),
+            'model' => Row::str($row, 'model'),
+            'created_at' => Row::str($row, 'created_at'),
+            'updated_at' => Row::str($row, 'updated_at'),
+        ];
+    }
+
+    /**
+     * @return list<array{turn_id: string, role: string, block_type: string, content: mixed, model: ?string, created_at: string}>
+     */
+    private static function fetchBlocksForConversation(PDO $pdo, string $convId): array
+    {
+        $stmt = $pdo->prepare('
+            select b.id, b.conversation_id, b.turn_id, b.role, b.block_index, b.block_type, b.content, b.model, b.created_at,
+                   min(b.created_at) over (partition by b.turn_id) as turn_started_at
+            from global.conversation_blocks b
+            where b.conversation_id = :conv_id
+            order by turn_started_at asc, b.turn_id asc, b.block_index asc
+        ');
+        $stmt->execute([':conv_id' => $convId]);
+
+        $out = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $out[] = ConversationBlockRow::fromRow($row)->toBlockArray();
+        }
+        return $out;
+    }
+
+    /**
+     * Bootstrap the nook's `base` note type if needed. Matches the
+     * pattern used elsewhere (AiImagesController) but scoped to just
+     * the base type — the caller is creating a plain note.
+     */
+    private static function ensureBaseType(PDO $pdo, string $nookId): string
+    {
+        $lookup = $pdo->prepare(
+            "select id from global.note_types where nook_id = :nook_id and key = 'base' limit 1"
+        );
+        $lookup->execute([':nook_id' => $nookId]);
+        $id = $lookup->fetchColumn();
+        if (is_string($id) && $id !== '') {
+            return $id;
+        }
+        // Nook has never had its type table touched — insert base.
+        $insert = $pdo->prepare(
+            "insert into global.note_types (nook_id, key, label) "
+            . "values (:nook_id, 'base', 'Note') "
+            . 'on conflict (nook_id, key) do nothing '
+            . 'returning id'
+        );
+        $insert->execute([':nook_id' => $nookId]);
+        $newId = $insert->fetchColumn();
+        if (is_string($newId) && $newId !== '') {
+            return $newId;
+        }
+        // Race — someone else inserted it; re-read.
+        $lookup->execute([':nook_id' => $nookId]);
+        $id = $lookup->fetchColumn();
+        return is_string($id) ? $id : '';
+    }
+
+    /**
+     * Text-only variant of renderConversationMarkdown. Drops blocks
+     * whose type isn't 'text' (tool_use, tool_result, images, etc)
+     * because save-as-note captures the human-readable outcome, not
+     * the mechanics. Turns without any surviving text blocks are
+     * suppressed so we don't emit empty "## You (…)" headers.
+     *
+     * @param array{id: string, title: string, model: string, created_at: string, updated_at: string} $conv
+     * @param list<array{turn_id: string, role: string, block_type: string, content: mixed, model: ?string, created_at: string}> $blocks
+     */
+    private static function renderConversationMarkdownTextOnly(array $conv, array $blocks): string
+    {
+        $fm = ExportHelpers::renderFrontmatter([
+            'id' => $conv['id'],
+            'title' => $conv['title'] !== '' ? $conv['title'] : 'Untitled',
+            'model' => $conv['model'],
+            'created_at' => $conv['created_at'],
+            'updated_at' => $conv['updated_at'],
+            'kind' => 'saved-conversation',
+        ]);
+
+        $md = $fm . '# ' . ($conv['title'] !== '' ? $conv['title'] : 'Untitled') . "\n\n";
+
+        // Group text blocks by turn so the "## You / ## Assistant" header
+        // only appears once per turn even if it had multiple text blocks.
+        $currentTurn = '';
+        $turnHasText = false;
+        foreach ($blocks as $block) {
+            if ($block['block_type'] !== 'text') {
+                continue;
+            }
+            $text = is_array($block['content']) && is_string($block['content']['text'] ?? null)
+                ? (string)$block['content']['text']
+                : '';
+            if (trim($text) === '') {
+                continue;
+            }
+
+            if ($block['turn_id'] !== $currentTurn) {
+                $currentTurn = $block['turn_id'];
+                $turnHasText = true;
+                $who = $block['role'] === 'user' ? 'You' : 'Assistant';
+                $modelHint = $block['role'] === 'assistant' && $block['model'] !== null && $block['model'] !== ''
+                    ? ", {$block['model']}"
+                    : '';
+                $md .= "\n## {$who} ({$block['created_at']}{$modelHint})\n\n";
+            }
+            $md .= $text . "\n\n";
+        }
+
+        if (!$turnHasText) {
+            $md .= "\n_(This conversation had no text content — only tool calls or system messages.)_\n";
+        }
+
+        return $md;
     }
 
     /**

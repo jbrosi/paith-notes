@@ -20,6 +20,19 @@ final class FakeImageGenerator implements ImageGenerator
 {
     public function generate(string $prompt, ImageGenerationOptions $options): GeneratedImage
     {
+        return $this->produce($prompt, sourceCount: 0);
+    }
+
+    public function edit(string $prompt, array $sources, ImageGenerationOptions $options): GeneratedImage
+    {
+        if ($sources === []) {
+            throw new HttpError('edit requires at least one source image', 400);
+        }
+        return $this->produce($prompt, sourceCount: count($sources));
+    }
+
+    private function produce(string $prompt, int $sourceCount): GeneratedImage
+    {
         if (stripos($prompt, 'REJECT') !== false) {
             throw new HttpError('fake-rejected prompt', 400);
         }
@@ -33,10 +46,18 @@ final class FakeImageGenerator implements ImageGenerator
             throw new HttpError('fake generator failed to decode static PNG', 500);
         }
 
+        // Echo the prompt back as revisedPrompt so tests can assert
+        // round-trip; on edit, tag the count so test assertions can
+        // distinguish edit calls from generate calls without snooping
+        // the transport.
+        $revised = $sourceCount > 0
+            ? sprintf('[edited from %d source(s)] %s', $sourceCount, $prompt)
+            : $prompt;
+
         return new GeneratedImage(
             bytes: $bytes,
             mimeType: 'image/png',
-            revisedPrompt: $prompt, // echo back so tests can assert the round-trip
+            revisedPrompt: $revised,
             providerModel: 'fake/static-png',
         );
     }

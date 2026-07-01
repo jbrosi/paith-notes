@@ -4,6 +4,9 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "copy-vad-assets": "node scripts/copy-vad-assets.mjs",
+    "predev": "yarn run copy-vad-assets",
+    "prebuild": "yarn run copy-vad-assets",
     "dev": "vite --host 0.0.0.0 --port 5173 --strictPort",
     "build": "vite build",
     "lint": "biome lint ./src",
@@ -19,6 +22,7 @@
   },
   "dependencies": {
     "@milkdown/crepe": "^7.21.2",
+    "@ricky0123/vad-web": "^0.0.30",
     "@solidjs/router": "^0.16.1",
     "d3": "^7.9.0",
     "highlight.js": "^11.11.1",
@@ -28,16 +32,16 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.4.16",
+    "@biomejs/biome": "^2.5.2",
     "@types/d3": "^7.4.3",
-    "autoprefixer": "^10.4.24",
-    "cypress": "^15.17.0",
+    "autoprefixer": "^10.5.2",
+    "cypress": "^15.18.0",
     "postcss": "^8.5.15",
     "stylelint": "^16.0.0",
     "stylelint-config-standard": "^39.0.1",
     "typescript": "^6.0.2",
-    "vite": "^8.0.16",
-    "vite-plugin-checker": "^0.14.1",
+    "vite": "^8.1.2",
+    "vite-plugin-checker": "^0.14.4",
     "vite-plugin-solid": "^2.10.0"
   }
 }

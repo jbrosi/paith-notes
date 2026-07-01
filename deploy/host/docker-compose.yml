@@ -37,9 +37,12 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       IMAGE_PROVIDER: ${IMAGE_PROVIDER:-}
       IMAGE_MODEL: ${IMAGE_MODEL:-}
-      # Set to 1 only when a `voice` service is deployed. Drives the UI gate
-      # via /api/me — when 0/unset the chat hides the mic + voice-mode toggle.
+      # /api/me reports features.voice = true when VOICE_ENABLED=1. The
+      # voice container is required for STT regardless of TTS path — mic
+      # audio is always proxied to voice:8000/stt by Caddy, never OpenAI.
+      # VOICE_PROVIDER only switches the TTS leg (local kokoro vs OpenAI).
       VOICE_ENABLED: ${VOICE_ENABLED:-0}
+      VOICE_PROVIDER: ${VOICE_PROVIDER:-local}
     depends_on:
       - files
     volumes:
@@ -59,6 +62,79 @@ services:
     volumes:
       - files_data:/data
 
+  # Optional: local voice service (Kokoro TTS + faster-whisper STT)
+  # Required whenever the mic icon is on — STT always runs here (user mic
+  # audio never leaves the box). Caddy proxies /api/voice/* → voice:8000.
+  # VOICE_PROVIDER=openai on the mcp service only swaps the TTS leg; STT
+  # still hits this container. No public port; MCP reaches it on the
+  # compose network at http://voice:8000.
+  # voice:
+  #   image: ${VOICE_IMAGE:-ghcr.io/OWNER/REPO/voice:latest}
+  #   restart: unless-stopped
+  #   # Hard-fail on missing bearer token. Anyone with compose-network
+  #   # access can otherwise hit /stt and /tts unauthenticated.
+  #   # Generate with: openssl rand -hex 32
+  #   command: ["sh", "-lc", ": \"${VOICE_TOKEN:?VOICE_TOKEN must be set; generate with: openssl rand -hex 32}\" && exec uvicorn main:app --host 0.0.0.0 --port 8000 --app-dir /app/src"]
+  #   environment:
+  #     VOICE_TOKEN: ${VOICE_TOKEN}
+  #     # small/int8 on CPU is the safe default. Bump to large-v3 + GPU
+  #     # for production-grade STT (needs nvidia-container-toolkit + the
+  #     # deploy.resources block below).
+  #     WHISPER_MODEL: ${WHISPER_MODEL:-small}
+  #     WHISPER_DEVICE: ${WHISPER_DEVICE:-cpu}
+  #     WHISPER_COMPUTE_TYPE: ${WHISPER_COMPUTE_TYPE:-int8}
+  #     WHISPER_LANGUAGE: ${WHISPER_LANGUAGE:-}
+  #     # Constrain Whisper autodetect to these languages — default en,de
+  #     # prevents misfires to Arabic on short clips. Empty = full
+  #     # 99-language autodetect.
+  #     WHISPER_LANGUAGE_CANDIDATES: ${WHISPER_LANGUAGE_CANDIDATES:-en,de}
+  #     KOKORO_VOICE: ${KOKORO_VOICE:-af_heart}
+  #     # Eagerly load both engines at boot so the first request is fast.
+  #     PRELOAD_MODELS: "kokoro,whisper"
+  #   volumes:
+  #     # Persist the faster-whisper model cache so it isn't refetched on
+  #     # every container rebuild.
+  #     - voice_models:/app/models/whisper
+  #     # Speaker-ID enrollments (speaker_enrollments.json) — user data,
+  #     # MUST survive container rebuilds. Kept separate from the model
+  #     # cache because conceptually different.
+  #     - voice_data:/app/data
+  #   expose:
+  #     - "8000"
+  #   # GPU passthrough — uncomment with the nvidia-container-toolkit set up.
+  #   # deploy:
+  #   #   resources:
+  #   #     reservations:
+  #   #       devices:
+  #   #         - driver: nvidia
+  #   #           count: 1
+  #   #           capabilities: [gpu]
+
+  # Optional: wake-word sidecar (KIOSK ONLY).
+  # The browser opens a WebSocket and streams raw mic audio constantly
+  # so openWakeWord can listen for the wake word. CRITICAL: this means
+  # always-on mic — only deploy this container on the *same machine* as
+  # the browser kiosk, with the port bound to 127.0.0.1 ONLY. If you
+  # expose this to your LAN you've created a household-wide microphone
+  # bug. The deployment shape is:
+  #   - Kiosk machine runs Chromium pointed at the app + this container
+  #     locally; browser connects to ws://localhost:8889/listen.
+  #   - Audio stream stays on-device. Only after wake-fire does the
+  #     browser switch to its regular VAD-endpointed recording and POST
+  #     the recognized utterance to the (potentially remote) voice
+  #     service. The wake stream itself never leaves the kiosk.
+  # wake:
+  #   image: ${WAKE_IMAGE:-ghcr.io/OWNER/REPO/wake:latest}
+  #   restart: unless-stopped
+  #   environment:
+  #     # Pick from openWakeWord's bundled set: alexa, hey_jarvis,
+  #     # hey_mycroft, hey_rhasspy, weather, timer. Comma-separated for
+  #     # multiple. Custom .onnx models can be bind-mounted.
+  #     OPENWAKEWORD_MODELS: ${WAKE_WORD_MODEL:-alexa}
+  #     WAKE_THRESHOLD: ${WAKE_THRESHOLD:-0.5}
+  #   ports:
+  #     - "127.0.0.1:8889:8889"   # NEVER bind on 0.0.0.0 — see warning above
+
   # Optional: MCP server for AI integrations
   # mcp:
   #   image: ${MCP_IMAGE:-ghcr.io/OWNER/REPO/mcp:latest}
@@ -69,6 +145,18 @@ services:
   #     API_BASE_URL: http://app:8000
   #     MCP_SERVER_URL: ${MCP_SERVER_URL:-}
   #     ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+  #     # Set VOICE_PROVIDER=openai to use OpenAI TTS instead of the local
+  #     # voice container. Skips the voice service entirely from this stack.
+  #     VOICE_PROVIDER: ${VOICE_PROVIDER:-local}
+  #     OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+  #     OPENAI_TTS_MODEL: ${OPENAI_TTS_MODEL:-gpt-4o-mini-tts}
+  #     OPENAI_TTS_VOICE: ${OPENAI_TTS_VOICE:-nova}
+  #     # Optional external tool modules — registered into the LLM toolset
+  #     # only when enabled. Each disabled tool contributes zero tokens to
+  #     # the system prompt. See app/mcp/src/tools/ for module sources.
+  #     WEATHER_TOOL_ENABLED: ${WEATHER_TOOL_ENABLED:-0}
+  #     WIKIPEDIA_TOOL_ENABLED: ${WIKIPEDIA_TOOL_ENABLED:-0}
+  #     # image-gen self-gates on OPENAI_API_KEY presence (no separate flag).
   #   depends_on:
   #     - app
 
@@ -77,8 +165,23 @@ services:
     restart: unless-stopped
     # Bare-image deploy avoids needing a custom build pipeline on the prod
     # host. We install njs (with the qjs engine) on first boot, hard-fail
-    # on missing FILES_SIGNING_KEY, and only then exec nginx.
-    command: ["sh", "-lc", ": \"${FILES_SIGNING_KEY:?FILES_SIGNING_KEY must be set; generate with: openssl rand -hex 32}\" && apk add --no-cache nginx-module-njs && mkdir -p /data/tmp /data/notes && chown -R nginx:nginx /data && exec nginx -g 'daemon off;'" ]
+    # on missing FILES_SIGNING_KEY, render the runtime DNS resolver from
+    # /etc/resolv.conf (Docker has 127.0.0.11; podman+netavark uses the
+    # network gateway — hardcoding either breaks the other), and only then
+    # exec nginx.
+    command:
+      - "sh"
+      - "-lc"
+      - |
+        : "${FILES_SIGNING_KEY:?FILES_SIGNING_KEY must be set; generate with: openssl rand -hex 32}"
+        apk add --no-cache nginx-module-njs
+        mkdir -p /data/tmp /data/notes
+        chown -R nginx:nginx /data
+        ns=$$(awk '/^nameserver/ && $$2 !~ /:/{print $$2}' /etc/resolv.conf | tr '\n' ' ')
+        if [ -z "$$ns" ]; then echo "[paith files] FATAL: no IPv4 nameserver in /etc/resolv.conf" >&2; exit 1; fi
+        printf 'resolver %s valid=10s ipv6=off;\nresolver_timeout 5s;\n' "$$ns" > /etc/nginx/resolver.conf
+        echo "[paith files] resolver: $$ns"
+        exec nginx -g 'daemon off;'
     environment:
       FILES_SIGNING_KEY: ${FILES_SIGNING_KEY}
     volumes:
@@ -91,3 +194,5 @@ services:
 volumes:
   files_data:
   # db_data:
+  # voice_models:
+  # voice_data:

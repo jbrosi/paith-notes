@@ -50,7 +50,10 @@ export type MilkdownEditorProps = {
 	onChange: (value: string) => void;
 	readonly?: boolean;
 	onNoteLinkClick?: (noteId: string) => void;
-	resolveEmbeddedImageSrc?: (noteId: string) => Promise<string | null>;
+	resolveEmbeddedImageSrc?: (
+		noteId: string,
+		nookId?: string,
+	) => Promise<string | null>;
 	uploadEmbeddedImage?: (file: File) => Promise<string | null>;
 	resolveNoteTitle?: (id: string) => string | undefined;
 	onNoteLinkPopup?: (noteId: string, x: number, y: number) => void;

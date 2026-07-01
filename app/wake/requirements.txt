@@ -1,0 +1,11 @@
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+# openWakeWord (Apache 2.0): local, on-device wake-word detection. Runs
+# pretrained ONNX models for "alexa", "hey_jarvis", "hey_mycroft",
+# "hey_rhasspy", "weather", "timer". Custom models can be trained
+# locally with their training scripts. No telemetry, no cloud calls.
+openwakeword==0.6.0
+# openwakeword 0.6 ships scipy + onnxruntime in its deps tree but doesn't
+# pin them. Pin onnxruntime so the wake model loads against the same
+# runtime version we test against.
+onnxruntime==1.20.1

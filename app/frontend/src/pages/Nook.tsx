@@ -43,6 +43,7 @@ export default function Nook() {
 	const store = createNookStore(nookId);
 	const [nookName, setNookName] = createSignal("");
 	const [nookRole, setNookRole] = createSignal("unknown");
+	const [nookAiMode, setNookAiMode] = createSignal("approve_all");
 	createEffect(() => {
 		const id = nookId();
 		if (id) {
@@ -77,6 +78,9 @@ export default function Nook() {
 							setNookRole(obj.role);
 							store.setNookRole(obj.role);
 						}
+						if (typeof obj.ai_mode === "string") {
+							setNookAiMode(obj.ai_mode);
+						}
 						break;
 					}
 				}
@@ -102,12 +106,23 @@ export default function Nook() {
 
 	let lastUrlSelectRequestId = 0;
 
-	// Wire up navigation: store.onNoteLinkClick → router navigate
+	// Wire up navigation: store.onNoteLinkClick → router navigate.
+	// Empty noteId means "no note selected" (e.g. New note draft) — go to
+	// the nook root so the URL→store sync stops trying to re-load the
+	// previously-open note.
 	store.setNavigator((noteId: string, targetNookId?: string) => {
 		const nook = targetNookId || nookId();
-		navigate(
-			`/nooks/${encodeURIComponent(nook)}/notes/${encodeURIComponent(noteId)}`,
-		);
+		const target =
+			noteId === ""
+				? `/nooks/${encodeURIComponent(nook)}`
+				: `/nooks/${encodeURIComponent(nook)}/notes/${encodeURIComponent(noteId)}`;
+		// Skip same-URL navigates — solid-router still pushes a new
+		// history entry with a fresh state key, which retriggers
+		// location-dependent effects unnecessarily and was suspected of
+		// destabilising the new-note flow when triggered from the
+		// nook-root dashboard (target === current).
+		if (window.location.pathname === target) return;
+		navigate(target);
 	});
 
 	const typeEditId = createMemo(() => {
@@ -179,6 +194,12 @@ export default function Nook() {
 		const fa = fullscreenAttr();
 		const id = (fa ? fa.noteId : selectedNoteIdFromPath()).trim();
 
+		// Bump on every URL change so any in-flight loadNoteById from a
+		// previous URL is invalidated — otherwise its late selectNote
+		// clobbers state set by whatever the URL now points at
+		// (notably: New note, which navigates here with id="").
+		const requestId = ++lastUrlSelectRequestId;
+
 		if (id === "") {
 			if (untrack(() => store.selectedId()) !== "") {
 				store.setSelectedId("");
@@ -188,10 +209,12 @@ export default function Nook() {
 
 		if (untrack(() => store.selectedId()) === id) return;
 
-		const requestId = ++lastUrlSelectRequestId;
 		void (async () => {
 			try {
-				await store.loadNoteById(id);
+				await store.loadNoteById(
+					id,
+					() => requestId === lastUrlSelectRequestId,
+				);
 			} catch {
 				if (requestId === lastUrlSelectRequestId) {
 					store.setSelectedId("");
@@ -333,6 +356,8 @@ export default function Nook() {
 											nookId={nookId()}
 											nookName={nookName()}
 											nookRole={nookRole()}
+											aiMode={nookAiMode()}
+											onAiModeSaved={(m) => setNookAiMode(m)}
 											onClose={goBackToNoteOrNook}
 											onOpenLinks={openLinksSettings}
 											onOpenTypes={openTypesSettings}

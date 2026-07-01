@@ -16,6 +16,7 @@ use Paith\Notes\Api\Http\Service\ImageGeneration\ImageGenerationOptions;
 use Paith\Notes\Api\Http\Service\ImageGeneration\ImageGenerator;
 use Paith\Notes\Api\Http\Service\ImageGeneration\ImageGeneratorFactory;
 use Paith\Notes\Api\Http\Service\ImageGeneration\PriorImageGeneration;
+use Paith\Notes\Api\Http\Service\ImageGeneration\SourceImage;
 use Paith\Notes\Shared\Db\Row;
 use PDO;
 use Throwable;
@@ -55,6 +56,13 @@ final class AiImagesController
     private const GENERATED_IMAGE_ATTRIBUTES = [
         ['name' => 'Prompt',         'key' => 'prompt',         'kind' => 'text',      'config' => ['display' => 'paragraph'], 'indexed' => true],
         ['name' => 'Revised prompt', 'key' => 'revised_prompt', 'kind' => 'text',      'config' => ['display' => 'paragraph'], 'indexed' => true],
+        // Source notes that were fed as input images, if any. Stored
+        // as a JSONB list of note UUIDs so refinement can re-attach
+        // the same anchors without having to re-derive them. Kind is
+        // 'text' for now — the value lives as a JSON array in the
+        // attribute store regardless; a list-of-note-refs UI kind is
+        // a future polish.
+        ['name' => 'Source notes',   'key' => 'source_note_ids','kind' => 'text',      'config' => ['display' => 'paragraph'], 'indexed' => false],
         ['name' => 'Size',           'key' => 'size',           'kind' => 'dimension', 'config' => [], 'indexed' => true],
         ['name' => 'Quality',        'key' => 'quality',        'kind' => 'text',      'config' => [], 'indexed' => true],
         ['name' => 'Transparent',    'key' => 'transparent',    'kind' => 'boolean',   'config' => [], 'indexed' => false],
@@ -106,17 +114,110 @@ final class AiImagesController
         if ($payload->refineNoteId !== null) {
             $existing = $this->loadGeneratedImageForRefinement($pdo, $nookId, $payload->refineNoteId);
             $options = $this->mergeOptionsForRefinement($payload, $existing);
-            $startMs = (int)(microtime(true) * 1000);
-            $image = $generator->generate($payload->prompt, $options);
-            $durationMs = max(0, (int)(microtime(true) * 1000) - $startMs);
-            return $this->persistAsRefinement($pdo, $user, $nookId, $payload, $existing, $options, $image, $durationMs);
+            // Two-part source resolution:
+            //   $persistedSourceIds — what gets stored on the note as
+            //     source_note_ids. Reflects user-provided anchors only;
+            //     the AI/user can see what their iteration was derived
+            //     from. Inherits the prior note's sources by default.
+            //   $callSourceIds — what's actually sent to the provider.
+            //     When the user provided no explicit sources AND the prior
+            //     was pure text-to-image (no inherited anchors), we feed
+            //     the prior OUTPUT back as input so refinement is an
+            //     image-edit (ChatGPT-style iteration) instead of a
+            //     regenerate-from-scratch. Explicit `source_note_ids: []`
+            //     opts out and forces a clean text-to-image regenerate.
+            $persistedSourceIds = $payload->sourceNoteIds ?? $existing->priorSourceNoteIds;
+            $callSourceIds = $persistedSourceIds;
+            if ($payload->sourceNoteIds === null && $existing->priorSourceNoteIds === []) {
+                $callSourceIds = [$existing->noteId];
+            }
+            $sources = $this->loadSourceImages($pdo, $user, $callSourceIds);
+            [$image, $durationMs] = $this->callGenerator($generator, $payload->prompt, $options, $sources);
+            return $this->persistAsRefinement($pdo, $user, $nookId, $payload, $existing, $options, $image, $durationMs, $persistedSourceIds);
         }
 
-        $startMs = (int)(microtime(true) * 1000);
-        $image = $generator->generate($payload->prompt, $payload->toOptions());
-        $durationMs = max(0, (int)(microtime(true) * 1000) - $startMs);
+        $sourceIds = $payload->sourceNoteIds ?? [];
+        $sources = $this->loadSourceImages($pdo, $user, $sourceIds);
+        [$image, $durationMs] = $this->callGenerator($generator, $payload->prompt, $payload->toOptions(), $sources);
 
-        return $this->persistAsNote($pdo, $user, $nookId, $payload, $image, $durationMs);
+        return $this->persistAsNote($pdo, $user, $nookId, $payload, $image, $durationMs, $sourceIds);
+    }
+
+    /**
+     * Pick generate vs. edit based on whether the caller supplied
+     * source images. Wall-clock duration measured here so the routing
+     * branch doesn't need to wrap each call individually.
+     *
+     * @param list<SourceImage> $sources
+     * @return array{0: GeneratedImage, 1: int} [image, durationMs]
+     */
+    private function callGenerator(ImageGenerator $generator, string $prompt, ImageGenerationOptions $options, array $sources): array
+    {
+        $startMs = (int)(microtime(true) * 1000);
+        $image = $sources === []
+            ? $generator->generate($prompt, $options)
+            : $generator->edit($prompt, $sources, $options);
+        $durationMs = max(0, (int)(microtime(true) * 1000) - $startMs);
+        return [$image, $durationMs];
+    }
+
+    /**
+     * Resolve each source note id to its first image file's bytes.
+     * Honours cross-nook references (the user might enhance an
+     * AI-memory drawing while creating the result in a different nook)
+     * by re-running access checks per source nook.
+     *
+     * @param list<string> $sourceNoteIds
+     * @return list<SourceImage>
+     */
+    private function loadSourceImages(PDO $pdo, User $user, array $sourceNoteIds): array
+    {
+        if ($sourceNoteIds === []) {
+            return [];
+        }
+        $out = [];
+        foreach ($sourceNoteIds as $noteId) {
+            // Resolve the note → nook → file. One LEFT JOIN keeps it
+            // a single round-trip and avoids a misleading 500 when the
+            // note exists but has no file (clean 400 below).
+            $stmt = $pdo->prepare(
+                'select n.nook_id, nf.object_key, nf.mime_type, nf.filename '
+                . 'from global.notes n '
+                . 'left join global.note_files nf on nf.note_id = n.id '
+                . 'where n.id = :id limit 1'
+            );
+            $stmt->execute([':id' => $noteId]);
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!is_array($row)) {
+                throw new HttpError("source note not found: {$noteId}", 404);
+            }
+            $sourceNook = Row::str($row, 'nook_id');
+            // Read access is enough — the caller is just feeding the
+            // bytes to the generator, not modifying the source.
+            NookAccess::requireMember($pdo, $user, $sourceNook);
+
+            $objectKey = Row::str($row, 'object_key');
+            $mimeType = Row::str($row, 'mime_type');
+            if ($objectKey === '') {
+                throw new HttpError("source note {$noteId} has no attached file", 400);
+            }
+            if (!str_starts_with($mimeType, 'image/')) {
+                throw new HttpError("source note {$noteId} is not an image (mime: {$mimeType})", 400);
+            }
+
+            $path = self::dataPath() . '/' . ltrim($objectKey, '/');
+            $bytes = @file_get_contents($path);
+            if ($bytes === false || $bytes === '') {
+                throw new HttpError("failed to read source file for note {$noteId}", 500);
+            }
+            $filename = Row::str($row, 'filename');
+            $out[] = new SourceImage(
+                bytes: $bytes,
+                mimeType: $mimeType,
+                filename: $filename !== '' ? $filename : 'source.png',
+            );
+        }
+        return $out;
     }
 
     private function resolveNookId(PDO $pdo, User $user, string $nookIdOrAlias): string
@@ -146,7 +247,10 @@ final class AiImagesController
      * typed telemetry attributes; for other nooks we fall back to
      * the plain `file` type with just the file pointer.
      */
-    private function persistAsNote(PDO $pdo, User $user, string $nookId, GenerateImageRequest $payload, GeneratedImage $image, int $durationMs): Response
+    /**
+     * @param list<string> $sourceNoteIds
+     */
+    private function persistAsNote(PDO $pdo, User $user, string $nookId, GenerateImageRequest $payload, GeneratedImage $image, int $durationMs, array $sourceNoteIds): Response
     {
         $userId = $user->id;
 
@@ -174,7 +278,7 @@ final class AiImagesController
             // the generator (after toOptions() defaults applied) so
             // the stored attributes reflect what was produced.
             $effective = $payload->toOptions();
-            $attributes = $this->buildAttributesPayload($ctx, $payload->prompt, $effective, $image, $durationMs, $fileVersion);
+            $attributes = $this->buildAttributesPayload($ctx, $payload->prompt, $effective, $image, $durationMs, $fileVersion, $sourceNoteIds);
             $content = $this->buildInitialContent($payload, $ctx['isGeneratedImage']);
 
             // INSERT note first so a UUID collision fails before we
@@ -267,7 +371,21 @@ final class AiImagesController
      * } $ctx
      * @return array<string, mixed>
      */
-    private function buildAttributesPayload(array $ctx, string $prompt, ImageGenerationOptions $effective, GeneratedImage $image, int $durationMs, int $fileVersion): array
+    /**
+     * Assemble the attributes JSONB for the new note. Always sets
+     * the file pointer; for generated_image type, also fills in the
+     * rich telemetry attributes by key lookup.
+     *
+     * @param array{
+     *     typeId: string,
+     *     fileAttributeId: string,
+     *     attributes: array<string, string>,
+     *     isGeneratedImage: bool,
+     * } $ctx
+     * @param list<string> $sourceNoteIds  empty for pure text-to-image
+     * @return array<string, mixed>
+     */
+    private function buildAttributesPayload(array $ctx, string $prompt, ImageGenerationOptions $effective, GeneratedImage $image, int $durationMs, int $fileVersion, array $sourceNoteIds): array
     {
         $attributes = [$ctx['fileAttributeId'] => ['file_version' => $fileVersion]];
 
@@ -304,6 +422,10 @@ final class AiImagesController
 
         $set('prompt', $prompt);
         $set('revised_prompt', $image->revisedPrompt ?? '');
+        // Stored as an array (not a string) so JSONB readers can
+        // iterate it directly; future UI work can render as note
+        // links without re-parsing JSON.
+        $set('source_note_ids', $sourceNoteIds);
         $set('size', ['width' => $width, 'height' => $height]);
         $set('quality', $effective->quality ?? 'low');
         $set('transparent', $effective->transparent);
@@ -377,6 +499,16 @@ final class AiImagesController
 
         $priorAttrs = Row::decodeJsonObject($row['attributes'] ?? null);
 
+        $sourceAttrId = $byKey['source_note_ids'] ?? null;
+        $priorSources = [];
+        if (is_string($sourceAttrId) && isset($priorAttrs[$sourceAttrId]) && is_array($priorAttrs[$sourceAttrId])) {
+            foreach ($priorAttrs[$sourceAttrId] as $entry) {
+                if (is_string($entry) && $entry !== '') {
+                    $priorSources[] = $entry;
+                }
+            }
+        }
+
         return new PriorImageGeneration(
             noteId: Row::str($row, 'id'),
             typeId: $typeId,
@@ -386,6 +518,7 @@ final class AiImagesController
             priorAttributes: $priorAttrs,
             priorContent: Row::str($row, 'content'),
             priorFileVersion: $priorFileVersion,
+            priorSourceNoteIds: $priorSources,
         );
     }
 
@@ -445,7 +578,10 @@ final class AiImagesController
      * existing version-history UI), and append a `## v{N}` block to
      * the content body.
      */
-    private function persistAsRefinement(PDO $pdo, User $user, string $nookId, GenerateImageRequest $payload, PriorImageGeneration $existing, ImageGenerationOptions $effective, GeneratedImage $image, int $durationMs): Response
+    /**
+     * @param list<string> $sourceNoteIds  the effective sources used for this iteration (after inheritance)
+     */
+    private function persistAsRefinement(PDO $pdo, User $user, string $nookId, GenerateImageRequest $payload, PriorImageGeneration $existing, ImageGenerationOptions $effective, GeneratedImage $image, int $durationMs, array $sourceNoteIds): Response
     {
         $userId = $user->id;
         $noteId = $existing->noteId;
@@ -467,7 +603,7 @@ final class AiImagesController
                 'attributes' => $existing->attributesByKey,
                 'isGeneratedImage' => true,
             ];
-            $newAttributes = $this->buildAttributesPayload($ctx, $payload->prompt, $effective, $image, $durationMs, $fileVersion);
+            $newAttributes = $this->buildAttributesPayload($ctx, $payload->prompt, $effective, $image, $durationMs, $fileVersion, $sourceNoteIds);
             // Note: bumping file_version on note_files (below) keeps
             // the row keyed by note_id but moves the pointer forward.
             // The prior v{N} file stays on disk so a future history-
@@ -725,10 +861,12 @@ final class AiImagesController
 
         // Side panel order mirrors the human reading order: what the
         // user asked for first, then the model's read of it, then the
-        // dimensions, then the runtime telemetry.
+        // anchor sources (when image-to-image), then the dimensions,
+        // then the runtime telemetry.
         $sideKeys = [
             'prompt',
             'revised_prompt',
+            'source_note_ids',
             'size',
             'quality',
             'transparent',

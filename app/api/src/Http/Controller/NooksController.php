@@ -26,6 +26,7 @@ final class NooksController
                 n.id,
                 n.name,
                 n.purpose,
+                n.ai_mode,
                 nm.role,
                 n.owner_id,
                 u.first_name as owner_first_name,
@@ -69,6 +70,7 @@ final class NooksController
                 }
             }
 
+            $aiMode = $r['ai_mode'] ?? 'approve_all';
             $nooks[] = [
                 'id' => is_scalar($id) ? (string)$id : '',
                 'name' => is_scalar($name) ? (string)$name : '',
@@ -76,6 +78,7 @@ final class NooksController
                 'is_owned' => $isOwned,
                 'owner_name' => $isOwned ? '' : $ownerName,
                 'accent_color' => is_string($userSettings['accent_color'] ?? null) ? $userSettings['accent_color'] : null,
+                'ai_mode' => is_string($aiMode) ? $aiMode : 'approve_all',
             ];
         }
 
@@ -202,8 +205,30 @@ final class NooksController
             throw new HttpError('name is required', 400);
         }
 
-        $stmt = $pdo->prepare('update global.nooks set name = :name where id = :id returning id, name');
-        $stmt->execute([':name' => $name, ':id' => $nookId]);
+        // Optional ai_mode update — owner-only, nook-wide. Validated
+        // against the same CHECK constraint Postgres enforces so a typo
+        // produces a clean 400 instead of a 500 from the DB.
+        $aiMode = null;
+        if (array_key_exists('ai_mode', $data)) {
+            $aiModeRaw = $data['ai_mode'];
+            if (!is_string($aiModeRaw)) {
+                throw new HttpError('ai_mode must be a string', 400);
+            }
+            $aiMode = trim($aiModeRaw);
+            if (!in_array($aiMode, ['approve_all', 'auto_reads', 'disabled'], true)) {
+                throw new HttpError('ai_mode must be one of: approve_all, auto_reads, disabled', 400);
+            }
+        }
+
+        if ($aiMode !== null) {
+            $stmt = $pdo->prepare(
+                'update global.nooks set name = :name, ai_mode = :ai_mode where id = :id returning id, name, ai_mode'
+            );
+            $stmt->execute([':name' => $name, ':ai_mode' => $aiMode, ':id' => $nookId]);
+        } else {
+            $stmt = $pdo->prepare('update global.nooks set name = :name where id = :id returning id, name, ai_mode');
+            $stmt->execute([':name' => $name, ':id' => $nookId]);
+        }
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
         if (!is_array($row)) {
             throw new HttpError('nook not found', 404);
@@ -213,6 +238,7 @@ final class NooksController
             'nook' => [
                 'id' => Row::str($row, 'id'),
                 'name' => Row::str($row, 'name'),
+                'ai_mode' => Row::str($row, 'ai_mode'),
             ],
         ]);
     }

@@ -1,6 +1,15 @@
 import type Anthropic from '@anthropic-ai/sdk';
+import {
+  getOptionalToolHandler,
+  optionalToolDefinitions,
+} from './tools/registry.js';
 
-export const TOOLS: Anthropic.Tool[] = [
+// Always-on core tools (notes, memory, etc.) live in this array. Tools
+// that should be conditionally registered based on env (weather,
+// wikipedia, image generation) live in app/mcp/src/tools/<name>.ts and
+// self-gate via their module's `enabled()` getter; the registry merges
+// enabled ones into TOOLS at module load time.
+const CORE_TOOLS: Anthropic.Tool[] = [
   {
     name: 'get_note',
     description: 'Get a single note by ID. Always pass nook_id — use the nook ID from where you found this note (search results, instruction list, memory nook, etc.).',
@@ -166,7 +175,7 @@ export const TOOLS: Anthropic.Tool[] = [
   },
   {
     name: 'search_notes',
-    description: 'Search notes by title, content, or attribute values. Returns a LEAN list — each result is just {id, title, type_id, timestamps, mention/link counts}.\n\nSearch is cheap and lean. When the user\'s ask can be approached from multiple angles (synonyms, related concepts, sibling categories, different attribute_filters), issue SEVERAL search_notes calls in PARALLEL in the same turn — one per angle. Then dedupe results by id and decide which ones are worth a deep read. This is much faster and more thorough than a single search with a vague query.\n\nTo read a note\'s full content/attributes, follow up with get_note(id) — also parallelize those calls when investigating multiple candidates (they\'re independent).\n\nUse type_id to filter by note type. Use attribute_filters for structured queries like "rating >= 4" or "date between X and Y" — those filter server-side without you needing to read the values. When a search query is provided, results also include heading_matches — headings (h1-h6) extracted from notes that match the query, with note_id, note_title, level, text, and position (character offset for jump-to-section).',
+    description: 'Search notes by title, content, or attribute values. Returns a LEAN list — each result is {id, title, type_id, timestamps, mention/link counts, content_chars}.\n\nSearch is cheap and lean. When the user\'s ask can be approached from multiple angles (synonyms, related concepts, sibling categories, different attribute_filters), issue SEVERAL search_notes calls in PARALLEL in the same turn — one per angle. Then dedupe results by id and decide which ones are worth a deep read.\n\n**Don\'t give up after one miss.** A query returning zero results rarely means "doesn\'t exist" — it usually means your wording didn\'t match what the user wrote. Before concluding the note isn\'t there, try at least 2-3 alternative phrasings: synonyms ("car" / "vehicle" / "automobile"), parent/child concepts ("Bordeaux" / "wine" / "drink"), partial words, related entities, or just a different keyword from the same idea. The user almost always thinks their note exists when they ask for it.\n\n**Reading decisions:** `content_chars` tells you the note size — small notes (<2000 chars) are cheap to get_note in full; big ones (>10000) burn context, so consider read_note_lines for a peek first. To read a note\'s full content/attributes, follow up with get_note(id) — parallelize across multiple candidates (they\'re independent).\n\nUse type_id to filter by note type. Use attribute_filters for structured queries like "rating >= 4" or "date between X and Y" — those filter server-side without you needing to read the values. When a search query is provided, results also include heading_matches — headings (h1-h6) extracted from notes that match the query, with note_id, note_title, level, text, and position (character offset for jump-to-section).',
     input_schema: {
       type: 'object',
       properties: {
@@ -213,7 +222,7 @@ export const TOOLS: Anthropic.Tool[] = [
   },
   {
     name: 'search_all_nooks',
-    description: 'Search notes across ALL nooks the user has access to. Only use this when the user explicitly asks to search globally, or when a local search_notes returned no results and you want to ask the user if they\'d like to search more broadly. Prefer search_notes (local to current nook) first. Also returns heading_matches for headings matching the query.\n\nLike search_notes, this is cheap and lean — when you go broad you can fan out several search_all_nooks calls in parallel with different angles in the same turn and dedupe results by id before deciding which notes to deep-read via get_note.',
+    description: 'Search notes across ALL nooks the user has access to. Use this when the user explicitly asks to search globally, OR when local search_notes returned nothing useful after 2-3 alternate phrasings — the note might live in a different nook than the current one. Prefer search_notes (local to current nook) first. Also returns heading_matches for headings matching the query and per-result content_chars to budget reads.\n\nLike search_notes, this is cheap and lean — fan out several search_all_nooks calls in parallel with different angles (synonyms, related terms) in the same turn and dedupe by id before deciding which notes to deep-read via get_note. Same tenacity rule: zero results from one query isn\'t proof of absence — try other angles before giving up.',
     input_schema: {
       type: 'object',
       properties: {
@@ -300,10 +309,132 @@ export const TOOLS: Anthropic.Tool[] = [
       required: ['source_note_id', 'target_note_id', 'predicate_id'],
     },
   },
+  {
+    name: 'delete_note_link',
+    description: 'Delete a directed link between two notes. First call explore_notes on the source note (direction="out") to find the link_id you need — links list as { id, target_note_id, predicate_id, ... }. Requires user approval.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        source_note_id: { type: 'string', description: 'The note the link originates from.' },
+        link_id:        { type: 'string', description: 'The link UUID (from explore_notes results).' },
+      },
+      required: ['source_note_id', 'link_id'],
+    },
+  },
+  {
+    name: 'edit_note',
+    description: 'Make one or more surgical, search-and-replace edits to an existing note\'s content WITHOUT having to send the whole note back. Pass an `edits` array; each edit substitutes old_string → new_string. By default each edit must match exactly once in the content (uniqueness safety net — non-unique matches are almost always ambiguous mistakes); pass replace_all=true on an individual edit to substitute every occurrence.\n\nAtomic: all edits apply in order against the running state of the content (so edit N+1 sees the result of edit N). If any edit fails (not found, not unique, or version conflict) the WHOLE call rolls back — nothing changes. One user approval covers all the edits, and the diff preview stacks them so the user sees the full set before committing.\n\nWhen to use: tweaking a section, fixing typos (a single call can fix several across the note), swapping values, adding/removing paragraphs, batch renames. Cheaper and safer than update_note for partial changes — preserves everything else byte-for-byte.\n\nWhen NOT to use: large rewrites, structural reorganization, type/attribute changes — use update_note for those. To delete text, pass an empty new_string. The note must be read first (so you know the byte-for-byte text) and you MUST pass expected_version from that read so concurrent edits are detected (409 conflict). For multi-edit batches, plan the edits so a later one\'s old_string still matches after earlier ones have applied (or use unique enough context strings that order doesn\'t matter).',
+    input_schema: {
+      type: 'object',
+      properties: {
+        note_id:          { type: 'string' },
+        nook_id:          { type: 'string', description: 'Nook the note lives in. Defaults to current nook if omitted.' },
+        expected_version: { type: 'number', description: 'Version number from when you last read the note. Required.' },
+        edits: {
+          type: 'array',
+          minItems: 1,
+          items: {
+            type: 'object',
+            properties: {
+              old_string:  { type: 'string', description: 'Exact existing text to replace. Must match byte-for-byte (whitespace + casing).' },
+              new_string:  { type: 'string', description: 'Replacement text. Pass "" to delete the match.' },
+              replace_all: { type: 'boolean', description: 'If true, substitute every occurrence (against the running content). Defaults to false (must match exactly once or the entire call fails).' },
+            },
+            required: ['old_string', 'new_string'],
+          },
+        },
+      },
+      required: ['note_id', 'expected_version', 'edits'],
+    },
+  },
+  {
+    name: 'read_note_lines',
+    description: 'Read a slice of a note\'s content by line number — useful for large notes where get_note would burn context. Returns the requested lines with 1-indexed line numbers prefixed, plus the note\'s current version (needed for edit_note). Omit start_line/end_line to read the whole file with line numbers.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        note_id:    { type: 'string' },
+        nook_id:    { type: 'string', description: 'Nook the note lives in. Defaults to current nook if omitted.' },
+        start_line: { type: 'number', description: '1-indexed inclusive. Defaults to 1.' },
+        end_line:   { type: 'number', description: '1-indexed inclusive. Defaults to end of file.' },
+      },
+      required: ['note_id'],
+    },
+  },
+  {
+    name: 'get_note_toc',
+    description: 'Get the table of contents for a note — title, total content_chars, and each heading\'s {level, text, position, position_end, chars}. Auto-approved, very cheap (no body, no attributes).\n\nUse this for big notes (content_chars >5000) before deciding to get_note the full body. The per-heading `chars` field tells you each section\'s size at a glance, so you can pick which sections to read in full and which to skip. To read one section: feed its `position` directly to get_note_section(note_id, position) — that returns the content from the heading to the next heading of equal or higher level (exactly the span `chars` indicates). To read a CONTIGUOUS RANGE of sections (e.g. chapters 3-5), use get_note_part(from=section3.position, to=section5.position_end) — one round-trip instead of three. Returns an empty headings array if the note has no markdown headings — in that case fall back to read_note_lines or get_note based on content_chars.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        note_id: { type: 'string' },
+        nook_id: { type: 'string', description: 'Nook the note lives in. Defaults to current nook if omitted.' },
+      },
+      required: ['note_id'],
+    },
+  },
+  {
+    name: 'get_note_part',
+    description: 'Read a half-open character range [from, to) of a note\'s content. Auto-approved. Pairs with get_note_toc: pick the first section\'s `position` as `from` and the last section\'s `position_end` as `to` to read N adjacent sections in one shot — vs. N separate get_note_section calls. `to` is exclusive so you can pass a TOC `position_end` directly without overshooting into the next heading. Bounds clamp to [0, content_chars]; the response includes the actual `from`/`to` used and a `truncated` flag if requested range exceeded content.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        note_id: { type: 'string' },
+        nook_id: { type: 'string', description: 'Nook the note lives in. Defaults to current nook if omitted.' },
+        from:    { type: 'number', description: 'Character offset (0-indexed, inclusive). Use a heading\'s `position` from get_note_toc.' },
+        to:      { type: 'number', description: 'Character offset (exclusive). Use a heading\'s `position_end` from get_note_toc.' },
+      },
+      required: ['note_id', 'from', 'to'],
+    },
+  },
+  {
+    name: 'search_in_note',
+    description: 'Find every occurrence of a string within ONE note\'s content. Returns the character position + a snippet of surrounding context for each match. Auto-approved.\n\nUse for big notes when you want to jump straight to relevant chunks — e.g. "find every mention of X in this 50KB DND session log" → get the positions → get_note_part(from, to) on the chunk you actually want. Cheaper than get_note + scanning client-side because the server returns only matches + context, not the whole note. Case-insensitive by default. Substring match, not regex — pass exact characters.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        note_id:        { type: 'string' },
+        nook_id:        { type: 'string', description: 'Nook the note lives in. Defaults to current nook if omitted.' },
+        q:              { type: 'string', description: 'Substring to find. Must be non-empty.' },
+        context_chars:  { type: 'number', description: 'How many characters of surrounding context to return per match (each side). Defaults to 60. Max 500.' },
+        case_sensitive: { type: 'boolean', description: 'Default false. Set true for exact-case matching.' },
+      },
+      required: ['note_id', 'q'],
+    },
+  },
+  // ── Edit agent (sub-agent scoped to one note) ──
+  {
+    name: 'edit_note_agent',
+    description:
+      "Delegate a focused editing task on ONE specific note to a sub-agent. The sub-agent runs the read+edit loop in its own context window — so the note's full content doesn't pollute this conversation's context — and returns only a brief summary of what it did.\n\nUse this when:\n• The note is large (content_chars > 5000) and the edit is non-trivial — reading the body into THIS conversation would burn context you'll still need afterwards.\n• The task involves multiple coordinated edits (\"reorganize the dosage section + update the schedule + add a note about side effects\") — the agent can plan + execute without you tracking each surgical change.\n• The user might keep talking about other things after this edit and you don't want the note body sitting in your context the whole time.\n\nDo NOT use for:\n• Tiny edits where you already know the exact old_string/new_string — just call edit_note directly (faster, one round-trip).\n• Anything that touches more than one note — the agent is pre-approved for exactly ONE note id and will refuse calls to others. For multi-note coordination, do it in this conversation.\n\nSecurity model: the user pre-approves ONE specific note for the agent to work on (you must tell the user clearly which note + what you're delegating before calling this — they'll see an approval card). The agent CANNOT touch any other note: tool calls with mismatched note_id are rejected at the agent's executor before reaching the API. The agent has read tools (get_note, get_note_toc, get_note_part, etc.), edit tools (edit_note, update_note), and ask_user (for genuine ambiguity).\n\nContext modes:\n• context=\"inherit\" (default) — the agent inherits THIS conversation as cached prefix, so it knows the backstory. Best when the user gave loose / context-dependent instructions across several turns.\n• context=\"fresh\" — the agent starts with a minimal system prompt and just the task. Best when the task is fully self-contained (\"rename X to Y\") and you don't need to pay for repeating long context. Slightly cheaper for big main conversations.\n\nReturns a 1-3 sentence plain-text summary describing what the agent did. Relay that summary to the user — don't re-summarize or pretend you did the edit yourself.",
+    input_schema: {
+      type: 'object',
+      properties: {
+        note_id: {
+          type: 'string',
+          description: 'The note the agent is pre-approved to work on. The agent is physically restricted to this note id; cross-note tool calls inside the agent fail.',
+        },
+        task: {
+          type: 'string',
+          description: 'Natural-language description of what to do on the note. Be specific about the change — the agent will read the note as needed but it only knows what you tell it about the goal.',
+        },
+        nook_id: {
+          type: 'string',
+          description: 'Nook the note lives in. Defaults to the current nook.',
+        },
+        context: {
+          type: 'string',
+          enum: ['inherit', 'fresh'],
+          description: 'Whether the agent inherits this conversation as its prefix (default) or starts cold. See main tool description.',
+        },
+      },
+      required: ['note_id', 'task'],
+    },
+  },
   // ── Search agent (sub-agent with own context window) ──
   {
     name: 'search_agent',
-    description: 'Delegate a research task to a search agent that runs in its own context window. The agent searches and reads notes in the current nook and user memories — the user will be asked to approve before it runs. It returns ranked results with relevant excerpts, keeping this conversation\'s context clean. Use this instead of searching manually when the query may require reading multiple notes or complex filtering. For simple single-note lookups, prefer search_notes/get_note directly. Always tell the user what you\'re about to search for and that the agent will search their notes.',
+    description: 'Delegate a research task to a search agent that runs in its own context window. The agent searches and reads notes in the current nook and user memories — the user will be asked to approve before it runs. It returns ranked results with relevant excerpts, keeping this conversation\'s context clean.\n\n**When to reach for this (don\'t under-use it):**\n• The question spans more than 2-3 notes (e.g. "summarise everything I know about X", "find patterns across my meeting notes").\n• Initial search_notes attempts with 2-3 different phrasings returned nothing useful and you\'re tempted to give up — let the agent try harder in its own context.\n• The topic is fuzzy or exploratory ("what have I been working on lately", "find any references to Y") rather than a specific lookup.\n• You\'d otherwise need to get_note on 4+ candidates to triage them — the agent does that triage without polluting this conversation.\n\nFor simple single-note lookups or when you already know the exact title/id, prefer search_notes/get_note directly. Always tell the user what you\'re about to search for and that the agent will search their notes.',
     input_schema: {
       type: 'object',
       properties: {
@@ -313,24 +444,6 @@ export const TOOLS: Anthropic.Tool[] = [
         },
       },
       required: ['task'],
-    },
-  },
-  // ── Image generation (creates or refines a generated_image note in ai-memory) ──
-  {
-    name: 'generate_image',
-    description: 'Generate an image from a text prompt and store it as a generated_image note in the user\'s AI memory nook (default) or a specific nook. Costs real money per call — the user is asked to approve. Returns the new note\'s id, the model\'s revised_prompt, and the call\'s usage/cost.\n\nRefinement vs new note: when the user says something like "make it darker" or "the same one but with a sunset" they\'re refining the LAST image you generated in this chat — pass that note id as refine_note_id so we update the existing note, bump the file version, and append the new summary to its body. When the user says something like "for the birthday party, the invitation needs..." referring to an older image, FIRST use memory_search to find the matching prior generated_image note, then refine that one. When in doubt about which note to refine, use ask_user to confirm — never silently guess between candidates.\n\nFor a brand-new topic (no prior image referenced), omit refine_note_id and a fresh note is created.\n\nDefault quality is "low" — fast and cheap (~$0.01–0.02), great for prompt iteration. Only escalate to medium (~$0.04–0.06) or high (~$0.17–0.25) when the user explicitly asks for a finished/printable image. On a refinement, omitted size/quality/transparent inherit from the prior note.\n\nThe summary field is required: write a short (1–2 sentence) human-readable description of what this iteration is about; it seeds the note body and, on refinements, gets appended as a versioned changelog so the user has a chronological narrative of how the image evolved.',
-    input_schema: {
-      type: 'object',
-      properties: {
-        prompt:         { type: 'string', description: 'What to generate. Be specific — the provider rewrites short prompts and you\'ll get a revised_prompt back showing what it actually drew.' },
-        summary:        { type: 'string', description: 'A 1–2 sentence human-readable description of this iteration ("first take of the birthday invitation in pastels" / "swapped the pink for lavender per user request"). Seeds the note body; on refinements becomes a versioned changelog entry.' },
-        nook_id:        { type: 'string', description: 'Target nook UUID. Omit to drop the image in ai-memory (the default and recommended behaviour).' },
-        refine_note_id: { type: 'string', description: 'UUID of an existing generated_image note to refine. When provided, the existing note is updated (file_version bumped, attributes overwritten, summary appended) instead of creating a new note. The note must be a generated_image in the same target nook. Inherit-default: any of size/quality/transparent you omit will reuse the prior note\'s values.' },
-        size:           { type: 'string', enum: ['1024x1024', '1024x1536', '1536x1024', 'auto'], description: 'Output dimensions. New-note default: 1024x1024. Refinement: inherits prior note\'s size when omitted.' },
-        quality:        { type: 'string', enum: ['low', 'medium', 'high', 'auto'], description: 'Rendering quality. New-note default: "low". Refinement: inherits prior note\'s quality when omitted. low ~$0.01–0.02, medium ~$0.04–0.06, high ~$0.17–0.25 (~4–6× the cost). Escalate only when the user explicitly asks for a finished/printable image.' },
-        transparent:    { type: 'boolean', description: 'Generate with a transparent background (PNG with alpha). New-note default: false. Refinement: inherits prior value when omitted.' },
-      },
-      required: ['prompt', 'summary'],
     },
   },
   // ── User memory nook tools (cross-nook, auto-approved) ──
@@ -380,7 +493,52 @@ export const TOOLS: Anthropic.Tool[] = [
       required: ['note_id'],
     },
   },
+  // ── Live editor tools (frontend-executed) ──
+  // These four are dispatched back to the user\'s browser and return the
+  // live in-editor state, NOT the on-disk version. Only meaningful when
+  // the system prompt shows editor_state.is_open === true. Auto-approved
+  // conceptually — the frontend answers silently — but MCP routes them
+  // via the awaiting-approval SSE path (see FRONTEND_TOOLS in chat.ts).
+  {
+    name: 'get_current_editor',
+    description: 'Read the LIVE content of the note the user currently has open in edit mode (in-browser buffer, may include unsaved keystrokes). Returns {is_open, note_id, nook_id, title, version, content}. Prefer this over get_note when editor_state.is_open is true and you want the freshest view of what the user is working on. Returns is_open=false if no editor is open — do NOT call this speculatively when no editor is open.',
+    input_schema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'get_current_editor_toc',
+    description: 'Get the table of contents (headings) of the LIVE editor content. Same shape as get_note_toc but reads the in-browser buffer instead of disk. Cheap navigation for big open notes — pair with get_current_editor_part to read specific sections without pulling the whole content.',
+    input_schema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'get_current_editor_part',
+    description: 'Read a half-open character range [from, to) of the LIVE editor content. Same shape as get_note_part but reads the in-browser buffer. Use with get_current_editor_toc to jump to specific sections in a big open note without pulling the whole thing.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        from: { type: 'number', description: 'Character offset (0-indexed, inclusive).' },
+        to:   { type: 'number', description: 'Character offset (exclusive).' },
+      },
+      required: ['from', 'to'],
+    },
+  },
+  {
+    name: 'edit_current_editor',
+    description: 'Make a surgical find-and-replace edit against the LIVE editor buffer (not disk). Same semantics as edit_note but applies to the in-browser content: the user sees the change instantly in their editor. Returns {applied: true, new_version} on success, or {applied: false, error: "not_found" | "ambiguous"} if the exact string is not found once. On failure you MUST re-read via get_current_editor before retrying — the user may have typed since your last read.\n\nUse this INSTEAD of edit_note when editor_state.is_open === true and the target note_id matches editor_state.note_id — direct disk edits would race with the user\'s typing. For any other note, use edit_note as usual.\n\nData integrity: the exact-string match is the safety net (like edit_note). If the string is still uniquely present after the user\'s keystrokes, applying the edit is safe. If uniqueness fails, the call errors and you retry.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        find:    { type: 'string', description: 'Exact existing text to replace. Must match byte-for-byte (whitespace + casing) and appear exactly once.' },
+        replace: { type: 'string', description: 'Replacement text. Pass "" to delete.' },
+      },
+      required: ['find', 'replace'],
+    },
+  },
 ];
+
+// Tools the LLM actually sees: core tools + whichever optional modules
+// reported enabled() at module load. Disabled optional tools contribute
+// zero bytes here — they're not in the system prompt at all.
+export const TOOLS: Anthropic.Tool[] = [...CORE_TOOLS, ...optionalToolDefinitions];
 
 export async function executeTool(
   name: string,
@@ -390,6 +548,14 @@ export async function executeTool(
   nookId: string,
   memoryNookId?: string,
 ): Promise<string> {
+  // Dispatch to a registered optional-module handler first; falls
+  // through to the core switch when not found. We pass the same
+  // context bundle every optional handler expects.
+  const optional = getOptionalToolHandler(name);
+  if (optional) {
+    return optional(input, { apiBaseUrl, cookie, nookId, memoryNookId });
+  }
+
   const headers = {
     Cookie: cookie,
     'Content-Type': 'application/json',
@@ -538,6 +704,31 @@ export async function executeTool(
       return JSON.stringify(await api('GET', `/api/nooks/${targetNook}/notes/${noteId}/summary`));
     }
 
+    case 'get_note_toc': {
+      const targetNook = String(input.nook_id || nookId);
+      return JSON.stringify(await api('GET', `/api/nooks/${targetNook}/notes/${noteId}/toc`));
+    }
+
+    case 'get_note_part': {
+      const targetNook = String(input.nook_id || nookId);
+      const from = Math.max(0, Math.floor(Number(input.from ?? 0)));
+      const to = Math.max(from, Math.floor(Number(input.to ?? from)));
+      const params = new URLSearchParams({ from: String(from), to: String(to) });
+      return JSON.stringify(await api('GET', `/api/nooks/${targetNook}/notes/${noteId}/part?${params}`));
+    }
+
+    case 'search_in_note': {
+      const targetNook = String(input.nook_id || nookId);
+      const q = String(input.q ?? '').trim();
+      if (q === '') throw new Error('search_in_note requires a non-empty q');
+      const params = new URLSearchParams({ q });
+      if (input.context_chars !== undefined) {
+        params.set('context_chars', String(Math.max(0, Math.min(500, Math.floor(Number(input.context_chars))))));
+      }
+      if (input.case_sensitive === true) params.set('case_sensitive', '1');
+      return JSON.stringify(await api('GET', `/api/nooks/${targetNook}/notes/${noteId}/search?${params}`));
+    }
+
     case 'get_note_section': {
       const targetNook = String(input.nook_id || nookId);
       const pos = Number(input.position ?? 0);
@@ -609,21 +800,84 @@ export async function executeTool(
       );
     }
 
-    // ── Image generation ──
-    case 'generate_image': {
-      // Sentinel "ai-memory" is resolved server-side; pass it through
-      // whenever the caller doesn't specify a nook so we don't have
-      // to round-trip GET /nooks/ai-memory from here.
-      const target = typeof input.nook_id === 'string' && input.nook_id.trim() !== ''
-        ? input.nook_id.trim()
-        : 'ai-memory';
-      const body: Record<string, unknown> = { prompt: String(input.prompt ?? '') };
-      if (input.summary)        body.summary = String(input.summary);
-      if (input.refine_note_id) body.refine_note_id = String(input.refine_note_id);
-      if (input.size)           body.size = String(input.size);
-      if (input.quality)        body.quality = String(input.quality);
-      if (input.transparent)    body.transparent = true;
-      return JSON.stringify(await api('POST', `/api/nooks/${target}/ai-images`, body));
+    case 'delete_note_link': {
+      const sourceNoteId = String(input.source_note_id ?? '');
+      const linkId = String(input.link_id ?? '');
+      await api('DELETE', `/api/nooks/${nookId}/notes/${sourceNoteId}/links/${linkId}`);
+      return JSON.stringify({ success: true });
+    }
+
+    case 'edit_note': {
+      const editNookId = typeof input.nook_id === 'string' && input.nook_id.trim() !== ''
+        ? input.nook_id.trim() : nookId;
+      // The schema requires an `edits` array — but be tolerant of an older
+      // shape (single old_string/new_string at the top level) so a model
+      // that hasn't reloaded the new tool doc doesn't 400 the call.
+      let edits: unknown = input.edits;
+      if (!Array.isArray(edits) && typeof input.old_string === 'string') {
+        edits = [{
+          old_string: input.old_string,
+          new_string: input.new_string ?? '',
+          ...(input.replace_all === true ? { replace_all: true } : {}),
+        }];
+      }
+      const body: Record<string, unknown> = {
+        expected_version: input.expected_version,
+        edits,
+      };
+      return JSON.stringify(await api('POST', `/api/nooks/${editNookId}/notes/${noteId}/edit`, body));
+    }
+
+    case 'edit_note_agent': {
+      // Handled in chat.ts (needs main-loop access to sys prompt /
+      // messages for inherit-mode prefix). This dispatcher case
+      // shouldn't execute in practice — guard so a wiring mistake
+      // produces a clear error instead of a silent fall-through.
+      throw new Error('edit_note_agent must be handled by chat.ts main loop, not chat-tools.executeTool');
+    }
+
+    case 'get_current_editor':
+    case 'get_current_editor_toc':
+    case 'get_current_editor_part':
+    case 'edit_current_editor': {
+      // These four dispatch back to the frontend — their results come
+      // in on /chat/tool-result with `frontend_result`. If they ever
+      // reach the executor it means the frontend-tool routing missed
+      // them; fail loud so the wiring mistake is obvious.
+      throw new Error(`${name} is a frontend-executed tool and must not reach chat-tools.executeTool`);
+    }
+
+    case 'read_note_lines': {
+      const targetNook = typeof input.nook_id === 'string' && input.nook_id.trim() !== ''
+        ? input.nook_id.trim() : nookId;
+      const note = await api('GET', `/api/nooks/${targetNook}/notes/${noteId}`) as {
+        note?: { content?: string; version?: number; title?: string };
+      };
+      const content = String(note?.note?.content ?? '');
+      const version = note?.note?.version ?? 0;
+      const title = note?.note?.title ?? '';
+      const lines = content.split('\n');
+      const total = lines.length;
+      // 1-indexed inclusive bounds, clamped to file. `Math.max(1, ...)` so
+      // garbage input falls back to "show me the start" rather than empty.
+      const startRaw = typeof input.start_line === 'number' ? Math.floor(input.start_line) : 1;
+      const endRaw   = typeof input.end_line   === 'number' ? Math.floor(input.end_line)   : total;
+      const start = Math.max(1, Math.min(total, startRaw));
+      const end   = Math.max(start, Math.min(total, endRaw));
+      const slice = lines.slice(start - 1, end);
+      // Right-align line-number gutter so wide notes don't ragged-edge.
+      const gutterWidth = String(end).length;
+      const numbered = slice
+        .map((l, i) => `${String(start + i).padStart(gutterWidth, ' ')}: ${l}`)
+        .join('\n');
+      return JSON.stringify({
+        title,
+        version,
+        total_lines: total,
+        start_line: start,
+        end_line: end,
+        content: numbered,
+      });
     }
 
     // ── User memory nook tools ──

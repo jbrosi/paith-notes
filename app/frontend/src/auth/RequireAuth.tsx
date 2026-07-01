@@ -1,6 +1,5 @@
-import { createEffect, type JSX, Show } from "solid-js";
+import { type JSX, Show } from "solid-js";
 import styles from "../App.module.css";
-import { loadFeatures } from "../features";
 import { useAuth } from "./AuthContext";
 import { LoginNeeded } from "./LoginNeeded";
 
@@ -9,10 +8,6 @@ export function RequireAuth(props: {
 	redirectTo?: string;
 }) {
 	const auth = useAuth();
-
-	createEffect(() => {
-		if (auth.ready() && auth.authenticated()) void loadFeatures();
-	});
 
 	const redirectTo = () =>
 		props.redirectTo?.trim()

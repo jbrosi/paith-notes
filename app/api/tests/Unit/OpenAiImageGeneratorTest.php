@@ -6,6 +6,7 @@ use Paith\Notes\Api\Http\HttpError;
 use Paith\Notes\Api\Http\Service\ImageGeneration\HttpTransport;
 use Paith\Notes\Api\Http\Service\ImageGeneration\ImageGenerationOptions;
 use Paith\Notes\Api\Http\Service\ImageGeneration\OpenAiImageGenerator;
+use Paith\Notes\Api\Http\Service\ImageGeneration\SourceImage;
 
 /**
  * Request shape + response parsing for the OpenAI generator, with
@@ -15,21 +16,25 @@ use Paith\Notes\Api\Http\Service\ImageGeneration\OpenAiImageGenerator;
 
 /**
  * @param array{status: int, body: string} $canned
- * @return array{transport: HttpTransport, calls: array<int, array{url: string, headers: array<string, string>, body: string}>}
+ * @return array{transport: HttpTransport, calls: array<int, array{url: string, headers: array<string, string>, body: string}>, multipart: array<int, array{url: string, headers: array<string, string>, parts: list<array{name: string, value: string, filename?: string, contentType?: string}>}>}
  */
 function stubTransport(array $canned): array
 {
     /** @var list<array{url: string, headers: array<string, string>, body: string}> $calls */
     $calls = [];
+    /** @var list<array{url: string, headers: array<string, string>, parts: list<array{name: string, value: string, filename?: string, contentType?: string}>}> $multipart */
+    $multipart = [];
 
-    $transport = new class ($canned, $calls) implements HttpTransport {
+    $transport = new class ($canned, $calls, $multipart) implements HttpTransport {
         /**
          * @param array{status: int, body: string} $canned
          * @param list<array{url: string, headers: array<string, string>, body: string}> $calls
+         * @param list<array{url: string, headers: array<string, string>, parts: list<array{name: string, value: string, filename?: string, contentType?: string}>}> $multipart
          */
         public function __construct(
             private array $canned,
             public array &$calls,
+            public array &$multipart,
         ) {
         }
 
@@ -38,9 +43,19 @@ function stubTransport(array $canned): array
             $this->calls[] = ['url' => $url, 'headers' => $headers, 'body' => $jsonBody];
             return $this->canned;
         }
+
+        public function postMultipart(string $url, array $headers, array $parts, int $timeoutSeconds): array
+        {
+            $this->multipart[] = ['url' => $url, 'headers' => $headers, 'parts' => $parts];
+            return $this->canned;
+        }
     };
 
-    return ['transport' => $transport, 'calls' => &$transport->calls];
+    return [
+        'transport' => $transport,
+        'calls' => &$transport->calls,
+        'multipart' => &$transport->multipart,
+    ];
 }
 
 it('rejects an empty prompt before hitting the network', function (): void {
@@ -219,6 +234,81 @@ it('returns null usage when the provider omits the usage block', function (): vo
     $img = $gen->generate('hello', new ImageGenerationOptions());
 
     expect($img->usage)->toBeNull();
+});
+
+it('edit hits /images/edits multipart with model+prompt+size+image parts', function (): void {
+    $bytes = base64_encode('PNGDATA');
+    $stub = stubTransport([
+        'status' => 200,
+        'body' => json_encode(['data' => [['b64_json' => $bytes, 'revised_prompt' => 'enhanced']]]),
+    ]);
+    $gen = new OpenAiImageGenerator('sk-test', 'gpt-image-1', $stub['transport']);
+
+    $img = $gen->edit(
+        'enhance this drawing',
+        [
+            new SourceImage(bytes: 'rawpngbytes', mimeType: 'image/png', filename: 'drawing.png'),
+        ],
+        new ImageGenerationOptions(size: '1024x1024', transparent: false, quality: 'medium'),
+    );
+
+    // JSON path not used
+    expect($stub['calls'])->toBe([]);
+    expect($stub['multipart'])->toHaveCount(1);
+    $call = $stub['multipart'][0];
+    expect($call['url'])->toBe('https://api.openai.com/v1/images/edits');
+    expect($call['headers']['Authorization'])->toBe('Bearer sk-test');
+
+    // Index parts by name so the assertion order doesn't have to track
+    // the impl ordering (which is implementation detail).
+    $byName = [];
+    foreach ($call['parts'] as $p) {
+        $byName[$p['name']][] = $p;
+    }
+    expect($byName['model'][0]['value'])->toBe('gpt-image-1');
+    expect($byName['prompt'][0]['value'])->toBe('enhance this drawing');
+    expect($byName['size'][0]['value'])->toBe('1024x1024');
+    expect($byName['quality'][0]['value'])->toBe('medium');
+    expect($byName['background'][0]['value'])->toBe('opaque');
+    expect($byName['image[]'])->toHaveCount(1);
+    expect($byName['image[]'][0]['value'])->toBe('rawpngbytes');
+    expect($byName['image[]'][0]['filename'])->toBe('drawing.png');
+    expect($byName['image[]'][0]['contentType'])->toBe('image/png');
+
+    expect($img->bytes)->toBe('PNGDATA');
+    expect($img->revisedPrompt)->toBe('enhanced');
+});
+
+it('edit sends one image[] part per source', function (): void {
+    $stub = stubTransport([
+        'status' => 200,
+        'body' => json_encode(['data' => [['b64_json' => base64_encode('X')]]]),
+    ]);
+    $gen = new OpenAiImageGenerator('sk-test', 'gpt-image-1', $stub['transport']);
+
+    $gen->edit(
+        'combine these',
+        [
+            new SourceImage(bytes: 'A', mimeType: 'image/png', filename: 'a.png'),
+            new SourceImage(bytes: 'B', mimeType: 'image/webp', filename: 'b.webp'),
+        ],
+        new ImageGenerationOptions(),
+    );
+
+    $imageParts = array_values(array_filter($stub['multipart'][0]['parts'], fn($p) => $p['name'] === 'image[]'));
+    expect($imageParts)->toHaveCount(2);
+    expect($imageParts[0]['value'])->toBe('A');
+    expect($imageParts[1]['value'])->toBe('B');
+    expect($imageParts[1]['contentType'])->toBe('image/webp');
+});
+
+it('edit requires at least one source image', function (): void {
+    $stub = stubTransport(['status' => 200, 'body' => '{}']);
+    $gen = new OpenAiImageGenerator('sk-test', 'gpt-image-1', $stub['transport']);
+
+    expect(fn() => $gen->edit('x', [], new ImageGenerationOptions()))
+        ->toThrow(HttpError::class, 'at least one source image');
+    expect($stub['multipart'])->toBe([]);
 });
 
 it('clamps a giant non-JSON error body so it does not flood the response', function (): void {
