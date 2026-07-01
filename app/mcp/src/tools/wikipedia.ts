@@ -88,7 +88,7 @@ const handlers: ToolModule['handlers'] = {
     const pages = (data.pages ?? []).map((p) => ({
       title: p.title,
       description: p.description,
-      excerpt: p.excerpt?.replace(/<[^>]+>/g, '') ?? '',
+      excerpt: p.excerpt?.replace(/[<>]/g, '') ?? '',
       url: `https://${lang}.wikipedia.org/wiki/${encodeURIComponent(p.key)}`,
     }));
     return JSON.stringify({ lang, query, results: pages });
