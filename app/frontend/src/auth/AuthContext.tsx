@@ -5,6 +5,7 @@ import {
 	onMount,
 	useContext,
 } from "solid-js";
+import { loadFeatures } from "../features";
 import { isAuthenticated, login, logout, logoutSso } from "./keycloak";
 
 export type AuthState = {
@@ -28,6 +29,12 @@ export function AuthProvider(props: { children: JSX.Element }) {
 			try {
 				const ok = await isAuthenticated();
 				setAuthenticated(ok);
+				// Load server-reported feature flags here (not in RequireAuth)
+				// so consumers outside any RequireAuth wrapper — most notably
+				// the always-mounted ChatPanel in App.tsx — also see the
+				// up-to-date features signal. Fires exactly once per session
+				// thanks to the inflight guard in loadFeatures().
+				if (ok) void loadFeatures();
 			} catch (e) {
 				setError(String(e));
 				setAuthenticated(false);

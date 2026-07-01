@@ -1,0 +1,28 @@
+services:
+  cosyvoice:
+    # Community-maintained image tracking the FunAudioLLM/CosyVoice repo.
+    # If you'd rather build from source, clone https://github.com/FunAudioLLM/CosyVoice
+    # and follow their Docker instructions; the Gradio UI is the same.
+    image: ${COSYVOICE_IMAGE:-modelscope/cosyvoice2:latest}
+    command: ["python3", "webui.py", "--port", "50000", "--model_dir", "pretrained_models/CosyVoice2-0.5B"]
+    ports:
+      - "50000:50000"
+    volumes:
+      # Persist downloaded model checkpoints between runs (first boot is
+      # ~3GB download from ModelScope).
+      - cosyvoice_models:/opt/CosyVoice/pretrained_models
+      # Reference audio for zero-shot cloning. Drop WAV files here and
+      # they show up in the Gradio file picker.
+      - ./refs:/opt/CosyVoice/refs
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    # On first boot the container fetches the model from ModelScope. Give
+    # it a few minutes before opening the UI.
+
+volumes:
+  cosyvoice_models:

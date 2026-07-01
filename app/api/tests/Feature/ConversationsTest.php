@@ -24,7 +24,7 @@ function makeUser(string $idPart): array
 
 function createConversation(array $headers, string $title): string
 {
-    $res = App::handle('POST', '/api/conversations', $headers, json_encode(['title' => $title, 'model' => 'claude-sonnet-4-6']));
+    $res = App::handle('POST', '/api/conversations', $headers, json_encode(['title' => $title, 'model' => 'claude-sonnet-5']));
     expect($res['status'])->toBe(200);
     return (string) (json_decode($res['body'], true)['conversation']['id'] ?? '');
 }
@@ -32,7 +32,7 @@ function createConversation(array $headers, string $title): string
 it('creates conversations scoped to the user without requiring a nook', function (): void {
     [, $headers] = makeUser('aaaaaaaaaaaa');
 
-    $res = App::handle('POST', '/api/conversations', $headers, json_encode(['title' => 'Hello', 'model' => 'claude-sonnet-4-6']));
+    $res = App::handle('POST', '/api/conversations', $headers, json_encode(['title' => 'Hello', 'model' => 'claude-sonnet-5']));
     expect($res['status'])->toBe(200);
     $body = json_decode($res['body'], true);
     expect($body['conversation']['title'])->toBe('Hello');
@@ -132,7 +132,7 @@ it('appends a user + assistant turn and returns the saved block ids', function (
             ['role' => 'user', 'content' => [['type' => 'text', 'text' => 'hi']]],
             [
                 'role' => 'assistant',
-                'model' => 'claude-sonnet-4-6',
+                'model' => 'claude-sonnet-5',
                 'content' => [
                     ['type' => 'text', 'text' => 'hello back'],
                     ['type' => 'tool_use', 'id' => 'toolu_1', 'name' => 'write_memory', 'input' => (object)[]],

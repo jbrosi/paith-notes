@@ -8,6 +8,7 @@ import {
 } from "../pages/nook/NookContext";
 import { NookEmbeddedGraph } from "../pages/nook/NookEmbeddedGraph";
 import { type GraphViewProperties, parseGraphUri } from "../pages/nook/types";
+import { openImageLightbox } from "./ImageLightbox";
 import styles from "./MarkdownView.module.css";
 
 /** Wiki-link: [[note:uuid]] or [[note:nookId/noteId]] */
@@ -17,8 +18,9 @@ const WIKI_LINK_RE = /\[\[note:(?:([0-9a-f-]+)\/)?([0-9a-f-]+)\]\]/gi;
  * the real fullscreen URL (mirrors [[note:uuid]] but no embed). */
 const WIKI_GRAPH_RE = /\[\[graph:([^\]]+)\]\]/gi;
 
-/** Image embeds: ![...](note:uuid) or ![...](note:nookId/noteId) */
-const NOTE_IMAGE_RE = /!\[([^\]]*)\]\(note:(?:[0-9a-f-]+\/)?([0-9a-f-]+)\)/gi;
+/** Image embeds: ![...](note:uuid) or ![...](note:nookId/noteId).
+ * Captures: 1=alt, 2=optional nookId, 3=noteId. */
+const NOTE_IMAGE_RE = /!\[([^\]]*)\]\(note:(?:([0-9a-f-]+)\/)?([0-9a-f-]+)\)/gi;
 
 /** Graph image embeds: ![label](graph:?root=...&...) OR
  * ![label](/nooks/<n>/notes/<root>?fullscreen=1&...). Both forms parse via
@@ -35,8 +37,15 @@ type Props = {
 	content: string;
 	/** Resolve a note ID to its title for display */
 	resolveNoteTitle?: (id: string) => string | undefined;
-	/** Resolve a note image embed to an inline URL */
-	resolveEmbeddedImageSrc?: (noteId: string) => Promise<string | null>;
+	/** Resolve a note image embed to an inline URL. The optional nookId
+	 * is set when the markdown source uses the cross-nook form
+	 * `![](note:nookId/noteId)` so the resolver can fetch from the right
+	 * nook (e.g. AI-generated images that live in the AI memory nook but
+	 * are rendered in chat under a different host nook). */
+	resolveEmbeddedImageSrc?: (
+		noteId: string,
+		nookId?: string,
+	) => Promise<string | null>;
 	/** Note preview controller for hover popover */
 	notePreview?: NotePreviewController;
 	/** Extra CSS class for the container */
@@ -98,14 +107,14 @@ function expandGraphWikiLinks(content: string, currentNookId: string): string {
  */
 async function resolveImages(
 	content: string,
-	resolver: (noteId: string) => Promise<string | null>,
+	resolver: (noteId: string, nookId?: string) => Promise<string | null>,
 ): Promise<string> {
 	const matches = [...content.matchAll(NOTE_IMAGE_RE)];
 	if (matches.length === 0) return content;
 
 	const resolved = await Promise.all(
 		matches.map(async (m) => {
-			const url = await resolver(m[2]);
+			const url = await resolver(m[3], m[2] || undefined);
 			return { match: m[0], alt: m[1], url };
 		}),
 	);
@@ -239,7 +248,12 @@ export function MarkdownView(props: Props) {
 				),
 			);
 
-		const imageResolver = props.resolveEmbeddedImageSrc;
+		// Fall back to the nook context's store resolver — lets surfaces
+		// like ChatMessage (which doesn't thread a resolver prop) still
+		// render embedded images without each call site re-wiring it.
+		const imageResolver =
+			props.resolveEmbeddedImageSrc ??
+			nookCtx?.store()?.resolveEmbeddedImageSrc;
 		if (imageResolver) {
 			void renderSegments(async (text) => {
 				const resolved = await resolveImages(text, imageResolver);
@@ -284,9 +298,16 @@ export function MarkdownView(props: Props) {
 	// After HTML segments are mounted, highlight code blocks + mermaid.
 	// Mounts an effect on each segment by using a ref callback.
 	const mountedRefs = new Set<HTMLElement>();
+	// Track which DIVs we've collected for post-render image wiring.
+	// innerHTML replacements swap out child <img> nodes, so we can't
+	// wire images once at mount — we run it in an effect that watches
+	// renderedHtml() and re-walks the DOM.
+	const segmentEls = new Set<HTMLDivElement>();
+	const imageListeners = new WeakSet<HTMLImageElement>();
 	const setupSegmentEl = (el: HTMLDivElement | undefined) => {
 		if (!el || mountedRefs.has(el)) return;
 		mountedRefs.add(el);
+		segmentEls.add(el);
 		queueMicrotask(() => {
 			void import("./highlight").then(({ highlightCodeBlocks }) =>
 				highlightCodeBlocks(el),
@@ -298,6 +319,37 @@ export function MarkdownView(props: Props) {
 			}
 		});
 	};
+
+	// Rendered <img> tags get a click listener that opens the fullscreen
+	// viewer. Runs on every innerHTML change (Solid replaces child nodes
+	// on `innerHTML=` bindings, so mount-once wiring on the parent div
+	// would miss images from subsequent renders — streaming assistant
+	// text, edited notes, etc). Guarded by WeakSet so we don't double-
+	// wire the same <img> across effect runs.
+	createEffect(() => {
+		void renderedHtml(); // subscribe
+		queueMicrotask(() => {
+			for (const el of segmentEls) {
+				for (const img of Array.from(el.querySelectorAll("img"))) {
+					if (imageListeners.has(img)) continue;
+					imageListeners.add(img);
+					img.style.cursor = "zoom-in";
+					img.addEventListener("click", (e) => {
+						// Ignore modifier-clicks so ctrl/cmd+click / middle-
+						// click keep their native behavior (open in new tab).
+						if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
+						const src = img.getAttribute("src");
+						if (!src) return;
+						e.preventDefault();
+						openImageLightbox({
+							src,
+							alt: img.getAttribute("alt") ?? undefined,
+						});
+					});
+				}
+			}
+		});
+	});
 
 	const store = () => nookCtx?.store() ?? null;
 

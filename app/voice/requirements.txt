@@ -2,25 +2,17 @@ fastapi==0.115.6
 uvicorn[standard]==0.34.0
 python-multipart==0.0.31
 faster-whisper==1.1.1
-# Kokoro handles English + es/fr/hi/it/ja/pt-br/zh. The 0.4 line reads the
-# new binary voices format (voices-v1.0.bin) that we bake into the image.
-# 0.4+ requires numpy>=2 so the numpy pin had to go.
+# Kokoro handles English + es/fr/hi/it/ja/pt-br/zh via onnxruntime — no torch.
+# The 0.4 line reads the binary voices format (voices-v1.0.bin) baked into
+# the image. 0.4+ requires numpy>=2 so the numpy pin had to go.
 kokoro-onnx>=0.4,<0.5
-# Piper handles German + auto-downloads anything else on first use.
-# piper-phonemize is the reason the base image is pinned to Python 3.11.
-piper-tts==1.2.0
-# Chatterbox Multilingual (Resemble AI, MIT) for German + a quality lane
-# for languages Kokoro doesn't cover. Pulls in torch + transformers and
-# downloads ~1.5GB of weights from HuggingFace on first use.
-chatterbox-tts
-# Pin transformers — Chatterbox's alignment_stream_analyzer fails on
-# transformers>=4.47 because the per-step attention shapes stopped being
-# consistent (past_key_values format change). 4.46.3 is the last version
-# Chatterbox's CI tested against.
-transformers==5.0.0rc3
-# F5-TTS (SWivid, MIT) — flow-matching TTS. Stable prosody (no AR warmup
-# drift), zero-shot voice cloning, but requires a transcript of the
-# reference WAV at inference time. Pulls vocos for the vocoder.
-f5-tts
 # faster-whisper imports `requests` at top level but doesn't declare it.
 requests==2.33.0
+# ── speaker identification (optional, lazy-loaded) ──────────────────────
+# sherpa-onnx (Next-gen Kaldi project, Apache 2.0): bundled ONNX speaker
+# embedding models + fbank preprocessing. No torch dependency — runs on
+# the same onnxruntime kokoro already uses. Total install footprint
+# ~150MB vs ~700MB for the Resemblyzer/torch route. Activation is
+# implicit: empty enrollment DB → /identify always returns null.
+sherpa-onnx==1.13.3
+soundfile==0.13.1

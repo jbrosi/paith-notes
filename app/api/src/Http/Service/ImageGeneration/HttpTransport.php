@@ -20,4 +20,19 @@ interface HttpTransport
      * @return array{status: int, body: string}
      */
     public function postJson(string $url, array $headers, string $jsonBody, int $timeoutSeconds): array;
+
+    /**
+     * Multipart POST. Each part has a `name`; when `filename` is set
+     * the part is a file (binary `value` bytes + provider Content-Type),
+     * otherwise it's a regular form field (text `value`).
+     *
+     * Used by ImageGenerator::edit so providers can ship raw image
+     * bytes from memory without the transport caller having to know
+     * how to build multipart bodies.
+     *
+     * @param array<string, string> $headers  request headers (Content-Type is set by the impl)
+     * @param list<array{name: string, value: string, filename?: string, contentType?: string}> $parts
+     * @return array{status: int, body: string}
+     */
+    public function postMultipart(string $url, array $headers, array $parts, int $timeoutSeconds): array;
 }

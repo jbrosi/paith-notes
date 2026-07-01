@@ -57,6 +57,31 @@ final class GlobalSchema
             $pdo->exec('alter table global.nooks drop column if exists is_personal');
             $pdo->exec("alter table global.nooks add column if not exists purpose text not null default 'general'");
 
+            // Owner-controlled, nook-wide AI trust setting. Three states:
+            //   approve_all (default) — current behavior, every non-structural
+            //                           tool call requires explicit approval.
+            //   auto_reads            — read tools on this nook auto-execute
+            //                           (single-nook scope; cross-nook reads
+            //                           like search_all_nooks still need approval).
+            //   disabled              — no AI tool calls at all targeting this
+            //                           nook (writes AND reads); enforced in MCP
+            //                           before approval surfaces.
+            // Stored as text (not a Postgres enum) so adding a fourth tier
+            // later — e.g. auto_all — doesn't require an enum migration.
+            $pdo->exec("alter table global.nooks add column if not exists ai_mode text not null default 'approve_all'");
+            // Wrap the CHECK constraint in a do-block so re-running the
+            // schema bootstrap doesn't fail with "constraint already
+            // exists" on the second invocation.
+            $pdo->exec("do $$ begin
+                if not exists (
+                    select 1 from pg_constraint
+                    where conrelid = 'global.nooks'::regclass and conname = 'nooks_ai_mode_check'
+                ) then
+                    alter table global.nooks add constraint nooks_ai_mode_check
+                        check (ai_mode in ('approve_all', 'auto_reads', 'disabled'));
+                end if;
+            end $$;");
+
             // Ensure AI memory nooks have the correct name
             $pdo->exec("update global.nooks set name = 'AI Memory' where purpose = 'ai-memory' and name != 'AI Memory'");
 
@@ -697,6 +722,28 @@ final class GlobalSchema
                     end if;
                 end \$\$;
             ");
+
+            // ─── Note Drafts ─────────────────────────────────────────────────────────────
+            // Per-user unsaved edit buffer for a note. On note-open we compare
+            // draft.updated_at against notes.updated_at; if newer, show the
+            // "you have a draft" recovery banner. Cleared when the user saves
+            // the note or discards the draft. Per-(user,note) key: two users
+            // can each have their own draft on the same note simultaneously.
+
+            $pdo->exec("
+                create table if not exists global.note_drafts (
+                    user_id uuid not null references global.users(id) on delete cascade,
+                    note_id uuid not null references global.notes(id) on delete cascade,
+                    title text not null default '',
+                    content text not null default '',
+                    version bigint not null default 1,
+                    updated_at timestamptz not null default now(),
+                    primary key (user_id, note_id)
+                );
+            ");
+
+            $pdo->exec('create index if not exists note_drafts_note_id_idx on global.note_drafts (note_id)');
+            $pdo->exec('create index if not exists note_drafts_updated_at_idx on global.note_drafts (updated_at)');
 
             // ─── Note Presence ───────────────────────────────────────────────────────────
 

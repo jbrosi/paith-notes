@@ -78,8 +78,14 @@ const configSchemas: Record<string, z.ZodType> = {
 
 	number: z
 		.object({
-			display: z.enum(["", "rating"]).optional(),
+			// Must mirror AttributeValidator::VALID_NUMBER_DISPLAYS on the
+			// backend exactly — divergence silently breaks the UI dropdown.
+			display: z.enum(["", "rating", "duration", "currency"]).optional(),
 			max: z.number().int().min(1).max(100).optional(),
+			currency: z
+				.string()
+				.regex(/^[A-Z]{3}$/, "currency must be a 3-letter ISO code")
+				.optional(),
 		})
 		.passthrough(),
 

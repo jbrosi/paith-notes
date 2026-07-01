@@ -5,10 +5,12 @@ import { Button } from "../Button";
 import type { ToolUse } from "./ChatMessage";
 import styles from "./ToolApproval.module.css";
 
-const DESTRUCTIVE_TOOLS = new Set(["delete_note"]);
+const DESTRUCTIVE_TOOLS = new Set(["delete_note", "delete_note_link"]);
 const WRITE_TOOLS = new Set([
 	"create_note",
 	"update_note",
+	"edit_note",
+	"edit_note_agent",
 	"create_note_link",
 	"generate_image",
 	"open_note",
@@ -19,6 +21,52 @@ function toolKind(name: string): "destructive" | "write" | "read" {
 	if (DESTRUCTIVE_TOOLS.has(name)) return "destructive";
 	if (WRITE_TOOLS.has(name)) return "write";
 	return "read";
+}
+
+/** Inline-diff: split each line that differs into a `-` + `+` pair so
+ * the user can scan the swap at a glance. For multi-line edits we keep
+ * it dumb (one block of `-old` followed by one block of `+new`) — fancy
+ * intra-line diffing would over-promise on accuracy. */
+function diffBlocks(
+	oldStr: string,
+	newStr: string,
+): Array<{ kind: "del" | "add"; line: string }> {
+	const out: Array<{ kind: "del" | "add"; line: string }> = [];
+	for (const line of oldStr.split("\n")) out.push({ kind: "del", line });
+	for (const line of newStr.split("\n")) out.push({ kind: "add", line });
+	return out;
+}
+
+type EditSpec = {
+	old_string?: unknown;
+	new_string?: unknown;
+	replace_all?: unknown;
+};
+
+/** Normalise an edit_note tool input into a flat list of edits regardless of
+ * whether the model used the new `edits: [...]` array shape or the legacy
+ * top-level `old_string`/`new_string` shape. */
+function extractEdits(
+	input: Record<string, unknown>,
+): Array<{ oldStr: string; newStr: string; replaceAll: boolean }> {
+	const arr = Array.isArray(input.edits) ? (input.edits as EditSpec[]) : null;
+	if (arr) {
+		return arr.map((e) => ({
+			oldStr: String(e?.old_string ?? ""),
+			newStr: String(e?.new_string ?? ""),
+			replaceAll: e?.replace_all === true,
+		}));
+	}
+	if (typeof input.old_string === "string") {
+		return [
+			{
+				oldStr: String(input.old_string),
+				newStr: String(input.new_string ?? ""),
+				replaceAll: input.replace_all === true,
+			},
+		];
+	}
+	return [];
 }
 
 type DisplayName = { label: string; url?: string };
@@ -101,20 +149,72 @@ export function ToolApproval(props: Props) {
 									</span>
 								)}
 							</div>
-							<div class={styles.inputTable}>
-								<For each={Object.entries(t.input)}>
-									{([key, value]) => (
-										<div class={styles.inputRow}>
-											<span class={styles.inputKey}>{key}</span>
-											<InputValue
-												value={value}
-												displayNames={props.displayNames}
-												notePreview={props.notePreview}
-											/>
-										</div>
-									)}
+							<Show
+								when={t.name === "edit_note"}
+								fallback={
+									<div class={styles.inputTable}>
+										<For each={Object.entries(t.input)}>
+											{([key, value]) => (
+												<div class={styles.inputRow}>
+													<span class={styles.inputKey}>{key}</span>
+													<InputValue
+														value={value}
+														displayNames={props.displayNames}
+														notePreview={props.notePreview}
+													/>
+												</div>
+											)}
+										</For>
+									</div>
+								}
+							>
+								{/* edit_note: render a real diff per edit instead of
+								    dumping multi-line old/new strings as raw values. */}
+								<div class={styles.inputTable}>
+									<div class={styles.inputRow}>
+										<span class={styles.inputKey}>note</span>
+										<InputValue
+											value={t.input.note_id}
+											displayNames={props.displayNames}
+											notePreview={props.notePreview}
+										/>
+									</div>
+								</div>
+								<For each={extractEdits(t.input)}>
+									{(edit, i) => {
+										const total = extractEdits(t.input).length;
+										return (
+											<div class={styles.diffWrap}>
+												<Show when={total > 1 || edit.replaceAll}>
+													<div class={styles.diffHeader}>
+														{total > 1 ? `edit ${i() + 1}` : ""}
+														{total > 1 && edit.replaceAll ? " · " : ""}
+														{edit.replaceAll ? "replace all" : ""}
+													</div>
+												</Show>
+												<pre class={styles.diffBlock}>
+													<For each={diffBlocks(edit.oldStr, edit.newStr)}>
+														{(b) => (
+															<div
+																class={
+																	b.kind === "del"
+																		? styles.diffDel
+																		: styles.diffAdd
+																}
+															>
+																<span class={styles.diffMarker}>
+																	{b.kind === "del" ? "-" : "+"}
+																</span>
+																{b.line || " "}
+															</div>
+														)}
+													</For>
+												</pre>
+											</div>
+										);
+									}}
 								</For>
-							</div>
+							</Show>
 						</div>
 					);
 				}}

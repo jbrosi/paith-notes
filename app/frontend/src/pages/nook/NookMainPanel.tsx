@@ -2,6 +2,7 @@ import { useNavigate } from "@solidjs/router";
 import {
 	createEffect,
 	createMemo,
+	createSignal,
 	For,
 	onCleanup,
 	onMount,
@@ -12,6 +13,8 @@ import { Button } from "../../components/Button";
 import { MarkdownView } from "../../components/MarkdownView";
 import { useUi } from "../../ui/UiContext";
 import notesStyles from "../Notes.module.css";
+import { AddLinkForm } from "./components/AddLinkForm";
+import { DraftBanner } from "./components/DraftBanner";
 import { NoteAttributeFields } from "./components/NoteAttributeFields";
 import { TitleSection } from "./components/TitleSection";
 import { NookToolbar } from "./NookToolbar";
@@ -28,6 +31,16 @@ export function NookMainPanel(props: NookMainPanelProps) {
 	const store = () => props.store;
 	const ui = useUi();
 	const navigate = useNavigate();
+	const [showAddLink, setShowAddLink] = createSignal(false);
+	const [addLinkError, setAddLinkError] = createSignal("");
+
+	createEffect(() => {
+		// Close the central add-link form when the user navigates to a
+		// different note (otherwise it stays open targeting a stale id).
+		void store().selectedId();
+		setShowAddLink(false);
+		setAddLinkError("");
+	});
 
 	createEffect(() => {
 		store().setMode(ui.mode());
@@ -174,8 +187,8 @@ export function NookMainPanel(props: NookMainPanelProps) {
 						/>
 						<MarkdownView
 							content={snapshot()?.content ?? ""}
-							resolveEmbeddedImageSrc={(id) =>
-								store().resolveEmbeddedImageSrc(id)
+							resolveEmbeddedImageSrc={(id, nookId) =>
+								store().resolveEmbeddedImageSrc(id, nookId)
 							}
 						/>
 					</div>
@@ -304,19 +317,117 @@ export function NookMainPanel(props: NookMainPanelProps) {
 							selectedId={store().selectedId()}
 							canWrite={store().canWrite()}
 							onSave={async () => {
+								// For new notes we want the user to STAY in edit
+								// mode after the initial save — they've only just
+								// created a shell (title + type), and the whole
+								// point of the force-title-first flow is to
+								// re-open the note for content editing next.
+								const wasNew = store().selectedId() === "";
 								await store().saveNote();
-								if (!store().error()) ui.setMode("view");
+								if (!store().error() && !wasNew) ui.setMode("view");
 							}}
 							onDelete={store().deleteNote}
 							onToggleMode={ui.toggleMode}
+							onAddLink={() => setShowAddLink((v) => !v)}
 						/>
 					</div>
 
+					<Show when={showAddLink() && store().selectedId() !== ""}>
+						<div
+							style={{
+								padding: "8px 12px",
+								margin: "0 0 12px",
+								border: "1px solid var(--color-border-light, #e5e7eb)",
+								"border-radius": "6px",
+								background: "var(--color-bg-secondary, #f9fafb)",
+							}}
+						>
+							<Show when={addLinkError() !== ""}>
+								<pre
+									style={{
+										color: "var(--color-danger)",
+										"white-space": "pre-wrap",
+										"font-size": "0.75rem",
+										margin: "0 0 6px",
+									}}
+								>
+									{addLinkError()}
+								</pre>
+							</Show>
+							<AddLinkForm
+								store={store()}
+								nookId={store().nookId()}
+								noteId={store().selectedId()}
+								onLinkCreated={() => {
+									setShowAddLink(false);
+									setAddLinkError("");
+									store().bumpLinksRevision();
+								}}
+								onError={setAddLinkError}
+							/>
+						</div>
+					</Show>
+
 					<TitleSection store={store()} />
-					<NoteAttributeFields
-						store={store()}
-						panelFilter={props.panelFilter}
-					/>
+					<DraftBanner store={store()} />
+					<Show
+						when={store().selectedId() === "" && store().mode() === "edit"}
+						fallback={
+							<NoteAttributeFields
+								store={store()}
+								panelFilter={props.panelFilter}
+							/>
+						}
+					>
+						{/* Force title-first for new notes. Content + attributes
+						    stay hidden until the note has a real id — the user
+						    picks a title (+ optional type), hits Create, then
+						    the real editor takes over.
+
+						    Enter in the title input also submits (see
+						    TitleSection); this button is the visible fallback
+						    for users who miss the Enter shortcut. */}
+						<div
+							style={{
+								display: "flex",
+								"align-items": "center",
+								"justify-content": "space-between",
+								gap: "12px",
+								padding: "14px 16px",
+								margin: "8px 0 12px",
+								border: "1px solid var(--color-border-light, #d1d5db)",
+								"border-radius": "6px",
+								background: "var(--color-bg-secondary, #f9fafb)",
+								"font-size": "0.9rem",
+								"flex-wrap": "wrap",
+							}}
+						>
+							<div style={{ color: "var(--color-text-secondary, #6b7280)" }}>
+								{store().title().trim() === ""
+									? "Title this note to get started — press Enter or click Create."
+									: "Ready. Press Enter or click Create."}
+							</div>
+							<Button
+								variant="primary"
+								size="small"
+								disabled={store().loading() || store().title().trim() === ""}
+								onClick={async () => {
+									await store().saveNote();
+									// New-note create: stay in edit mode (see toolbar
+									// onSave for the matching rationale). setMode is
+									// not touched here — the store is already in
+									// edit mode from newNote().
+								}}
+								title={
+									store().title().trim() === ""
+										? "Enter a title first"
+										: "Create the note (Enter also works)"
+								}
+							>
+								Create note
+							</Button>
+						</div>
+					</Show>
 				</div>
 			</Show>
 		</>

@@ -18,10 +18,18 @@
         # (inline style attrs on selection decorations + popovers), D3 (SVG
         # styling on the graph), and Mermaid (post-render SVG styling).
         # Bounded blast radius: CSS-only UI redress, not script execution.
-        # frame-src 'self' allows the browser's built-in PDF viewer to render
-        # signed /files/*.pdf URLs in an iframe. frame-ancestors 'none' still
-        # blocks anyone embedding us, which is the clickjacking defense.
-        Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' blob:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; frame-src 'self'; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests"
+        # frame-src 'self'   — we can embed our own pages (PDF viewer etc.).
+        # frame-ancestors 'self' — only same-origin pages can embed us. Still
+        # blocks third-party clickjacking; allows internal preview/compare
+        # views that iframe one of our routes.
+        # connect-src includes ws://localhost:8889 for the optional wake-word
+        # sidecar (KIOSK ONLY — see app/wake/ + deploy/host/docker-compose.yml).
+        # The browser opens a WebSocket and streams mic audio TO LOCALHOST
+        # only; the sidecar runs locally on the kiosk machine. Without this
+        # allowlist entry the browser CSP blocks the WS connection. Safe to
+        # leave allowed in non-kiosk deployments — there's nothing listening
+        # on localhost:8889 unless the sidecar is actually running.
+        Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' blob:; connect-src 'self' ws://localhost:8889; worker-src 'self'; manifest-src 'self'; frame-src 'self'; frame-ancestors 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests"
         -Server
     }
 

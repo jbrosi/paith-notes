@@ -11,6 +11,7 @@ export type NookToolbarProps = {
 	onSave: () => void;
 	onDelete: () => void;
 	onToggleMode: () => void;
+	onAddLink: () => void;
 };
 
 export function NookToolbar(props: NookToolbarProps) {
@@ -27,6 +28,13 @@ export function NookToolbar(props: NookToolbarProps) {
 					<Button
 						onClick={props.onSave}
 						disabled={props.loading || props.title.trim() === ""}
+						title={
+							props.loading
+								? "Saving / loading in progress"
+								: props.title.trim() === ""
+									? "Title is required"
+									: "Save"
+						}
 					>
 						Save
 					</Button>
@@ -35,6 +43,16 @@ export function NookToolbar(props: NookToolbarProps) {
 
 			{/* Right side: edit toggle + delete/cancel (only when canWrite) */}
 			<div class={styles.toolbarRight}>
+				<Show when={props.canWrite && props.selectedId !== "" && !isEditing()}>
+					<Button
+						variant="secondary"
+						size="small"
+						onClick={props.onAddLink}
+						title="Add a link from this note"
+					>
+						+ Add link
+					</Button>
+				</Show>
 				<Show when={props.canWrite}>
 					<Show
 						when={isEditing()}

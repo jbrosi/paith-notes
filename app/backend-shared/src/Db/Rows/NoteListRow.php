@@ -22,6 +22,10 @@ final readonly class NoteListRow
         public int $incomingMentionsCount,
         public int $outgoingLinksCount,
         public int $incomingLinksCount,
+        /** Character count of the note's content. Helps clients (the AI
+         *  in particular) decide whether a full `get_note` is worth the
+         *  context cost vs. a partial `read_note_lines` peek. */
+        public int $contentChars,
     ) {
     }
 
@@ -39,6 +43,7 @@ final readonly class NoteListRow
             incomingMentionsCount: Row::int($row, 'incoming_mentions_count'),
             outgoingLinksCount: Row::int($row, 'outgoing_links_count'),
             incomingLinksCount: Row::int($row, 'incoming_links_count'),
+            contentChars: Row::int($row, 'content_chars'),
         );
     }
 
@@ -52,6 +57,7 @@ final readonly class NoteListRow
      *     incoming_mentions_count: int,
      *     outgoing_links_count: int,
      *     incoming_links_count: int,
+     *     content_chars: int,
      * }
      */
     public function toArray(): array
@@ -65,6 +71,7 @@ final readonly class NoteListRow
             'incoming_mentions_count' => $this->incomingMentionsCount,
             'outgoing_links_count' => $this->outgoingLinksCount,
             'incoming_links_count' => $this->incomingLinksCount,
+            'content_chars' => $this->contentChars,
         ];
     }
 }

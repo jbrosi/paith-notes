@@ -66,11 +66,8 @@ final class NotesController
         $limitRaw = $request->queryParam('limit');
         $limit = min(50, max(1, $limitRaw !== '' ? (int)$limitRaw : 20));
 
-        $typeId = trim($request->queryParam('type_id'));
-        $hasTypeFilter = $typeId !== '';
-        if ($hasTypeFilter && !Uuid::isValid($typeId)) {
-            throw new HttpError('type_id must be a UUID', 400);
-        }
+        $typeIds = self::parseTypeIdsParam($request);
+        $hasTypeFilter = $typeIds !== [];
         $v = strtolower(trim($request->queryParam('include_subtypes')));
         $includeSubtypes = in_array($v, ['1', 'true', 'yes', 'on'], true);
 
@@ -79,18 +76,25 @@ final class NotesController
         $whereType = '';
         $cteHead = '';
         $params = [':nook_id' => $nookId];
-        if ($hasTypeFilter && $includeSubtypes) {
-            $cteHead = 'with recursive type_tree as ('
-                . ' select id from global.note_types where id = :type_id and nook_id = :nook_id'
-                . ' union all'
-                . ' select nt.id from global.note_types nt join type_tree tt on nt.parent_id = tt.id'
-                . ' where nt.nook_id = :nook_id'
-                . ') ';
-            $whereType = ' and type_id in (select id from type_tree)';
-            $params[':type_id'] = $typeId;
-        } elseif ($hasTypeFilter) {
-            $whereType = ' and type_id = :type_id';
-            $params[':type_id'] = $typeId;
+        if ($hasTypeFilter) {
+            $tidPlaceholders = [];
+            foreach ($typeIds as $i => $tid) {
+                $ph = ':type_id_' . $i;
+                $tidPlaceholders[] = $ph;
+                $params[$ph] = $tid;
+            }
+            $tidList = implode(',', $tidPlaceholders);
+            if ($includeSubtypes) {
+                $cteHead = 'with recursive type_tree as ('
+                    . ' select id from global.note_types where id in (' . $tidList . ') and nook_id = :nook_id'
+                    . ' union all'
+                    . ' select nt.id from global.note_types nt join type_tree tt on nt.parent_id = tt.id'
+                    . ' where nt.nook_id = :nook_id'
+                    . ') ';
+                $whereType = ' and type_id in (select id from type_tree)';
+            } else {
+                $whereType = ' and type_id in (' . $tidList . ')';
+            }
         }
 
         $whereQ = '';
@@ -163,11 +167,8 @@ final class NotesController
 
         NookAccess::requireMember($pdo, $user, $nookId);
 
-        $typeId = trim($request->queryParam('type_id'));
-        $hasTypeFilter = $typeId !== '';
-        if ($hasTypeFilter && !Uuid::isValid($typeId)) {
-            throw new HttpError('type_id must be a UUID', 400);
-        }
+        $typeIds = self::parseTypeIdsParam($request);
+        $hasTypeFilter = $typeIds !== [];
 
         $v = strtolower(trim($request->queryParam('include_subtypes')));
         $includeSubtypes = in_array($v, ['1', 'true', 'yes', 'on'], true);
@@ -208,9 +209,17 @@ final class NotesController
         }
 
         if ($hasTypeFilter) {
-            $typeCheck = $pdo->prepare('select 1 from global.note_types where id = :id and nook_id = :nook_id');
-            $typeCheck->execute([':id' => $typeId, ':nook_id' => $nookId]);
-            if (!$typeCheck->fetchColumn()) {
+            $tidPlaceholders = [];
+            $checkParams = [':nook_id' => $nookId];
+            foreach ($typeIds as $i => $tid) {
+                $ph = ':id_' . $i;
+                $tidPlaceholders[] = $ph;
+                $checkParams[$ph] = $tid;
+            }
+            $tidList = implode(',', $tidPlaceholders);
+            $typeCheck = $pdo->prepare('select count(*) from global.note_types where id in (' . $tidList . ') and nook_id = :nook_id');
+            $typeCheck->execute($checkParams);
+            if ((int)$typeCheck->fetchColumn() !== count($typeIds)) {
                 throw new HttpError('type not found', 404);
             }
         }
@@ -260,13 +269,23 @@ final class NotesController
         // Only select `attributes` when the caller asked for it — keeps
         // the wire payload light for list views that just want title/id.
         $attrsCol = $includeAttrs ? 'n.attributes,' : '';
+        // char_length (not octet_length) so the AI sees a count that matches
+        // what it'd read — character-aligned (multibyte safe), roughly
+        // correlated with token cost.
         $selectCols = "select n.id, n.title, n.type_id, {$attrsCol} n.created_at, n.updated_at,
                     coalesce(ns.outgoing_mentions, 0) as outgoing_mentions_count,
                     coalesce(ns.incoming_mentions, 0) as incoming_mentions_count,
                     coalesce(ns.outgoing_links, 0) as outgoing_links_count,
                     coalesce(ns.incoming_links, 0) as incoming_links_count,
+                    char_length(coalesce(n.content, '')) as content_chars,
                     {$searchRank} as search_rank";
         $joinCounts = 'left join global.note_stats ns on ns.note_id = n.id';
+
+        $tidPlaceholders = [];
+        foreach ($typeIds as $i => $tid) {
+            $tidPlaceholders[] = ':type_id_' . $i;
+        }
+        $tidList = implode(',', $tidPlaceholders);
 
         if (!$hasTypeFilter) {
             $sql = $selectCols . ' from global.notes n ' . $joinCounts
@@ -281,7 +300,7 @@ final class NotesController
             $stmt->bindValue(':limit', $limitPlusOne, PDO::PARAM_INT);
         } elseif ($includeSubtypes) {
             $sql = 'with recursive type_tree as ('
-                . ' select id from global.note_types where id = :type_id and nook_id = :nook_id'
+                . ' select id from global.note_types where id in (' . $tidList . ') and nook_id = :nook_id'
                 . ' union all'
                 . ' select nt.id from global.note_types nt join type_tree tt on nt.parent_id = tt.id'
                 . ' where nt.nook_id = :nook_id'
@@ -296,11 +315,13 @@ final class NotesController
                 . ' limit :limit';
             $stmt = $pdo->prepare($sql);
             $stmt->bindValue(':nook_id', $nookId);
-            $stmt->bindValue(':type_id', $typeId);
+            foreach ($typeIds as $i => $tid) {
+                $stmt->bindValue(':type_id_' . $i, $tid);
+            }
             $stmt->bindValue(':limit', $limitPlusOne, PDO::PARAM_INT);
         } else {
             $sql = $selectCols . ' from global.notes n ' . $joinCounts
-                . ' where n.nook_id = :nook_id and n.type_id = :type_id '
+                . ' where n.nook_id = :nook_id and n.type_id in (' . $tidList . ') '
                 . $whereCursor
                 . ' ' . $whereSearch
                 . ' ' . $whereAttrFilter
@@ -309,7 +330,9 @@ final class NotesController
                 . ' limit :limit';
             $stmt = $pdo->prepare($sql);
             $stmt->bindValue(':nook_id', $nookId);
-            $stmt->bindValue(':type_id', $typeId);
+            foreach ($typeIds as $i => $tid) {
+                $stmt->bindValue(':type_id_' . $i, $tid);
+            }
             $stmt->bindValue(':limit', $limitPlusOne, PDO::PARAM_INT);
         }
 
@@ -743,6 +766,259 @@ final class NotesController
         ]);
     }
 
+    /**
+     * GET /nooks/{nookId}/notes/{noteId}/toc — table of contents for a note.
+     *
+     * Thinner than /summary: returns just the heading skeleton (level + text
+     * + char-offset position) plus the minimum context the AI needs to
+     * decide whether to read a section or the whole thing — title and
+     * content_chars. No attributes, no body. Headings are kept in sync on
+     * every save/edit by HeadingsService, so this is just a cheap read.
+     *
+     * Pairs with get_note_section(noteId, position): the AI calls toc to
+     * see "what's in this note", then reads only the section it wants.
+     */
+    public function toc(Request $request, Context $context): Response
+    {
+        $pdo = $context->pdo();
+        $user = $context->user();
+
+        $nookId = $request->requireUuidRouteParam('nookId');
+        $noteId = $request->requireUuidRouteParam('noteId');
+
+        NookAccess::requireMember($pdo, $user, $nookId);
+
+        $stmt = $pdo->prepare(
+            'select title, char_length(coalesce(content, \'\')) as content_chars, version '
+            . 'from global.notes where nook_id = :nook_id and id = :id'
+        );
+        $stmt->execute([':nook_id' => $nookId, ':id' => $noteId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!is_array($row)) {
+            throw new HttpError('note not found', 404);
+        }
+        $contentChars = Row::int($row, 'content_chars');
+
+        // Enrich each heading with `position_end` (the start of the next
+        // heading at equal-or-higher level, or end-of-document) and
+        // `chars` (size of the section the heading owns). With these two
+        // fields the AI can:
+        //   • see which sections are small enough to read in full vs.
+        //     which need peeking,
+        //   • feed `position` straight into get_note_section to read
+        //     just that chunk,
+        // without having to do the next-equal-or-higher-level lookup
+        // itself (which is exactly the cut get_note_section makes too).
+        $headings = self::fetchHeadingRows($pdo, $nookId, $noteId);
+        $count = count($headings);
+        $enriched = [];
+        for ($i = 0; $i < $count; $i++) {
+            $h = $headings[$i];
+            $endPos = $contentChars;
+            for ($j = $i + 1; $j < $count; $j++) {
+                if ($headings[$j]->level <= $h->level) {
+                    $endPos = $headings[$j]->position;
+                    break;
+                }
+            }
+            $enriched[] = [
+                'level' => $h->level,
+                'text' => $h->text,
+                'position' => $h->position,
+                'position_end' => $endPos,
+                'chars' => max(0, $endPos - $h->position),
+            ];
+        }
+
+        return JsonResponse::ok([
+            'toc' => [
+                'note_id' => $noteId,
+                'nook_id' => $nookId,
+                'title' => Row::str($row, 'title'),
+                'content_chars' => $contentChars,
+                'version' => Row::int($row, 'version'),
+                'headings' => $enriched,
+            ],
+        ]);
+    }
+
+    /**
+     * GET /nooks/{nookId}/notes/{noteId}/part?from=X&to=Y — read a
+     * half-open character range [from, to) of a note's content.
+     *
+     * Pairs with /toc: the AI gets each heading's `position` and
+     * `position_end`, then passes (first.position, last.position_end)
+     * to read N adjacent sections in one shot — vs. N round-trips
+     * through get_note_section. `to` is exclusive so passing a TOC
+     * `position_end` reads through the natural section boundary
+     * without including the next heading's first char.
+     *
+     * Multibyte-safe: PostgreSQL's substring is character-based by
+     * default, so positions are character offsets (matching what /toc
+     * and char_length report — not byte offsets).
+     *
+     * Bounds: `from` and `to` clamp to [0, content_chars]. Out-of-range
+     * is not an error — returns an empty slice if nothing falls in the
+     * window, so the AI doesn't have to pre-check.
+     */
+    public function part(Request $request, Context $context): Response
+    {
+        $pdo = $context->pdo();
+        $user = $context->user();
+
+        $nookId = $request->requireUuidRouteParam('nookId');
+        $noteId = $request->requireUuidRouteParam('noteId');
+
+        NookAccess::requireMember($pdo, $user, $nookId);
+
+        $fromRaw = trim($request->queryParam('from'));
+        $toRaw = trim($request->queryParam('to'));
+        if ($fromRaw === '' || !ctype_digit($fromRaw)) {
+            throw new HttpError('from is required (non-negative integer)', 400);
+        }
+        if ($toRaw === '' || !ctype_digit($toRaw)) {
+            throw new HttpError('to is required (non-negative integer)', 400);
+        }
+        $from = (int)$fromRaw;
+        $to = (int)$toRaw;
+        if ($to < $from) {
+            throw new HttpError('to must be >= from', 400);
+        }
+
+        $stmt = $pdo->prepare(
+            'select title, char_length(coalesce(content, \'\')) as content_chars, version, content '
+            . 'from global.notes where nook_id = :nook_id and id = :id'
+        );
+        $stmt->execute([':nook_id' => $nookId, ':id' => $noteId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!is_array($row)) {
+            throw new HttpError('note not found', 404);
+        }
+        $contentChars = Row::int($row, 'content_chars');
+        $content = is_string($row['content'] ?? null) ? (string)$row['content'] : '';
+
+        // Clamp to content bounds. mb_substr uses character indices,
+        // matching what /toc reports.
+        $fromClamped = max(0, min($from, $contentChars));
+        $toClamped = max($fromClamped, min($to, $contentChars));
+        $length = $toClamped - $fromClamped;
+        $part = $length > 0 ? mb_substr($content, $fromClamped, $length) : '';
+
+        return JsonResponse::ok([
+            'part' => [
+                'note_id' => $noteId,
+                'nook_id' => $nookId,
+                'title' => Row::str($row, 'title'),
+                'content_chars' => $contentChars,
+                'version' => Row::int($row, 'version'),
+                'from' => $fromClamped,
+                'to' => $toClamped,
+                'truncated' => $fromClamped !== $from || $toClamped !== $to,
+                'content' => $part,
+            ],
+        ]);
+    }
+
+    /**
+     * GET /nooks/{nookId}/notes/{noteId}/search?q=... — find every
+     * occurrence of a substring within one note's content. Returns each
+     * match's character position + surrounding context.
+     *
+     * Pairs with /part: AI gets the positions, picks one, calls /part
+     * for the chunk it wants. Cheaper than get_note + client-side
+     * scanning because we send back only matches + context, not the
+     * whole body.
+     *
+     * Substring match (not regex) — keeps the contract simple and
+     * removes the regex-DOS surface. Case-insensitive by default; pass
+     * case_sensitive=1 to opt out. context_chars caps each side's
+     * context window (default 60, max 500) so a sparse match in a huge
+     * note doesn't return the whole note.
+     */
+    public function searchInNote(Request $request, Context $context): Response
+    {
+        $pdo = $context->pdo();
+        $user = $context->user();
+
+        $nookId = $request->requireUuidRouteParam('nookId');
+        $noteId = $request->requireUuidRouteParam('noteId');
+
+        NookAccess::requireMember($pdo, $user, $nookId);
+
+        $q = $request->queryParam('q');
+        if ($q === '') {
+            throw new HttpError('q is required (non-empty)', 400);
+        }
+        $caseSensitive = $request->queryParam('case_sensitive') === '1';
+        $contextRaw = trim($request->queryParam('context_chars'));
+        $contextChars = $contextRaw === '' ? 60 : max(0, min(500, (int)$contextRaw));
+        // Hard cap on returned matches so a query like "the" on a long
+        // note doesn't blow up the response. Past the cap, callers can
+        // narrow the query.
+        $maxMatches = 50;
+
+        $stmt = $pdo->prepare(
+            'select title, content, char_length(coalesce(content, \'\')) as content_chars, version '
+            . 'from global.notes where nook_id = :nook_id and id = :id'
+        );
+        $stmt->execute([':nook_id' => $nookId, ':id' => $noteId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!is_array($row)) {
+            throw new HttpError('note not found', 404);
+        }
+        $content = is_string($row['content'] ?? null) ? (string)$row['content'] : '';
+        $contentChars = Row::int($row, 'content_chars');
+
+        // Use mb_* for multibyte safety — positions match the char-based
+        // offsets reported by /toc and /part.
+        $haystack = $caseSensitive ? $content : mb_strtolower($content);
+        $needle = $caseSensitive ? $q : mb_strtolower($q);
+        $needleLen = mb_strlen($needle);
+
+        $matches = [];
+        $totalFound = 0;
+        $offset = 0;
+        while (true) {
+            $pos = mb_strpos($haystack, $needle, $offset);
+            if ($pos === false) {
+                break;
+            }
+            $totalFound++;
+            if (count($matches) < $maxMatches) {
+                $ctxStart = max(0, $pos - $contextChars);
+                $ctxEnd = min($contentChars, $pos + $needleLen + $contextChars);
+                $matches[] = [
+                    'position' => $pos,
+                    'end' => $pos + $needleLen,
+                    'context' => mb_substr($content, $ctxStart, $ctxEnd - $ctxStart),
+                    'context_from' => $ctxStart,
+                    'context_to' => $ctxEnd,
+                ];
+            }
+            // Advance past this match so we find disjoint occurrences
+            // (not overlapping). For empty-needle we'd infinite-loop;
+            // already guarded above with the non-empty `q` check.
+            $offset = $pos + $needleLen;
+        }
+
+        return JsonResponse::ok([
+            'search' => [
+                'note_id' => $noteId,
+                'nook_id' => $nookId,
+                'title' => Row::str($row, 'title'),
+                'content_chars' => $contentChars,
+                'version' => Row::int($row, 'version'),
+                'q' => $q,
+                'case_sensitive' => $caseSensitive,
+                'total_matches' => $totalFound,
+                'returned_matches' => count($matches),
+                // True when we truncated — caller knows to narrow.
+                'truncated' => $totalFound > count($matches),
+                'matches' => $matches,
+            ],
+        ]);
+    }
+
     public function create(Request $request, Context $context): Response
     {
         $pdo = $context->pdo();
@@ -1002,6 +1278,188 @@ final class NotesController
                     'version' => Row::int($row, 'version'),
                     'created_at' => is_scalar($createdAt) ? (string)$createdAt : '',
                 ],
+            ]);
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            throw $e;
+        }
+    }
+
+    /**
+     * Surgical content edit by string substitution. Atomic across all
+     * `edits` — any failure rolls back the whole call.
+     *
+     * POST /nooks/{nookId}/notes/{noteId}/edit
+     * body: {
+     *   expected_version: int,
+     *   edits: [{ old_string, new_string, replace_all? }, ...]
+     * }
+     *
+     * Rationale: update() requires the full content to be re-sent, which
+     * is wasteful (and a context burner) when the AI just wants to tweak
+     * a section. This endpoint applies a search-and-replace server-side.
+     * The uniqueness check (when replace_all is false) is the key safety
+     * net — a non-unique old_string almost always means the AI is about
+     * to wreck something with an ambiguous match.
+     *
+     * Each edit applies to the RUNNING content (i.e. edit N+1 sees the
+     * result of edit N), so the AI can chain dependent rewrites in one
+     * call. One user approval covers the whole batch.
+     */
+    public function edit(Request $request, Context $context): Response
+    {
+        $pdo = $context->pdo();
+        $user = $context->user();
+
+        $nookId = $request->requireUuidRouteParam('nookId');
+        $noteId = $request->requireUuidRouteParam('noteId');
+        $userId = $user->id;
+        if ($userId === '') {
+            throw new HttpError('invalid user', 500);
+        }
+
+        $role = NookAccess::requireWriteAccess($pdo, $user, $nookId);
+
+        $data = $request->jsonBody();
+        $expectedVersion = $data['expected_version'] ?? null;
+        if (!is_int($expectedVersion)) {
+            throw new HttpError('expected_version is required (int)', 400);
+        }
+
+        $editsRaw = $data['edits'] ?? null;
+        if (!is_array($editsRaw) || $editsRaw === []) {
+            throw new HttpError('edits must be a non-empty array of {old_string, new_string, replace_all?}', 400);
+        }
+        /** @var list<array{old: string, new: string, replaceAll: bool}> $edits */
+        $edits = [];
+        foreach ($editsRaw as $i => $rawEdit) {
+            if (!is_array($rawEdit)) {
+                throw new HttpError("edits[{$i}] must be an object", 400);
+            }
+            $old = $rawEdit['old_string'] ?? null;
+            $new = $rawEdit['new_string'] ?? null;
+            if (!is_string($old) || $old === '') {
+                throw new HttpError("edits[{$i}].old_string must be a non-empty string", 400);
+            }
+            if (!is_string($new)) {
+                throw new HttpError("edits[{$i}].new_string must be a string", 400);
+            }
+            $replaceAll = $rawEdit['replace_all'] ?? false;
+            if (!is_bool($replaceAll)) {
+                throw new HttpError("edits[{$i}].replace_all must be a boolean", 400);
+            }
+            $edits[] = ['old' => $old, 'new' => $new, 'replaceAll' => $replaceAll];
+        }
+
+        // Permission: owner can edit anything; otherwise only own notes.
+        $allowed = false;
+        if ($role === NookRole::Owner) {
+            $allowed = true;
+        } else {
+            $c = $pdo->prepare('select created_by from global.notes where id = :id and nook_id = :nook_id');
+            $c->execute([':id' => $noteId, ':nook_id' => $nookId]);
+            $createdBy = $c->fetchColumn();
+            if (is_scalar($createdBy) && (string)$createdBy === $userId) {
+                $allowed = true;
+            }
+        }
+        if (!$allowed) {
+            throw new HttpError('forbidden', 403);
+        }
+
+        // Load current content + version. Optimistic-lock against expected;
+        // if it shifted between the AI's last read and this edit, fail loud
+        // so the AI can re-read and retry (matches update() semantics).
+        $stmt = $pdo->prepare('select content, version, title from global.notes where id = :id and nook_id = :nook_id');
+        $stmt->execute([':id' => $noteId, ':nook_id' => $nookId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!is_array($row)) {
+            throw new HttpError('note not found', 404);
+        }
+        $content = is_string($row['content'] ?? null) ? (string)$row['content'] : '';
+        $currentVersion = is_scalar($row['version'] ?? null) ? (int)$row['version'] : 0;
+        $title = is_string($row['title'] ?? null) ? (string)$row['title'] : '';
+
+        if ($currentVersion !== $expectedVersion) {
+            return JsonResponse::error('note was edited in the meantime', 409, [
+                'current_version' => $currentVersion,
+                'expected_version' => $expectedVersion,
+            ]);
+        }
+
+        // Apply edits in order against the running content. substr_count
+        // avoids a regex for fixed-string matching (faster, no escape
+        // footguns). Bail on any error — the caller sees nothing applied
+        // (we haven't started the DB write yet).
+        $totalReplacements = 0;
+        $applied = [];
+        foreach ($edits as $i => $e) {
+            $occurrences = substr_count($content, $e['old']);
+            if ($occurrences === 0) {
+                throw new HttpError(
+                    "edits[{$i}].old_string was not found in the note content"
+                    . ($i > 0 ? ' (after earlier edits in this batch were applied)' : ''),
+                    404,
+                );
+            }
+            if (!$e['replaceAll'] && $occurrences > 1) {
+                throw new HttpError(
+                    "edits[{$i}].old_string matched {$occurrences} times — pass replace_all=true "
+                    . 'to substitute every occurrence, or extend old_string with surrounding context '
+                    . 'until it matches exactly once.',
+                    409,
+                );
+            }
+            if ($e['replaceAll']) {
+                $content = str_replace($e['old'], $e['new'], $content);
+                $totalReplacements += $occurrences;
+                $applied[] = ['index' => $i, 'replacements' => $occurrences];
+            } else {
+                $pos = strpos($content, $e['old']);
+                if ($pos === false) {
+                    throw new HttpError("edits[{$i}].old_string position lookup failed (race)", 500);
+                }
+                $content = substr($content, 0, $pos) . $e['new'] . substr($content, $pos + strlen($e['old']));
+                $totalReplacements += 1;
+                $applied[] = ['index' => $i, 'replacements' => 1];
+            }
+        }
+
+        try {
+            $pdo->beginTransaction();
+            $upd = $pdo->prepare(
+                'update global.notes set content = :content, updated_at = now() '
+                . 'where id = :id and nook_id = :nook_id '
+                . 'returning version, updated_at'
+            );
+            $upd->execute([
+                ':id' => $noteId,
+                ':nook_id' => $nookId,
+                ':content' => $content,
+            ]);
+            $updRow = $upd->fetch(PDO::FETCH_ASSOC);
+            if (!is_array($updRow)) {
+                throw new HttpError('note not found', 404);
+            }
+
+            // Keep mentions + headings indices in sync with the new content.
+            $this->mentions->syncMentions($pdo, $nookId, $noteId, $content, $userId);
+            $this->headings->syncHeadings($pdo, $nookId, $noteId, $content);
+
+            $pdo->commit();
+
+            return JsonResponse::ok([
+                'note' => [
+                    'id' => $noteId,
+                    'nook_id' => $nookId,
+                    'title' => $title,
+                    'content' => $content,
+                    'version' => Row::int($updRow, 'version'),
+                ],
+                'replacements' => $totalReplacements,
+                'edits_applied' => $applied,
             ]);
         } catch (Throwable $e) {
             if ($pdo->inTransaction()) {
@@ -1570,4 +2028,40 @@ final class NotesController
     }
 
     private const SIGNED_INLINE_TTL_SECONDS = 7200; // 2h
+
+    /**
+     * Parses `type_ids` (CSV) preferentially, falling back to legacy `type_id`
+     * (single UUID). Empty result means "no type filter". Throws 400 on a
+     * malformed UUID anywhere in the list — partial validation isn't useful.
+     *
+     * @return list<string>
+     */
+    private static function parseTypeIdsParam(Request $request): array
+    {
+        $multi = trim($request->queryParam('type_ids'));
+        if ($multi !== '') {
+            $ids = [];
+            foreach (explode(',', $multi) as $raw) {
+                $tid = trim($raw);
+                if ($tid === '') {
+                    continue;
+                }
+                if (!Uuid::isValid($tid)) {
+                    throw new HttpError('type_ids must be UUIDs', 400);
+                }
+                if (!in_array($tid, $ids, true)) {
+                    $ids[] = $tid;
+                }
+            }
+            return $ids;
+        }
+        $single = trim($request->queryParam('type_id'));
+        if ($single === '') {
+            return [];
+        }
+        if (!Uuid::isValid($single)) {
+            throw new HttpError('type_id must be a UUID', 400);
+        }
+        return [$single];
+    }
 }

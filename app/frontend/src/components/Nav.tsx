@@ -114,6 +114,19 @@ export function Nav() {
 		return nookDisplayName(found);
 	});
 
+	// Indigo — distinguishes the system-managed AI Memory nook from user
+	// nooks while staying consistent with the rest of the accent treatment.
+	// Not user-customisable for now; revisit if anyone asks.
+	const AI_MEMORY_ACCENT = "#6366f1";
+
+	const currentNookColor = createMemo(() => {
+		const id = currentNookId();
+		if (id === "") return "";
+		if (id === aiMemoryNookId()) return AI_MEMORY_ACCENT;
+		const found = nooks().find((n) => n.id === id);
+		return found?.accent_color || "";
+	});
+
 	createEffect(() => {
 		if (!auth.ready() || !auth.authenticated()) return;
 		if (nooksLoading()) return;
@@ -438,7 +451,14 @@ export function Nav() {
 
 	return (
 		<>
-			<nav class={styles.nav}>
+			<nav
+				class={styles.nav}
+				style={
+					currentNookColor()
+						? { "box-shadow": `inset 0 -2px 0 ${currentNookColor()}` }
+						: undefined
+				}
+			>
 				<div class={styles.links}>
 					<span class={styles.hideOnMobile}>
 						<A href="/" end activeClass="active">
@@ -505,6 +525,14 @@ export function Nav() {
 								type="button"
 								class={styles["dropdown-toggle"]}
 								onClick={() => toggleNooks()}
+								style={
+									currentNookColor()
+										? {
+												"border-left": `3px solid ${currentNookColor()}`,
+												"padding-left": "8px",
+											}
+										: undefined
+								}
 							>
 								{currentNookLabel()}
 								<Show when={noticeCount() > 0}>
@@ -520,7 +548,18 @@ export function Nav() {
 								/>
 								<div class={styles["dropdown-menu"]}>
 									<div class={styles.dropdownCloseBar}>
-										<span>{currentNookLabel()}</span>
+										<span
+											style={
+												currentNookColor()
+													? {
+															"border-left": `3px solid ${currentNookColor()}`,
+															"padding-left": "8px",
+														}
+													: undefined
+											}
+										>
+											{currentNookLabel()}
+										</span>
 										<button
 											type="button"
 											onClick={() => setNooksOpen(false)}
@@ -549,31 +588,17 @@ export function Nav() {
 											>
 												<span class={styles.dropdownItemContent}>
 													<span
-														style={{
-															display: "flex",
-															"align-items": "center",
-															gap: "6px",
-														}}
-													>
-														{(() => {
-															const found = nooks().find(
-																(nn) => nn.id === currentNookId(),
-															);
-															const color = found?.accent_color;
-															return (
-																<span
-																	style={{
+														style={
+															currentNookColor()
+																? {
 																		display: "inline-block",
-																		width: "10px",
-																		height: "10px",
-																		"border-radius": "3px",
-																		background: color || "#3b82f6",
-																		"flex-shrink": "0",
-																	}}
-																/>
-															);
-														})()}
-														<span>{currentNookLabel()}</span>
+																		"border-left": `3px solid ${currentNookColor()}`,
+																		"padding-left": "8px",
+																	}
+																: undefined
+														}
+													>
+														{currentNookLabel()}
 													</span>
 												</span>
 												{(() => {
@@ -618,28 +643,17 @@ export function Nav() {
 																	>
 																		<span class={styles.dropdownItemContent}>
 																			<span
-																				style={{
-																					display: "flex",
-																					"align-items": "center",
-																					gap: "6px",
-																				}}
-																			>
-																				{(() => {
-																					return (
-																						<span
-																							style={{
+																				style={
+																					n.accent_color
+																						? {
 																								display: "inline-block",
-																								width: "10px",
-																								height: "10px",
-																								"border-radius": "3px",
-																								background:
-																									n.accent_color || "#3b82f6",
-																								"flex-shrink": "0",
-																							}}
-																						/>
-																					);
-																				})()}
-																				<span>{nookDisplayName(n)}</span>
+																								"border-left": `3px solid ${n.accent_color}`,
+																								"padding-left": "8px",
+																							}
+																						: undefined
+																				}
+																			>
+																				{nookDisplayName(n)}
 																			</span>
 																			<Show when={!n.is_owned && n.owner_name}>
 																				<span class={styles.sharedByLabel}>
@@ -870,7 +884,12 @@ export function Nav() {
 								<A
 									href={`/nooks/${encodeURIComponent(aiMemoryNookId())}`}
 									class={styles.overflowItem}
-									style={{ "text-decoration": "none", color: "inherit" }}
+									style={{
+										"text-decoration": "none",
+										color: "inherit",
+										"border-left": `3px solid ${AI_MEMORY_ACCENT}`,
+										"padding-left": "8px",
+									}}
 								>
 									AI Memory
 								</A>

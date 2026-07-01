@@ -6,6 +6,8 @@ import { apiFetch } from "./auth/keycloak";
 import { useApi } from "./auth/useApi";
 import { Button } from "./components/Button";
 import { ChatPanel } from "./components/chat/ChatPanel";
+import { ImageLightbox } from "./components/ImageLightbox";
+import { MobileChatToggle } from "./components/MobileChatToggle";
 import { Nav } from "./components/Nav";
 import { createNotePreview } from "./components/NotePreview";
 import { NookProvider, useNook } from "./pages/nook/NookContext";
@@ -132,6 +134,21 @@ function AppContent(props: RouteSectionProps) {
 							currentNoteId={store()?.selectedId() || undefined}
 							currentNoteTitle={store()?.title() || undefined}
 							currentNoteType={undefined}
+							// Getters (not values) so ChatPanel snapshots at
+							// send-time, not at mount. The user may have typed
+							// more since the panel rendered — the AI should see
+							// the buffer as it is when they hit send.
+							currentNoteContent={() => store()?.content() ?? ""}
+							currentNoteVersion={() => store()?.noteVersion() ?? 0}
+							currentNoteInEditMode={() =>
+								store()?.mode() === "edit" && !!store()?.selectedId()
+							}
+							onEditCurrentEditor={(find, replace) =>
+								store()?.editCurrentEditor(find, replace) ?? {
+									applied: false,
+									error: "no active nook store",
+								}
+							}
 							currentPath={window.location.pathname}
 							onClose={() => ui.toggleChatPanel()}
 							onNavigateToNote={(id) => {
@@ -143,6 +160,10 @@ function AppContent(props: RouteSectionProps) {
 				</Show>
 			</div>
 			<chatNotePreview.PreviewPopover />
+			{/* Persistent bottom-right FAB — mobile only via CSS media query.
+			    Hidden on desktop where the Nav "Chat" button + sidebar make
+			    the toggle obvious. */}
+			<MobileChatToggle />
 		</div>
 	);
 }
@@ -151,6 +172,11 @@ export default function App(props: RouteSectionProps) {
 	return (
 		<NookProvider>
 			<AppContent {...props} />
+			{/* Global fullscreen image viewer — opened from anywhere via
+			    openImageLightbox(). Mounted once at the root so its
+			    portal + global keyboard listener live for the whole
+			    session, regardless of which route is active. */}
+			<ImageLightbox />
 		</NookProvider>
 	);
 }

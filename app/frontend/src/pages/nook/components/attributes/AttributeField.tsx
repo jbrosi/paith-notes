@@ -203,6 +203,7 @@ export function AttributeField(props: {
 					<div style={labelStyle}>{props.attr.name}</div>
 					<input
 						type="number"
+						step="any"
 						value={numVal()}
 						onInput={(e) => props.onChange(Number(e.currentTarget.value))}
 						disabled={props.disabled}
