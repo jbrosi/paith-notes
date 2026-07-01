@@ -1,0 +1,95 @@
+.backdrop {
+	position: fixed;
+	inset: 0;
+	background: rgb(0 0 0 / 90%);
+	z-index: 9999;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	overflow: hidden;
+}
+
+/* The container is the d3-zoom target — it captures wheel/drag events
+ * across the entire viewport. Overflow hidden so translated content
+ * doesn't spill onto the page below.
+ *
+ * d3-zoom sets the transform on .viewport directly on every event, so
+ * the container has to be flex-centered (positions viewport visually)
+ * and the viewport has to have no initial transform of its own (d3's
+ * identity is translate(0,0) scale(1) — starting from a CSS translate
+ * would drift on the first zoom event). Same pattern the graph
+ * renderer uses. */
+.container {
+	position: absolute;
+	inset: 0;
+	overflow: hidden;
+	cursor: grab;
+	touch-action: none;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+
+.container:active {
+	cursor: grabbing;
+}
+
+.viewport {
+	transform-origin: 0 0;
+	will-change: transform;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+
+.image {
+	display: block;
+	max-width: 90vw;
+	max-height: 90vh;
+	user-select: none;
+	-webkit-user-drag: none;
+	pointer-events: none;
+}
+
+.toolbar {
+	position: fixed;
+	bottom: 20px;
+	left: 50%;
+	transform: translateX(-50%);
+	display: flex;
+	gap: 4px;
+	padding: 6px;
+	background: rgb(30 30 30 / 90%);
+	border-radius: 8px;
+	backdrop-filter: blur(8px);
+	z-index: 10000;
+}
+
+.toolbarBtn {
+	background: transparent;
+	border: none;
+	color: rgb(255 255 255 / 85%);
+	font-size: 18px;
+	font-weight: 500;
+	line-height: 1;
+	padding: 8px 12px;
+	min-width: 40px;
+	border-radius: 4px;
+	cursor: pointer;
+	font-family: system-ui, sans-serif;
+}
+
+.toolbarBtn:hover {
+	background: rgb(255 255 255 / 12%);
+	color: white;
+}
+
+.toolbarClose {
+	color: rgb(255 200 200 / 85%);
+	margin-left: 6px;
+}
+
+.toolbarClose:hover {
+	background: rgb(255 80 80 / 25%);
+	color: white;
+}

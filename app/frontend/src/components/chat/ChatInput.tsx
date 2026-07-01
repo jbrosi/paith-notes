@@ -28,8 +28,8 @@ const WAKE_LABEL = (
 const WAKE_AVAILABLE = WAKE_URL !== "" && isWakeSupported();
 
 const MODELS = [
-	{ value: "claude-sonnet-4-6", label: "Sonnet 4.6" },
-	{ value: "claude-opus-4-6", label: "Opus 4.6" },
+	{ value: "claude-sonnet-5", label: "Sonnet 5" },
+	{ value: "claude-opus-4-7", label: "Opus 4.7" },
 	{ value: "claude-haiku-4-5-20251001", label: "Haiku 4.5" },
 ];
 
@@ -55,7 +55,20 @@ export type SendMeta = {
 
 type Props = {
 	onSend: (text: string, model: string, meta?: SendMeta) => void;
+	/**
+	 * Hard lock — textarea, mic, send, model select ALL disabled.
+	 * Reserved for absolute-lockout states (rare). For "AI is generating"
+	 * use `busy` instead so the user can still draft their next message
+	 * while waiting.
+	 */
 	disabled: boolean;
+	/**
+	 * Soft lock — AI is working (streaming, reconnecting, or waiting on
+	 * tool approval). Textarea stays usable so the user can compose the
+	 * next message; only Send + mic + model-switch are blocked to avoid
+	 * racing an in-flight turn.
+	 */
+	busy?: boolean;
 	model: string;
 	onModelChange: (model: string) => void;
 	inputRef?: (el: HTMLTextAreaElement) => void;
@@ -114,7 +127,7 @@ export function ChatInput(props: Props) {
 
 	const submit = () => {
 		const t = text().trim();
-		if (!t || props.disabled) return;
+		if (!t || props.disabled || props.busy) return;
 		recognizer?.stop();
 		props.onSend(t, props.model);
 		setText("");
@@ -239,7 +252,11 @@ export function ChatInput(props: Props) {
 					onInput={(e) => setText(e.currentTarget.value)}
 					onKeyDown={onKeyDown}
 					disabled={props.disabled}
-					placeholder="Ask about your notes… (Enter to send)"
+					placeholder={
+						props.busy
+							? "Draft your next message… (send unlocks when the AI finishes)"
+							: "Ask about your notes… (Enter to send)"
+					}
 					rows={1}
 					ref={props.inputRef}
 				/>
@@ -248,7 +265,7 @@ export function ChatInput(props: Props) {
 						class={`${styles.micBtn} ${recognizer?.isListening() ? styles.micBtnActive : ""}`}
 						type="button"
 						onClick={toggleMic}
-						disabled={props.disabled}
+						disabled={props.disabled || props.busy}
 						title={
 							recognizer?.isListening()
 								? "Cancel recording — recording auto-submits when you pause"
@@ -267,7 +284,7 @@ export function ChatInput(props: Props) {
 					class={styles.sendBtn}
 					type="button"
 					onClick={submit}
-					disabled={props.disabled || text().trim() === ""}
+					disabled={props.disabled || props.busy || text().trim() === ""}
 				>
 					Send
 				</button>
@@ -277,7 +294,7 @@ export function ChatInput(props: Props) {
 					class={styles.modelSelect}
 					value={props.model}
 					onChange={(e) => props.onModelChange(e.currentTarget.value)}
-					disabled={props.disabled}
+					disabled={props.disabled || props.busy}
 				>
 					{MODELS.map((m) => (
 						<option value={m.value}>{m.label}</option>

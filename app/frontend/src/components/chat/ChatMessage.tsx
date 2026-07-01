@@ -148,6 +148,12 @@ const TOOL_LABELS: Record<string, string> = {
 	explore_notes: "Exploring notes",
 	delete_note: "Deleting note",
 	create_note_link: "Linking notes",
+	delete_note_link: "Removing link",
+	edit_note: "Editing note",
+	read_note_lines: "Reading note",
+	get_note_toc: "Reading note outline",
+	get_note_part: "Reading note section",
+	search_in_note: "Searching within note",
 	create_note_type: "Creating type",
 	update_note_type: "Updating type",
 	memory_create: "Saving to memory",
@@ -155,6 +161,7 @@ const TOOL_LABELS: Record<string, string> = {
 	memory_search: "Searching memory",
 	memory_get: "Reading memory",
 	search_agent: "Researching",
+	edit_note_agent: "Editing note (sub-agent)",
 };
 
 /** Unescape JSON string escapes for display */

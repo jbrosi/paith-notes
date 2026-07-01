@@ -122,3 +122,52 @@
 	gap: 8px;
 	margin-top: 4px;
 }
+
+/* edit_note diff preview — one wrap per edit in the batch. */
+.diffWrap {
+	margin-top: 6px;
+}
+
+.diffHeader {
+	font-size: 0.6875rem;
+	font-weight: 600;
+	color: var(--color-text-muted);
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+	margin-bottom: 2px;
+}
+
+.diffReplaceAll {
+	color: var(--color-warning-text);
+	font-weight: 600;
+}
+
+.diffBlock {
+	margin: 0;
+	padding: 6px 8px;
+	background: var(--color-bg);
+	border: 1px solid var(--color-border-light, var(--color-border-medium));
+	border-radius: 4px;
+	font-family: monospace;
+	font-size: 0.75rem;
+	line-height: 1.4;
+	overflow-x: auto;
+	white-space: pre;
+}
+
+.diffDel {
+	background: rgb(220 38 38 / 8%);
+	color: var(--color-danger);
+}
+
+.diffAdd {
+	background: rgb(22 163 74 / 8%);
+	color: var(--color-success, #16a34a);
+}
+
+.diffMarker {
+	display: inline-block;
+	width: 1em;
+	color: var(--color-text-muted);
+	user-select: none;
+}

@@ -24,6 +24,7 @@ use Paith\Notes\Shared\Db\Row;
 final class OpenAiImageGenerator implements ImageGenerator
 {
     private const ENDPOINT = 'https://api.openai.com/v1/images/generations';
+    private const EDIT_ENDPOINT = 'https://api.openai.com/v1/images/edits';
     private const DEFAULT_SIZE = '1024x1024';
     private const TIMEOUT_SECONDS = 120;
 
@@ -75,6 +76,48 @@ final class OpenAiImageGenerator implements ImageGenerator
                 'Content-Type' => 'application/json',
             ],
             $jsonBody,
+            self::TIMEOUT_SECONDS,
+        );
+
+        return $this->parseResponse($response['status'], $response['body']);
+    }
+
+    public function edit(string $prompt, array $sources, ImageGenerationOptions $options): GeneratedImage
+    {
+        $prompt = trim($prompt);
+        if ($prompt === '') {
+            throw new HttpError('prompt must be a non-empty string', 400);
+        }
+        if ($sources === []) {
+            throw new HttpError('edit requires at least one source image', 400);
+        }
+
+        $parts = [
+            ['name' => 'model', 'value' => $this->model],
+            ['name' => 'prompt', 'value' => $prompt],
+            ['name' => 'n', 'value' => '1'],
+            ['name' => 'size', 'value' => $options->size !== null && $options->size !== '' ? $options->size : self::DEFAULT_SIZE],
+            ['name' => 'background', 'value' => $options->transparent ? 'transparent' : 'opaque'],
+        ];
+        if ($options->quality !== null && $options->quality !== '') {
+            $parts[] = ['name' => 'quality', 'value' => $options->quality];
+        }
+        // gpt-image-1 accepts multiple input images via repeated
+        // `image[]` parts. The provider treats them as a single
+        // composite reference set, not a sequence.
+        foreach ($sources as $src) {
+            $parts[] = [
+                'name' => 'image[]',
+                'value' => $src->bytes,
+                'filename' => $src->filename !== '' ? $src->filename : 'source.png',
+                'contentType' => $src->mimeType !== '' ? $src->mimeType : 'application/octet-stream',
+            ];
+        }
+
+        $response = $this->transport->postMultipart(
+            self::EDIT_ENDPOINT,
+            ['Authorization' => 'Bearer ' . $this->apiKey],
+            $parts,
             self::TIMEOUT_SECONDS,
         );
 

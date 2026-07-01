@@ -46,18 +46,28 @@ final class SearchController
 
         $searchRank = '(' . $search['rank'] . ' + ln(1 + least(coalesce(ns.view_count, 0), 1000)) * 0.5)';
 
+        // Exclude nooks where the owner has set ai_mode='disabled' — cross-
+        // nook search must respect the per-nook AI ban regardless of which
+        // direction the search comes from. Single-nook fetch flows already
+        // get a clean error at the MCP layer; this guard handles the
+        // multi-nook surface where MCP can't filter per-result.
+        // Note: the search_in_note tool will still work on individual
+        // notes inside disabled nooks if the AI somehow gets an ID — that's
+        // blocked at the MCP layer, not here.
         $stmt = $pdo->prepare(
             "select n.id, n.title, n.nook_id, nk.name as nook_name, n.type_id, n.created_at,
                     coalesce(ns.outgoing_mentions, 0) as outgoing_mentions_count,
                     coalesce(ns.incoming_mentions, 0) as incoming_mentions_count,
                     coalesce(ns.outgoing_links, 0) as outgoing_links_count,
                     coalesce(ns.incoming_links, 0) as incoming_links_count,
+                    char_length(coalesce(n.content, '')) as content_chars,
                     {$searchRank} as search_rank
              from global.notes n
              join global.nooks nk on nk.id = n.nook_id
              join global.nook_members nm on nm.nook_id = n.nook_id and nm.user_id = :user_id
              left join global.note_stats ns on ns.note_id = n.id
              where {$search['where']}
+               and nk.ai_mode <> 'disabled'
              order by search_rank desc
              limit :limit"
         );

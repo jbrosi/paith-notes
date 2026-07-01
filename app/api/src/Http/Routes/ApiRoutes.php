@@ -20,10 +20,12 @@ use Paith\Notes\Api\Http\Controller\NookStatsController;
 use Paith\Notes\Api\Http\Controller\AttributeFilesController;
 use Paith\Notes\Api\Http\Controller\NoteTypesController;
 use Paith\Notes\Api\Http\Controller\TypeAttributesController;
+use Paith\Notes\Api\Http\Controller\NoteDraftsController;
 use Paith\Notes\Api\Http\Controller\NoteLinksController;
 use Paith\Notes\Api\Http\Controller\NookExportController;
 use Paith\Notes\Api\Http\Controller\NooksController;
 use Paith\Notes\Api\Http\Controller\NotesController;
+use Paith\Notes\Api\Http\Middleware\EnforceNookAiPolicy;
 use Paith\Notes\Api\Http\Middleware\RequireGroup;
 use Paith\Notes\Api\Http\Middleware\RequireUser;
 use Paith\Notes\Api\Http\RouteScope;
@@ -56,6 +58,10 @@ final class ApiRoutes
 
         $r->use('/nooks', new RequireUser());
         $r->use('/nooks', new RequireGroup('paith/notes/'));
+        // Single-source-of-truth enforcement for the owner-set "AI mode"
+        // policy. Runs on every /nooks/{nookId}/* route so individual
+        // controllers can't forget to check. See EnforceNookAiPolicy.
+        $r->use('/nooks', new EnforceNookAiPolicy());
 
         $r->use('/search', new RequireUser());
         $r->use('/search', new RequireGroup('paith/notes/'));
@@ -120,13 +126,34 @@ final class ApiRoutes
         $r->get('/nooks/{nookId}/notes/{noteId}', [NotesController::class, 'get']);
         $r->post('/nooks/{nookId}/notes', [NotesController::class, 'create']);
         $r->add('PUT', '/nooks/{nookId}/notes/{noteId}', [NotesController::class, 'update']);
+        // Partial / surgical content edit by string substitution. Avoids
+        // shipping the whole content back when the AI just wants to
+        // change a section. See NotesController::edit.
+        $r->post('/nooks/{nookId}/notes/{noteId}/edit', [NotesController::class, 'edit']);
         $r->add('DELETE', '/nooks/{nookId}/notes/{noteId}', [NotesController::class, 'delete']);
         $r->get('/nooks/{nookId}/notes/{noteId}/summary', [NotesController::class, 'summary']);
+        $r->get('/nooks/{nookId}/notes/{noteId}/toc', [NotesController::class, 'toc']);
+        // Character-range read. Pairs with /toc: the AI picks N adjacent
+        // sections by passing the first's `position` as from and the
+        // last's `position_end` as to. Saves N round-trips vs. calling
+        // get_note_section once per section.
+        $r->get('/nooks/{nookId}/notes/{noteId}/part', [NotesController::class, 'part']);
+        // Find-in-note: returns each match's char position + surrounding
+        // context. AI uses positions to jump straight into get_note_part.
+        $r->get('/nooks/{nookId}/notes/{noteId}/search', [NotesController::class, 'searchInNote']);
         $r->get('/nooks/{nookId}/notes/{noteId}/mentions', [NotesController::class, 'mentions']);
         $r->get('/nooks/{nookId}/notes/{noteId}/presence', [NotesController::class, 'presence']);
         $r->get('/nooks/{nookId}/notes/{noteId}/history', [NotesController::class, 'history']);
         $r->get('/nooks/{nookId}/notes/{noteId}/diff', [NotesController::class, 'diff']);
         $r->get('/nooks/{nookId}/notes/{noteId}/history/{historyId}', [NotesController::class, 'historySnapshot']);
+
+        // Per-user unsaved-edit buffer. Debounced upsert from the
+        // editor; cleared on save or discard. Frontend uses the
+        // GET response to decide whether to surface the recovery
+        // banner (draft.updated_at > note_updated_at).
+        $r->get('/nooks/{nookId}/notes/{noteId}/draft', [NoteDraftsController::class, 'get']);
+        $r->add('PUT', '/nooks/{nookId}/notes/{noteId}/draft', [NoteDraftsController::class, 'put']);
+        $r->add('DELETE', '/nooks/{nookId}/notes/{noteId}/draft', [NoteDraftsController::class, 'delete']);
 
         // AI-driven image generation. nookId may be a real UUID or
         // the literal sentinel "ai-memory" (resolved server-side).
@@ -154,6 +181,10 @@ final class ApiRoutes
         $r->get('/conversations/{conversationId}/messages', [ConversationsController::class, 'listMessages']);
         $r->post('/conversations/{conversationId}/messages', [ConversationsController::class, 'appendMessages']);
         $r->post('/conversations/{conversationId}/note-links', [ConversationsController::class, 'createNoteLink']);
+        // Save one conversation's text into a note in a chosen nook. Same
+        // markdown shape as export, tool_use/tool_result blocks stripped
+        // (they're noise once you're capturing the outcome, not the mechanics).
+        $r->post('/conversations/{conversationId}/save-as-note', [ConversationsController::class, 'saveAsNote']);
 
         $r->group('/module_1', [Module1Routes::class, 'register']);
     }

@@ -1,7 +1,7 @@
 .backdrop {
 	position: fixed;
 	inset: 0;
-	background: rgba(0, 0, 0, 0.45);
+	background: rgb(0 0 0 / 45%);
 	display: flex;
 	align-items: center;
 	justify-content: center;
@@ -13,7 +13,7 @@
 	background: var(--color-bg, #fff);
 	color: var(--color-text, #111);
 	border-radius: 10px;
-	box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+	box-shadow: 0 12px 40px rgb(0 0 0 / 25%);
 	max-width: 560px;
 	width: 100%;
 	max-height: 90vh;
@@ -37,7 +37,7 @@
 .subtitle {
 	font-size: 0.95rem;
 	font-weight: 600;
-	margin: 0 0 8px 0;
+	margin: 0 0 8px;
 }
 
 .closeBtn {
@@ -53,7 +53,7 @@
 .intro {
 	font-size: 0.85rem;
 	color: var(--color-text-secondary, #6b7280);
-	margin: 0 0 16px 0;
+	margin: 0 0 16px;
 	line-height: 1.4;
 }
 
@@ -125,6 +125,7 @@
 	100% {
 		opacity: 1;
 	}
+
 	50% {
 		opacity: 0.7;
 	}

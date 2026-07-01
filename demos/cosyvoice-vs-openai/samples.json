@@ -1,0 +1,74 @@
+{
+  "samples": [
+    {
+      "id": "plain-en",
+      "instruction": "",
+      "text": "The notes from last quarter show three trends worth discussing."
+    },
+    {
+      "id": "plain-de",
+      "instruction": "",
+      "text": "Die Notizen vom letzten Quartal zeigen drei Trends, die wir besprechen sollten."
+    },
+    {
+      "id": "pace-slow",
+      "instruction": "Speak slowly, deliberately, leaving space between phrases.",
+      "text": "Let. Me. Make. Absolutely. Sure. You. Understand. This. Part."
+    },
+    {
+      "id": "pace-fast",
+      "instruction": "Speak rapidly and breathlessly, like you cannot contain yourself.",
+      "text": "I just realized, the keys are in the car, the car is in the garage, the garage is locked, and the spare is upstairs!"
+    },
+    {
+      "id": "mood-warm",
+      "instruction": "Warm, slow, smiling, like welcoming a friend home.",
+      "text": "It's so good to see you. Sit down, tell me everything."
+    },
+    {
+      "id": "mood-anxious",
+      "instruction": "Anxious, slightly hushed, worried about being overheard.",
+      "text": "I don't know if I should be telling you this, but I think something is wrong."
+    },
+    {
+      "id": "whisper",
+      "instruction": "Conspiratorial whisper, just above audible, drawing the listener in.",
+      "text": "The map. The map is hidden inside the second book on the third shelf."
+    },
+    {
+      "id": "excited",
+      "instruction": "Giddy, breathless, child-on-Christmas-morning excited.",
+      "text": "Oh my god you have to see this you have to come look right now!"
+    },
+    {
+      "id": "deadpan",
+      "instruction": "Completely flat, no inflection, bored monotone.",
+      "text": "I am extremely happy to be giving you this exciting news."
+    },
+    {
+      "id": "persona-radio",
+      "instruction": "Old-time radio announcer from the 1940s, theatrical and crisp.",
+      "text": "And now, ladies and gentlemen, a tale of mystery and intrigue."
+    },
+    {
+      "id": "persona-bedtime",
+      "instruction": "Warm grandparent reading a bedtime story to a sleepy child.",
+      "text": "Once upon a time, in a quiet forest at the edge of a sleepy village, there lived a small fox who loved to count stars."
+    },
+    {
+      "id": "switch-mood",
+      "instruction": "Start matter-of-fact, then suddenly become alarmed in the second sentence.",
+      "text": "I'll just grab the report from your desk. Wait — your desk is on fire."
+    },
+    {
+      "id": "non-verbal-laugh",
+      "instruction": "Speak with genuine laughter, as if recalling something funny.",
+      "text": "And then he tripped on the cat and dropped the whole cake. The cat looked so smug."
+    },
+    {
+      "id": "multilingual",
+      "instruction": "Conversational, casual, code-switching naturally.",
+      "text": "I had a Termin yesterday and the Arzt said I should drink mehr Wasser."
+    }
+  ]
+}

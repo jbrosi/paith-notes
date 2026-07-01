@@ -165,8 +165,23 @@ services:
     restart: unless-stopped
     # Bare-image deploy avoids needing a custom build pipeline on the prod
     # host. We install njs (with the qjs engine) on first boot, hard-fail
-    # on missing FILES_SIGNING_KEY, and only then exec nginx.
-    command: ["sh", "-lc", ": \"${FILES_SIGNING_KEY:?FILES_SIGNING_KEY must be set; generate with: openssl rand -hex 32}\" && apk add --no-cache nginx-module-njs && mkdir -p /data/tmp /data/notes && chown -R nginx:nginx /data && exec nginx -g 'daemon off;'" ]
+    # on missing FILES_SIGNING_KEY, render the runtime DNS resolver from
+    # /etc/resolv.conf (Docker has 127.0.0.11; podman+netavark uses the
+    # network gateway — hardcoding either breaks the other), and only then
+    # exec nginx.
+    command:
+      - "sh"
+      - "-lc"
+      - |
+        : "${FILES_SIGNING_KEY:?FILES_SIGNING_KEY must be set; generate with: openssl rand -hex 32}"
+        apk add --no-cache nginx-module-njs
+        mkdir -p /data/tmp /data/notes
+        chown -R nginx:nginx /data
+        ns=$$(awk '/^nameserver/ && $$2 !~ /:/{print $$2}' /etc/resolv.conf | tr '\n' ' ')
+        if [ -z "$$ns" ]; then echo "[paith files] FATAL: no IPv4 nameserver in /etc/resolv.conf" >&2; exit 1; fi
+        printf 'resolver %s valid=10s ipv6=off;\nresolver_timeout 5s;\n' "$$ns" > /etc/nginx/resolver.conf
+        echo "[paith files] resolver: $$ns"
+        exec nginx -g 'daemon off;'
     environment:
       FILES_SIGNING_KEY: ${FILES_SIGNING_KEY}
     volumes:
