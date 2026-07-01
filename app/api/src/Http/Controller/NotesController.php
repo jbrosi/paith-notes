@@ -980,7 +980,9 @@ final class NotesController
         $offset = 0;
         while (true) {
             $pos = mb_strpos($haystack, $needle, $offset);
-            if ($pos === false) break;
+            if ($pos === false) {
+                break;
+            }
             $totalFound++;
             if (count($matches) < $maxMatches) {
                 $ctxStart = max(0, $pos - $contextChars);
