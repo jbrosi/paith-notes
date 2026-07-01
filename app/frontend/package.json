@@ -32,7 +32,7 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.5.0",
+    "@biomejs/biome": "^2.5.2",
     "@types/d3": "^7.4.3",
     "autoprefixer": "^10.5.2",
     "cypress": "^15.18.0",
