@@ -38,9 +38,13 @@ it('returns a lean note projection (id+title+type_id only)', function (): void {
     $body = json_decode($res['body'], true);
     expect($body['notes'])->toHaveCount(2);
 
-    // Lean shape — none of the full-list join columns appear
+    // Lean shape — none of the full-list join columns appear.
+    // nook_id + version are inline so the AI can act on results without
+    // a second get_note round-trip.
     foreach ($body['notes'] as $n) {
-        expect(array_keys($n))->toBe(['id', 'title', 'type_id']);
+        expect(array_keys($n))->toBe(['id', 'nook_id', 'title', 'type_id', 'version']);
+        expect($n['nook_id'])->toBe($nookId);
+        expect($n['version'])->toBeGreaterThanOrEqual(0);
     }
 });
 

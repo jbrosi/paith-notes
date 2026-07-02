@@ -5,6 +5,7 @@ import {
 	rankNotesByQuery,
 	resolveTypeIdForTerm,
 } from "../../noteSearch";
+import { createEmbeddedImages } from "./embeddedImages";
 import {
 	clearLocalDraft,
 	deleteServerDraft,
@@ -16,6 +17,7 @@ import {
 	writeLocalDraft,
 } from "./noteDraftSync";
 import { createNoteTypeActions } from "./noteTypes";
+import { createTitleCache } from "./titleCache";
 import type {
 	AttributeLayout,
 	HeadingMatch,
@@ -38,73 +40,20 @@ import {
 } from "./types";
 
 export function createNookStore(nookId: () => string) {
-	// Key: "nookId:noteId" → title
-	const noteTitleCache = new Map<string, string>();
-	const nookTitleCache = new Map<string, string>();
-	const titleFetchInFlight = new Set<string>();
-	const [titleCacheVersion, setTitleCacheVersion] = createSignal(0);
-	const bumpTitleCache = () => setTitleCacheVersion((v) => v + 1);
-	const titleKey = (nook: string, noteId: string) => `${nook}:${noteId}`;
-	const cacheTitles = (
-		entries: Array<{ id: string; title: string }>,
-		forNookId?: string,
-	) => {
-		const nook = forNookId ?? nookId();
-		let changed = false;
-		for (const e of entries) {
-			const key = titleKey(nook, e.id);
-			if (e.id && e.title && noteTitleCache.get(key) !== e.title) {
-				noteTitleCache.set(key, e.title);
-				changed = true;
-			}
-		}
-		if (changed) bumpTitleCache();
-	};
-	const cacheNookName = (id: string, name: string) => {
-		if (id && name && nookTitleCache.get(id) !== name) {
-			nookTitleCache.set(id, name);
-			bumpTitleCache();
-		}
-	};
-	const fetchMissingTitles = (
-		refs: Array<{ nookId: string; noteId: string }>,
-	) => {
-		const missing = refs.filter((r) => {
-			const targetNook = r.nookId || nookId();
-			const key = titleKey(targetNook, r.noteId);
-			return (
-				r.noteId !== "" &&
-				!noteTitleCache.has(key) &&
-				!titleFetchInFlight.has(key)
-			);
-		});
-		if (missing.length === 0) return;
-		for (const r of missing)
-			titleFetchInFlight.add(titleKey(r.nookId || nookId(), r.noteId));
-		void Promise.all(
-			missing.map(async (r) => {
-				const targetNook = r.nookId || nookId();
-				const key = titleKey(targetNook, r.noteId);
-				try {
-					const res = await apiFetch(
-						`/api/nooks/${targetNook}/notes/${r.noteId}`,
-						{ method: "GET" },
-					);
-					if (!res.ok) return;
-					const json = await res.json();
-					const body = NoteResponseSchema.parse(json);
-					cacheTitles(
-						[{ id: body.note.id, title: body.note.title }],
-						targetNook,
-					);
-				} catch {
-					// best-effort — user may not have access to that nook
-				} finally {
-					titleFetchInFlight.delete(key);
-				}
-			}),
-		);
-	};
+	// Title cache (note titles + nook names + resolution + prefetch)
+	// lives in ./titleCache.ts. Factory takes the nookId getter so it
+	// can default a missing per-lookup nookId to the current one.
+	const {
+		titleCacheVersion,
+		cacheTitles,
+		cacheNookName,
+		fetchMissingTitles,
+		resolveNoteTitle,
+		resolveNookName,
+		deleteNoteTitle,
+		clearNoteTitles,
+	} = createTitleCache(nookId);
+
 	let lastDetailRequestId = 0;
 	const [nookName, setNookName] = createSignal<string>("");
 	const [nookRole, setNookRole] = createSignal<string>("unknown");
@@ -379,77 +328,6 @@ export function createNookStore(nookId: () => string) {
 		if (mode() === "edit") setIsDirty(true);
 	};
 
-	const embeddedImageCache = new Map<string, string>();
-	// Fetch a note from an arbitrary nook without touching selected-note
-	// state — used for cross-nook image embeds (e.g. assistant-generated
-	// images that live in the AI memory nook but are rendered inside a
-	// chat surface mounted under a different nook). loadNoteDetail can't
-	// be reused because it mutates current-note state on success.
-	const fetchNoteFromNook = async (
-		noteId: string,
-		targetNookId: string,
-	): Promise<Note | null> => {
-		try {
-			const res = await apiFetch(`/api/nooks/${targetNookId}/notes/${noteId}`, {
-				method: "GET",
-			});
-			if (!res.ok) return null;
-			const json = await res.json();
-			return NoteResponseSchema.parse(json).note;
-		} catch {
-			return null;
-		}
-	};
-	const resolveEmbeddedImageSrc = async (
-		noteId: string,
-		embedNookId?: string,
-	) => {
-		const id = noteId.trim();
-		const currentNook = nookId();
-		const targetNook = embedNookId?.trim() || currentNook;
-		if (id === "" || targetNook === "") return null;
-		const cacheKey = `${targetNook}:${id}`;
-		const cached = embeddedImageCache.get(cacheKey);
-		if (cached) return cached;
-
-		const d =
-			targetNook === currentNook
-				? await loadNoteDetail(id)
-				: await fetchNoteFromNook(id, targetNook);
-		if (!d) return null;
-
-		// Find the first file with an image content_type from note.files.
-		// Prefer the server-signed URL (HMAC verified in nginx, no PHP roundtrip
-		// per render, 2hr cache-friendly); fall back to the legacy unsigned
-		// /files/<object_key> path only if the backend didn't include one (older
-		// API response, no session cookie issued the URL, etc.).
-		const files = d.files ?? {};
-		let imageFile: { object_key: string; signed_url?: string } | null = null;
-		for (const f of Object.values(files)) {
-			if (typeof f === "object" && f !== null && "mime_type" in f) {
-				const ct = String((f as Record<string, unknown>).mime_type ?? "");
-				if (ct.startsWith("image/")) {
-					const rec = f as Record<string, unknown>;
-					const signed =
-						typeof rec.signed_url === "string" ? rec.signed_url : "";
-					imageFile = {
-						object_key: String(rec.object_key ?? ""),
-						signed_url: signed || undefined,
-					};
-					break;
-				}
-			}
-		}
-		if (!imageFile?.object_key) {
-			return null;
-		}
-
-		const url =
-			imageFile.signed_url ?? `/files/${imageFile.object_key}?inline=1`;
-		embeddedImageCache.set(cacheKey, url);
-		return url;
-	};
-
 	const loadNoteDetail = async (noteId: string): Promise<Note | null> => {
 		const id = noteId.trim();
 		if (id === "") return null;
@@ -478,6 +356,15 @@ export function createNookStore(nookId: () => string) {
 			return null;
 		}
 	};
+
+	// Embedded image resolver lives in ./embeddedImages.ts. Instantiated
+	// after loadNoteDetail so the factory can bind to it — the
+	// dependency-injection keeps the module free of store internals.
+	const embeddedImages = createEmbeddedImages({
+		nookId,
+		loadNoteDetail,
+	});
+	const resolveEmbeddedImageSrc = embeddedImages.resolve;
 
 	createEffect(() => {
 		const id = mentionTargetId().trim();
@@ -853,7 +740,10 @@ export function createNookStore(nookId: () => string) {
 		void loadNoteDetail(id);
 	};
 
-	const newNote = () => {
+	// Internal — actually reset state for a new note. Callers should use
+	// `newNote()` which gates on isDirty so unsaved edits aren't silently
+	// discarded.
+	const newNoteInternal = () => {
 		setSelectedId("");
 		const ids = selectedTypeIds();
 		// Type resolution for new notes:
@@ -887,6 +777,17 @@ export function createNookStore(nookId: () => string) {
 		// on /nooks/X/notes/Y the URL→store sync (Nook.tsx) will re-load Y
 		// and clobber this fresh draft as soon as its in-flight fetch lands.
 		navigatorFn?.("", nookId());
+	};
+
+	const newNote = () => {
+		// Route through the pendingNav flow when the current buffer has
+		// unsaved changes — starting a new note would otherwise silently
+		// clobber them. Confirming the dialog then runs newNoteInternal.
+		if (isDirty()) {
+			setPendingNav({ proceed: () => newNoteInternal() });
+			return;
+		}
+		newNoteInternal();
 	};
 
 	const applyNoteDetail = (note: Note) => {
@@ -944,7 +845,7 @@ export function createNookStore(nookId: () => string) {
 		queueMicrotask(() => setDraftAutosaveArmed(true));
 	};
 
-	const selectNote = (note: NoteSummary) => {
+	const selectNoteInternal = (note: NoteSummary) => {
 		setSelectedVersion(null);
 		setSnapshotData(null);
 		setSelectedId(note.id);
@@ -956,6 +857,16 @@ export function createNookStore(nookId: () => string) {
 		setMentionEmbedImage(false);
 		void loadMentions();
 		void loadNoteDetail(note.id);
+	};
+
+	const selectNote = (note: NoteSummary) => {
+		// Same rationale as newNote / quickUploadFile — switching notes
+		// while dirty should prompt, never silently drop unsaved work.
+		if (isDirty()) {
+			setPendingNav({ proceed: () => selectNoteInternal(note) });
+			return;
+		}
+		selectNoteInternal(note);
 	};
 
 	// Navigation callback — set by Nook.tsx to use the router's navigate()
@@ -1007,7 +918,7 @@ export function createNookStore(nookId: () => string) {
 		if (!isEditing()) return;
 		const targetId = mentionTargetId();
 		if (targetId === "") return;
-		const cached = noteTitleCache.get(titleKey(nookId(), targetId));
+		const cached = resolveNoteTitle(targetId);
 		const title = cached?.trim()
 			? cached
 			: ((await loadNoteDetail(targetId))?.title ?? "");
@@ -1340,8 +1251,8 @@ export function createNookStore(nookId: () => string) {
 				);
 			}
 
-			noteTitleCache.delete(id);
-			embeddedImageCache.delete(id);
+			deleteNoteTitle(id);
+			embeddedImages.delete(id);
 			const nextNotes = notes().filter((n) => n.id !== id);
 			setNotes(nextNotes);
 
@@ -1408,8 +1319,8 @@ export function createNookStore(nookId: () => string) {
 				setMentionTargetId("");
 				setMentionEmbedImage(false);
 			});
-			noteTitleCache.clear();
-			embeddedImageCache.clear();
+			clearNoteTitles();
+			embeddedImages.clear();
 		}
 	});
 
@@ -1423,7 +1334,7 @@ export function createNookStore(nookId: () => string) {
 
 	const uploadFile = async (_file: File) => {};
 
-	const quickUploadFile = async (file: File) => {
+	const quickUploadFileInternal = async (file: File) => {
 		const nook = nookId();
 		if (!nook) return;
 
@@ -1449,6 +1360,18 @@ export function createNookStore(nookId: () => string) {
 		} finally {
 			setLoading(false);
 		}
+	};
+
+	const quickUploadFile = async (file: File) => {
+		// If there are unsaved edits in the current note, prompt before
+		// starting the upload — otherwise the post-upload navigation would
+		// silently discard them. Save/Discard on the dialog runs the upload;
+		// Cancel aborts.
+		if (isDirty()) {
+			setPendingNav({ proceed: () => void quickUploadFileInternal(file) });
+			return;
+		}
+		await quickUploadFileInternal(file);
 	};
 
 	const downloadFile = async () => {};
@@ -1555,14 +1478,8 @@ export function createNookStore(nookId: () => string) {
 		cacheTitles,
 		cacheNookName,
 		fetchMissingTitles,
-		resolveNoteTitle: (id: string, forNookId?: string): string | undefined => {
-			void titleCacheVersion();
-			return noteTitleCache.get(titleKey(forNookId ?? nookId(), id));
-		},
-		resolveNookName: (id: string): string | undefined => {
-			void titleCacheVersion();
-			return nookTitleCache.get(id);
-		},
+		resolveNoteTitle,
+		resolveNookName,
 		resolveEmbeddedImageSrc,
 		uploadEmbeddedImage,
 		saveNote,

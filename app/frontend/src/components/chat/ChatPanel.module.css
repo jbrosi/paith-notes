@@ -59,6 +59,19 @@
 	color: var(--color-text);
 }
 
+/* Mobile: enlarge the top-bar close button. The floating FAB is hidden
+ * on mobile when the chat is open (so it doesn't overlap Send), which
+ * means this X is the ONLY visible close affordance while chatting —
+ * it needs to be a proper tap target and easy to spot. */
+@media (width <= 1024px) {
+	.closeBtn {
+		padding: 10px 14px;
+		font-size: 1.4rem;
+		color: var(--color-text);
+		border: 1px solid var(--color-border-light, #e5e7eb);
+	}
+}
+
 /* ── Conversation list view ─────────────────────────────── */
 
 .listView {
