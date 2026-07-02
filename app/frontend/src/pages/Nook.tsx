@@ -8,8 +8,8 @@ import {
 	Show,
 	untrack,
 } from "solid-js";
+import { Portal } from "solid-js/web";
 import styles from "../App.module.css";
-
 import { apiFetch } from "../auth/keycloak";
 import { Button } from "../components/Button";
 import { useUi } from "../ui/UiContext";
@@ -27,6 +27,7 @@ import {
 import { NookTypesSettingsView } from "./nook/NookTypesSettingsView";
 import { NookUnlinkedNotes } from "./nook/NookUnlinkedNotes";
 import { createNookStore } from "./nook/store";
+import { UnsavedChangesDialog } from "./nook/UnsavedChangesDialog";
 
 export default function Nook() {
 	const params = useParams();
@@ -285,6 +286,21 @@ export default function Nook() {
 				"padding-right": "0",
 			}}
 		>
+			{/* Unsaved-changes dialog — hoisted here so it renders regardless
+			    of which sub-view is active (main panel, fullscreen attribute,
+			    history, compare, types settings, etc.). setPendingNav can be
+			    fired from Nav / dashboard / anywhere while any of these are
+			    the current view; without the dialog rendering globally, those
+			    trigger a "silent fail" where the modal never appears. */}
+			<Show when={store.pendingNav() !== null}>
+				<Portal>
+					<UnsavedChangesDialog
+						onSave={() => void store.confirmPendingNav(true)}
+						onDiscard={() => void store.confirmPendingNav(false)}
+						onCancel={() => store.cancelPendingNav()}
+					/>
+				</Portal>
+			</Show>
 			<Show
 				when={showLinks()}
 				fallback={

@@ -45,7 +45,7 @@ const CORE_TOOLS: Anthropic.Tool[] = [
         note_id:          { type: 'string' },
         expected_version: { type: 'number', description: 'The version number from when you last read the note. Required to prevent overwriting concurrent edits.' },
         title:            { type: 'string', description: 'New title. Omit to keep existing title.' },
-        content:          { type: 'string', description: 'Note content in markdown. To link to another note use [[note:<full_uuid>]] with the complete UUID (never shorten) — the title is resolved automatically. To embed a file note as an image use ![Note Title](note:<full_uuid>).' },
+        content:          { type: 'string', description: 'New note content in markdown. Omit to keep existing content unchanged (do NOT pass an empty string just to "leave it alone" — that clears the note). To link to another note use [[note:<full_uuid>]] with the complete UUID (never shorten). To embed a file note as an image use ![Note Title](note:<full_uuid>).' },
         type_id:          { type: 'string', description: 'Change the note type (triggers attribute archive/restore)' },
         attributes:       { type: 'object', description: 'JSON attributes keyed by attribute UUID. Null values delete keys.' },
       },
@@ -175,7 +175,7 @@ const CORE_TOOLS: Anthropic.Tool[] = [
   },
   {
     name: 'search_notes',
-    description: 'Search notes by title, content, or attribute values. Returns a LEAN list — each result is {id, title, type_id, timestamps, mention/link counts, content_chars}.\n\nSearch is cheap and lean. When the user\'s ask can be approached from multiple angles (synonyms, related concepts, sibling categories, different attribute_filters), issue SEVERAL search_notes calls in PARALLEL in the same turn — one per angle. Then dedupe results by id and decide which ones are worth a deep read.\n\n**Don\'t give up after one miss.** A query returning zero results rarely means "doesn\'t exist" — it usually means your wording didn\'t match what the user wrote. Before concluding the note isn\'t there, try at least 2-3 alternative phrasings: synonyms ("car" / "vehicle" / "automobile"), parent/child concepts ("Bordeaux" / "wine" / "drink"), partial words, related entities, or just a different keyword from the same idea. The user almost always thinks their note exists when they ask for it.\n\n**Reading decisions:** `content_chars` tells you the note size — small notes (<2000 chars) are cheap to get_note in full; big ones (>10000) burn context, so consider read_note_lines for a peek first. To read a note\'s full content/attributes, follow up with get_note(id) — parallelize across multiple candidates (they\'re independent).\n\nUse type_id to filter by note type. Use attribute_filters for structured queries like "rating >= 4" or "date between X and Y" — those filter server-side without you needing to read the values. When a search query is provided, results also include heading_matches — headings (h1-h6) extracted from notes that match the query, with note_id, note_title, level, text, and position (character offset for jump-to-section).',
+    description: 'Search notes by title, content, or attribute values. Returns a LEAN list — each result is {id, nook_id, title, type_id, version, timestamps, mention/link counts, content_chars}. `version` rides along so you can pass it straight to edit_note/update_note without a separate get_note round-trip.\n\nSearch is cheap and lean. When the user\'s ask can be approached from multiple angles (synonyms, related concepts, sibling categories, different attribute_filters), issue SEVERAL search_notes calls in PARALLEL in the same turn — one per angle. Then dedupe results by id and decide which ones are worth a deep read.\n\n**Don\'t give up after one miss.** A query returning zero results rarely means "doesn\'t exist" — it usually means your wording didn\'t match what the user wrote. Before concluding the note isn\'t there, try at least 2-3 alternative phrasings: synonyms ("car" / "vehicle" / "automobile"), parent/child concepts ("Bordeaux" / "wine" / "drink"), partial words, related entities, or just a different keyword from the same idea. The user almost always thinks their note exists when they ask for it.\n\n**Reading decisions:** `content_chars` tells you the note size — small notes (<2000 chars) are cheap to get_note in full; big ones (>10000) burn context, so consider read_note_lines for a peek first. To read a note\'s full content/attributes, follow up with get_note(id) — parallelize across multiple candidates (they\'re independent).\n\nUse type_id to filter by note type. Use attribute_filters for structured queries like "rating >= 4" or "date between X and Y" — those filter server-side without you needing to read the values. When a search query is provided, results also include heading_matches — headings (h1-h6) extracted from notes that match the query, with note_id, note_title, level, text, and position (character offset for jump-to-section).',
     input_schema: {
       type: 'object',
       properties: {
@@ -222,7 +222,7 @@ const CORE_TOOLS: Anthropic.Tool[] = [
   },
   {
     name: 'search_all_nooks',
-    description: 'Search notes across ALL nooks the user has access to. Use this when the user explicitly asks to search globally, OR when local search_notes returned nothing useful after 2-3 alternate phrasings — the note might live in a different nook than the current one. Prefer search_notes (local to current nook) first. Also returns heading_matches for headings matching the query and per-result content_chars to budget reads.\n\nLike search_notes, this is cheap and lean — fan out several search_all_nooks calls in parallel with different angles (synonyms, related terms) in the same turn and dedupe by id before deciding which notes to deep-read via get_note. Same tenacity rule: zero results from one query isn\'t proof of absence — try other angles before giving up.',
+    description: 'Search notes across ALL nooks the user has access to. Returns {id, nook_id, title, type_id, version, ...} per result — `version` is inline so you can edit_note without a separate get_note first. Use this when the user explicitly asks to search globally, OR when local search_notes returned nothing useful after 2-3 alternate phrasings — the note might live in a different nook than the current one. Prefer search_notes (local to current nook) first. Also returns heading_matches for headings matching the query and per-result content_chars to budget reads.\n\nLike search_notes, this is cheap and lean — fan out several search_all_nooks calls in parallel with different angles (synonyms, related terms) in the same turn and dedupe by id before deciding which notes to deep-read via get_note. Same tenacity rule: zero results from one query isn\'t proof of absence — try other angles before giving up.',
     input_schema: {
       type: 'object',
       properties: {
@@ -323,28 +323,32 @@ const CORE_TOOLS: Anthropic.Tool[] = [
   },
   {
     name: 'edit_note',
-    description: 'Make one or more surgical, search-and-replace edits to an existing note\'s content WITHOUT having to send the whole note back. Pass an `edits` array; each edit substitutes old_string → new_string. By default each edit must match exactly once in the content (uniqueness safety net — non-unique matches are almost always ambiguous mistakes); pass replace_all=true on an individual edit to substitute every occurrence.\n\nAtomic: all edits apply in order against the running state of the content (so edit N+1 sees the result of edit N). If any edit fails (not found, not unique, or version conflict) the WHOLE call rolls back — nothing changes. One user approval covers all the edits, and the diff preview stacks them so the user sees the full set before committing.\n\nWhen to use: tweaking a section, fixing typos (a single call can fix several across the note), swapping values, adding/removing paragraphs, batch renames. Cheaper and safer than update_note for partial changes — preserves everything else byte-for-byte.\n\nWhen NOT to use: large rewrites, structural reorganization, type/attribute changes — use update_note for those. To delete text, pass an empty new_string. The note must be read first (so you know the byte-for-byte text) and you MUST pass expected_version from that read so concurrent edits are detected (409 conflict). For multi-edit batches, plan the edits so a later one\'s old_string still matches after earlier ones have applied (or use unique enough context strings that order doesn\'t matter).',
+    description: 'Make one or more surgical, search-and-replace edits to an existing note\'s content WITHOUT having to send the whole note back. Each edit substitutes old_string → new_string. By default each edit must match exactly once in the content (uniqueness safety net — non-unique matches are almost always ambiguous mistakes); pass replace_all=true on an individual edit to substitute every occurrence.\n\nTwo input shapes are accepted (pick whichever is more convenient — no need to wrap a single edit in an array):\n\n**Single edit** (no `edits` key needed):\n```\n{ "note_id": "...", "expected_version": 5, "old_string": "foo", "new_string": "bar" }\n```\n\n**Multiple edits** (batched atomically, edit N+1 sees the result of edit N):\n```\n{ "note_id": "...", "expected_version": 5,\n  "edits": [\n    { "old_string": "foo",  "new_string": "bar" },\n    { "old_string": "baz",  "new_string": "qux", "replace_all": true }\n  ]\n}\n```\n\nThe aliases `find` / `replace` are also accepted in place of `old_string` / `new_string` at either level.\n\nAtomic: if any edit fails (not found, not unique, or version conflict) the WHOLE call rolls back — nothing changes. One user approval covers the whole batch, and the diff preview stacks them so the user sees the full set before committing.\n\nWhen to use: tweaking a section, fixing typos (a single call can fix several across the note), swapping values, adding/removing paragraphs, batch renames. Cheaper and safer than update_note for partial changes — preserves everything else byte-for-byte.\n\nWhen NOT to use: large rewrites, structural reorganization, type/attribute changes — use update_note for those. To delete text, pass an empty new_string. The note must be read first (so you know the byte-for-byte text) and you MUST pass expected_version from that read so concurrent edits are detected (409 conflict). For multi-edit batches, plan the edits so a later one\'s old_string still matches after earlier ones have applied (or use unique enough context strings that order doesn\'t matter).',
     input_schema: {
       type: 'object',
       properties: {
         note_id:          { type: 'string' },
         nook_id:          { type: 'string', description: 'Nook the note lives in. Defaults to current nook if omitted.' },
         expected_version: { type: 'number', description: 'Version number from when you last read the note. Required.' },
+        // Batched form. Omit for a single edit and put old_string/new_string at the top level.
         edits: {
           type: 'array',
           minItems: 1,
           items: {
             type: 'object',
             properties: {
-              old_string:  { type: 'string', description: 'Exact existing text to replace. Must match byte-for-byte (whitespace + casing).' },
-              new_string:  { type: 'string', description: 'Replacement text. Pass "" to delete the match.' },
+              old_string:  { type: 'string', description: 'Exact existing text to replace (alias: `find`). Must match byte-for-byte (whitespace + casing).' },
+              new_string:  { type: 'string', description: 'Replacement text (alias: `replace`). Pass "" to delete the match.' },
               replace_all: { type: 'boolean', description: 'If true, substitute every occurrence (against the running content). Defaults to false (must match exactly once or the entire call fails).' },
             },
-            required: ['old_string', 'new_string'],
           },
         },
+        // Single-edit shortcut. Use these top-level fields when there\'s just one edit — no array wrapping needed.
+        old_string:  { type: 'string', description: 'Single-edit shortcut: text to replace (alias: `find`).' },
+        new_string:  { type: 'string', description: 'Single-edit shortcut: replacement text (alias: `replace`).' },
+        replace_all: { type: 'boolean', description: 'Single-edit shortcut: apply to every occurrence. Defaults to false.' },
       },
-      required: ['note_id', 'expected_version', 'edits'],
+      required: ['note_id', 'expected_version'],
     },
   },
   {
@@ -449,7 +453,7 @@ const CORE_TOOLS: Anthropic.Tool[] = [
   // ── User memory nook tools (cross-nook, auto-approved) ──
   {
     name: 'memory_search',
-    description: 'Search the user\'s personal AI memory nook. Use this to recall cross-nook information about the user (preferences, facts, patterns). Returns LEAN results (id + title + type_id only).\n\nMemory recall is cheap and auto-approved — issue several memory_search calls in PARALLEL with different keywords/angles when the topic is broad (e.g. for a meeting-prep task, you might search "meeting", "agenda", the project name, and the attendees in parallel). Dedupe by id, then memory_get(id) — also in parallel — for the ones you actually need to read.',
+    description: 'Search the user\'s personal AI memory nook. Use this to recall cross-nook information about the user (preferences, facts, patterns). Returns LEAN results (id + nook_id + title + type_id + version). `version` is inline so memory_update can proceed without a separate memory_get round-trip when you already know the target text.\n\nMemory recall is cheap and auto-approved — issue several memory_search calls in PARALLEL with different keywords/angles when the topic is broad (e.g. for a meeting-prep task, you might search "meeting", "agenda", the project name, and the attendees in parallel). Dedupe by id, then memory_get(id) — also in parallel — for the ones you actually need to read.',
     input_schema: {
       type: 'object',
       properties: {
@@ -532,6 +536,40 @@ const CORE_TOOLS: Anthropic.Tool[] = [
       },
       required: ['find', 'replace'],
     },
+  },
+  // ── Browser-API bridges (frontend-executed) ──
+  // These reach into the user\'s browser via the same round-trip flow
+  // as the editor tools. Each one is auto-answered by the frontend
+  // (no approval card) but the underlying API may prompt the OS/
+  // browser for permission (geolocation, clipboard). Use sparingly
+  // and only when the answer genuinely needs the user\'s live device
+  // context — cheap questions like "where are you?" or "what\'s on
+  // your clipboard?" are what these exist for.
+  {
+    name: 'get_current_location',
+    description: 'Read the user\'s current geolocation (lat/lng/accuracy) via navigator.geolocation. The browser will prompt for permission the first time. Returns {lat, lng, accuracy_m, timestamp, ...} or {error, code} where code is 1=denied, 2=unavailable, 3=timeout.\n\nUse when the user asks for location-dependent info (weather here, nearby X, "what\'s my address") — don\'t call speculatively. Coarse accuracy is fine for most queries; set high_accuracy=true only when the user needs GPS-level precision (waypoints, hiking).',
+    input_schema: {
+      type: 'object',
+      properties: {
+        high_accuracy: { type: 'boolean', description: 'Ask for the highest-precision fix (GPS). Uses more battery. Defaults to false.' },
+        timeout_ms:    { type: 'number',  description: 'Give up after this many ms. Defaults to 15000, clamped to [1000, 60000].' },
+      },
+    },
+  },
+  {
+    name: 'get_current_selection',
+    description: 'Read the text the user currently has selected in the browser (window.getSelection()). Returns {text, length, in_editable_field}. `in_editable_field` distinguishes text the user is authoring (input/textarea/contenteditable) from text they\'re reading. No permission needed; instant.\n\nUse when the user says "this", "what I selected", "explain this", or references selected text without pasting it in.',
+    input_schema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'read_clipboard',
+    description: 'Read plain text from the system clipboard via navigator.clipboard.readText(). The browser will prompt for permission the first time (or the call may fail silently in some browsers if the page isn\'t focused). Returns {text, length} or {error}.\n\nUse when the user says "what\'s on my clipboard", "look at what I copied", or pastes an ambiguous reference. Do NOT call speculatively — clipboard content is sensitive.',
+    input_schema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'get_client_info',
+    description: 'Read the user\'s browser + device context: user_agent, language, languages, timezone, viewport {width, height, device_pixel_ratio}, online, prefers_dark. Instant, no permission. Useful for localising times (timezone), picking mobile vs desktop responses (viewport), or answering "what browser am I on".',
+    input_schema: { type: 'object', properties: {} },
   },
 ];
 
@@ -839,11 +877,16 @@ export async function executeTool(
     case 'get_current_editor':
     case 'get_current_editor_toc':
     case 'get_current_editor_part':
-    case 'edit_current_editor': {
-      // These four dispatch back to the frontend — their results come
-      // in on /chat/tool-result with `frontend_result`. If they ever
-      // reach the executor it means the frontend-tool routing missed
-      // them; fail loud so the wiring mistake is obvious.
+    case 'edit_current_editor':
+    case 'get_current_location':
+    case 'get_current_selection':
+    case 'read_clipboard':
+    case 'get_client_info': {
+      // These dispatch back to the frontend — their results come in on
+      // /chat/tool-result with `frontend_result`. If they ever reach the
+      // executor it means the frontend-tool routing (see FRONTEND_TOOLS
+      // in chat.ts) missed them; fail loud so the wiring mistake is
+      // obvious rather than silently 500-ing on the API.
       throw new Error(`${name} is a frontend-executed tool and must not reach chat-tools.executeTool`);
     }
 

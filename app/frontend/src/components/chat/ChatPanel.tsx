@@ -50,6 +50,10 @@ const TOOL_VERBS: Record<string, string> = {
 	get_current_editor_toc: "read your open editor",
 	get_current_editor_part: "read your open editor",
 	edit_current_editor: "edit your open note in place",
+	get_current_location: "read your location",
+	get_current_selection: "read your text selection",
+	read_clipboard: "read your clipboard",
+	get_client_info: "read your browser info",
 };
 
 function buildConsentPrompt(tools: ReadonlyArray<{ name: string }>): string {
@@ -518,9 +522,26 @@ export function ChatPanel(props: Props) {
 	// a little (past 16px), they're unpinned. After they scroll back
 	// near the bottom, they're re-pinned and auto-scroll resumes.
 	let userScrolledAway = false;
+	// True while we're the ones writing scrollTop — used to ignore the
+	// resulting scroll event so it doesn't unpin the user mid-stream (see
+	// checkUserScroll below).
+	let selfScrolling = false;
+	// Coalesce every scrollToBottom() request into a single rAF-driven
+	// write per frame. Rapid streaming would otherwise fire scrollTop
+	// writes several times per token append — each one reading a
+	// scrollHeight that hasn't yet accounted for the just-appended text
+	// (Solid re-renders asynchronously). The stale reads compound and
+	// show up as visible upward jitter.
+	let scrollRafId: number | null = null;
+	let forceNextScroll = false;
 
 	const checkUserScroll = () => {
 		if (!messagesEl) return;
+		// Ignore scroll events triggered by our own scrollTo — they'd
+		// briefly show distFromBottom > 0 during the write and flip
+		// userScrolledAway to true, stopping the very auto-scroll that
+		// caused the event.
+		if (selfScrolling) return;
 		const distFromBottom =
 			messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight;
 		userScrolledAway = distFromBottom > 16;
@@ -528,11 +549,28 @@ export function ChatPanel(props: Props) {
 
 	const scrollToBottom = (force = false) => {
 		if (!messagesEl) return;
-		if (force || !userScrolledAway) {
+		if (force) forceNextScroll = true;
+		if (scrollRafId !== null) return;
+		scrollRafId = requestAnimationFrame(() => {
+			scrollRafId = null;
+			if (!messagesEl) return;
+			const shouldForce = forceNextScroll;
+			forceNextScroll = false;
+			if (!shouldForce && userScrolledAway) return;
+			// By now Solid has flushed the DOM update, so scrollHeight
+			// reflects the newly-appended content. selfScrolling gates
+			// the follow-up scroll event so it doesn't unpin us.
+			selfScrolling = true;
 			messagesEl.scrollTop = messagesEl.scrollHeight;
-			// Don't override userScrolledAway here — the resulting scroll
-			// event will fire checkUserScroll which re-derives it correctly.
-		}
+			// Release the flag after the browser has emitted the scroll
+			// event for our write. Two rAFs is overkill but robust
+			// against browsers that batch scroll events across frames.
+			requestAnimationFrame(() => {
+				requestAnimationFrame(() => {
+					selfScrolling = false;
+				});
+			});
+		});
 	};
 
 	// ── resume a past conversation ───────────────────────────
@@ -927,105 +965,235 @@ export function ChatPanel(props: Props) {
 	// `meta.speaker` is forwarded from the voice path (recognizer's
 	/**
 	 * Execute a frontend-side tool call locally and return the payload
-	 * the AI should see as the tool_result. Handles the four
-	 * `*_current_editor` tools; every other name returns an error
-	 * result so the AI knows something went wrong.
+	 * the AI should see as the tool_result. Handles the editor tools
+	 * plus a growing family of browser-API bridges (geolocation,
+	 * selection, clipboard, TTS, client info).
+	 *
+	 * Async because several browser APIs (geolocation, clipboard) are
+	 * Promise-based. Sync tools just resolve immediately.
 	 *
 	 * The return `is_error` bit maps to Anthropic's tool_result.is_error
-	 * — used for edit_current_editor's not_found / ambiguous cases so
-	 * the AI reliably retries.
+	 * — used so the AI reliably retries on failure conditions like
+	 * denied permissions or missing editor.
 	 */
-	const executeFrontendTool = (
+	const executeFrontendTool = async (
 		name: string,
 		input: Record<string, unknown>,
-	): { content: string; is_error?: boolean } => {
-		const isOpen = props.currentNoteInEditMode?.() ?? false;
-		const noteId = props.currentNoteId ?? "";
-		const content = props.currentNoteContent?.() ?? "";
-		const title = props.currentNoteTitle ?? "";
-		const version = props.currentNoteVersion?.() ?? 0;
+	): Promise<{ content: string; is_error?: boolean }> => {
+		// ── Editor tools (require an open editor) ─────────────────
+		if (
+			name.startsWith("get_current_editor") ||
+			name === "edit_current_editor"
+		) {
+			const isOpen = props.currentNoteInEditMode?.() ?? false;
+			const noteId = props.currentNoteId ?? "";
+			const content = props.currentNoteContent?.() ?? "";
+			const title = props.currentNoteTitle ?? "";
+			const version = props.currentNoteVersion?.() ?? 0;
 
-		if (!isOpen || !noteId) {
-			return {
-				content: JSON.stringify({
-					is_open: false,
-					error:
-						"No editor is currently open. Use disk-side tools (get_note / edit_note) instead.",
-				}),
-				is_error: true,
-			};
-		}
-
-		if (name === "get_current_editor") {
-			return {
-				content: JSON.stringify({
-					is_open: true,
-					note_id: noteId,
-					nook_id: props.contextNookId,
-					title,
-					version,
-					content,
-				}),
-			};
-		}
-
-		if (name === "get_current_editor_toc") {
-			return { content: JSON.stringify(computeEditorToc(content, title)) };
-		}
-
-		if (name === "get_current_editor_part") {
-			const from = typeof input.from === "number" ? Math.floor(input.from) : 0;
-			const to =
-				typeof input.to === "number" ? Math.floor(input.to) : content.length;
-			const clampedFrom = Math.max(0, Math.min(content.length, from));
-			const clampedTo = Math.max(clampedFrom, Math.min(content.length, to));
-			return {
-				content: JSON.stringify({
-					from: clampedFrom,
-					to: clampedTo,
-					truncated: to > content.length || from < 0,
-					content: content.slice(clampedFrom, clampedTo),
-					total_chars: content.length,
-				}),
-			};
-		}
-
-		if (name === "edit_current_editor") {
-			const find = typeof input.find === "string" ? input.find : "";
-			const replace = typeof input.replace === "string" ? input.replace : "";
-			if (find === "") {
+			if (!isOpen || !noteId) {
 				return {
 					content: JSON.stringify({
-						applied: false,
-						error: "find must be a non-empty string",
-					}),
-					is_error: true,
-				};
-			}
-			const result = props.onEditCurrentEditor?.(find, replace);
-			if (!result) {
-				return {
-					content: JSON.stringify({
-						applied: false,
+						is_open: false,
 						error:
-							"editor is not wired for edits on this route (onEditCurrentEditor missing)",
+							"No editor is currently open. Use disk-side tools (get_note / edit_note) instead.",
 					}),
 					is_error: true,
 				};
 			}
-			if (!result.applied) {
+
+			if (name === "get_current_editor") {
 				return {
 					content: JSON.stringify({
-						applied: false,
-						error: result.error ?? "unknown",
+						is_open: true,
+						note_id: noteId,
+						nook_id: props.contextNookId,
+						title,
+						version,
+						content,
+					}),
+				};
+			}
+			if (name === "get_current_editor_toc") {
+				return { content: JSON.stringify(computeEditorToc(content, title)) };
+			}
+			if (name === "get_current_editor_part") {
+				const from =
+					typeof input.from === "number" ? Math.floor(input.from) : 0;
+				const to =
+					typeof input.to === "number" ? Math.floor(input.to) : content.length;
+				const clampedFrom = Math.max(0, Math.min(content.length, from));
+				const clampedTo = Math.max(clampedFrom, Math.min(content.length, to));
+				return {
+					content: JSON.stringify({
+						from: clampedFrom,
+						to: clampedTo,
+						truncated: to > content.length || from < 0,
+						content: content.slice(clampedFrom, clampedTo),
+						total_chars: content.length,
+					}),
+				};
+			}
+			if (name === "edit_current_editor") {
+				const find = typeof input.find === "string" ? input.find : "";
+				const replace = typeof input.replace === "string" ? input.replace : "";
+				if (find === "") {
+					return {
+						content: JSON.stringify({
+							applied: false,
+							error: "find must be a non-empty string",
+						}),
+						is_error: true,
+					};
+				}
+				const result = props.onEditCurrentEditor?.(find, replace);
+				if (!result) {
+					return {
+						content: JSON.stringify({
+							applied: false,
+							error:
+								"editor is not wired for edits on this route (onEditCurrentEditor missing)",
+						}),
+						is_error: true,
+					};
+				}
+				if (!result.applied) {
+					return {
+						content: JSON.stringify({
+							applied: false,
+							error: result.error ?? "unknown",
+						}),
+						is_error: true,
+					};
+				}
+				return {
+					content: JSON.stringify({
+						applied: true,
+						new_content_chars: (result.newContent ?? "").length,
+					}),
+				};
+			}
+		}
+
+		// ── Browser-API bridges ───────────────────────────────────
+		if (name === "get_current_location") {
+			if (!navigator.geolocation) {
+				return {
+					content: JSON.stringify({
+						error: "geolocation not available in this browser",
 					}),
 					is_error: true,
 				};
+			}
+			const highAccuracy = input.high_accuracy === true;
+			const timeoutMs =
+				typeof input.timeout_ms === "number"
+					? Math.max(1000, Math.min(60_000, input.timeout_ms))
+					: 15_000;
+			return new Promise((resolve) => {
+				navigator.geolocation.getCurrentPosition(
+					(pos) => {
+						resolve({
+							content: JSON.stringify({
+								lat: pos.coords.latitude,
+								lng: pos.coords.longitude,
+								accuracy_m: pos.coords.accuracy,
+								altitude_m: pos.coords.altitude,
+								heading: pos.coords.heading,
+								speed_mps: pos.coords.speed,
+								timestamp: new Date(pos.timestamp).toISOString(),
+							}),
+						});
+					},
+					(err) => {
+						resolve({
+							content: JSON.stringify({
+								error: err.message || "geolocation failed",
+								code: err.code, // 1=denied, 2=unavailable, 3=timeout
+							}),
+							is_error: true,
+						});
+					},
+					{
+						enableHighAccuracy: highAccuracy,
+						timeout: timeoutMs,
+						maximumAge: 60_000,
+					},
+				);
+			});
+		}
+
+		if (name === "get_current_selection") {
+			const sel = window.getSelection();
+			const text = sel ? sel.toString() : "";
+			// Best-effort detection of whether the selection is inside an
+			// editable field (input/textarea/contenteditable). Useful so
+			// the AI knows if the "selected text" is something the user
+			// is authoring vs. reading.
+			const node = sel && sel.rangeCount > 0 ? sel.anchorNode : null;
+			let inEditable = false;
+			for (let n: Node | null = node; n; n = n.parentNode) {
+				if (n.nodeType !== 1) continue;
+				const el = n as Element;
+				if (
+					el.tagName === "INPUT" ||
+					el.tagName === "TEXTAREA" ||
+					(el as HTMLElement).isContentEditable
+				) {
+					inEditable = true;
+					break;
+				}
 			}
 			return {
 				content: JSON.stringify({
-					applied: true,
-					new_content_chars: (result.newContent ?? "").length,
+					text,
+					length: text.length,
+					in_editable_field: inEditable,
+				}),
+			};
+		}
+
+		if (name === "read_clipboard") {
+			if (!navigator.clipboard?.readText) {
+				return {
+					content: JSON.stringify({
+						error: "clipboard API not available in this browser",
+					}),
+					is_error: true,
+				};
+			}
+			try {
+				const text = await navigator.clipboard.readText();
+				return { content: JSON.stringify({ text, length: text.length }) };
+			} catch (err) {
+				return {
+					content: JSON.stringify({
+						error: err instanceof Error ? err.message : String(err),
+					}),
+					is_error: true,
+				};
+			}
+		}
+
+		if (name === "get_client_info") {
+			return {
+				content: JSON.stringify({
+					user_agent: navigator.userAgent,
+					language: navigator.language,
+					languages: navigator.languages,
+					// Intl.DateTimeFormat().resolvedOptions() gives the browser's
+					// resolved timezone — the AI can localise times without
+					// having to ask.
+					timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+					viewport: {
+						width: window.innerWidth,
+						height: window.innerHeight,
+						device_pixel_ratio: window.devicePixelRatio,
+					},
+					online: navigator.onLine,
+					prefers_dark:
+						window.matchMedia?.("(prefers-color-scheme: dark)").matches ??
+						false,
 				}),
 			};
 		}
@@ -1192,6 +1360,19 @@ export function ChatPanel(props: Props) {
 		abortCtrl?.abort();
 		abortCtrl = new AbortController();
 		try {
+			// executeFrontendTool is now async — geolocation / clipboard
+			// bridges wait on browser APIs. Kick them all off in parallel
+			// so a slow permission prompt on one doesn't serialise the
+			// others.
+			const results = await Promise.all(
+				pa.tools.map(async (t) => ({
+					tool_use_id: t.id,
+					tool_name: t.name,
+					tool_input: t.input,
+					approved: true,
+					frontend_result: await executeFrontendTool(t.name, t.input),
+				})),
+			);
 			const res = await fetch(
 				`/nooks/${encodeURIComponent(props.contextNookId)}/chat/tool-result`,
 				{
@@ -1203,16 +1384,7 @@ export function ChatPanel(props: Props) {
 						model: pa.model,
 						context_note_id: pa.contextNoteId,
 						editor_state: editorSnapshot(),
-						tool_results: pa.tools.map((t) => {
-							const r = executeFrontendTool(t.name, t.input);
-							return {
-								tool_use_id: t.id,
-								tool_name: t.name,
-								tool_input: t.input,
-								approved: true,
-								frontend_result: r,
-							};
-						}),
+						tool_results: results,
 					}),
 					signal: abortCtrl.signal,
 				},
@@ -1287,28 +1459,30 @@ export function ChatPanel(props: Props) {
 						context_note_id: pa.contextNoteId,
 						voice_mode: voiceMode(),
 						voice_lang: voiceLang(),
-						tool_results: pa.tools.map((t) => {
-							// Frontend-executed tools are answered here silently —
-							// MCP threads our `frontend_result` straight into the
-							// tool_result the AI sees. `approved: true` because the
-							// user never denied (and never saw) the card.
-							if (pa.frontendExecutedIds?.has(t.id)) {
-								const r = executeFrontendTool(t.name, t.input);
+						tool_results: await Promise.all(
+							pa.tools.map(async (t) => {
+								// Frontend-executed tools are answered here
+								// silently — MCP threads our `frontend_result`
+								// straight into the tool_result the AI sees.
+								// `approved: true` because the user never denied
+								// (and never saw) the card.
+								if (pa.frontendExecutedIds?.has(t.id)) {
+									return {
+										tool_use_id: t.id,
+										tool_name: t.name,
+										tool_input: t.input,
+										approved: true,
+										frontend_result: await executeFrontendTool(t.name, t.input),
+									};
+								}
 								return {
 									tool_use_id: t.id,
 									tool_name: t.name,
 									tool_input: t.input,
-									approved: true,
-									frontend_result: r,
+									approved,
 								};
-							}
-							return {
-								tool_use_id: t.id,
-								tool_name: t.name,
-								tool_input: t.input,
-								approved,
-							};
-						}),
+							}),
+						),
 					}),
 					signal: abortCtrl.signal,
 				},

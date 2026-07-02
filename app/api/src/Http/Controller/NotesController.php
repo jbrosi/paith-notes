@@ -104,7 +104,7 @@ final class NotesController
         }
 
         $sql = $cteHead
-            . 'select id, title, type_id from global.notes '
+            . 'select id, title, type_id, version from global.notes '
             . 'where nook_id = :nook_id'
             . $whereType
             . $whereQ
@@ -124,8 +124,10 @@ final class NotesController
             }
             $notes[] = [
                 'id' => Row::str($r, 'id'),
+                'nook_id' => $nookId,
                 'title' => Row::str($r, 'title'),
                 'type_id' => Row::str($r, 'type_id'),
+                'version' => Row::int($r, 'version'),
             ];
         }
         return JsonResponse::ok(['notes' => $notes]);
@@ -272,7 +274,7 @@ final class NotesController
         // char_length (not octet_length) so the AI sees a count that matches
         // what it'd read — character-aligned (multibyte safe), roughly
         // correlated with token cost.
-        $selectCols = "select n.id, n.title, n.type_id, {$attrsCol} n.created_at, n.updated_at,
+        $selectCols = "select n.id, n.title, n.type_id, n.version, {$attrsCol} n.created_at, n.updated_at,
                     coalesce(ns.outgoing_mentions, 0) as outgoing_mentions_count,
                     coalesce(ns.incoming_mentions, 0) as incoming_mentions_count,
                     coalesce(ns.outgoing_links, 0) as outgoing_links_count,
@@ -363,6 +365,7 @@ final class NotesController
                 'nook_id' => $nookId,
                 'title' => Row::str($r, 'title'),
                 'type_id' => Row::str($r, 'type_id'),
+                'version' => Row::int($r, 'version'),
                 'created_at' => Row::str($r, 'created_at'),
                 'updated_at' => Row::str($r, 'updated_at'),
                 'outgoing_mentions_count' => Row::int($r, 'outgoing_mentions_count'),
@@ -427,6 +430,7 @@ final class NotesController
                     }
                     $headingMatches[] = [
                         'note_id' => Row::str($hr, 'note_id'),
+                        'nook_id' => $nookId,
                         'note_title' => Row::str($hr, 'note_title'),
                         'level' => Row::int($hr, 'level'),
                         'text' => Row::str($hr, 'text'),
@@ -1157,19 +1161,31 @@ final class NotesController
         }
         $archive = $existingArchive;
 
-        // Title: payload provides a non-empty value, or we fall back to existing.
+        // Title + content: null in the payload means "not provided" — fall
+        // back to the note's existing value so partial updates (e.g. AI
+        // sending only { title: … } via update_note) don't wipe the other
+        // field. Fetching both in one query keeps this cheap.
         $title = $payload->title;
-        if ($title === null) {
-            $existingTitleStmt = $pdo->prepare('select title from global.notes where id = :id and nook_id = :nook_id');
-            $existingTitleStmt->execute([':id' => $noteId, ':nook_id' => $nookId]);
-            $existingTitle = $existingTitleStmt->fetchColumn();
-            $title = is_string($existingTitle) ? trim($existingTitle) : '';
-            if ($title === '') {
-                throw new HttpError('title is required', 400);
+        $content = $payload->content;
+        if ($title === null || $content === null) {
+            $existingStmt = $pdo->prepare('select title, content from global.notes where id = :id and nook_id = :nook_id');
+            $existingStmt->execute([':id' => $noteId, ':nook_id' => $nookId]);
+            $existingRow2 = $existingStmt->fetch(PDO::FETCH_ASSOC);
+            if (!is_array($existingRow2)) {
+                throw new HttpError('note not found', 404);
+            }
+            if ($title === null) {
+                $existingTitle = $existingRow2['title'] ?? '';
+                $title = is_string($existingTitle) ? trim($existingTitle) : '';
+                if ($title === '') {
+                    throw new HttpError('title is required', 400);
+                }
+            }
+            if ($content === null) {
+                $existingContent = $existingRow2['content'] ?? '';
+                $content = is_string($existingContent) ? $existingContent : '';
             }
         }
-
-        $content = $payload->content ?? '';
 
         if ($typeId !== null) {
             $typeCheck = $pdo->prepare('select 1 from global.note_types where id = :id and nook_id = :nook_id');
@@ -1235,56 +1251,103 @@ final class NotesController
             }
         }
 
-        try {
-            $pdo->beginTransaction();
+        // Deadlock retry loop. Concurrent update_note calls that share
+        // mention targets can occasionally collide on the note_stats
+        // trigger's row locks (see MentionsService for the canonical
+        // ordering that already reduces this). A single retry after a
+        // short randomized backoff clears essentially every case in
+        // practice — Postgres has already aborted the losing txn, so
+        // starting fresh grabs the locks cleanly.
+        $row = self::runWithDeadlockRetry(
+            $pdo,
+            function () use ($pdo, $noteId, $nookId, $title, $content, $typeId, $attributes, $archive, $user) {
+                $pdo->beginTransaction();
+                $stmt = $pdo->prepare(
+                    'update global.notes set title = :title, content = :content, type_id = :type_id, '
+                    . 'attributes = :attributes::jsonb, archive = :archive::jsonb, '
+                    . 'updated_at = now() where id = :id and nook_id = :nook_id returning id, version, created_at, updated_at'
+                );
+                $stmt->execute([
+                    ':id' => $noteId,
+                    ':nook_id' => $nookId,
+                    ':title' => $title,
+                    ':content' => $content,
+                    ':type_id' => $typeId,
+                    ':attributes' => json_encode($attributes === [] ? (object)[] : $attributes),
+                    ':archive' => json_encode($archive === [] ? (object)[] : $archive),
+                ]);
+                $row = $stmt->fetch(PDO::FETCH_ASSOC);
+                if (!is_array($row)) {
+                    throw new HttpError('note not found', 404);
+                }
+                $this->mentions->syncMentions($pdo, $nookId, $noteId, $content, $user->id);
+                $this->headings->syncHeadings($pdo, $nookId, $noteId, $content);
+                $pdo->commit();
+                return $row;
+            },
+        );
 
-            $stmt = $pdo->prepare(
-                'update global.notes set title = :title, content = :content, type_id = :type_id, '
-                . 'attributes = :attributes::jsonb, archive = :archive::jsonb, '
-                . 'updated_at = now() where id = :id and nook_id = :nook_id returning id, version, created_at, updated_at'
-            );
-            $stmt->execute([
-                ':id' => $noteId,
-                ':nook_id' => $nookId,
-                ':title' => $title,
-                ':content' => $content,
-                ':type_id' => $typeId,
-                ':attributes' => json_encode($attributes === [] ? (object)[] : $attributes),
-                ':archive' => json_encode($archive === [] ? (object)[] : $archive),
-            ]);
-            $row = $stmt->fetch(PDO::FETCH_ASSOC);
-            if (!is_array($row)) {
-                throw new HttpError('note not found', 404);
+        $id = $row['id'] ?? '';
+        $createdAt = $row['created_at'] ?? '';
+
+        return JsonResponse::ok([
+            'note' => [
+                'id' => is_scalar($id) ? (string)$id : '',
+                'nook_id' => $nookId,
+                'title' => $title,
+                'content' => $content,
+                'type_id' => is_string($typeId) ? $typeId : '',
+                'attributes' => $attributes === [] ? (object)[] : $attributes,
+                'archive' => $archive === [] ? (object)[] : $archive,
+                'version' => Row::int($row, 'version'),
+                'created_at' => is_scalar($createdAt) ? (string)$createdAt : '',
+            ],
+        ]);
+    }
+
+    /**
+     * Run a transactional operation with automatic retry on Postgres
+     * deadlock (SQLSTATE 40P01) or serialization failure (40001). The
+     * closure is expected to own its own transaction (begin + commit)
+     * so on failure we can rollback and start clean.
+     *
+     * Backoff is randomized so parallel losers don't retry in lockstep.
+     * Cap at 3 attempts — after that the odds of a real bug (not just
+     * transient contention) are high enough to surface the error.
+     *
+     * @template T
+     * @param callable(): T $work
+     * @return T
+     */
+    private static function runWithDeadlockRetry(PDO $pdo, callable $work): mixed
+    {
+        $attempts = 3;
+        for ($attempt = 1; $attempt <= $attempts; $attempt++) {
+            try {
+                return $work();
+            } catch (\PDOException $e) {
+                if ($pdo->inTransaction()) {
+                    $pdo->rollBack();
+                }
+                $sqlState = $e->errorInfo[0] ?? '';
+                $isRetryable = $sqlState === '40P01' || $sqlState === '40001';
+                // Last attempt or non-retryable: propagate immediately.
+                if (!$isRetryable || $attempt === $attempts) {
+                    throw $e;
+                }
+                // Jittered backoff: 20-70ms on first retry, 60-210 on second.
+                $sleepUs = (20 + random_int(0, 50)) * 1000 * $attempt;
+                usleep($sleepUs);
+            } catch (Throwable $e) {
+                if ($pdo->inTransaction()) {
+                    $pdo->rollBack();
+                }
+                throw $e;
             }
-
-            $userId = $user->id;
-            $this->mentions->syncMentions($pdo, $nookId, $noteId, $content, $userId);
-            $this->headings->syncHeadings($pdo, $nookId, $noteId, $content);
-
-            $pdo->commit();
-
-            $id = $row['id'] ?? '';
-            $createdAt = $row['created_at'] ?? '';
-
-            return JsonResponse::ok([
-                'note' => [
-                    'id' => is_scalar($id) ? (string)$id : '',
-                    'nook_id' => $nookId,
-                    'title' => $title,
-                    'content' => $content,
-                    'type_id' => is_string($typeId) ? $typeId : '',
-                    'attributes' => $attributes === [] ? (object)[] : $attributes,
-                    'archive' => $archive === [] ? (object)[] : $archive,
-                    'version' => Row::int($row, 'version'),
-                    'created_at' => is_scalar($createdAt) ? (string)$createdAt : '',
-                ],
-            ]);
-        } catch (Throwable $e) {
-            if ($pdo->inTransaction()) {
-                $pdo->rollBack();
-            }
-            throw $e;
         }
+        // Unreachable — the final attempt either returns or throws inside
+        // the loop. Kept so the return type is exhaustively provable.
+        throw new \RuntimeException('deadlock retry exhausted');
     }
 
     /**
@@ -1328,9 +1391,33 @@ final class NotesController
             throw new HttpError('expected_version is required (int)', 400);
         }
 
+        // Accept three input shapes so the AI (or a curling human) has less
+        // to memorise:
+        //   1. Canonical: { edits: [{ old_string, new_string, replace_all? }, ...] }
+        //   2. Single edit at top level: { old_string, new_string, replace_all? }
+        //   3. Aliases: `find`/`replace` also work in place of
+        //      `old_string`/`new_string`. Mixing within one edit is fine.
+        // The internal wire shape is always the canonical `edits` array.
         $editsRaw = $data['edits'] ?? null;
+        if ($editsRaw === null) {
+            // Shape 2 — promote the top-level fields into a one-element array.
+            $topOld = $data['old_string'] ?? $data['find'] ?? null;
+            $topNew = $data['new_string'] ?? $data['replace'] ?? null;
+            if ($topOld !== null || $topNew !== null) {
+                $editsRaw = [[
+                    'old_string' => $topOld,
+                    'new_string' => $topNew,
+                    'replace_all' => $data['replace_all'] ?? false,
+                ]];
+            }
+        }
         if (!is_array($editsRaw) || $editsRaw === []) {
-            throw new HttpError('edits must be a non-empty array of {old_string, new_string, replace_all?}', 400);
+            throw new HttpError(
+                'provide either `edits: [{old_string, new_string, replace_all?}, ...]` '
+                . 'or a single edit at top level `{old_string, new_string, replace_all?}` '
+                . '(the aliases `find`/`replace` also work)',
+                400,
+            );
         }
         /** @var list<array{old: string, new: string, replaceAll: bool}> $edits */
         $edits = [];
@@ -1338,13 +1425,13 @@ final class NotesController
             if (!is_array($rawEdit)) {
                 throw new HttpError("edits[{$i}] must be an object", 400);
             }
-            $old = $rawEdit['old_string'] ?? null;
-            $new = $rawEdit['new_string'] ?? null;
+            $old = $rawEdit['old_string'] ?? $rawEdit['find'] ?? null;
+            $new = $rawEdit['new_string'] ?? $rawEdit['replace'] ?? null;
             if (!is_string($old) || $old === '') {
-                throw new HttpError("edits[{$i}].old_string must be a non-empty string", 400);
+                throw new HttpError("edits[{$i}].old_string (or find) must be a non-empty string", 400);
             }
             if (!is_string($new)) {
-                throw new HttpError("edits[{$i}].new_string must be a string", 400);
+                throw new HttpError("edits[{$i}].new_string (or replace) must be a string", 400);
             }
             $replaceAll = $rawEdit['replace_all'] ?? false;
             if (!is_bool($replaceAll)) {

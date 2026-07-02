@@ -180,10 +180,20 @@ const CONTEXT_CRITICAL_THRESHOLD = 0.40; // ~400K — strongly encourage new cha
  * auto-approve list for easy comparison.
  */
 const FRONTEND_TOOLS = new Set([
+  // Editor bridges — read/write the user's live in-browser buffer.
   'get_current_editor',
   'get_current_editor_toc',
   'get_current_editor_part',
   'edit_current_editor',
+  // Generic browser-API bridges — everything below rides the same
+  // frontend-executed dispatch flow (SSE awaiting_approval → frontend
+  // executes → POST /chat/tool-result with frontend_result). Same
+  // pattern as the editor tools; the frontend just calls a different
+  // navigator/window API.
+  'get_current_location',
+  'get_current_selection',
+  'read_clipboard',
+  'get_client_info',
 ]);
 
 /**
