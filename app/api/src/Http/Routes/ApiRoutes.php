@@ -119,10 +119,12 @@ final class ApiRoutes
         $r->get('/nooks/{nookId}/link-predicates/{predicateId}/rules', [LinkPredicatesController::class, 'rules']);
         $r->add('PUT', '/nooks/{nookId}/link-predicates/{predicateId}/rules', [LinkPredicatesController::class, 'replaceRules']);
 
+        // Notes listing with filtering. Callers that only want the
+        // lean {id, nook_id, title, type_id, version} shape (nav search
+        // dropdown, cheap lookup surfaces) pass `?lean=1` — that skips
+        // the note_stats join + attribute decode. The old separate
+        // `/notes/titles` endpoint has been folded in.
         $r->get('/nooks/{nookId}/notes', [NotesController::class, 'list']);
-        // Must precede /notes/{noteId} so the literal `titles` isn't
-        // parsed as a note id by the parameterized route.
-        $r->get('/nooks/{nookId}/notes/titles', [NotesController::class, 'titles']);
         $r->get('/nooks/{nookId}/notes/{noteId}', [NotesController::class, 'get']);
         $r->post('/nooks/{nookId}/notes', [NotesController::class, 'create']);
         $r->add('PUT', '/nooks/{nookId}/notes/{noteId}', [NotesController::class, 'update']);

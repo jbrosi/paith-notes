@@ -310,7 +310,15 @@ final class GlobalSchema
             ");
             $pdo->exec('create index if not exists note_headings_note_nook_idx on global.note_headings (note_id, nook_id)');
             $pdo->exec('create index if not exists note_headings_nook_id_idx on global.note_headings (nook_id)');
-            $pdo->exec("create index if not exists note_headings_text_trgm_idx on global.note_headings using gin (text gin_trgm_ops)");
+            // Trigram index on lower(text) — must match the case-folded
+            // query pattern the controllers use (`lower(h.text) like %q%`).
+            // The old index on raw `text` was never picked because the
+            // function expression on the column made Postgres fall back
+            // to a sequential scan; the new one lines up so ILIKE / lower-
+            // LIKE queries actually use the trigram matches. Dropping the
+            // old first keeps the table lean.
+            $pdo->exec('drop index if exists global.note_headings_text_trgm_idx');
+            $pdo->exec("create index if not exists note_headings_text_lower_trgm_idx on global.note_headings using gin (lower(text) gin_trgm_ops)");
 
             $pdo->exec(" 
                 create table if not exists global.file_uploads (
