@@ -1,7 +1,8 @@
 /* Hidden by default (desktop); revealed only on narrow viewports where
- * the Nav bar is cramped and the sidebar toggle is hard to find. Kept
- * at z-index above the chat sidebar's own content so tapping the FAB
- * while chat is open still routes to this button. */
+ * the Nav bar is cramped and the sidebar toggle is hard to find. The
+ * component itself hides the button while the chat is open, so closing
+ * goes through the chat panel's own top-bar X — avoids the FAB sitting
+ * directly above Send on mobile. */
 
 .fab {
 	display: none;
@@ -39,16 +40,4 @@
 	.fab:active {
 		transform: scale(0.94);
 	}
-}
-
-/* When chat is open the FAB flips into a subdued "close" affordance —
- * still visible so the user can tap to hide, but visually secondary so
- * it doesn't fight the chat UI for attention. */
-.fabActive {
-	background: rgb(60 60 60 / 88%) !important;
-	color: white;
-}
-
-.fabActive:hover {
-	background: rgb(40 40 40 / 95%) !important;
 }

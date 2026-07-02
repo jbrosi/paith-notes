@@ -1,5 +1,5 @@
 import * as d3 from "d3";
-import { createSignal, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 import styles from "./ImageLightbox.module.css";
 
@@ -28,14 +28,35 @@ export function openImageLightbox(t: { src: string; alt?: string }): void {
 }
 
 export function ImageLightbox() {
+	// Direct element refs — no querySelector-by-CSS-module-class dance,
+	// which was silently returning null in some rebuild scenarios and
+	// caused the "sometimes doesn't open / zoom doesn't work" symptom.
 	let containerEl: HTMLDivElement | undefined;
+	let viewportEl: HTMLDivElement | undefined;
 	let imgEl: HTMLImageElement | undefined;
-	// Keep a handle to the zoom behavior so we can reset on close.
+	// The zoom behavior for the currently-open target. Cleared on close so
+	// a reopen creates a fresh one on the new elements.
 	let zoomBehavior: d3.ZoomBehavior<HTMLDivElement, unknown> | undefined;
 
 	const close = () => setTarget(null);
 
-	// Keyboard: ESC closes, R resets zoom, +/- adjust. Global listener so
+	const resetZoom = () => {
+		if (!containerEl || !zoomBehavior) return;
+		d3.select(containerEl)
+			.transition()
+			.duration(180)
+			.call(zoomBehavior.transform, d3.zoomIdentity);
+	};
+
+	const zoomBy = (factor: number) => {
+		if (!containerEl || !zoomBehavior) return;
+		d3.select(containerEl)
+			.transition()
+			.duration(120)
+			.call(zoomBehavior.scaleBy, factor);
+	};
+
+	// Keyboard: ESC closes, R resets, +/- adjust. Global listener so
 	// focus doesn't need to be inside the modal for ESC to work.
 	const onKeyDown = (e: KeyboardEvent) => {
 		if (!target()) return;
@@ -58,60 +79,68 @@ export function ImageLightbox() {
 		document.removeEventListener("keydown", onKeyDown);
 	});
 
-	const resetZoom = () => {
-		if (!containerEl || !zoomBehavior) return;
-		d3.select(containerEl)
-			.transition()
-			.duration(180)
-			.call(zoomBehavior.transform, d3.zoomIdentity);
-	};
-
-	const zoomBy = (factor: number) => {
-		if (!containerEl || !zoomBehavior) return;
-		d3.select(containerEl)
-			.transition()
-			.duration(120)
-			.call(zoomBehavior.scaleBy, factor);
-	};
-
-	// Wire d3-zoom once the image has mounted and loaded. Attaching before
-	// image dimensions are known would give the transform origin bad
-	// bounds; waiting for the load event keeps the initial state clean.
 	const setupZoom = () => {
-		if (!containerEl) return;
-		// The .viewport div is the element that carries the transform;
-		// the container captures wheel/drag events across the whole
-		// viewport. Same pattern the graph renderer uses.
-		const viewport = containerEl.querySelector<HTMLDivElement>(
-			`.${styles.viewport}`,
-		);
-		if (!viewport) return;
+		if (!containerEl || !viewportEl) return;
 
-		// Clamp scale between 0.25× (fit-to-view still smaller) and 10×
-		// (extreme zoom for detail). Larger than 10× hits pixel grain
-		// on typical inputs — not useful.
+		// Reset any previous state from the last open so a reopen starts
+		// clean. Without this the container keeps handlers from the prior
+		// zoom instance and the viewport keeps its old transform.
+		d3.select(containerEl).on(".zoom", null);
+		viewportEl.style.transform = "";
+
+		// Clamp scale between 0.25× and 10×. Larger than 10× hits pixel
+		// grain on typical inputs — not useful.
 		zoomBehavior = d3
 			.zoom<HTMLDivElement, unknown>()
 			.scaleExtent([0.25, 10])
-			// filter: allow left-click drag pan and wheel/pinch zoom;
-			// reject right-click so the browser's context menu still works.
+			// Permissive filter: allow left-click drag, wheel + pinch,
+			// AND touch pans. d3-zoom's default filter rejects right-
+			// click (button !== 0) — we honour that by allowing anything
+			// that's not an explicit right/middle mouse button. Touch
+			// events have no `button` property, so this falls through
+			// via the `!== 2 && !== 1` check.
 			.filter((event: Event) => {
-				if (event.type === "wheel") return true;
+				if (event.type === "wheel") return !event.defaultPrevented;
 				const me = event as MouseEvent;
-				return me.button === 0;
+				return !event.defaultPrevented && me.button !== 1 && me.button !== 2;
 			})
 			.on("zoom", (event) => {
+				if (!viewportEl) return;
 				// d3.transform stringifies to "translate(X,Y) scale(K)",
-				// which is a valid CSS transform. transform-origin is
-				// (0,0) on .viewport, so event coords map directly.
-				viewport.style.transform = String(event.transform);
+				// a valid CSS transform. transform-origin is (0,0) on
+				// .viewport so event coords map 1:1.
+				viewportEl.style.transform = String(event.transform);
 			});
+
 		d3.select(containerEl).call(zoomBehavior);
-		// Double-click to reset — d3's default double-click behavior is
-		// to zoom in, which fights the "reset" idiom users expect.
+		// d3's default double-click zooms in, which fights the "reset"
+		// idiom users expect from a lightbox. Replace with our own.
 		d3.select(containerEl).on("dblclick.zoom", null);
-		containerEl.addEventListener("dblclick", resetZoom);
+		d3.select(containerEl).on("dblclick.reset", () => resetZoom());
 	};
+
+	// Re-run setup whenever a new target opens AND the DOM is committed.
+	// The previous implementation kicked off setup from the img's `load`
+	// event, which worked for uncached images but for cached ones the
+	// ref callback fired before Solid had actually attached the elements
+	// to the document — so `containerEl` was sometimes null or lacked
+	// dimensions, and d3.zoom silently no-op'd on those events. Two rAFs
+	// guarantee both refs are populated AND the browser has laid the
+	// tree out (so getBoundingClientRect returns real values).
+	createEffect(() => {
+		const t = target();
+		if (!t) {
+			// Closed — release the zoom instance so the next open can
+			// start fresh on new elements.
+			zoomBehavior = undefined;
+			return;
+		}
+		requestAnimationFrame(() => {
+			requestAnimationFrame(() => {
+				if (target()) setupZoom();
+			});
+		});
+	});
 
 	return (
 		<Show when={target()}>
@@ -127,14 +156,9 @@ export function ImageLightbox() {
 						}}
 					>
 						<div class={styles.container} ref={containerEl}>
-							<div class={styles.viewport}>
+							<div class={styles.viewport} ref={viewportEl}>
 								<img
-									ref={(el) => {
-										imgEl = el;
-										// If already loaded from cache, `load` never fires.
-										if (el.complete && el.naturalWidth > 0) setupZoom();
-										else el.addEventListener("load", setupZoom, { once: true });
-									}}
+									ref={imgEl}
 									src={t().src}
 									alt={t().alt ?? ""}
 									class={styles.image}

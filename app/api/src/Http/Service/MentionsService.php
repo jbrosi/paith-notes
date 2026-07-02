@@ -23,6 +23,18 @@ final class MentionsService
             return;
         }
 
+        // Canonical lock order: insert in ascending target_note_id order so
+        // parallel syncMentions calls in different transactions always
+        // acquire target-row locks in the same sequence. Without this the
+        // note_stats_mentions_fn trigger + the notes FK take locks in
+        // document-position order, which differs per note and lets two
+        // concurrent updates form a deadlock cycle. Ordering here is
+        // load-bearing for concurrency — do not remove.
+        usort(
+            $mentions,
+            static fn (array $a, array $b): int => strcmp($a['target_note_id'], $b['target_note_id']),
+        );
+
         // Same-nook check: note must exist in the source nook
         $existsSameNook = $pdo->prepare('select 1 from global.notes where id = :id and nook_id = :nook_id');
 

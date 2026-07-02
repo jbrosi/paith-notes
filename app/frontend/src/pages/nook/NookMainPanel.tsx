@@ -7,8 +7,8 @@ import {
 	onCleanup,
 	onMount,
 	Show,
+	untrack,
 } from "solid-js";
-import { Portal } from "solid-js/web";
 import { Button } from "../../components/Button";
 import { MarkdownView } from "../../components/MarkdownView";
 import { useUi } from "../../ui/UiContext";
@@ -19,7 +19,6 @@ import { NoteAttributeFields } from "./components/NoteAttributeFields";
 import { TitleSection } from "./components/TitleSection";
 import { NookToolbar } from "./NookToolbar";
 import type { NookStore } from "./store";
-import { UnsavedChangesDialog } from "./UnsavedChangesDialog";
 
 export type NookMainPanelProps = {
 	store: NookStore;
@@ -42,8 +41,29 @@ export function NookMainPanel(props: NookMainPanelProps) {
 		setAddLinkError("");
 	});
 
+	// Two-way sync between ui.mode() (toolbar Save button, Nav Edit button)
+	// and store.mode() (TitleSection, EditorSection, attribute fields).
+	// Previously this was one-way (ui → store) so store-side actions like
+	// quickUploadFile that call store.setMode("edit") left ui.mode at
+	// "view" — TitleSection rendered editable but the toolbar Save button
+	// stayed hidden.
+	//
+	// Each effect tracks exactly one signal (the initial read) and does
+	// the compare + write inside untrack() so the other signal isn't a
+	// tracked dep. That avoids a ping-pong loop where the forward effect
+	// re-runs on store.mode() change and reverts to the stale ui.mode()
+	// (or vice versa).
 	createEffect(() => {
-		store().setMode(ui.mode());
+		const uiMode = ui.mode();
+		untrack(() => {
+			if (store().mode() !== uiMode) store().setMode(uiMode);
+		});
+	});
+	createEffect(() => {
+		const storeMode = store().mode();
+		untrack(() => {
+			if (ui.mode() !== storeMode) ui.setMode(storeMode);
+		});
 	});
 
 	onMount(() => {
@@ -87,15 +107,8 @@ export function NookMainPanel(props: NookMainPanelProps) {
 
 	return (
 		<>
-			<Show when={store().pendingNav() !== null}>
-				<Portal>
-					<UnsavedChangesDialog
-						onSave={() => void store().confirmPendingNav(true)}
-						onDiscard={() => void store().confirmPendingNav(false)}
-						onCancel={() => store().cancelPendingNav()}
-					/>
-				</Portal>
-			</Show>
+			{/* UnsavedChangesDialog is rendered at the Nook.tsx root so it
+			    shows regardless of which sub-view triggers a pending nav. */}
 			<Show
 				when={!snapshot()}
 				fallback={

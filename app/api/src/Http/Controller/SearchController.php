@@ -55,7 +55,7 @@ final class SearchController
         // notes inside disabled nooks if the AI somehow gets an ID — that's
         // blocked at the MCP layer, not here.
         $stmt = $pdo->prepare(
-            "select n.id, n.title, n.nook_id, nk.name as nook_name, n.type_id, n.created_at,
+            "select n.id, n.title, n.nook_id, nk.name as nook_name, n.type_id, n.version, n.created_at,
                     coalesce(ns.outgoing_mentions, 0) as outgoing_mentions_count,
                     coalesce(ns.incoming_mentions, 0) as incoming_mentions_count,
                     coalesce(ns.outgoing_links, 0) as outgoing_links_count,

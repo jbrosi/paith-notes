@@ -171,7 +171,42 @@ it('rejects an empty edits array', function (): void {
         'edits' => [],
     ]));
     expect($res['status'])->toBe(400);
-    expect(json_decode($res['body'], true)['error'])->toContain('non-empty array');
+    // Error copy explains both accepted shapes (array + single-edit).
+    expect(json_decode($res['body'], true)['error'])->toContain('edits');
+});
+
+it('accepts a single edit at top level without the `edits` array wrapper', function (): void {
+    [$headers, $nookId, $noteId, $version] = editTestSetup('eeeeeeeeeeee');
+
+    $res = App::handle('POST', "/api/nooks/{$nookId}/notes/{$noteId}/edit", $headers, json_encode([
+        'expected_version' => $version,
+        'old_string' => 'beta',
+        'new_string' => 'BETA',
+    ]));
+    expect($res['status'])->toBe(200, $res['body']);
+    expect(json_decode($res['body'], true)['note']['content'])->toBe("alpha\nBETA\ngamma\n");
+});
+
+it('accepts `find` / `replace` aliases in place of old_string / new_string', function (): void {
+    [$headers, $nookId, $noteId, $version] = editTestSetup('ffffffffffff');
+
+    // Top-level shortcut with aliases.
+    $res = App::handle('POST', "/api/nooks/{$nookId}/notes/{$noteId}/edit", $headers, json_encode([
+        'expected_version' => $version,
+        'find' => 'beta',
+        'replace' => 'BETA',
+    ]));
+    expect($res['status'])->toBe(200, $res['body']);
+    expect(json_decode($res['body'], true)['note']['content'])->toBe("alpha\nBETA\ngamma\n");
+
+    // Aliases inside the edits array too.
+    $v2 = json_decode($res['body'], true)['note']['version'];
+    $res2 = App::handle('POST', "/api/nooks/{$nookId}/notes/{$noteId}/edit", $headers, json_encode([
+        'expected_version' => $v2,
+        'edits' => [['find' => 'alpha', 'replace' => 'ALPHA']],
+    ]));
+    expect($res2['status'])->toBe(200, $res2['body']);
+    expect(json_decode($res2['body'], true)['note']['content'])->toBe("ALPHA\nBETA\ngamma\n");
 });
 
 it('requires expected_version', function (): void {
