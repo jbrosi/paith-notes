@@ -60,9 +60,14 @@ export function NookNotesSearchDropdown(props: NookNotesSearchDropdownProps) {
 		const textTerm = parsed.textTerm.trim();
 		if (textTerm !== "") qs.set("q", textTerm);
 
+		// `lean=1` returns just id/nook_id/title/type_id/version and
+		// skips the note_stats join + attribute decode. Same endpoint
+		// as the main list view; the flag is the whole difference.
+		qs.set("lean", "1");
+
 		try {
 			const res = await apiFetch(
-				`/api/nooks/${nookId}/notes/titles?${qs.toString()}`,
+				`/api/nooks/${nookId}/notes?${qs.toString()}`,
 				{ method: "GET" },
 			);
 			if (!res.ok) return;
@@ -333,16 +338,57 @@ export function NookNotesSearchDropdown(props: NookNotesSearchDropdownProps) {
 					</Show>
 					<div class={styles["dropdown-list"]}>
 						<For each={noteResults()}>
-							{(n) => (
-								<button
-									type="button"
-									class={styles["dropdown-item"]}
-									onMouseDown={(e) => e.preventDefault()}
-									onClick={() => selectNote(n.id)}
-								>
-									<span>{n.title}</span>
-								</button>
-							)}
+							{(n) => {
+								// Resolve type_id → type label via the store's cached
+								// types. Common case where a "File" note and a "Base"
+								// note share the same title needs this badge to
+								// disambiguate at a glance.
+								const typeLabel = () => {
+									const t = store()
+										?.noteTypes()
+										?.find((tt) => tt.id === n.type_id);
+									return t?.label ?? t?.key ?? "";
+								};
+								return (
+									<button
+										type="button"
+										class={styles["dropdown-item"]}
+										onMouseDown={(e) => e.preventDefault()}
+										onClick={() => selectNote(n.id)}
+										style={{
+											display: "flex",
+											"align-items": "baseline",
+											"justify-content": "space-between",
+											gap: "8px",
+										}}
+									>
+										<span
+											style={{
+												overflow: "hidden",
+												"text-overflow": "ellipsis",
+												"white-space": "nowrap",
+											}}
+										>
+											{n.title}
+										</span>
+										<Show when={typeLabel() !== ""}>
+											<span
+												style={{
+													"flex-shrink": 0,
+													"font-size": "0.7rem",
+													color: "var(--color-text-muted, #6b7280)",
+													background: "var(--color-bg-tertiary, #f3f4f6)",
+													padding: "1px 6px",
+													"border-radius": "10px",
+													"letter-spacing": "0.02em",
+												}}
+											>
+												{typeLabel()}
+											</span>
+										</Show>
+									</button>
+								);
+							}}
 						</For>
 						<Show
 							when={

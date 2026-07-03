@@ -1410,8 +1410,10 @@ it('multi-type filter (type_ids) returns notes of all selected types', function 
     sort($titles2);
     expect($titles2)->toBe(['A1', 'A2', 'B1', 'BS1']);
 
-    // /notes/titles (the search dropdown endpoint) honours the same param.
-    $res3 = App::handle('GET', '/api/nooks/' . $nookId . '/notes/titles?type_ids=' . $tA . ',' . $tC, $headers, '');
+    // /notes?lean=1 (the search-dropdown projection) honours the same
+    // param. `lean=1` replaces the old /notes/titles endpoint after the
+    // two were unified.
+    $res3 = App::handle('GET', '/api/nooks/' . $nookId . '/notes?lean=1&type_ids=' . $tA . ',' . $tC, $headers, '');
     $titles3 = array_map(fn($n) => $n['title'], json_decode($res3['body'], true)['notes']);
     sort($titles3);
     expect($titles3)->toBe(['A1', 'A2', 'C1']);

@@ -157,3 +157,24 @@ it('returns heading_matches when the query matches a heading in note content', f
     expect($body['heading_matches'][0]['note_id'])->toBe($noteId);
     expect($body['heading_matches'][0]['text'])->toContain('peculiar');
 });
+
+it('returns heading_matches on the in-nook /notes?q=… list endpoint too', function (): void {
+    // Regression — the nav search dropdown uses this endpoint (not the
+    // cross-nook /api/search one), and heading matches drive the
+    // "Heading matches" section of that dropdown.
+    [$headers, $nookId] = searchSetupNook('bbbbbbbbbbbb');
+    $noteId = searchCreateNote(
+        $headers,
+        $nookId,
+        'Has headings',
+        "intro paragraph\n\n## A peculiar subsection\n\nbody"
+    );
+
+    $res = App::handle('GET', "/api/nooks/{$nookId}/notes?q=" . urlencode('peculiar'), $headers, '');
+    expect($res['status'])->toBe(200, $res['body']);
+    $body = json_decode($res['body'], true);
+    expect($body['heading_matches'])->not->toBeEmpty();
+    expect($body['heading_matches'][0]['note_id'])->toBe($noteId);
+    expect($body['heading_matches'][0]['nook_id'])->toBe($nookId);
+    expect($body['heading_matches'][0]['text'])->toContain('peculiar');
+});

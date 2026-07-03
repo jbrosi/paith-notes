@@ -43,95 +43,6 @@ final class NotesController
         $this->headings = new HeadingsService();
     }
 
-    /**
-     * GET /nooks/{nookId}/notes/titles?q=...&limit=20
-     *
-     * Lean projection for the global notes-search dropdown. Returns
-     * only id + title + type_id, no mention/link counts, no joins.
-     * Replaces the heavier /note-types/all/notes prefetch the dropdown
-     * used to do on every nook open — now it fetches on focus, with
-     * a tighter cap (max 50, default 20) and an optional case-
-     * insensitive title-substring filter.
-     */
-    public function titles(Request $request, Context $context): Response
-    {
-        $pdo = $context->pdo();
-        $user = $context->user();
-
-        $nookId = $request->requireUuidRouteParam('nookId');
-
-        NookAccess::requireMember($pdo, $user, $nookId);
-
-        $q = strtolower(trim($request->queryParam('q')));
-        $limitRaw = $request->queryParam('limit');
-        $limit = min(50, max(1, $limitRaw !== '' ? (int)$limitRaw : 20));
-
-        $typeIds = self::parseTypeIdsParam($request);
-        $hasTypeFilter = $typeIds !== [];
-        $v = strtolower(trim($request->queryParam('include_subtypes')));
-        $includeSubtypes = in_array($v, ['1', 'true', 'yes', 'on'], true);
-
-        // Compose the WHERE / FROM dynamically so the type filter
-        // and subtype CTE only appear when actually needed.
-        $whereType = '';
-        $cteHead = '';
-        $params = [':nook_id' => $nookId];
-        if ($hasTypeFilter) {
-            $tidPlaceholders = [];
-            foreach ($typeIds as $i => $tid) {
-                $ph = ':type_id_' . $i;
-                $tidPlaceholders[] = $ph;
-                $params[$ph] = $tid;
-            }
-            $tidList = implode(',', $tidPlaceholders);
-            if ($includeSubtypes) {
-                $cteHead = 'with recursive type_tree as ('
-                    . ' select id from global.note_types where id in (' . $tidList . ') and nook_id = :nook_id'
-                    . ' union all'
-                    . ' select nt.id from global.note_types nt join type_tree tt on nt.parent_id = tt.id'
-                    . ' where nt.nook_id = :nook_id'
-                    . ') ';
-                $whereType = ' and type_id in (select id from type_tree)';
-            } else {
-                $whereType = ' and type_id in (' . $tidList . ')';
-            }
-        }
-
-        $whereQ = '';
-        if ($q !== '') {
-            $whereQ = ' and lower(title) like :q';
-            $params[':q'] = '%' . $q . '%';
-        }
-
-        $sql = $cteHead
-            . 'select id, title, type_id, version from global.notes '
-            . 'where nook_id = :nook_id'
-            . $whereType
-            . $whereQ
-            . ' order by created_at desc limit :limit';
-        $stmt = $pdo->prepare($sql);
-        foreach ($params as $p => $val) {
-            $stmt->bindValue($p, $val);
-        }
-        $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
-        $stmt->execute();
-        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-        $notes = [];
-        foreach ($rows as $r) {
-            if (!is_array($r)) {
-                continue;
-            }
-            $notes[] = [
-                'id' => Row::str($r, 'id'),
-                'nook_id' => $nookId,
-                'title' => Row::str($r, 'title'),
-                'type_id' => Row::str($r, 'type_id'),
-                'version' => Row::int($r, 'version'),
-            ];
-        }
-        return JsonResponse::ok(['notes' => $notes]);
-    }
 
     /**
      * GET /nooks/{nookId}/notes
@@ -178,6 +89,17 @@ final class NotesController
         $includeAttrs = in_array(
             strtolower(trim($request->queryParam('include'))),
             ['attributes', 'attrs'],
+            true,
+        );
+
+        // Lean projection — used by the nav search dropdown and any other
+        // caller that wants just `id/nook_id/title/type_id/version` per
+        // note. Skips the note_stats LEFT JOIN, the attribute decode, and
+        // the pagination cursor bookkeeping. This is what the old
+        // /notes/titles endpoint returned before the two were unified.
+        $lean = in_array(
+            strtolower(trim($request->queryParam('lean'))),
+            ['1', 'true', 'yes', 'on'],
             true,
         );
 
@@ -243,8 +165,13 @@ final class NotesController
 
         $search = SearchQueryParser::buildSearchClause($q, $searchMode);
         $whereSearch = $search['where'];
+        // Rank formula: lean mode skips the view-count boost (would
+        // require the note_stats join we just dropped). Non-lean stays
+        // as before.
         $searchRank = $search['rank'] !== '0'
-            ? '(' . $search['rank'] . ' + ln(1 + least(coalesce(ns.view_count, 0), 1000)) * 0.5)'
+            ? ($lean
+                ? '(' . $search['rank'] . ')'
+                : '(' . $search['rank'] . ' + ln(1 + least(coalesce(ns.view_count, 0), 1000)) * 0.5)')
             : '0';
         $searchBindings = $search['bindings'];
 
@@ -255,7 +182,11 @@ final class NotesController
         $attrFilter = $this->buildAttributeFilterClause($request->queryParam('attribute_filters'), $searchBindings);
         $whereAttrFilter = $attrFilter['where'];
 
-        $unlinked = $request->queryParam('unlinked') === '1';
+        // `unlinked` filter needs the ns.* columns from the note_stats
+        // join. Silently ignored in lean mode (dropdown doesn't need it)
+        // rather than erroring — the join is what's missing, not the
+        // caller's intent.
+        $unlinked = !$lean && $request->queryParam('unlinked') === '1';
         $whereUnlinked = $unlinked
             ? 'and coalesce(ns.outgoing_links, 0) = 0 and coalesce(ns.incoming_links, 0) = 0
                and coalesce(ns.outgoing_mentions, 0) = 0 and coalesce(ns.incoming_mentions, 0) = 0'
@@ -274,14 +205,26 @@ final class NotesController
         // char_length (not octet_length) so the AI sees a count that matches
         // what it'd read — character-aligned (multibyte safe), roughly
         // correlated with token cost.
-        $selectCols = "select n.id, n.title, n.type_id, n.version, {$attrsCol} n.created_at, n.updated_at,
-                    coalesce(ns.outgoing_mentions, 0) as outgoing_mentions_count,
-                    coalesce(ns.incoming_mentions, 0) as incoming_mentions_count,
-                    coalesce(ns.outgoing_links, 0) as outgoing_links_count,
-                    coalesce(ns.incoming_links, 0) as incoming_links_count,
-                    char_length(coalesce(n.content, '')) as content_chars,
-                    {$searchRank} as search_rank";
-        $joinCounts = 'left join global.note_stats ns on ns.note_id = n.id';
+        //
+        // Lean mode skips the note_stats join entirely so the dropdown's
+        // per-keystroke query stays a single-table read. Ranking then
+        // uses only the SearchQueryParser rank formula (no view-count
+        // boost, which is a minor loss for autocomplete quality — the
+        // full list view still gets it).
+        if ($lean) {
+            $selectCols = "select n.id, n.title, n.type_id, n.version, "
+                . "{$searchRank} as search_rank";
+            $joinCounts = '';
+        } else {
+            $selectCols = "select n.id, n.title, n.type_id, n.version, {$attrsCol} n.created_at, n.updated_at,
+                        coalesce(ns.outgoing_mentions, 0) as outgoing_mentions_count,
+                        coalesce(ns.incoming_mentions, 0) as incoming_mentions_count,
+                        coalesce(ns.outgoing_links, 0) as outgoing_links_count,
+                        coalesce(ns.incoming_links, 0) as incoming_links_count,
+                        char_length(coalesce(n.content, '')) as content_chars,
+                        {$searchRank} as search_rank";
+            $joinCounts = 'left join global.note_stats ns on ns.note_id = n.id';
+        }
 
         $tidPlaceholders = [];
         foreach ($typeIds as $i => $tid) {
@@ -358,6 +301,19 @@ final class NotesController
         $notes = [];
         foreach ($rows as $r) {
             if (!is_array($r)) {
+                continue;
+            }
+            if ($lean) {
+                // Lean projection — matches the shape the nav search
+                // dropdown expects: id/nook_id/title/type_id/version,
+                // no counts/timestamps/attributes.
+                $notes[] = [
+                    'id' => Row::str($r, 'id'),
+                    'nook_id' => $nookId,
+                    'title' => Row::str($r, 'title'),
+                    'type_id' => Row::str($r, 'type_id'),
+                    'version' => Row::int($r, 'version'),
+                ];
                 continue;
             }
             $entry = [
@@ -1470,10 +1426,25 @@ final class NotesController
         $title = is_string($row['title'] ?? null) ? (string)$row['title'] : '';
 
         if ($currentVersion !== $expectedVersion) {
-            return JsonResponse::error('note was edited in the meantime', 409, [
-                'current_version' => $currentVersion,
-                'expected_version' => $expectedVersion,
-            ]);
+            // The most common cause of this on the AI side is emitting
+            // TWO parallel edit_note tool_use blocks for the same note
+            // in one turn — both carry the same expected_version, so
+            // the second one to land collides with the version the
+            // first bumped. Steer the AI toward the fix in the error
+            // itself; the tool description covers the same guidance
+            // but a targeted hint here is what it will act on.
+            return JsonResponse::error(
+                'note was edited in the meantime — expected_version does not match current. '
+                . 'If you fired multiple edit_note calls on the same note in one turn, batch '
+                . 'them into a single call using the `edits: [...]` array instead. Otherwise '
+                . 're-read the note (get_note or read_note_lines) for the latest version and retry.',
+                409,
+                [
+                    'current_version' => $currentVersion,
+                    'expected_version' => $expectedVersion,
+                    'hint' => 'batch_or_reread',
+                ],
+            );
         }
 
         // Apply edits in order against the running content. substr_count
