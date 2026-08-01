@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Paith\Notes\Api\Http\Service;
 
 use PDO;
+use Paith\Notes\Shared\Db\Row;
 use Paith\Notes\Shared\Uuid;
 
 final class MentionsService
@@ -14,24 +15,154 @@ final class MentionsService
      */
     public function syncMentions(PDO $pdo, string $nookId, string $sourceNoteId, string $markdown, string $userId = ''): void
     {
-        $pdo->prepare('delete from global.note_mentions where source_note_id = :source_note_id')->execute([
-            ':source_note_id' => $sourceNoteId,
-        ]);
+        // Diff-based sync. The old approach was DELETE-all-then-reinsert,
+        // which fired the note_stats_mentions_fn trigger per row for every
+        // mention on every save — 100 mentions × (1 delete + 1 insert) = 200
+        // trigger fires, even for a one-word edit. Now we compute the set
+        // difference in PHP and only touch what actually changed:
+        //
+        //   toDelete  targets in old set, not in new  → DELETE (fires trigger)
+        //   toInsert  targets in new set, not in old  → INSERT (fires trigger)
+        //   toUpdate  same target, changed position/title → UPDATE (no trigger)
+        //
+        // Combined with the narrowed trigger (INSERT/DELETE only, see
+        // GlobalSchema.php), a no-op or position-only edit fires zero stats
+        // updates.
+        //
+        // Deadlock prevention: even the reduced INSERT/DELETE set can cycle
+        // on stats rows shared with other parallel edits. Before touching
+        // anything we take row locks on stats rows for {source} + toDelete
+        // targets + toInsert targets, in ascending note_id order. Any
+        // parallel writer acquires the same locks in the same sequence, so
+        // no cycle is possible. Skip the lock loop entirely when nothing
+        // changes (toDelete + toInsert both empty) — saves round-trips.
+        // Load-bearing for concurrency — do not remove the sort.
+        $parsed = self::parseMentionsFromMarkdown($markdown);
 
-        $mentions = self::parseMentionsFromMarkdown($markdown);
-        if ($mentions === []) {
+        $newByTarget = [];
+        foreach ($parsed as $m) {
+            if (!Uuid::isValid($m['target_note_id'])) {
+                continue;
+            }
+            // parseMentionsFromMarkdown already dedupes; keep the first entry.
+            $newByTarget[$m['target_note_id']] = $m;
+        }
+
+        $existingStmt = $pdo->prepare(
+            'select target_note_id, position, link_title from global.note_mentions where source_note_id = :src'
+        );
+        $existingStmt->execute([':src' => $sourceNoteId]);
+        $existingByTarget = [];
+        foreach ($existingStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $tid = Row::str($row, 'target_note_id');
+            if ($tid === '') {
+                continue;
+            }
+            $existingByTarget[$tid] = [
+                'position' => Row::int($row, 'position'),
+                'link_title' => Row::str($row, 'link_title'),
+            ];
+        }
+
+        $toDelete = [];
+        foreach ($existingByTarget as $tid => $_) {
+            if (!isset($newByTarget[$tid])) {
+                $toDelete[$tid] = true;
+            }
+        }
+
+        $toInsert = [];
+        $toUpdate = [];
+        foreach ($newByTarget as $tid => $m) {
+            if (!isset($existingByTarget[$tid])) {
+                $toInsert[$tid] = $m;
+                continue;
+            }
+            if (
+                (int)$existingByTarget[$tid]['position'] !== (int)$m['offset']
+                || $existingByTarget[$tid]['link_title'] !== $m['link_title']
+            ) {
+                $toUpdate[$tid] = $m;
+            }
+        }
+
+        // Canonical stats lock — only over rows the trigger will actually
+        // touch. UPDATEs skip the trigger entirely, so toUpdate is excluded.
+        if ($toDelete !== [] || $toInsert !== []) {
+            $touchedIds = [$sourceNoteId];
+            foreach (array_keys($toDelete) as $tid) {
+                $touchedIds[] = $tid;
+            }
+            foreach (array_keys($toInsert) as $tid) {
+                $touchedIds[] = $tid;
+            }
+            $sortedIds = array_values(array_unique(array_filter(
+                $touchedIds,
+                static fn (string $id): bool => Uuid::isValid($id),
+            )));
+            sort($sortedIds);
+
+            $ensureStats = $pdo->prepare(
+                'insert into global.note_stats (note_id, nook_id) '
+                . 'select id, nook_id from global.notes where id = :id '
+                . 'on conflict (note_id) do nothing'
+            );
+            $lockStats = $pdo->prepare(
+                'select 1 from global.note_stats where note_id = :id for no key update'
+            );
+            foreach ($sortedIds as $id) {
+                $ensureStats->execute([':id' => $id]);
+                $lockStats->execute([':id' => $id]);
+                $lockStats->fetchAll();
+            }
+        }
+
+        // Bulk delete removed targets.
+        if ($toDelete !== []) {
+            $tids = array_keys($toDelete);
+            $placeholders = [];
+            $params = [':src' => $sourceNoteId];
+            foreach ($tids as $i => $tid) {
+                $key = ':t' . $i;
+                $placeholders[] = $key;
+                $params[$key] = $tid;
+            }
+            $del = $pdo->prepare(
+                'delete from global.note_mentions where source_note_id = :src '
+                . 'and target_note_id in (' . implode(', ', $placeholders) . ')'
+            );
+            $del->execute($params);
+        }
+
+        // Update kept mentions where position or link_title drifted (no
+        // trigger fires — the (source, target) tuple is unchanged).
+        if ($toUpdate !== []) {
+            $upd = $pdo->prepare(
+                'update global.note_mentions set position = :position, link_title = :link_title '
+                . 'where source_note_id = :src and target_note_id = :tid'
+            );
+            foreach ($toUpdate as $tid => $m) {
+                $upd->execute([
+                    ':src' => $sourceNoteId,
+                    ':tid' => $tid,
+                    ':position' => (int)$m['offset'],
+                    ':link_title' => (string)$m['link_title'],
+                ]);
+            }
+        }
+
+        // Insert new mentions. Sort by target_note_id for defence-in-depth
+        // trigger determinism — redundant given the pre-lock, but cheap.
+        if ($toInsert === []) {
             return;
         }
 
-        // Canonical lock order: insert in ascending target_note_id order so
-        // parallel syncMentions calls in different transactions always
-        // acquire target-row locks in the same sequence. Without this the
-        // note_stats_mentions_fn trigger + the notes FK take locks in
-        // document-position order, which differs per note and lets two
-        // concurrent updates form a deadlock cycle. Ordering here is
-        // load-bearing for concurrency — do not remove.
+        $insertList = array_values($toInsert);
         usort(
-            $mentions,
+            $insertList,
             static fn (array $a, array $b): int => strcmp($a['target_note_id'], $b['target_note_id']),
         );
 
@@ -49,14 +180,11 @@ final class MentionsService
             'insert into global.note_mentions (source_note_id, target_note_id, position, link_title) values (:source_note_id, :target_note_id, :position, :link_title)'
         );
 
-        foreach ($mentions as $m) {
+        foreach ($insertList as $m) {
             $target = $m['target_note_id'];
             $targetNookId = $m['target_nook_id'];
             $title = $m['link_title'];
             $offset = $m['offset'];
-            if (!Uuid::isValid($target)) {
-                continue;
-            }
 
             if ($targetNookId !== '' && $targetNookId !== $nookId) {
                 // Cross-nook mention: verify note exists in that nook AND user has access

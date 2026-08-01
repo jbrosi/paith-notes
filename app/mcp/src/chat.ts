@@ -263,7 +263,11 @@ function sseHeaders(res: express.Response): void {
 // Accepts only UUID v4 format, which is the ID format used throughout this app.
 const NOOK_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+// Empty string is a valid input — represents "no nook selected" (nook-independent chat).
+// Downstream code treats empty nookId as "cross-nook / memory tools only" and gates
+// nook-scoped tools with a clear error.
 function validateNookId(nookId: string): string {
+  if (nookId === '') return '';
   if (!NOOK_ID_RE.test(nookId)) throw new Error(`Invalid nookId: ${nookId}`);
   return nookId;
 }
@@ -863,8 +867,10 @@ export function createChatRouter(apiBase: string): Router {
     message: { error: 'Too many requests, please try again later.' },
   });
 
-  // POST /nooks/:nookId/chat — start or continue a conversation
-  router.post('/nooks/:nookId/chat', chatRateLimiter, async (req, res) => {
+  // POST /nooks/:nookId/chat or /chat — start or continue a conversation.
+  // The nook-independent /chat variant is used by the frontend when no nook
+  // is selected; downstream code handles empty nookId as "cross-nook only".
+  router.post(['/nooks/:nookId/chat', '/chat'], chatRateLimiter, async (req, res) => {
     const cookieHeader = req.headers.cookie ?? '';
     const ok = await verifySession(cookieHeader, apiBase);
     if (!ok) {
@@ -872,7 +878,7 @@ export function createChatRouter(apiBase: string): Router {
       return;
     }
 
-    const nook_id = validateNookId(String(req.params.nookId));
+    const nook_id = validateNookId(String(req.params.nookId ?? ''));
     const { message, model, conversation_id, context_note_id, context_note_title, context_note_type, voice_mode, voice_lang, speaker_name, speaker_confidence, editor_state } = req.body as Record<string, unknown>;
     const speakerName =
       typeof speaker_name === 'string' && speaker_name.trim() !== ''
@@ -901,6 +907,11 @@ export function createChatRouter(apiBase: string): Router {
       // Resolve AI memory nook for storing conversations
       const memoryNookId = await resolveMemoryNookId(cookieHeader, apiBase);
       const convNookId = memoryNookId ?? nook_id;
+      if (!convNookId) {
+        // No selected nook AND no memory nook — nothing owns the conversation record.
+        res.status(400).json({ error: 'AI memory nook is unavailable — cannot start a chat without a nook context.' });
+        return;
+      }
 
       // Create or validate conversation
       let convId: string;
@@ -957,7 +968,7 @@ export function createChatRouter(apiBase: string): Router {
   });
 
   // POST /nooks/:nookId/chat/tool-result — user approved or denied tool calls, continue conversation
-  router.post('/nooks/:nookId/chat/tool-result', chatRateLimiter, async (req, res) => {
+  router.post(['/nooks/:nookId/chat/tool-result', '/chat/tool-result'], chatRateLimiter, async (req, res) => {
     const cookieHeader = req.headers.cookie ?? '';
     const ok = await verifySession(cookieHeader, apiBase);
     if (!ok) {
@@ -965,7 +976,7 @@ export function createChatRouter(apiBase: string): Router {
       return;
     }
 
-    const nook_id = validateNookId(String(req.params.nookId));
+    const nook_id = validateNookId(String(req.params.nookId ?? ''));
 
     /**
      * ToolResult shape from the frontend:

@@ -1,4 +1,5 @@
 <?php
+
 declare(strict_types=1);
 
 use Paith\Notes\Api\Http\App;
@@ -8,7 +9,7 @@ beforeEach(function (): void {
     $pdo = test_pdo();
     ensure_global_schema($pdo);
 
-    $pdo->exec('truncate table global.sessions, global.auth_states, global.nook_members, global.nooks, global.users cascade');
+    test_reset_state($pdo);
     // Re-insert the AI system user (truncated above)
     $pdo->exec("insert into global.users (id, first_name, last_name) values ('deadc0ff-ee00-4000-8000-000000000000', 'AI', 'Assistant') on conflict (id) do nothing");
 });
@@ -19,7 +20,7 @@ it('returns 401 when X-Nook-User is missing', function (): void {
     expect($res['status'])->toBe(401);
     expect($res['headers'])->toHaveKey('Content-Type');
 
-    $data = json_decode($res['body'], true);
+    $data = json_body($res);
     expect($data)->toBeArray();
     expect($data['status'])->toBe('error');
 });
@@ -29,7 +30,7 @@ it('returns 400 when X-Nook-User is not a UUID', function (): void {
 
     expect($res['status'])->toBe(400);
 
-    $data = json_decode($res['body'], true);
+    $data = json_body($res);
     expect($data)->toBeArray();
     expect($data['status'])->toBe('error');
 });
@@ -43,15 +44,15 @@ it('reports features.voice from VOICE_ENABLED env on /api/me', function (): void
     putenv('VOICE_ENABLED');
     $off = App::handle('GET', '/api/me', $headers, '');
     expect($off['status'])->toBe(200);
-    expect(json_decode($off['body'], true)['features']['voice'])->toBeFalse();
+    expect(json_body($off)['features']['voice'])->toBeFalse();
 
     putenv('VOICE_ENABLED=0');
     $zero = App::handle('GET', '/api/me', $headers, '');
-    expect(json_decode($zero['body'], true)['features']['voice'])->toBeFalse();
+    expect(json_body($zero)['features']['voice'])->toBeFalse();
 
     putenv('VOICE_ENABLED=1');
     $on = App::handle('GET', '/api/me', $headers, '');
-    expect(json_decode($on['body'], true)['features']['voice'])->toBeTrue();
+    expect(json_body($on)['features']['voice'])->toBeTrue();
 
     putenv('VOICE_ENABLED');
 });
@@ -66,14 +67,14 @@ it('auto-creates a user and can create/list nooks', function (): void {
     $me = App::handle('GET', '/api/me', $headers, '');
     expect($me['status'])->toBe(200);
 
-    $meData = json_decode($me['body'], true);
+    $meData = json_body($me);
     expect($meData)->toBeArray();
     expect($meData['user']['id'])->toBe($userId);
 
     $initialList = App::handle('GET', '/api/nooks', $headers, '');
     expect($initialList['status'])->toBe(200);
 
-    $initialListData = json_decode($initialList['body'], true);
+    $initialListData = json_body($initialList);
     expect($initialListData)->toBeArray();
     expect($initialListData['nooks'])->toBeArray();
     expect(count($initialListData['nooks']))->toBe(1);
@@ -81,17 +82,17 @@ it('auto-creates a user and can create/list nooks', function (): void {
     // Default nook is auto-created
     expect((string)($initialListData['nooks'][0]['name'] ?? ''))->toBe('My Notes');
 
-    $create = App::handle('POST', '/api/nooks', $headers, json_encode(['name' => 'My First Nook'], JSON_UNESCAPED_SLASHES));
+    $create = App::handle('POST', '/api/nooks', $headers, json_str(['name' => 'My First Nook'], JSON_UNESCAPED_SLASHES));
     expect($create['status'])->toBe(200);
 
-    $createData = json_decode($create['body'], true);
+    $createData = json_body($create);
     expect($createData)->toBeArray();
     expect($createData['nook']['name'])->toBe('My First Nook');
 
     $list = App::handle('GET', '/api/nooks', $headers, '');
     expect($list['status'])->toBe(200);
 
-    $listData = json_decode($list['body'], true);
+    $listData = json_body($list);
     expect($listData)->toBeArray();
     expect($listData['nooks'])->toBeArray();
     expect(count($listData['nooks']))->toBe(2);
@@ -106,9 +107,9 @@ it('can rename a nook', function (): void {
 
     App::handle('GET', '/api/me', $headers, '');
 
-    $create = App::handle('POST', '/api/nooks', $headers, json_encode(['name' => 'Original Name'], JSON_UNESCAPED_SLASHES));
+    $create = App::handle('POST', '/api/nooks', $headers, json_str(['name' => 'Original Name'], JSON_UNESCAPED_SLASHES));
     expect($create['status'])->toBe(200);
-    $nookId = (string)(json_decode($create['body'], true)['nook']['id'] ?? '');
+    $nookId = (string)(json_body($create)['nook']['id'] ?? '');
     expect($nookId)->not->toBe('');
 
     // Rename
@@ -116,16 +117,16 @@ it('can rename a nook', function (): void {
         'PUT',
         '/api/nooks/' . $nookId,
         $headers,
-        json_encode(['name' => 'New Name'], JSON_UNESCAPED_SLASHES)
+        json_str(['name' => 'New Name'], JSON_UNESCAPED_SLASHES)
     );
     expect($update['status'])->toBe(200);
-    $updateData = json_decode($update['body'], true);
+    $updateData = json_body($update);
     expect($updateData)->toBeArray();
     expect((string)($updateData['nook']['name'] ?? ''))->toBe('New Name');
 
     // Verify in list
     $list = App::handle('GET', '/api/nooks', $headers, '');
-    $listData = json_decode($list['body'], true);
+    $listData = json_body($list);
     $found = array_values(array_filter(
         $listData['nooks'],
         static fn (mixed $n): bool => is_array($n) && (($n['id'] ?? '') === $nookId)
@@ -138,7 +139,7 @@ it('can rename a nook', function (): void {
         'PUT',
         '/api/nooks/' . $nookId,
         $headers,
-        json_encode(['name' => ''], JSON_UNESCAPED_SLASHES)
+        json_str(['name' => ''], JSON_UNESCAPED_SLASHES)
     );
     expect($empty['status'])->toBe(400);
 });
@@ -152,10 +153,10 @@ it('can create a note in a nook', function (): void {
 
     App::handle('GET', '/api/me', $headers, '');
 
-    $createNook = App::handle('POST', '/api/nooks', $headers, json_encode(['name' => 'Work'], JSON_UNESCAPED_SLASHES));
+    $createNook = App::handle('POST', '/api/nooks', $headers, json_str(['name' => 'Work'], JSON_UNESCAPED_SLASHES));
     expect($createNook['status'])->toBe(200);
 
-    $createNookData = json_decode($createNook['body'], true);
+    $createNookData = json_body($createNook);
     expect($createNookData)->toBeArray();
     $nookId = (string)($createNookData['nook']['id'] ?? '');
     expect($nookId)->not->toBe('');
@@ -164,11 +165,11 @@ it('can create a note in a nook', function (): void {
         'POST',
         '/api/nooks/' . $nookId . '/notes',
         $headers,
-        json_encode(['title' => 'Hello', 'content' => 'World'], JSON_UNESCAPED_SLASHES)
+        json_str(['title' => 'Hello', 'content' => 'World'], JSON_UNESCAPED_SLASHES)
     );
     expect($createNote['status'])->toBe(200);
 
-    $createNoteData = json_decode($createNote['body'], true);
+    $createNoteData = json_body($createNote);
     expect($createNoteData)->toBeArray();
     expect($createNoteData['note']['nook_id'])->toBe($nookId);
     expect($createNoteData['note']['title'])->toBe('Hello');
@@ -176,125 +177,125 @@ it('can create a note in a nook', function (): void {
     $noteId = (string)($createNoteData['note']['id'] ?? '');
     expect($noteId)->not->toBe('');
 
-	// Create a second note so we can reference it from the first note.
-	$createNote2 = App::handle(
-		'POST',
-		'/api/nooks/' . $nookId . '/notes',
-		$headers,
-		json_encode(['title' => 'Target', 'content' => ''], JSON_UNESCAPED_SLASHES)
-	);
-	expect($createNote2['status'])->toBe(200);
-	$createNote2Data = json_decode($createNote2['body'], true);
-	expect($createNote2Data)->toBeArray();
-	$targetNoteId = (string)($createNote2Data['note']['id'] ?? '');
-	expect($targetNoteId)->not->toBe('');
+    // Create a second note so we can reference it from the first note.
+    $createNote2 = App::handle(
+        'POST',
+        '/api/nooks/' . $nookId . '/notes',
+        $headers,
+        json_str(['title' => 'Target', 'content' => ''], JSON_UNESCAPED_SLASHES)
+    );
+    expect($createNote2['status'])->toBe(200);
+    $createNote2Data = json_body($createNote2);
+    expect($createNote2Data)->toBeArray();
+    $targetNoteId = (string)($createNote2Data['note']['id'] ?? '');
+    expect($targetNoteId)->not->toBe('');
 
-	// Update the first note to mention the second note.
-	$mentionMd = 'see [Custom Title](note:' . $targetNoteId . ') for details';
-	$updateWithMention = App::handle(
-		'PUT',
-		'/api/nooks/' . $nookId . '/notes/' . $noteId,
-		$headers,
-		json_encode(['title' => 'Hello 2', 'content' => $mentionMd, 'type' => 'anything', 'properties' => []], JSON_UNESCAPED_SLASHES)
-	);
-	expect($updateWithMention['status'])->toBe(200);
+    // Update the first note to mention the second note.
+    $mentionMd = 'see [Custom Title](note:' . $targetNoteId . ') for details';
+    $updateWithMention = App::handle(
+        'PUT',
+        '/api/nooks/' . $nookId . '/notes/' . $noteId,
+        $headers,
+        json_str(['title' => 'Hello 2', 'content' => $mentionMd, 'type' => 'anything', 'properties' => []], JSON_UNESCAPED_SLASHES)
+    );
+    expect($updateWithMention['status'])->toBe(200);
 
-	$pdoMentions = test_pdo();
-	$mentions = $pdoMentions->prepare('select source_note_id, target_note_id, position, link_title from global.note_mentions where source_note_id = :source order by position asc');
-	$mentions->execute([':source' => $noteId]);
-	$rows = $mentions->fetchAll(PDO::FETCH_ASSOC);
-	expect($rows)->toBeArray();
-	expect(count($rows))->toBe(1);
-	expect((string)($rows[0]['source_note_id'] ?? ''))->toBe($noteId);
-	expect((string)($rows[0]['target_note_id'] ?? ''))->toBe($targetNoteId);
-	expect((int)($rows[0]['position'] ?? -1))->toBeGreaterThanOrEqual(0);
-	expect((string)($rows[0]['link_title'] ?? ''))->toBe('Custom Title');
+    $pdoMentions = test_pdo();
+    $mentions = $pdoMentions->prepare('select source_note_id, target_note_id, position, link_title from global.note_mentions where source_note_id = :source order by position asc');
+    $mentions->execute([':source' => $noteId]);
+    $rows = $mentions->fetchAll(PDO::FETCH_ASSOC);
+    expect($rows)->toBeArray();
+    expect(count($rows))->toBe(1);
+    expect((string)($rows[0]['source_note_id'] ?? ''))->toBe($noteId);
+    expect((string)($rows[0]['target_note_id'] ?? ''))->toBe($targetNoteId);
+    expect((int)($rows[0]['position'] ?? -1))->toBeGreaterThanOrEqual(0);
+    expect((string)($rows[0]['link_title'] ?? ''))->toBe('Custom Title');
 
-	// Mentions endpoint: outgoing on source note.
-	$mentionsOut = App::handle(
-		'GET',
-		'/api/nooks/' . $nookId . '/notes/' . $noteId . '/mentions',
-		$headers,
-		''
-	);
-	expect($mentionsOut['status'])->toBe(200);
-	$mentionsOutData = json_decode($mentionsOut['body'], true);
-	expect($mentionsOutData)->toBeArray();
-	expect($mentionsOutData['outgoing'])->toBeArray();
-	expect($mentionsOutData['incoming'])->toBeArray();
-	expect(count($mentionsOutData['outgoing']))->toBe(1);
-	expect((string)($mentionsOutData['outgoing'][0]['note_id'] ?? ''))->toBe($targetNoteId);
-	expect((string)($mentionsOutData['outgoing'][0]['link_title'] ?? ''))->toBe('Custom Title');
+    // Mentions endpoint: outgoing on source note.
+    $mentionsOut = App::handle(
+        'GET',
+        '/api/nooks/' . $nookId . '/notes/' . $noteId . '/mentions',
+        $headers,
+        ''
+    );
+    expect($mentionsOut['status'])->toBe(200);
+    $mentionsOutData = json_body($mentionsOut);
+    expect($mentionsOutData)->toBeArray();
+    expect($mentionsOutData['outgoing'])->toBeArray();
+    expect($mentionsOutData['incoming'])->toBeArray();
+    expect(count($mentionsOutData['outgoing']))->toBe(1);
+    expect((string)($mentionsOutData['outgoing'][0]['note_id'] ?? ''))->toBe($targetNoteId);
+    expect((string)($mentionsOutData['outgoing'][0]['link_title'] ?? ''))->toBe('Custom Title');
 
-	// Mentions endpoint: incoming on target note.
-	$mentionsIn = App::handle(
-		'GET',
-		'/api/nooks/' . $nookId . '/notes/' . $targetNoteId . '/mentions',
-		$headers,
-		''
-	);
-	expect($mentionsIn['status'])->toBe(200);
-	$mentionsInData = json_decode($mentionsIn['body'], true);
-	expect($mentionsInData)->toBeArray();
-	expect($mentionsInData['outgoing'])->toBeArray();
-	expect($mentionsInData['incoming'])->toBeArray();
-	expect(count($mentionsInData['incoming']))->toBe(1);
-	expect((string)($mentionsInData['incoming'][0]['note_id'] ?? ''))->toBe($noteId);
-	expect((string)($mentionsInData['incoming'][0]['link_title'] ?? ''))->toBe('Custom Title');
+    // Mentions endpoint: incoming on target note.
+    $mentionsIn = App::handle(
+        'GET',
+        '/api/nooks/' . $nookId . '/notes/' . $targetNoteId . '/mentions',
+        $headers,
+        ''
+    );
+    expect($mentionsIn['status'])->toBe(200);
+    $mentionsInData = json_body($mentionsIn);
+    expect($mentionsInData)->toBeArray();
+    expect($mentionsInData['outgoing'])->toBeArray();
+    expect($mentionsInData['incoming'])->toBeArray();
+    expect(count($mentionsInData['incoming']))->toBe(1);
+    expect((string)($mentionsInData['incoming'][0]['note_id'] ?? ''))->toBe($noteId);
+    expect((string)($mentionsInData['incoming'][0]['link_title'] ?? ''))->toBe('Custom Title');
 
     $listNotes = App::handle('GET', '/api/nooks/' . $nookId . '/notes', $headers, '');
     expect($listNotes['status'])->toBe(200);
 
-    $listNotesData = json_decode($listNotes['body'], true);
+    $listNotesData = json_body($listNotes);
     expect($listNotesData)->toBeArray();
     expect($listNotesData['notes'])->toBeArray();
-	// We created 2 notes: the original + the target note.
-	expect(count($listNotesData['notes']))->toBe(2);
+    // We created 2 notes: the original + the target note.
+    expect(count($listNotesData['notes']))->toBe(2);
 
-	// Notes list is a summary response and must not include full content.
-	foreach ($listNotesData['notes'] as $n) {
-		expect($n)->toBeArray();
-		expect(array_key_exists('content', $n))->toBe(false);
-	}
+    // Notes list is a summary response and must not include full content.
+    foreach ($listNotesData['notes'] as $n) {
+        expect($n)->toBeArray();
+        expect(array_key_exists('content', $n))->toBe(false);
+    }
 
-	$ids = array_map(static fn (array $n): string => (string)($n['id'] ?? ''), $listNotesData['notes']);
-	expect(in_array($noteId, $ids, true))->toBe(true);
-	expect(in_array($targetNoteId, $ids, true))->toBe(true);
+    $ids = array_map(static fn (array $n): string => (string)($n['id'] ?? ''), $listNotesData['notes']);
+    expect(in_array($noteId, $ids, true))->toBe(true);
+    expect(in_array($targetNoteId, $ids, true))->toBe(true);
 
-	$titles = array_map(static fn (array $n): string => (string)($n['title'] ?? ''), $listNotesData['notes']);
-	expect(in_array('Hello 2', $titles, true))->toBe(true);
-	expect(in_array('Target', $titles, true))->toBe(true);
+    $titles = array_map(static fn (array $n): string => (string)($n['title'] ?? ''), $listNotesData['notes']);
+    expect(in_array('Hello 2', $titles, true))->toBe(true);
+    expect(in_array('Target', $titles, true))->toBe(true);
 
-	// Remove the mention and ensure mention table is synced (deleted).
-	$updateNote = App::handle(
-		'PUT',
-		'/api/nooks/' . $nookId . '/notes/' . $noteId,
-		$headers,
-		json_encode(['title' => 'Hello 2', 'content' => 'World 2', 'type' => 'anything', 'properties' => []], JSON_UNESCAPED_SLASHES)
-	);
-	expect($updateNote['status'])->toBe(200);
+    // Remove the mention and ensure mention table is synced (deleted).
+    $updateNote = App::handle(
+        'PUT',
+        '/api/nooks/' . $nookId . '/notes/' . $noteId,
+        $headers,
+        json_str(['title' => 'Hello 2', 'content' => 'World 2', 'type' => 'anything', 'properties' => []], JSON_UNESCAPED_SLASHES)
+    );
+    expect($updateNote['status'])->toBe(200);
 
-	$updateNoteData = json_decode($updateNote['body'], true);
-	expect($updateNoteData)->toBeArray();
-	expect($updateNoteData['note']['id'])->toBe($noteId);
-	expect($updateNoteData['note']['title'])->toBe('Hello 2');
-	expect($updateNoteData['note']['content'])->toBe('World 2');
+    $updateNoteData = json_body($updateNote);
+    expect($updateNoteData)->toBeArray();
+    expect($updateNoteData['note']['id'])->toBe($noteId);
+    expect($updateNoteData['note']['title'])->toBe('Hello 2');
+    expect($updateNoteData['note']['content'])->toBe('World 2');
 
-	$mentions2 = $pdoMentions->prepare('select count(*) from global.note_mentions where source_note_id = :source');
-	$mentions2->execute([':source' => $noteId]);
-	expect((int)$mentions2->fetchColumn())->toBe(0);
+    $mentions2 = $pdoMentions->prepare('select count(*) from global.note_mentions where source_note_id = :source');
+    $mentions2->execute([':source' => $noteId]);
+    expect((int)$mentions2->fetchColumn())->toBe(0);
 
-	// Mentions endpoint should now be empty.
-	$mentionsOut2 = App::handle(
-		'GET',
-		'/api/nooks/' . $nookId . '/notes/' . $noteId . '/mentions',
-		$headers,
-		''
-	);
-	expect($mentionsOut2['status'])->toBe(200);
-	$mentionsOut2Data = json_decode($mentionsOut2['body'], true);
-	expect($mentionsOut2Data)->toBeArray();
-	expect(count($mentionsOut2Data['outgoing'] ?? []))->toBe(0);
+    // Mentions endpoint should now be empty.
+    $mentionsOut2 = App::handle(
+        'GET',
+        '/api/nooks/' . $nookId . '/notes/' . $noteId . '/mentions',
+        $headers,
+        ''
+    );
+    expect($mentionsOut2['status'])->toBe(200);
+    $mentionsOut2Data = json_body($mentionsOut2);
+    expect($mentionsOut2Data)->toBeArray();
+    expect(count($mentionsOut2Data['outgoing'] ?? []))->toBe(0);
 
     $pdo = test_pdo();
     $stmt = $pdo->prepare('select title, content from global.notes where id = :id and nook_id = :nook_id');
@@ -312,277 +313,277 @@ it('can create a note in a nook', function (): void {
     );
     expect($deleteNote['status'])->toBe(200);
 
-    $deleteNoteData = json_decode($deleteNote['body'], true);
+    $deleteNoteData = json_body($deleteNote);
     expect($deleteNoteData)->toBeArray();
     expect($deleteNoteData['deleted'])->toBe(true);
     expect($deleteNoteData['note_id'])->toBe($noteId);
 
     $listNotes2 = App::handle('GET', '/api/nooks/' . $nookId . '/notes', $headers, '');
     expect($listNotes2['status'])->toBe(200);
-    $listNotesData2 = json_decode($listNotes2['body'], true);
+    $listNotesData2 = json_body($listNotes2);
     expect($listNotesData2)->toBeArray();
     expect($listNotesData2['notes'])->toBeArray();
-	// The target note should still exist.
+    // The target note should still exist.
     expect(count($listNotesData2['notes']))->toBe(1);
-	expect((string)($listNotesData2['notes'][0]['id'] ?? ''))->toBe($targetNoteId);
+    expect((string)($listNotesData2['notes'][0]['id'] ?? ''))->toBe($targetNoteId);
 
-    		$stmt2 = $pdo->prepare('select count(*) from global.notes where id = :id and nook_id = :nook_id');
-	$stmt2->execute([':id' => $noteId, ':nook_id' => $nookId]);
-	expect((int)$stmt2->fetchColumn())->toBe(0);
+            $stmt2 = $pdo->prepare('select count(*) from global.notes where id = :id and nook_id = :nook_id');
+    $stmt2->execute([':id' => $noteId, ':nook_id' => $nookId]);
+    expect((int)$stmt2->fetchColumn())->toBe(0);
 });
 
 it('can update a note type key and description', function (): void {
-	$userId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
-	$headers = [
-		'X-Nook-User' => $userId,
-		'X-Nook-Groups' => 'paith/notes',
-	];
+    $userId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+    $headers = [
+        'X-Nook-User' => $userId,
+        'X-Nook-Groups' => 'paith/notes',
+    ];
 
-	App::handle('GET', '/api/me', $headers, '');
+    App::handle('GET', '/api/me', $headers, '');
 
-	$createNook = App::handle('POST', '/api/nooks', $headers, json_encode(['name' => 'Types'], JSON_UNESCAPED_SLASHES));
-	expect($createNook['status'])->toBe(200);
-	$createNookData = json_decode($createNook['body'], true);
-	expect($createNookData)->toBeArray();
-	$nookId = (string)($createNookData['nook']['id'] ?? '');
-	expect($nookId)->not->toBe('');
+    $createNook = App::handle('POST', '/api/nooks', $headers, json_str(['name' => 'Types'], JSON_UNESCAPED_SLASHES));
+    expect($createNook['status'])->toBe(200);
+    $createNookData = json_body($createNook);
+    expect($createNookData)->toBeArray();
+    $nookId = (string)($createNookData['nook']['id'] ?? '');
+    expect($nookId)->not->toBe('');
 
-	$createType = App::handle(
-		'POST',
-		'/api/nooks/' . $nookId . '/note-types',
-		$headers,
-		json_encode([
-			'key' => 'topic',
-			'label' => 'Topic',
-			'description' => 'Short',
-			'parent_id' => '',
-			'applies_to' => 'notes',
-		], JSON_UNESCAPED_SLASHES)
-	);
-	expect($createType['status'])->toBe(200);
-	$createTypeData = json_decode($createType['body'], true);
-	expect($createTypeData)->toBeArray();
-	$typeId = (string)($createTypeData['type']['id'] ?? '');
-	expect($typeId)->not->toBe('');
-	expect((string)($createTypeData['type']['key'] ?? ''))->toBe('topic');
-	expect((string)($createTypeData['type']['description'] ?? ''))->toBe('Short');
+    $createType = App::handle(
+        'POST',
+        '/api/nooks/' . $nookId . '/note-types',
+        $headers,
+        json_str([
+            'key' => 'topic',
+            'label' => 'Topic',
+            'description' => 'Short',
+            'parent_id' => '',
+            'applies_to' => 'notes',
+        ], JSON_UNESCAPED_SLASHES)
+    );
+    expect($createType['status'])->toBe(200);
+    $createTypeData = json_body($createType);
+    expect($createTypeData)->toBeArray();
+    $typeId = (string)($createTypeData['type']['id'] ?? '');
+    expect($typeId)->not->toBe('');
+    expect((string)($createTypeData['type']['key'] ?? ''))->toBe('topic');
+    expect((string)($createTypeData['type']['description'] ?? ''))->toBe('Short');
 
-	$updateType = App::handle(
-		'PUT',
-		'/api/nooks/' . $nookId . '/note-types/' . $typeId,
-		$headers,
-		json_encode([
-			'key' => 'topics',
-			'label' => 'Topics',
-			'description' => 'Longer text',
-			'parent_id' => '',
-			'applies_to' => 'notes',
-		], JSON_UNESCAPED_SLASHES)
-	);
-	expect($updateType['status'])->toBe(200);
-	$updateTypeData = json_decode($updateType['body'], true);
-	expect($updateTypeData)->toBeArray();
-	expect((string)($updateTypeData['type']['id'] ?? ''))->toBe($typeId);
-	expect((string)($updateTypeData['type']['key'] ?? ''))->toBe('topics');
-	expect((string)($updateTypeData['type']['label'] ?? ''))->toBe('Topics');
-	expect((string)($updateTypeData['type']['description'] ?? ''))->toBe('Longer text');
+    $updateType = App::handle(
+        'PUT',
+        '/api/nooks/' . $nookId . '/note-types/' . $typeId,
+        $headers,
+        json_str([
+            'key' => 'topics',
+            'label' => 'Topics',
+            'description' => 'Longer text',
+            'parent_id' => '',
+            'applies_to' => 'notes',
+        ], JSON_UNESCAPED_SLASHES)
+    );
+    expect($updateType['status'])->toBe(200);
+    $updateTypeData = json_body($updateType);
+    expect($updateTypeData)->toBeArray();
+    expect((string)($updateTypeData['type']['id'] ?? ''))->toBe($typeId);
+    expect((string)($updateTypeData['type']['key'] ?? ''))->toBe('topics');
+    expect((string)($updateTypeData['type']['label'] ?? ''))->toBe('Topics');
+    expect((string)($updateTypeData['type']['description'] ?? ''))->toBe('Longer text');
 
-	$pdo = test_pdo();
-	$stmt = $pdo->prepare('select key, label, description from global.note_types where id = :id and nook_id = :nook_id');
-	$stmt->execute([':id' => $typeId, ':nook_id' => $nookId]);
-	$row = $stmt->fetch(PDO::FETCH_ASSOC);
-	expect($row)->toBeArray();
-	expect((string)($row['key'] ?? ''))->toBe('topics');
-	expect((string)($row['label'] ?? ''))->toBe('Topics');
-	expect((string)($row['description'] ?? ''))->toBe('Longer text');
+    $pdo = test_pdo();
+    $stmt = $pdo->prepare('select key, label, description from global.note_types where id = :id and nook_id = :nook_id');
+    $stmt->execute([':id' => $typeId, ':nook_id' => $nookId]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    expect($row)->toBeArray();
+    expect((string)($row['key'] ?? ''))->toBe('topics');
+    expect((string)($row['label'] ?? ''))->toBe('Topics');
+    expect((string)($row['description'] ?? ''))->toBe('Longer text');
 });
 
 it('can create link predicates, set rules, and link notes with dates (duplicates allowed)', function (): void {
-	$userId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
-	$headers = [
-		'X-Nook-User' => $userId,
-		'X-Nook-Groups' => 'paith/notes',
-	];
+    $userId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+    $headers = [
+        'X-Nook-User' => $userId,
+        'X-Nook-Groups' => 'paith/notes',
+    ];
 
-	App::handle('GET', '/api/me', $headers, '');
+    App::handle('GET', '/api/me', $headers, '');
 
-	$createNook = App::handle('POST', '/api/nooks', $headers, json_encode(['name' => 'Links'], JSON_UNESCAPED_SLASHES));
-	expect($createNook['status'])->toBe(200);
-	$createNookData = json_decode($createNook['body'], true);
-	expect($createNookData)->toBeArray();
-	$nookId = (string)($createNookData['nook']['id'] ?? '');
-	expect($nookId)->not->toBe('');
+    $createNook = App::handle('POST', '/api/nooks', $headers, json_str(['name' => 'Links'], JSON_UNESCAPED_SLASHES));
+    expect($createNook['status'])->toBe(200);
+    $createNookData = json_body($createNook);
+    expect($createNookData)->toBeArray();
+    $nookId = (string)($createNookData['nook']['id'] ?? '');
+    expect($nookId)->not->toBe('');
 
-	// Create a type hierarchy: Person <- Customer
-	$createPersonType = App::handle(
-		'POST',
-		'/api/nooks/' . $nookId . '/note-types',
-		$headers,
-		json_encode([
-			'key' => 'person',
-			'label' => 'Person',
-			'description' => '',
-			'parent_id' => '',
-			'applies_to' => 'notes',
-		], JSON_UNESCAPED_SLASHES)
-	);
-	expect($createPersonType['status'])->toBe(200);
-	$createPersonTypeData = json_decode($createPersonType['body'], true);
-	expect($createPersonTypeData)->toBeArray();
-	$personTypeId = (string)($createPersonTypeData['type']['id'] ?? '');
-	expect($personTypeId)->not->toBe('');
+    // Create a type hierarchy: Person <- Customer
+    $createPersonType = App::handle(
+        'POST',
+        '/api/nooks/' . $nookId . '/note-types',
+        $headers,
+        json_str([
+            'key' => 'person',
+            'label' => 'Person',
+            'description' => '',
+            'parent_id' => '',
+            'applies_to' => 'notes',
+        ], JSON_UNESCAPED_SLASHES)
+    );
+    expect($createPersonType['status'])->toBe(200);
+    $createPersonTypeData = json_body($createPersonType);
+    expect($createPersonTypeData)->toBeArray();
+    $personTypeId = (string)($createPersonTypeData['type']['id'] ?? '');
+    expect($personTypeId)->not->toBe('');
 
-	$createCustomerType = App::handle(
-		'POST',
-		'/api/nooks/' . $nookId . '/note-types',
-		$headers,
-		json_encode([
-			'key' => 'customer',
-			'label' => 'Customer',
-			'description' => '',
-			'parent_id' => $personTypeId,
-			'applies_to' => 'notes',
-		], JSON_UNESCAPED_SLASHES)
-	);
-	expect($createCustomerType['status'])->toBe(200);
-	$createCustomerTypeData = json_decode($createCustomerType['body'], true);
-	expect($createCustomerTypeData)->toBeArray();
-	$customerTypeId = (string)($createCustomerTypeData['type']['id'] ?? '');
-	expect($customerTypeId)->not->toBe('');
+    $createCustomerType = App::handle(
+        'POST',
+        '/api/nooks/' . $nookId . '/note-types',
+        $headers,
+        json_str([
+            'key' => 'customer',
+            'label' => 'Customer',
+            'description' => '',
+            'parent_id' => $personTypeId,
+            'applies_to' => 'notes',
+        ], JSON_UNESCAPED_SLASHES)
+    );
+    expect($createCustomerType['status'])->toBe(200);
+    $createCustomerTypeData = json_body($createCustomerType);
+    expect($createCustomerTypeData)->toBeArray();
+    $customerTypeId = (string)($createCustomerTypeData['type']['id'] ?? '');
+    expect($customerTypeId)->not->toBe('');
 
-	// Create predicate
-	$createPredicate = App::handle(
-		'POST',
-		'/api/nooks/' . $nookId . '/link-predicates',
-		$headers,
-		json_encode([
-			'key' => 'owns',
-			'forward_label' => 'owns',
-			'reverse_label' => 'owned by',
-			'supports_start_date' => true,
-			'supports_end_date' => true,
-		], JSON_UNESCAPED_SLASHES)
-	);
-	expect($createPredicate['status'])->toBe(200);
-	$createPredicateData = json_decode($createPredicate['body'], true);
-	expect($createPredicateData)->toBeArray();
-	$predicateId = (string)($createPredicateData['predicate']['id'] ?? '');
-	expect($predicateId)->not->toBe('');
+    // Create predicate
+    $createPredicate = App::handle(
+        'POST',
+        '/api/nooks/' . $nookId . '/link-predicates',
+        $headers,
+        json_str([
+            'key' => 'owns',
+            'forward_label' => 'owns',
+            'reverse_label' => 'owned by',
+            'supports_start_date' => true,
+            'supports_end_date' => true,
+        ], JSON_UNESCAPED_SLASHES)
+    );
+    expect($createPredicate['status'])->toBe(200);
+    $createPredicateData = json_body($createPredicate);
+    expect($createPredicateData)->toBeArray();
+    $predicateId = (string)($createPredicateData['predicate']['id'] ?? '');
+    expect($predicateId)->not->toBe('');
 
-	// Rules: source must be Person (including subtypes), target can be anything
-	$replaceRules = App::handle(
-		'PUT',
-		'/api/nooks/' . $nookId . '/link-predicates/' . $predicateId . '/rules',
-		$headers,
-		json_encode([
-			'rules' => [[
-				'source_type_id' => $personTypeId,
-				'target_type_id' => '',
-				'include_source_subtypes' => true,
-				'include_target_subtypes' => true,
-			]],
-		], JSON_UNESCAPED_SLASHES)
-	);
-	expect($replaceRules['status'])->toBe(200);
-	$replaceRulesData = json_decode($replaceRules['body'], true);
-	expect($replaceRulesData)->toBeArray();
-	expect($replaceRulesData['saved'])->toBe(true);
+    // Rules: source must be Person (including subtypes), target can be anything
+    $replaceRules = App::handle(
+        'PUT',
+        '/api/nooks/' . $nookId . '/link-predicates/' . $predicateId . '/rules',
+        $headers,
+        json_str([
+            'rules' => [[
+                'source_type_id' => $personTypeId,
+                'target_type_id' => '',
+                'include_source_subtypes' => true,
+                'include_target_subtypes' => true,
+            ]],
+        ], JSON_UNESCAPED_SLASHES)
+    );
+    expect($replaceRules['status'])->toBe(200);
+    $replaceRulesData = json_body($replaceRules);
+    expect($replaceRulesData)->toBeArray();
+    expect($replaceRulesData['saved'])->toBe(true);
 
-	// Create notes
-	$createAlice = App::handle(
-		'POST',
-		'/api/nooks/' . $nookId . '/notes',
-		$headers,
-		json_encode([
-			'title' => 'Alice',
-			'content' => '...',
-			'type' => 'anything',
-			'type_id' => $customerTypeId,
-		], JSON_UNESCAPED_SLASHES)
-	);
-	expect($createAlice['status'])->toBe(200);
-	$createAliceData = json_decode($createAlice['body'], true);
-	expect($createAliceData)->toBeArray();
-	$aliceId = (string)($createAliceData['note']['id'] ?? '');
-	expect($aliceId)->not->toBe('');
+    // Create notes
+    $createAlice = App::handle(
+        'POST',
+        '/api/nooks/' . $nookId . '/notes',
+        $headers,
+        json_str([
+            'title' => 'Alice',
+            'content' => '...',
+            'type' => 'anything',
+            'type_id' => $customerTypeId,
+        ], JSON_UNESCAPED_SLASHES)
+    );
+    expect($createAlice['status'])->toBe(200);
+    $createAliceData = json_body($createAlice);
+    expect($createAliceData)->toBeArray();
+    $aliceId = (string)($createAliceData['note']['id'] ?? '');
+    expect($aliceId)->not->toBe('');
 
-	$createCar = App::handle(
-		'POST',
-		'/api/nooks/' . $nookId . '/notes',
-		$headers,
-		json_encode([
-			'title' => 'Car',
-			'content' => '...',
-			'type' => 'anything',
-		], JSON_UNESCAPED_SLASHES)
-	);
-	expect($createCar['status'])->toBe(200);
-	$createCarData = json_decode($createCar['body'], true);
-	expect($createCarData)->toBeArray();
-	$carId = (string)($createCarData['note']['id'] ?? '');
-	expect($carId)->not->toBe('');
+    $createCar = App::handle(
+        'POST',
+        '/api/nooks/' . $nookId . '/notes',
+        $headers,
+        json_str([
+            'title' => 'Car',
+            'content' => '...',
+            'type' => 'anything',
+        ], JSON_UNESCAPED_SLASHES)
+    );
+    expect($createCar['status'])->toBe(200);
+    $createCarData = json_body($createCar);
+    expect($createCarData)->toBeArray();
+    $carId = (string)($createCarData['note']['id'] ?? '');
+    expect($carId)->not->toBe('');
 
-	// Create link with dates
-	$createLink1 = App::handle(
-		'POST',
-		'/api/nooks/' . $nookId . '/notes/' . $aliceId . '/links',
-		$headers,
-		json_encode([
-			'predicate_id' => $predicateId,
-			'target_note_id' => $carId,
-			'start_date' => '2020-01-01',
-			'end_date' => '2020-12-31',
-		], JSON_UNESCAPED_SLASHES)
-	);
-	expect($createLink1['status'])->toBe(200);
-	$createLink1Data = json_decode($createLink1['body'], true);
-	expect($createLink1Data)->toBeArray();
-	$linkId1 = (string)($createLink1Data['link']['id'] ?? '');
-	expect($linkId1)->not->toBe('');
-	expect((string)($createLink1Data['link']['start_date'] ?? ''))->toBe('2020-01-01');
-	expect((string)($createLink1Data['link']['end_date'] ?? ''))->toBe('2020-12-31');
+    // Create link with dates
+    $createLink1 = App::handle(
+        'POST',
+        '/api/nooks/' . $nookId . '/notes/' . $aliceId . '/links',
+        $headers,
+        json_str([
+            'predicate_id' => $predicateId,
+            'target_note_id' => $carId,
+            'start_date' => '2020-01-01',
+            'end_date' => '2020-12-31',
+        ], JSON_UNESCAPED_SLASHES)
+    );
+    expect($createLink1['status'])->toBe(200);
+    $createLink1Data = json_body($createLink1);
+    expect($createLink1Data)->toBeArray();
+    $linkId1 = (string)($createLink1Data['link']['id'] ?? '');
+    expect($linkId1)->not->toBe('');
+    expect((string)($createLink1Data['link']['start_date'] ?? ''))->toBe('2020-01-01');
+    expect((string)($createLink1Data['link']['end_date'] ?? ''))->toBe('2020-12-31');
 
-	// Create another identical link (duplicates allowed)
-	$createLink2 = App::handle(
-		'POST',
-		'/api/nooks/' . $nookId . '/notes/' . $aliceId . '/links',
-		$headers,
-		json_encode([
-			'predicate_id' => $predicateId,
-			'target_note_id' => $carId,
-			'start_date' => '2021-01-01',
-			'end_date' => '2021-06-30',
-		], JSON_UNESCAPED_SLASHES)
-	);
-	expect($createLink2['status'])->toBe(200);
-	$createLink2Data = json_decode($createLink2['body'], true);
-	expect($createLink2Data)->toBeArray();
-	$linkId2 = (string)($createLink2Data['link']['id'] ?? '');
-	expect($linkId2)->not->toBe('');
-	expect($linkId2)->not->toBe($linkId1);
+    // Create another identical link (duplicates allowed)
+    $createLink2 = App::handle(
+        'POST',
+        '/api/nooks/' . $nookId . '/notes/' . $aliceId . '/links',
+        $headers,
+        json_str([
+            'predicate_id' => $predicateId,
+            'target_note_id' => $carId,
+            'start_date' => '2021-01-01',
+            'end_date' => '2021-06-30',
+        ], JSON_UNESCAPED_SLASHES)
+    );
+    expect($createLink2['status'])->toBe(200);
+    $createLink2Data = json_body($createLink2);
+    expect($createLink2Data)->toBeArray();
+    $linkId2 = (string)($createLink2Data['link']['id'] ?? '');
+    expect($linkId2)->not->toBe('');
+    expect($linkId2)->not->toBe($linkId1);
 
-	// List links for Alice
-	$list = App::handle('GET', '/api/nooks/' . $nookId . '/notes/' . $aliceId . '/links?direction=out', $headers, '');
-	expect($list['status'])->toBe(200);
-	$listData = json_decode($list['body'], true);
-	expect($listData)->toBeArray();
-	expect($listData['links'])->toBeArray();
-	expect(count($listData['links']))->toBe(2);
+    // List links for Alice
+    $list = App::handle('GET', '/api/nooks/' . $nookId . '/notes/' . $aliceId . '/links?direction=out', $headers, '');
+    expect($list['status'])->toBe(200);
+    $listData = json_body($list);
+    expect($listData)->toBeArray();
+    expect($listData['links'])->toBeArray();
+    expect(count($listData['links']))->toBe(2);
 
-	// Delete one link
-	$del = App::handle('DELETE', '/api/nooks/' . $nookId . '/notes/' . $aliceId . '/links/' . $linkId1, $headers, '');
-	expect($del['status'])->toBe(200);
-	$delData = json_decode($del['body'], true);
-	expect($delData)->toBeArray();
-	expect($delData['deleted'])->toBe(true);
-	expect((string)($delData['link_id'] ?? ''))->toBe($linkId1);
+    // Delete one link
+    $del = App::handle('DELETE', '/api/nooks/' . $nookId . '/notes/' . $aliceId . '/links/' . $linkId1, $headers, '');
+    expect($del['status'])->toBe(200);
+    $delData = json_body($del);
+    expect($delData)->toBeArray();
+    expect($delData['deleted'])->toBe(true);
+    expect((string)($delData['link_id'] ?? ''))->toBe($linkId1);
 
-	$list2 = App::handle('GET', '/api/nooks/' . $nookId . '/notes/' . $aliceId . '/links?direction=out', $headers, '');
-	expect($list2['status'])->toBe(200);
-	$listData2 = json_decode($list2['body'], true);
-	expect($listData2)->toBeArray();
-	expect($listData2['links'])->toBeArray();
-	expect(count($listData2['links']))->toBe(1);
+    $list2 = App::handle('GET', '/api/nooks/' . $nookId . '/notes/' . $aliceId . '/links?direction=out', $headers, '');
+    expect($list2['status'])->toBe(200);
+    $listData2 = json_body($list2);
+    expect($listData2)->toBeArray();
+    expect($listData2['links'])->toBeArray();
+    expect(count($listData2['links']))->toBe(1);
 });
 
 
@@ -598,9 +599,9 @@ it('denies PUT to /files/tmp when upload is missing or does not match', function
 
     App::handle('GET', '/api/me', $headers, '');
 
-    $createNook = App::handle('POST', '/api/nooks', $headers, json_encode(['name' => 'Auth PUT'], JSON_UNESCAPED_SLASHES));
+    $createNook = App::handle('POST', '/api/nooks', $headers, json_str(['name' => 'Auth PUT'], JSON_UNESCAPED_SLASHES));
     expect($createNook['status'])->toBe(200);
-    $createNookData = json_decode($createNook['body'], true);
+    $createNookData = json_body($createNook);
     expect($createNookData)->toBeArray();
     $nookId = (string)($createNookData['nook']['id'] ?? '');
     expect($nookId)->not->toBe('');
@@ -618,19 +619,25 @@ it('denies PUT to /files/tmp when upload is missing or does not match', function
 
     // Fetch the seeded File type and its file attribute
     $typesRes = App::handle('GET', '/api/nooks/' . $nookId . '/note-types', $headers, '');
-    $typesData = json_decode($typesRes['body'], true);
+    $typesData = json_body($typesRes);
     $fileType = null;
     foreach ($typesData['types'] ?? [] as $t) {
-        if (($t['key'] ?? '') === 'file') { $fileType = $t; break; }
+        if (($t['key'] ?? '') === 'file') {
+            $fileType = $t;
+            break;
+        }
     }
     expect($fileType)->not->toBeNull();
     $fileTypeId = $fileType['id'];
 
     $attrsRes = App::handle('GET', '/api/nooks/' . $nookId . '/note-types/' . $fileTypeId . '/attributes', $headers, '');
-    $attrsData = json_decode($attrsRes['body'], true);
+    $attrsData = json_body($attrsRes);
     $fileAttr = null;
     foreach ($attrsData['attributes'] ?? [] as $a) {
-        if (($a['kind'] ?? '') === 'file') { $fileAttr = $a; break; }
+        if (($a['kind'] ?? '') === 'file') {
+            $fileAttr = $a;
+            break;
+        }
     }
     expect($fileAttr)->not->toBeNull();
     $fileAttrId = $fileAttr['id'];
@@ -639,7 +646,7 @@ it('denies PUT to /files/tmp when upload is missing or does not match', function
         'POST',
         '/api/nooks/' . $nookId . '/file/attr-upload-url',
         $headers,
-        json_encode([
+        json_str([
             'filename' => 'example.txt',
             'extension' => 'txt',
             'filesize' => 3,
@@ -650,7 +657,7 @@ it('denies PUT to /files/tmp when upload is missing or does not match', function
         ], JSON_UNESCAPED_SLASHES)
     );
     expect($uploadUrl['status'])->toBe(200);
-    $uploadData = json_decode($uploadUrl['body'], true);
+    $uploadData = json_body($uploadUrl);
     expect($uploadData)->toBeArray();
     $uploadId = (string)($uploadData['upload_id'] ?? '');
     expect($uploadId)->not->toBe('');
@@ -692,28 +699,34 @@ it('attribute-based file upload and download', function (): void {
 
     App::handle('GET', '/api/me', $headers, '');
 
-    $createNook = App::handle('POST', '/api/nooks', $headers, json_encode(['name' => 'Files'], JSON_UNESCAPED_SLASHES));
+    $createNook = App::handle('POST', '/api/nooks', $headers, json_str(['name' => 'Files'], JSON_UNESCAPED_SLASHES));
     expect($createNook['status'])->toBe(200);
-    $createNookData = json_decode($createNook['body'], true);
+    $createNookData = json_body($createNook);
     expect($createNookData)->toBeArray();
     $nookId = (string)($createNookData['nook']['id'] ?? '');
     expect($nookId)->not->toBe('');
 
     // Fetch seeded File type and its file attribute
     $typesRes = App::handle('GET', '/api/nooks/' . $nookId . '/note-types', $headers, '');
-    $typesData = json_decode($typesRes['body'], true);
+    $typesData = json_body($typesRes);
     $fileType = null;
     foreach ($typesData['types'] ?? [] as $t) {
-        if (($t['key'] ?? '') === 'file') { $fileType = $t; break; }
+        if (($t['key'] ?? '') === 'file') {
+            $fileType = $t;
+            break;
+        }
     }
     expect($fileType)->not->toBeNull();
     $fileTypeId = $fileType['id'];
 
     $attrsRes = App::handle('GET', '/api/nooks/' . $nookId . '/note-types/' . $fileTypeId . '/attributes', $headers, '');
-    $attrsData = json_decode($attrsRes['body'], true);
+    $attrsData = json_body($attrsRes);
     $fileAttr = null;
     foreach ($attrsData['attributes'] ?? [] as $a) {
-        if (($a['kind'] ?? '') === 'file') { $fileAttr = $a; break; }
+        if (($a['kind'] ?? '') === 'file') {
+            $fileAttr = $a;
+            break;
+        }
     }
     expect($fileAttr)->not->toBeNull();
     $fileAttrId = $fileAttr['id'];
@@ -722,7 +735,7 @@ it('attribute-based file upload and download', function (): void {
         'POST',
         '/api/nooks/' . $nookId . '/file/attr-upload-url',
         $headers,
-        json_encode([
+        json_str([
             'filename' => 'example.txt',
             'extension' => 'txt',
             'filesize' => 3,
@@ -733,7 +746,7 @@ it('attribute-based file upload and download', function (): void {
         ], JSON_UNESCAPED_SLASHES)
     );
     expect($uploadUrl['status'])->toBe(200);
-    $uploadData = json_decode($uploadUrl['body'], true);
+    $uploadData = json_body($uploadUrl);
     expect($uploadData)->toBeArray();
     expect((string)($uploadData['upload_url'] ?? ''))->toContain('http');
     expect((string)($uploadData['upload_url'] ?? ''))->toContain('/files/tmp/');
@@ -768,14 +781,14 @@ it('attribute-based file upload and download', function (): void {
         'POST',
         '/api/nooks/' . $nookId . '/file/attr-finalize',
         $headers,
-        json_encode([
+        json_str([
             'upload_id' => $uploadId,
             'type_id' => $fileTypeId,
             'attribute_id' => $fileAttrId,
         ], JSON_UNESCAPED_SLASHES)
     );
     expect($finalize['status'])->toBe(200);
-    $finalizeData = json_decode($finalize['body'], true);
+    $finalizeData = json_body($finalize);
     expect($finalizeData)->toBeArray();
     $noteId = (string)($finalizeData['note']['id'] ?? '');
     expect($noteId)->not->toBe('');
@@ -800,7 +813,7 @@ it('attribute-based file upload and download', function (): void {
         ''
     );
     expect($downloadUrl['status'])->toBe(200);
-    $downloadData = json_decode($downloadUrl['body'], true);
+    $downloadData = json_body($downloadUrl);
     expect($downloadData)->toBeArray();
     expect((string)($downloadData['download_url'] ?? ''))->toContain('http');
     expect($downloadData['expires_in'] ?? null)->toBe(7200);
@@ -838,173 +851,173 @@ it('attribute-based file upload and download', function (): void {
 });
 
 it('embedded image note links are included in mentions (empty alt)', function (): void {
-	$prevEnabled = getenv('KEYCLOAK_ENABLED');
-	putenv('KEYCLOAK_ENABLED=0');
+    $prevEnabled = getenv('KEYCLOAK_ENABLED');
+    putenv('KEYCLOAK_ENABLED=0');
 
-	$userId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
-	$headers = [
-		'X-Nook-User' => $userId,
-		'X-Nook-Groups' => 'paith/notes',
-	];
+    $userId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+    $headers = [
+        'X-Nook-User' => $userId,
+        'X-Nook-Groups' => 'paith/notes',
+    ];
 
-	App::handle('GET', '/api/me', $headers, '');
+    App::handle('GET', '/api/me', $headers, '');
 
-	$createNook = App::handle(
-		'POST',
-		'/api/nooks',
-		$headers,
-		json_encode(['name' => 'Mentions'], JSON_UNESCAPED_SLASHES)
-	);
-	expect($createNook['status'])->toBe(200);
-	$createNookData = json_decode($createNook['body'], true);
-	expect($createNookData)->toBeArray();
-	$nookId = (string)($createNookData['nook']['id'] ?? '');
-	expect($nookId)->not->toBe('');
+    $createNook = App::handle(
+        'POST',
+        '/api/nooks',
+        $headers,
+        json_str(['name' => 'Mentions'], JSON_UNESCAPED_SLASHES)
+    );
+    expect($createNook['status'])->toBe(200);
+    $createNookData = json_body($createNook);
+    expect($createNookData)->toBeArray();
+    $nookId = (string)($createNookData['nook']['id'] ?? '');
+    expect($nookId)->not->toBe('');
 
-	$target = App::handle(
-		'POST',
-		'/api/nooks/' . $nookId . '/notes',
-		$headers,
-		json_encode([
-			'title' => 'Image',
-			'content' => '',
-			'type' => 'file',
-			'properties' => [],
-		], JSON_UNESCAPED_SLASHES)
-	);
-	expect($target['status'])->toBe(200);
-	$targetData = json_decode($target['body'], true);
-	expect($targetData)->toBeArray();
-	$targetId = (string)($targetData['note']['id'] ?? '');
-	expect($targetId)->not->toBe('');
+    $target = App::handle(
+        'POST',
+        '/api/nooks/' . $nookId . '/notes',
+        $headers,
+        json_str([
+            'title' => 'Image',
+            'content' => '',
+            'type' => 'file',
+            'properties' => [],
+        ], JSON_UNESCAPED_SLASHES)
+    );
+    expect($target['status'])->toBe(200);
+    $targetData = json_body($target);
+    expect($targetData)->toBeArray();
+    $targetId = (string)($targetData['note']['id'] ?? '');
+    expect($targetId)->not->toBe('');
 
-	$source = App::handle(
-		'POST',
-		'/api/nooks/' . $nookId . '/notes',
-		$headers,
-		json_encode([
-			'title' => 'Source',
-			'content' => 'Here is an embed: ![1.00](note:' . $targetId . ' "fff")',
-			'type' => 'anything',
-			'properties' => [],
-		], JSON_UNESCAPED_SLASHES)
-	);
-	expect($source['status'])->toBe(200);
-	$sourceData = json_decode($source['body'], true);
-	expect($sourceData)->toBeArray();
-	$sourceId = (string)($sourceData['note']['id'] ?? '');
-	expect($sourceId)->not->toBe('');
+    $source = App::handle(
+        'POST',
+        '/api/nooks/' . $nookId . '/notes',
+        $headers,
+        json_str([
+            'title' => 'Source',
+            'content' => 'Here is an embed: ![1.00](note:' . $targetId . ' "fff")',
+            'type' => 'anything',
+            'properties' => [],
+        ], JSON_UNESCAPED_SLASHES)
+    );
+    expect($source['status'])->toBe(200);
+    $sourceData = json_body($source);
+    expect($sourceData)->toBeArray();
+    $sourceId = (string)($sourceData['note']['id'] ?? '');
+    expect($sourceId)->not->toBe('');
 
-	$mentions = App::handle(
-		'GET',
-		'/api/nooks/' . $nookId . '/notes/' . $sourceId . '/mentions',
-		$headers,
-		''
-	);
-	expect($mentions['status'])->toBe(200);
-	$mentionsData = json_decode($mentions['body'], true);
-	expect($mentionsData)->toBeArray();
+    $mentions = App::handle(
+        'GET',
+        '/api/nooks/' . $nookId . '/notes/' . $sourceId . '/mentions',
+        $headers,
+        ''
+    );
+    expect($mentions['status'])->toBe(200);
+    $mentionsData = json_body($mentions);
+    expect($mentionsData)->toBeArray();
 
-	$outgoing = $mentionsData['outgoing'] ?? null;
-	expect($outgoing)->toBeArray();
-	$found = false;
-	foreach ($outgoing as $m) {
-		if (!is_array($m)) {
-			continue;
-		}
-		if ((string)($m['note_id'] ?? '') === $targetId) {
-			$found = true;
-			break;
-		}
-	}
-	expect($found)->toBeTrue();
+    $outgoing = $mentionsData['outgoing'] ?? null;
+    expect($outgoing)->toBeArray();
+    $found = false;
+    foreach ($outgoing as $m) {
+        if (!is_array($m)) {
+            continue;
+        }
+        if ((string)($m['note_id'] ?? '') === $targetId) {
+            $found = true;
+            break;
+        }
+    }
+    expect($found)->toBeTrue();
 
-	putenv('KEYCLOAK_ENABLED=' . (is_string($prevEnabled) ? $prevEnabled : ''));
+    putenv('KEYCLOAK_ENABLED=' . (is_string($prevEnabled) ? $prevEnabled : ''));
 });
 
 it('auth login redirects to keycloak and persists validated redirect', function (): void {
-	$prevEnabled = getenv('KEYCLOAK_ENABLED');
-	$prevBase = getenv('KEYCLOAK_BASE_URL');
-	$prevRealm = getenv('KEYCLOAK_REALM');
-	$prevClientId = getenv('KEYCLOAK_CLIENT_ID');
-	$prevSecret = getenv('KEYCLOAK_CLIENT_SECRET');
+    $prevEnabled = getenv('KEYCLOAK_ENABLED');
+    $prevBase = getenv('KEYCLOAK_BASE_URL');
+    $prevRealm = getenv('KEYCLOAK_REALM');
+    $prevClientId = getenv('KEYCLOAK_CLIENT_ID');
+    $prevSecret = getenv('KEYCLOAK_CLIENT_SECRET');
 
-	putenv('KEYCLOAK_ENABLED=1');
-	putenv('KEYCLOAK_BASE_URL=https://keycloak.example');
-	putenv('KEYCLOAK_REALM=test');
-	putenv('KEYCLOAK_CLIENT_ID=notes');
-	putenv('KEYCLOAK_CLIENT_SECRET=secret');
+    putenv('KEYCLOAK_ENABLED=1');
+    putenv('KEYCLOAK_BASE_URL=https://keycloak.example');
+    putenv('KEYCLOAK_REALM=test');
+    putenv('KEYCLOAK_CLIENT_ID=notes');
+    putenv('KEYCLOAK_CLIENT_SECRET=secret');
 
-	try {
-		$res = App::handle('GET', '/api/auth/login?redirect=%2Fnooks%2Fabc', [], '');
-		expect($res['status'])->toBe(302);
-		expect($res['headers'])->toHaveKey('Location');
-		$location = (string)$res['headers']['Location'];
-		expect($location)->toContain('/protocol/openid-connect/auth');
+    try {
+        $res = App::handle('GET', '/api/auth/login?redirect=%2Fnooks%2Fabc', [], '');
+        expect($res['status'])->toBe(302);
+        expect($res['headers'])->toHaveKey('Location');
+        $location = (string)$res['headers']['Location'];
+        expect($location)->toContain('/protocol/openid-connect/auth');
 
-		$parts = parse_url($location);
-		expect($parts)->toBeArray();
-		parse_str((string)($parts['query'] ?? ''), $q);
-		expect($q)->toBeArray();
-		expect(isset($q['state']))->toBeTrue();
-		$state = (string)($q['state'] ?? '');
-		expect($state)->not->toBe('');
+        $parts = parse_url($location);
+        expect($parts)->toBeArray();
+        parse_str((string)($parts['query'] ?? ''), $q);
+        expect($q)->toBeArray();
+        expect(isset($q['state']))->toBeTrue();
+        $state = (string)($q['state'] ?? '');
+        expect($state)->not->toBe('');
 
-		$pdo = test_pdo();
-		$stmt = $pdo->prepare('select redirect_to from global.auth_states where state = :state');
-		$stmt->execute([':state' => $state]);
-		$row = $stmt->fetch(PDO::FETCH_ASSOC);
-		expect($row)->toBeArray();
-		expect((string)($row['redirect_to'] ?? ''))->toBe('/nooks/abc');
+        $pdo = test_pdo();
+        $stmt = $pdo->prepare('select redirect_to from global.auth_states where state = :state');
+        $stmt->execute([':state' => $state]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        expect($row)->toBeArray();
+        expect((string)($row['redirect_to'] ?? ''))->toBe('/nooks/abc');
 
-		$res2 = App::handle('GET', '/api/auth/login?redirect=https%3A%2F%2Fevil.example%2F', [], '');
-		expect($res2['status'])->toBe(302);
-		$location2 = (string)$res2['headers']['Location'];
-		$parts2 = parse_url($location2);
-		parse_str((string)($parts2['query'] ?? ''), $q2);
-		$state2 = (string)($q2['state'] ?? '');
-		expect($state2)->not->toBe('');
+        $res2 = App::handle('GET', '/api/auth/login?redirect=https%3A%2F%2Fevil.example%2F', [], '');
+        expect($res2['status'])->toBe(302);
+        $location2 = (string)$res2['headers']['Location'];
+        $parts2 = parse_url($location2);
+        parse_str((string)($parts2['query'] ?? ''), $q2);
+        $state2 = (string)($q2['state'] ?? '');
+        expect($state2)->not->toBe('');
 
-		$stmt2 = $pdo->prepare('select redirect_to from global.auth_states where state = :state');
-		$stmt2->execute([':state' => $state2]);
-		$row2 = $stmt2->fetch(PDO::FETCH_ASSOC);
-		expect($row2)->toBeArray();
-		expect((string)($row2['redirect_to'] ?? ''))->toBe('/');
-	} finally {
-		putenv('KEYCLOAK_ENABLED=' . (is_string($prevEnabled) ? $prevEnabled : ''));
-		putenv('KEYCLOAK_BASE_URL=' . (is_string($prevBase) ? $prevBase : ''));
-		putenv('KEYCLOAK_REALM=' . (is_string($prevRealm) ? $prevRealm : ''));
-		putenv('KEYCLOAK_CLIENT_ID=' . (is_string($prevClientId) ? $prevClientId : ''));
-		putenv('KEYCLOAK_CLIENT_SECRET=' . (is_string($prevSecret) ? $prevSecret : ''));
-	}
+        $stmt2 = $pdo->prepare('select redirect_to from global.auth_states where state = :state');
+        $stmt2->execute([':state' => $state2]);
+        $row2 = $stmt2->fetch(PDO::FETCH_ASSOC);
+        expect($row2)->toBeArray();
+        expect((string)($row2['redirect_to'] ?? ''))->toBe('/');
+    } finally {
+        putenv('KEYCLOAK_ENABLED=' . (is_string($prevEnabled) ? $prevEnabled : ''));
+        putenv('KEYCLOAK_BASE_URL=' . (is_string($prevBase) ? $prevBase : ''));
+        putenv('KEYCLOAK_REALM=' . (is_string($prevRealm) ? $prevRealm : ''));
+        putenv('KEYCLOAK_CLIENT_ID=' . (is_string($prevClientId) ? $prevClientId : ''));
+        putenv('KEYCLOAK_CLIENT_SECRET=' . (is_string($prevSecret) ? $prevSecret : ''));
+    }
 });
 
 it('auth logout clears cookie and deletes session', function (): void {
-	$pdo = test_pdo();
+    $pdo = test_pdo();
 
-	// Create a user using the dev header auth path.
-	$headers = [
-		'X-Nook-User' => 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
-		'X-Nook-Groups' => 'paith/notes',
-	];
-	$me = App::handle('GET', '/api/me', $headers, '');
-	expect($me['status'])->toBe(200);
+    // Create a user using the dev header auth path.
+    $headers = [
+        'X-Nook-User' => 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        'X-Nook-Groups' => 'paith/notes',
+    ];
+    $me = App::handle('GET', '/api/me', $headers, '');
+    expect($me['status'])->toBe(200);
 
-	$sessionId = '99999999-9999-4999-8999-999999999999';
-	$pdo->prepare("insert into global.sessions (id, user_id, token_encrypted, expires_at) values (:id, :user_id, 'x', now() + interval '1 day')")
-		->execute([':id' => $sessionId, ':user_id' => $headers['X-Nook-User']]);
+    $sessionId = '99999999-9999-4999-8999-999999999999';
+    $pdo->prepare("insert into global.sessions (id, user_id, token_encrypted, expires_at) values (:id, :user_id, 'x', now() + interval '1 day')")
+        ->execute([':id' => $sessionId, ':user_id' => $headers['X-Nook-User']]);
 
-	$res = App::handle('POST', '/api/auth/logout', ['Cookie' => 'paith_session=' . $sessionId], '');
-	expect($res['status'])->toBe(200);
-	expect($res['headers'])->toHaveKey('Set-Cookie');
-	$setCookie = (string)$res['headers']['Set-Cookie'];
-	expect($setCookie)->toContain('paith_session=');
-	expect($setCookie)->toContain('Max-Age=0');
-	expect($setCookie)->toContain('HttpOnly');
+    $res = App::handle('POST', '/api/auth/logout', ['Cookie' => 'paith_session=' . $sessionId], '');
+    expect($res['status'])->toBe(200);
+    expect($res['headers'])->toHaveKey('Set-Cookie');
+    $setCookie = (string)$res['headers']['Set-Cookie'];
+    expect($setCookie)->toContain('paith_session=');
+    expect($setCookie)->toContain('Max-Age=0');
+    expect($setCookie)->toContain('HttpOnly');
 
-	$stmt = $pdo->prepare('select count(*) from global.sessions where id = :id');
-	$stmt->execute([':id' => $sessionId]);
-	expect((int)$stmt->fetchColumn())->toBe(0);
+    $stmt = $pdo->prepare('select count(*) from global.sessions where id = :id');
+    $stmt->execute([':id' => $sessionId]);
+    expect((int)$stmt->fetchColumn())->toBe(0);
 });
 
 // ─── Type Attributes ────────────────────────────────────────────────────────
@@ -1017,52 +1030,52 @@ it('can create, list, update, and delete type attributes', function (): void {
     ];
     App::handle('GET', '/api/me', $headers, '');
 
-    $nookId = json_decode(App::handle('POST', '/api/nooks', $headers, json_encode(['name' => 'Attr Test']))['body'], true)['nook']['id'];
+    $nookId = json_body_of(App::handle('POST', '/api/nooks', $headers, json_str(['name' => 'Attr Test']))['body'])['nook']['id'];
 
     // Create a type
-    $typeRes = App::handle('POST', '/api/nooks/' . $nookId . '/note-types', $headers, json_encode([
+    $typeRes = App::handle('POST', '/api/nooks/' . $nookId . '/note-types', $headers, json_str([
         'key' => 'book', 'label' => 'Book',
     ]));
     expect($typeRes['status'])->toBe(200);
-    $typeId = json_decode($typeRes['body'], true)['type']['id'];
+    $typeId = json_body($typeRes)['type']['id'];
 
     // Create a text attribute
-    $createAttr = App::handle('POST', '/api/nooks/' . $nookId . '/note-types/' . $typeId . '/attributes', $headers, json_encode([
+    $createAttr = App::handle('POST', '/api/nooks/' . $nookId . '/note-types/' . $typeId . '/attributes', $headers, json_str([
         'name' => 'Author', 'kind' => 'text',
     ]));
     expect($createAttr['status'])->toBe(200);
-    $attrData = json_decode($createAttr['body'], true)['attribute'];
+    $attrData = json_body($createAttr)['attribute'];
     expect($attrData['name'])->toBe('Author');
     expect($attrData['kind'])->toBe('text');
     expect($attrData['inherited'])->toBe(false);
     $authorAttrId = $attrData['id'];
 
     // Create a number attribute
-    $createRating = App::handle('POST', '/api/nooks/' . $nookId . '/note-types/' . $typeId . '/attributes', $headers, json_encode([
+    $createRating = App::handle('POST', '/api/nooks/' . $nookId . '/note-types/' . $typeId . '/attributes', $headers, json_str([
         'name' => 'Rating', 'kind' => 'number',
     ]));
     expect($createRating['status'])->toBe(200);
-    $ratingAttrId = json_decode($createRating['body'], true)['attribute']['id'];
+    $ratingAttrId = json_body($createRating)['attribute']['id'];
 
     // Create a select attribute
-    $createGenre = App::handle('POST', '/api/nooks/' . $nookId . '/note-types/' . $typeId . '/attributes', $headers, json_encode([
+    $createGenre = App::handle('POST', '/api/nooks/' . $nookId . '/note-types/' . $typeId . '/attributes', $headers, json_str([
         'name' => 'Genre', 'kind' => 'select', 'config' => ['options' => ['sci-fi', 'fantasy', 'mystery']],
     ]));
     expect($createGenre['status'])->toBe(200);
-    $genreAttrId = json_decode($createGenre['body'], true)['attribute']['id'];
+    $genreAttrId = json_body($createGenre)['attribute']['id'];
 
     // List attributes — should have 3
     $listRes = App::handle('GET', '/api/nooks/' . $nookId . '/note-types/' . $typeId . '/attributes', $headers, '');
     expect($listRes['status'])->toBe(200);
-    $attrs = json_decode($listRes['body'], true)['attributes'];
+    $attrs = json_body($listRes)['attributes'];
     expect(count($attrs))->toBe(3);
 
     // Update: rename Author to Writer, change kind to text (same)
-    $updateRes = App::handle('PUT', '/api/nooks/' . $nookId . '/note-types/' . $typeId . '/attributes/' . $authorAttrId, $headers, json_encode([
+    $updateRes = App::handle('PUT', '/api/nooks/' . $nookId . '/note-types/' . $typeId . '/attributes/' . $authorAttrId, $headers, json_str([
         'name' => 'Writer', 'kind' => 'text',
     ]));
     expect($updateRes['status'])->toBe(200);
-    expect(json_decode($updateRes['body'], true)['attribute']['name'])->toBe('Writer');
+    expect(json_body($updateRes)['attribute']['name'])->toBe('Writer');
 
     // Delete Rating
     $deleteRes = App::handle('DELETE', '/api/nooks/' . $nookId . '/note-types/' . $typeId . '/attributes/' . $ratingAttrId, $headers, '');
@@ -1070,17 +1083,17 @@ it('can create, list, update, and delete type attributes', function (): void {
 
     // List should now have 2
     $listRes2 = App::handle('GET', '/api/nooks/' . $nookId . '/note-types/' . $typeId . '/attributes', $headers, '');
-    $attrs2 = json_decode($listRes2['body'], true)['attributes'];
+    $attrs2 = json_body($listRes2)['attributes'];
     expect(count($attrs2))->toBe(2);
 
     // Duplicate name should fail
-    $dupRes = App::handle('POST', '/api/nooks/' . $nookId . '/note-types/' . $typeId . '/attributes', $headers, json_encode([
+    $dupRes = App::handle('POST', '/api/nooks/' . $nookId . '/note-types/' . $typeId . '/attributes', $headers, json_str([
         'name' => 'Writer', 'kind' => 'text',
     ]));
     expect($dupRes['status'])->toBe(409);
 
     // Select without options should fail
-    $badSelect = App::handle('POST', '/api/nooks/' . $nookId . '/note-types/' . $typeId . '/attributes', $headers, json_encode([
+    $badSelect = App::handle('POST', '/api/nooks/' . $nookId . '/note-types/' . $typeId . '/attributes', $headers, json_str([
         'name' => 'Status', 'kind' => 'select',
     ]));
     expect($badSelect['status'])->toBe(400);
@@ -1094,31 +1107,31 @@ it('attribute inheritance works across type hierarchy', function (): void {
     ];
     App::handle('GET', '/api/me', $headers, '');
 
-    $nookId = json_decode(App::handle('POST', '/api/nooks', $headers, json_encode(['name' => 'Inherit Test']))['body'], true)['nook']['id'];
+    $nookId = json_body_of(App::handle('POST', '/api/nooks', $headers, json_str(['name' => 'Inherit Test']))['body'])['nook']['id'];
 
     // Create parent type with an attribute
-    $parentRes = App::handle('POST', '/api/nooks/' . $nookId . '/note-types', $headers, json_encode([
+    $parentRes = App::handle('POST', '/api/nooks/' . $nookId . '/note-types', $headers, json_str([
         'key' => 'media', 'label' => 'Media',
     ]));
-    $parentId = json_decode($parentRes['body'], true)['type']['id'];
+    $parentId = json_body($parentRes)['type']['id'];
 
-    App::handle('POST', '/api/nooks/' . $nookId . '/note-types/' . $parentId . '/attributes', $headers, json_encode([
+    App::handle('POST', '/api/nooks/' . $nookId . '/note-types/' . $parentId . '/attributes', $headers, json_str([
         'name' => 'Year', 'kind' => 'number',
     ]));
 
     // Create child type with its own attribute
-    $childRes = App::handle('POST', '/api/nooks/' . $nookId . '/note-types', $headers, json_encode([
+    $childRes = App::handle('POST', '/api/nooks/' . $nookId . '/note-types', $headers, json_str([
         'key' => 'movie', 'label' => 'Movie', 'parent_id' => $parentId,
     ]));
-    $childId = json_decode($childRes['body'], true)['type']['id'];
+    $childId = json_body($childRes)['type']['id'];
 
-    App::handle('POST', '/api/nooks/' . $nookId . '/note-types/' . $childId . '/attributes', $headers, json_encode([
+    App::handle('POST', '/api/nooks/' . $nookId . '/note-types/' . $childId . '/attributes', $headers, json_str([
         'name' => 'Director', 'kind' => 'text',
     ]));
 
     // List child attributes — should see both Year (inherited) and Director (own)
     $listRes = App::handle('GET', '/api/nooks/' . $nookId . '/note-types/' . $childId . '/attributes', $headers, '');
-    $attrs = json_decode($listRes['body'], true)['attributes'];
+    $attrs = json_body($listRes)['attributes'];
     expect(count($attrs))->toBe(2);
 
     $names = array_map(fn($a) => $a['name'], $attrs);
@@ -1133,7 +1146,7 @@ it('attribute inheritance works across type hierarchy', function (): void {
     expect(array_values($own)[0]['name'])->toBe('Director');
 
     // Cannot create attribute with same name as inherited one
-    $dupRes = App::handle('POST', '/api/nooks/' . $nookId . '/note-types/' . $childId . '/attributes', $headers, json_encode([
+    $dupRes = App::handle('POST', '/api/nooks/' . $nookId . '/note-types/' . $childId . '/attributes', $headers, json_str([
         'name' => 'Year', 'kind' => 'text',
     ]));
     expect($dupRes['status'])->toBe(409);
@@ -1152,60 +1165,60 @@ it('note attributes are stored and type switch moves values to archive', functio
     ];
     App::handle('GET', '/api/me', $headers, '');
 
-    $nookId = json_decode(App::handle('POST', '/api/nooks', $headers, json_encode(['name' => 'Switch Test']))['body'], true)['nook']['id'];
+    $nookId = json_body_of(App::handle('POST', '/api/nooks', $headers, json_str(['name' => 'Switch Test']))['body'])['nook']['id'];
 
     // Create two types with different attributes
-    $typeARes = App::handle('POST', '/api/nooks/' . $nookId . '/note-types', $headers, json_encode([
+    $typeARes = App::handle('POST', '/api/nooks/' . $nookId . '/note-types', $headers, json_str([
         'key' => 'type-a', 'label' => 'Type A',
     ]));
-    $typeAId = json_decode($typeARes['body'], true)['type']['id'];
-    $attrARes = App::handle('POST', '/api/nooks/' . $nookId . '/note-types/' . $typeAId . '/attributes', $headers, json_encode([
+    $typeAId = json_body($typeARes)['type']['id'];
+    $attrARes = App::handle('POST', '/api/nooks/' . $nookId . '/note-types/' . $typeAId . '/attributes', $headers, json_str([
         'name' => 'Color', 'kind' => 'text',
     ]));
-    $colorAttrId = json_decode($attrARes['body'], true)['attribute']['id'];
+    $colorAttrId = json_body($attrARes)['attribute']['id'];
 
-    $typeBRes = App::handle('POST', '/api/nooks/' . $nookId . '/note-types', $headers, json_encode([
+    $typeBRes = App::handle('POST', '/api/nooks/' . $nookId . '/note-types', $headers, json_str([
         'key' => 'type-b', 'label' => 'Type B',
     ]));
-    $typeBId = json_decode($typeBRes['body'], true)['type']['id'];
-    $attrBRes = App::handle('POST', '/api/nooks/' . $nookId . '/note-types/' . $typeBId . '/attributes', $headers, json_encode([
+    $typeBId = json_body($typeBRes)['type']['id'];
+    $attrBRes = App::handle('POST', '/api/nooks/' . $nookId . '/note-types/' . $typeBId . '/attributes', $headers, json_str([
         'name' => 'Size', 'kind' => 'number',
     ]));
-    $sizeAttrId = json_decode($attrBRes['body'], true)['attribute']['id'];
+    $sizeAttrId = json_body($attrBRes)['attribute']['id'];
 
     // Create note with Type A and set Color attribute
-    $noteRes = App::handle('POST', '/api/nooks/' . $nookId . '/notes', $headers, json_encode([
+    $noteRes = App::handle('POST', '/api/nooks/' . $nookId . '/notes', $headers, json_str([
         'title' => 'Test Note',
         'content' => '',
         'type_id' => $typeAId,
         'attributes' => [$colorAttrId => 'red'],
     ]));
     expect($noteRes['status'])->toBe(200);
-    $note = json_decode($noteRes['body'], true)['note'];
+    $note = json_body($noteRes)['note'];
     $noteId = $note['id'];
     expect($note['attributes'][$colorAttrId] ?? null)->toBe('red');
 
     // Switch to Type B — Color should move to archive
-    $switchRes = App::handle('PUT', '/api/nooks/' . $nookId . '/notes/' . $noteId, $headers, json_encode([
+    $switchRes = App::handle('PUT', '/api/nooks/' . $nookId . '/notes/' . $noteId, $headers, json_str([
         'title' => 'Test Note',
         'content' => '',
         'type_id' => $typeBId,
         'attributes' => [$sizeAttrId => 42],
     ]));
     expect($switchRes['status'])->toBe(200);
-    $switched = json_decode($switchRes['body'], true)['note'];
+    $switched = json_body($switchRes)['note'];
     expect($switched['attributes'][$sizeAttrId] ?? null)->toBe(42);
     expect($switched['attributes'][$colorAttrId] ?? null)->toBeNull();
     expect($switched['archive'][$colorAttrId] ?? null)->toBe('red');
 
     // Switch back to Type A — Color should restore from archive, Size goes to archive
-    $switchBack = App::handle('PUT', '/api/nooks/' . $nookId . '/notes/' . $noteId, $headers, json_encode([
+    $switchBack = App::handle('PUT', '/api/nooks/' . $nookId . '/notes/' . $noteId, $headers, json_str([
         'title' => 'Test Note',
         'content' => '',
         'type_id' => $typeAId,
     ]));
     expect($switchBack['status'])->toBe(200);
-    $restored = json_decode($switchBack['body'], true)['note'];
+    $restored = json_body($switchBack)['note'];
     expect($restored['attributes'][$colorAttrId] ?? null)->toBe('red');
     expect($restored['archive'][$sizeAttrId] ?? null)->toBe(42);
 });
@@ -1218,17 +1231,17 @@ it('type deletion is blocked when children exist', function (): void {
     ];
     App::handle('GET', '/api/me', $headers, '');
 
-    $nookId = json_decode(App::handle('POST', '/api/nooks', $headers, json_encode(['name' => 'Delete Test']))['body'], true)['nook']['id'];
+    $nookId = json_body_of(App::handle('POST', '/api/nooks', $headers, json_str(['name' => 'Delete Test']))['body'])['nook']['id'];
 
-    $parentRes = App::handle('POST', '/api/nooks/' . $nookId . '/note-types', $headers, json_encode([
+    $parentRes = App::handle('POST', '/api/nooks/' . $nookId . '/note-types', $headers, json_str([
         'key' => 'parent', 'label' => 'Parent',
     ]));
-    $parentId = json_decode($parentRes['body'], true)['type']['id'];
+    $parentId = json_body($parentRes)['type']['id'];
 
-    $childRes = App::handle('POST', '/api/nooks/' . $nookId . '/note-types', $headers, json_encode([
+    $childRes = App::handle('POST', '/api/nooks/' . $nookId . '/note-types', $headers, json_str([
         'key' => 'child', 'label' => 'Child', 'parent_id' => $parentId,
     ]));
-    $childId = json_decode($childRes['body'], true)['type']['id'];
+    $childId = json_body($childRes)['type']['id'];
 
     // Cannot delete parent while child exists
     $delParent = App::handle('DELETE', '/api/nooks/' . $nookId . '/note-types/' . $parentId, $headers, '');
@@ -1251,28 +1264,38 @@ it('default file and view types are seeded for new nooks', function (): void {
     ];
     App::handle('GET', '/api/me', $headers, '');
 
-    $nookId = json_decode(App::handle('POST', '/api/nooks', $headers, json_encode(['name' => 'Seed Test']))['body'], true)['nook']['id'];
+    $nookId = json_body_of(App::handle('POST', '/api/nooks', $headers, json_str(['name' => 'Seed Test']))['body'])['nook']['id'];
 
     // List types — should include seeded File and View types. Graphs no
     // longer have a dedicated type (see "views are now notes" refactor):
     // graph notes are now View-typed notes with a graph attribute.
     $typesRes = App::handle('GET', '/api/nooks/' . $nookId . '/note-types', $headers, '');
-    $types = json_decode($typesRes['body'], true)['types'];
+    $types = json_body($typesRes)['types'];
     $keys = array_map(fn($t) => $t['key'], $types);
     expect(in_array('file', $keys, true))->toBeTrue();
     expect(in_array('view', $keys, true))->toBeTrue();
 
     // File type should have a file attribute
     $fileType = null;
-    foreach ($types as $t) { if ($t['key'] === 'file') { $fileType = $t; break; } }
-    $fileAttrs = json_decode(App::handle('GET', '/api/nooks/' . $nookId . '/note-types/' . $fileType['id'] . '/attributes', $headers, '')['body'], true)['attributes'];
+    foreach ($types as $t) {
+        if ($t['key'] === 'file') {
+            $fileType = $t;
+            break;
+        }
+    }
+    $fileAttrs = json_body_of(App::handle('GET', '/api/nooks/' . $nookId . '/note-types/' . $fileType['id'] . '/attributes', $headers, '')['body'])['attributes'];
     $fileKinds = array_map(fn($a) => $a['kind'], $fileAttrs);
     expect(in_array('file', $fileKinds, true))->toBeTrue();
 
     // View type should have a view attribute
     $viewType = null;
-    foreach ($types as $t) { if ($t['key'] === 'view') { $viewType = $t; break; } }
-    $viewAttrs = json_decode(App::handle('GET', '/api/nooks/' . $nookId . '/note-types/' . $viewType['id'] . '/attributes', $headers, '')['body'], true)['attributes'];
+    foreach ($types as $t) {
+        if ($t['key'] === 'view') {
+            $viewType = $t;
+            break;
+        }
+    }
+    $viewAttrs = json_body_of(App::handle('GET', '/api/nooks/' . $nookId . '/note-types/' . $viewType['id'] . '/attributes', $headers, '')['body'])['attributes'];
     $viewKinds = array_map(fn($a) => $a['kind'], $viewAttrs);
     expect(in_array('view', $viewKinds, true))->toBeTrue();
 });
@@ -1285,18 +1308,18 @@ it('indexed attributes create and drop expression indexes', function (): void {
     ];
     App::handle('GET', '/api/me', $headers, '');
 
-    $nookId = json_decode(App::handle('POST', '/api/nooks', $headers, json_encode(['name' => 'Index Test']))['body'], true)['nook']['id'];
+    $nookId = json_body_of(App::handle('POST', '/api/nooks', $headers, json_str(['name' => 'Index Test']))['body'])['nook']['id'];
 
-    $typeId = json_decode(App::handle('POST', '/api/nooks/' . $nookId . '/note-types', $headers, json_encode([
+    $typeId = json_body_of(App::handle('POST', '/api/nooks/' . $nookId . '/note-types', $headers, json_str([
         'key' => 'indexed-type', 'label' => 'Indexed Type',
-    ]))['body'], true)['type']['id'];
+    ]))['body'])['type']['id'];
 
     // Create an indexed number attribute
-    $createRes = App::handle('POST', '/api/nooks/' . $nookId . '/note-types/' . $typeId . '/attributes', $headers, json_encode([
+    $createRes = App::handle('POST', '/api/nooks/' . $nookId . '/note-types/' . $typeId . '/attributes', $headers, json_str([
         'name' => 'Score', 'kind' => 'number', 'indexed' => true,
     ]));
     expect($createRes['status'])->toBe(200);
-    $attrId = json_decode($createRes['body'], true)['attribute']['id'];
+    $attrId = json_body($createRes)['attribute']['id'];
 
     // Verify index exists
     $pdo = test_pdo();
@@ -1307,14 +1330,14 @@ it('indexed attributes create and drop expression indexes', function (): void {
     expect($stmt->fetchColumn())->not->toBe(false);
 
     // Update to non-indexed — index should be dropped
-    App::handle('PUT', '/api/nooks/' . $nookId . '/note-types/' . $typeId . '/attributes/' . $attrId, $headers, json_encode([
+    App::handle('PUT', '/api/nooks/' . $nookId . '/note-types/' . $typeId . '/attributes/' . $attrId, $headers, json_str([
         'name' => 'Score', 'kind' => 'number', 'indexed' => false,
     ]));
     $stmt->execute([':name' => $idxName]);
     expect($stmt->fetchColumn())->toBe(false);
 
     // Update back to indexed
-    App::handle('PUT', '/api/nooks/' . $nookId . '/note-types/' . $typeId . '/attributes/' . $attrId, $headers, json_encode([
+    App::handle('PUT', '/api/nooks/' . $nookId . '/note-types/' . $typeId . '/attributes/' . $attrId, $headers, json_str([
         'name' => 'Score', 'kind' => 'number', 'indexed' => true,
     ]));
     $stmt->execute([':name' => $idxName]);
@@ -1334,20 +1357,20 @@ it('attribute filters work on notes list', function (): void {
     ];
     App::handle('GET', '/api/me', $headers, '');
 
-    $nookId = json_decode(App::handle('POST', '/api/nooks', $headers, json_encode(['name' => 'Filter Test']))['body'], true)['nook']['id'];
+    $nookId = json_body_of(App::handle('POST', '/api/nooks', $headers, json_str(['name' => 'Filter Test']))['body'])['nook']['id'];
 
     // Create type with a number attribute
-    $typeId = json_decode(App::handle('POST', '/api/nooks/' . $nookId . '/note-types', $headers, json_encode([
+    $typeId = json_body_of(App::handle('POST', '/api/nooks/' . $nookId . '/note-types', $headers, json_str([
         'key' => 'rated', 'label' => 'Rated',
-    ]))['body'], true)['type']['id'];
+    ]))['body'])['type']['id'];
 
-    $attrId = json_decode(App::handle('POST', '/api/nooks/' . $nookId . '/note-types/' . $typeId . '/attributes', $headers, json_encode([
+    $attrId = json_body_of(App::handle('POST', '/api/nooks/' . $nookId . '/note-types/' . $typeId . '/attributes', $headers, json_str([
         'name' => 'Score', 'kind' => 'number',
-    ]))['body'], true)['attribute']['id'];
+    ]))['body'])['attribute']['id'];
 
     // Create 3 notes with different scores
     foreach ([['Low', 2], ['Mid', 5], ['High', 9]] as [$title, $score]) {
-        App::handle('POST', '/api/nooks/' . $nookId . '/notes', $headers, json_encode([
+        App::handle('POST', '/api/nooks/' . $nookId . '/notes', $headers, json_str([
             'title' => $title,
             'content' => '',
             'type_id' => $typeId,
@@ -1356,18 +1379,18 @@ it('attribute filters work on notes list', function (): void {
     }
 
     // Filter: score >= 5
-    $filters = json_encode([['attribute_id' => $attrId, 'op' => 'gte', 'value' => 5]]);
+    $filters = json_str([['attribute_id' => $attrId, 'op' => 'gte', 'value' => 5]]);
     $res = App::handle('GET', '/api/nooks/' . $nookId . '/notes?type_id=' . $typeId . '&attribute_filters=' . urlencode($filters), $headers, '');
     expect($res['status'])->toBe(200);
-    $notes = json_decode($res['body'], true)['notes'] ?? [];
+    $notes = json_body($res)['notes'] ?? [];
     $titles = array_map(fn($n) => $n['title'], $notes);
     sort($titles);
     expect($titles)->toBe(['High', 'Mid']);
 
     // Filter: score < 5
-    $filters2 = json_encode([['attribute_id' => $attrId, 'op' => 'lt', 'value' => 5]]);
+    $filters2 = json_str([['attribute_id' => $attrId, 'op' => 'lt', 'value' => 5]]);
     $res2 = App::handle('GET', '/api/nooks/' . $nookId . '/notes?type_id=' . $typeId . '&attribute_filters=' . urlencode($filters2), $headers, '');
-    $notes2 = json_decode($res2['body'], true)['notes'] ?? [];
+    $notes2 = json_body($res2)['notes'] ?? [];
     expect(count($notes2))->toBe(1);
     expect($notes2[0]['title'])->toBe('Low');
 });
@@ -1377,20 +1400,27 @@ it('multi-type filter (type_ids) returns notes of all selected types', function 
     $headers = ['X-Nook-User' => $userId, 'X-Nook-Groups' => 'paith/notes'];
     App::handle('GET', '/api/me', $headers, '');
 
-    $nookId = json_decode(App::handle('POST', '/api/nooks', $headers, json_encode(['name' => 'Multi Type']))['body'], true)['nook']['id'];
+    $nookId = json_body_of(App::handle('POST', '/api/nooks', $headers, json_str(['name' => 'Multi Type']))['body'])['nook']['id'];
 
-    $mkType = fn(string $key, string $label, string $parentId = '') => json_decode(
-        App::handle('POST', '/api/nooks/' . $nookId . '/note-types', $headers,
-            json_encode(['key' => $key, 'label' => $label, 'parent_id' => $parentId]))['body'],
-        true
+    $mkType = fn(string $key, string $label, string $parentId = '') => json_body_of(
+        App::handle(
+            'POST',
+            '/api/nooks/' . $nookId . '/note-types',
+            $headers,
+            json_str(['key' => $key, 'label' => $label, 'parent_id' => $parentId])
+        )['body']
     )['type']['id'];
     $tA = $mkType('alpha', 'Alpha');
     $tB = $mkType('beta', 'Beta');
     $tC = $mkType('gamma', 'Gamma');
     $tBSub = $mkType('beta-sub', 'BetaSub', $tB);
 
-    $mkNote = fn(string $title, string $typeId) => App::handle('POST', '/api/nooks/' . $nookId . '/notes', $headers,
-        json_encode(['title' => $title, 'content' => '', 'type_id' => $typeId]));
+    $mkNote = fn(string $title, string $typeId) => App::handle(
+        'POST',
+        '/api/nooks/' . $nookId . '/notes',
+        $headers,
+        json_str(['title' => $title, 'content' => '', 'type_id' => $typeId])
+    );
     $mkNote('A1', $tA);
     $mkNote('A2', $tA);
     $mkNote('B1', $tB);
@@ -1400,13 +1430,13 @@ it('multi-type filter (type_ids) returns notes of all selected types', function 
     // type_ids without include_subtypes — exact match only.
     $res = App::handle('GET', '/api/nooks/' . $nookId . '/notes?type_ids=' . $tA . ',' . $tB, $headers, '');
     expect($res['status'])->toBe(200);
-    $titles = array_map(fn($n) => $n['title'], json_decode($res['body'], true)['notes']);
+    $titles = array_map(fn($n) => $n['title'], json_body($res)['notes']);
     sort($titles);
     expect($titles)->toBe(['A1', 'A2', 'B1']); // no BetaSub (no include_subtypes), no Gamma
 
     // With include_subtypes the BetaSub note joins, Gamma still excluded.
     $res2 = App::handle('GET', '/api/nooks/' . $nookId . '/notes?type_ids=' . $tA . ',' . $tB . '&include_subtypes=1', $headers, '');
-    $titles2 = array_map(fn($n) => $n['title'], json_decode($res2['body'], true)['notes']);
+    $titles2 = array_map(fn($n) => $n['title'], json_body($res2)['notes']);
     sort($titles2);
     expect($titles2)->toBe(['A1', 'A2', 'B1', 'BS1']);
 
@@ -1414,13 +1444,13 @@ it('multi-type filter (type_ids) returns notes of all selected types', function 
     // param. `lean=1` replaces the old /notes/titles endpoint after the
     // two were unified.
     $res3 = App::handle('GET', '/api/nooks/' . $nookId . '/notes?lean=1&type_ids=' . $tA . ',' . $tC, $headers, '');
-    $titles3 = array_map(fn($n) => $n['title'], json_decode($res3['body'], true)['notes']);
+    $titles3 = array_map(fn($n) => $n['title'], json_body($res3)['notes']);
     sort($titles3);
     expect($titles3)->toBe(['A1', 'A2', 'C1']);
 
     // Legacy single type_id still works.
     $res4 = App::handle('GET', '/api/nooks/' . $nookId . '/notes?type_id=' . $tA, $headers, '');
-    $titles4 = array_map(fn($n) => $n['title'], json_decode($res4['body'], true)['notes']);
+    $titles4 = array_map(fn($n) => $n['title'], json_body($res4)['notes']);
     sort($titles4);
     expect($titles4)->toBe(['A1', 'A2']);
 });
@@ -1432,14 +1462,21 @@ it('attribute_layout persists panel + attribute order across PUT/GET', function 
     $userId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa07';
     $headers = ['X-Nook-User' => $userId, 'X-Nook-Groups' => 'paith/notes'];
     App::handle('GET', '/api/me', $headers, '');
-    $nookId = json_decode(App::handle('POST', '/api/nooks', $headers, json_encode(['name' => 'Layout']))['body'], true)['nook']['id'];
-    $typeId = json_decode(App::handle('POST', '/api/nooks/' . $nookId . '/note-types', $headers,
-        json_encode(['key' => 'tracked', 'label' => 'Tracked']))['body'], true)['type']['id'];
+    $nookId = json_body_of(App::handle('POST', '/api/nooks', $headers, json_str(['name' => 'Layout']))['body'])['nook']['id'];
+    $typeId = json_body_of(App::handle(
+        'POST',
+        '/api/nooks/' . $nookId . '/note-types',
+        $headers,
+        json_str(['key' => 'tracked', 'label' => 'Tracked'])
+    )['body'])['type']['id'];
 
-    $mkAttr = fn(string $name) => json_decode(
-        App::handle('POST', '/api/nooks/' . $nookId . '/note-types/' . $typeId . '/attributes', $headers,
-            json_encode(['name' => $name, 'kind' => 'text']))['body'],
-        true,
+    $mkAttr = fn(string $name) => json_body_of(
+        App::handle(
+            'POST',
+            '/api/nooks/' . $nookId . '/note-types/' . $typeId . '/attributes',
+            $headers,
+            json_str(['name' => $name, 'kind' => 'text'])
+        )['body']
     )['attribute']['id'];
     $a = $mkAttr('A');
     $b = $mkAttr('B');
@@ -1452,7 +1489,7 @@ it('attribute_layout persists panel + attribute order across PUT/GET', function 
             ['key' => 'extra', 'position' => 'side-right', 'attributes' => [$b]],
         ],
     ];
-    $put = App::handle('PUT', '/api/nooks/' . $nookId . '/note-types/' . $typeId, $headers, json_encode([
+    $put = App::handle('PUT', '/api/nooks/' . $nookId . '/note-types/' . $typeId, $headers, json_str([
         'key' => 'tracked',
         'label' => 'Tracked',
         'attribute_layout' => $layout,
@@ -1461,7 +1498,7 @@ it('attribute_layout persists panel + attribute order across PUT/GET', function 
 
     $get = App::handle('GET', '/api/nooks/' . $nookId . '/note-types', $headers, '');
     expect($get['status'])->toBe(200);
-    $types = json_decode($get['body'], true)['types'];
+    $types = json_body($get)['types'];
     $type = array_values(array_filter($types, fn($t) => $t['id'] === $typeId))[0];
     $panels = $type['attribute_layout']['panels'];
     expect($panels)->toHaveCount(2);
@@ -1482,15 +1519,19 @@ it('number attribute accepts currency/duration display + 3-letter ISO code', fun
     $userId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa05';
     $headers = ['X-Nook-User' => $userId, 'X-Nook-Groups' => 'paith/notes'];
     App::handle('GET', '/api/me', $headers, '');
-    $nookId = json_decode(App::handle('POST', '/api/nooks', $headers, json_encode(['name' => 'NumDisplay']))['body'], true)['nook']['id'];
-    $typeId = json_decode(App::handle('POST', '/api/nooks/' . $nookId . '/note-types', $headers,
-        json_encode(['key' => 'priced', 'label' => 'Priced']))['body'], true)['type']['id'];
+    $nookId = json_body_of(App::handle('POST', '/api/nooks', $headers, json_str(['name' => 'NumDisplay']))['body'])['nook']['id'];
+    $typeId = json_body_of(App::handle(
+        'POST',
+        '/api/nooks/' . $nookId . '/note-types',
+        $headers,
+        json_str(['key' => 'priced', 'label' => 'Priced'])
+    )['body'])['type']['id'];
 
     $addAttr = fn(string $name, array $config) => App::handle(
         'POST',
         '/api/nooks/' . $nookId . '/note-types/' . $typeId . '/attributes',
         $headers,
-        json_encode(['name' => $name, 'kind' => 'number', 'config' => $config]),
+        json_str(['name' => $name, 'kind' => 'number', 'config' => $config]),
     );
 
     // currency display with explicit ISO code → accepted
@@ -1523,16 +1564,24 @@ it('PUT /notes/{id} response shape stays compatible (regression: missing fields)
     $userId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa06';
     $headers = ['X-Nook-User' => $userId, 'X-Nook-Groups' => 'paith/notes'];
     App::handle('GET', '/api/me', $headers, '');
-    $nookId = json_decode(App::handle('POST', '/api/nooks', $headers, json_encode(['name' => 'PutShape']))['body'], true)['nook']['id'];
+    $nookId = json_body_of(App::handle('POST', '/api/nooks', $headers, json_str(['name' => 'PutShape']))['body'])['nook']['id'];
 
-    $created = json_decode(App::handle('POST', '/api/nooks/' . $nookId . '/notes', $headers,
-        json_encode(['title' => 'Original', 'content' => 'hello']))['body'], true)['note'];
+    $created = json_body_of(App::handle(
+        'POST',
+        '/api/nooks/' . $nookId . '/notes',
+        $headers,
+        json_str(['title' => 'Original', 'content' => 'hello'])
+    )['body'])['note'];
     $noteId = $created['id'];
 
-    $res = App::handle('PUT', '/api/nooks/' . $nookId . '/notes/' . $noteId, $headers,
-        json_encode(['title' => 'Edited', 'content' => 'world']));
+    $res = App::handle(
+        'PUT',
+        '/api/nooks/' . $nookId . '/notes/' . $noteId,
+        $headers,
+        json_str(['title' => 'Edited', 'content' => 'world'])
+    );
     expect($res['status'])->toBe(200);
-    $note = json_decode($res['body'], true)['note'];
+    $note = json_body($res)['note'];
 
     // Lean shape — these MUST be present.
     expect($note)->toHaveKey('id');
@@ -1555,17 +1604,25 @@ it('unlinked notes endpoint runs (regression: column n.type does not exist)', fu
     $userId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa04';
     $headers = ['X-Nook-User' => $userId, 'X-Nook-Groups' => 'paith/notes'];
     App::handle('GET', '/api/me', $headers, '');
-    $nookId = json_decode(App::handle('POST', '/api/nooks', $headers, json_encode(['name' => 'Unlinked']))['body'], true)['nook']['id'];
+    $nookId = json_body_of(App::handle('POST', '/api/nooks', $headers, json_str(['name' => 'Unlinked']))['body'])['nook']['id'];
 
-    $typeId = json_decode(App::handle('POST', '/api/nooks/' . $nookId . '/note-types', $headers,
-        json_encode(['key' => 'lone', 'label' => 'Lone']))['body'], true)['type']['id'];
+    $typeId = json_body_of(App::handle(
+        'POST',
+        '/api/nooks/' . $nookId . '/note-types',
+        $headers,
+        json_str(['key' => 'lone', 'label' => 'Lone'])
+    )['body'])['type']['id'];
 
-    App::handle('POST', '/api/nooks/' . $nookId . '/notes', $headers,
-        json_encode(['title' => 'Orphan', 'content' => '', 'type_id' => $typeId]));
+    App::handle(
+        'POST',
+        '/api/nooks/' . $nookId . '/notes',
+        $headers,
+        json_str(['title' => 'Orphan', 'content' => '', 'type_id' => $typeId])
+    );
 
     $res = App::handle('GET', '/api/nooks/' . $nookId . '/unlinked-notes', $headers, '');
     expect($res['status'])->toBe(200);
-    $body = json_decode($res['body'], true);
+    $body = json_body($res);
     expect($body['notes'])->toBeArray();
     expect(count($body['notes']))->toBeGreaterThanOrEqual(1);
     // No more "type" field — only type_id remains.
@@ -1579,10 +1636,14 @@ it('type_ids rejects malformed UUIDs and unknown types', function (): void {
     $userId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa03';
     $headers = ['X-Nook-User' => $userId, 'X-Nook-Groups' => 'paith/notes'];
     App::handle('GET', '/api/me', $headers, '');
-    $nookId = json_decode(App::handle('POST', '/api/nooks', $headers, json_encode(['name' => 'Reject']))['body'], true)['nook']['id'];
+    $nookId = json_body_of(App::handle('POST', '/api/nooks', $headers, json_str(['name' => 'Reject']))['body'])['nook']['id'];
 
-    $tA = json_decode(App::handle('POST', '/api/nooks/' . $nookId . '/note-types', $headers,
-        json_encode(['key' => 'alpha', 'label' => 'Alpha']))['body'], true)['type']['id'];
+    $tA = json_body_of(App::handle(
+        'POST',
+        '/api/nooks/' . $nookId . '/note-types',
+        $headers,
+        json_str(['key' => 'alpha', 'label' => 'Alpha'])
+    )['body'])['type']['id'];
 
     // Malformed UUID anywhere in the list → 400.
     $bad = App::handle('GET', '/api/nooks/' . $nookId . '/notes?type_ids=' . $tA . ',not-a-uuid', $headers, '');

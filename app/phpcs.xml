@@ -5,7 +5,9 @@
   <rule ref="PSR12" />
 
   <file>api/src</file>
+  <file>api/tests</file>
   <file>worker/src</file>
+  <file>worker/tests</file>
   <file>backend-shared/src</file>
 
   <exclude-pattern>*/vendor/*</exclude-pattern>
