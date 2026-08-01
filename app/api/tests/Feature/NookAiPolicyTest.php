@@ -173,7 +173,8 @@ it('cross-nook search excludes notes from disabled nooks', function (): void {
     // Owner creates two nooks, drops a note with the same keyword in each.
     [$headers, $nookA] = aiPolicySetup('777777777777');
     $nookB = (string)json_body_of(
-        App::handle('POST', '/api/nooks', $headers, json_str(['name' => 'nook-b']))['body'])['nook']['id'];
+        App::handle('POST', '/api/nooks', $headers, json_str(['name' => 'nook-b']))['body']
+    )['nook']['id'];
 
     App::handle('POST', "/api/nooks/{$nookA}/notes", $headers, json_str([
         'title' => 'findme nook a', 'content' => 'apple',

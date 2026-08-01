@@ -1280,29 +1280,26 @@ export function ChatPanel(props: Props) {
 		abortCtrl = new AbortController();
 
 		try {
-			const res = await fetch(
-				chatUrl(""),
-				{
-					method: "POST",
-					credentials: "include",
-					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({
-						message: text,
-						model: selectedModel,
-						conversation_id: conversationId() ?? undefined,
-						context_note_id: props.currentNoteId ?? undefined,
-						context_note_title: props.currentNoteTitle ?? undefined,
-						context_note_type: props.currentNoteType ?? undefined,
-						context_path: props.currentPath ?? undefined,
-						editor_state: editorSnapshot(),
-						voice_mode: voiceMode(),
-						voice_lang: voiceLang(),
-						speaker_name: meta?.speaker ?? undefined,
-						speaker_confidence: meta?.speakerConfidence ?? undefined,
-					}),
-					signal: abortCtrl.signal,
-				},
-			);
+			const res = await fetch(chatUrl(""), {
+				method: "POST",
+				credentials: "include",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					message: text,
+					model: selectedModel,
+					conversation_id: conversationId() ?? undefined,
+					context_note_id: props.currentNoteId ?? undefined,
+					context_note_title: props.currentNoteTitle ?? undefined,
+					context_note_type: props.currentNoteType ?? undefined,
+					context_path: props.currentPath ?? undefined,
+					editor_state: editorSnapshot(),
+					voice_mode: voiceMode(),
+					voice_lang: voiceLang(),
+					speaker_name: meta?.speaker ?? undefined,
+					speaker_confidence: meta?.speakerConfidence ?? undefined,
+				}),
+				signal: abortCtrl.signal,
+			});
 			if (!res.ok || !res.body) {
 				setStreaming(false);
 				setError(`HTTP ${res.status}`);
@@ -1332,25 +1329,22 @@ export function ChatPanel(props: Props) {
 		abortCtrl?.abort();
 		abortCtrl = new AbortController();
 		try {
-			const res = await fetch(
-				chatUrl(""),
-				{
-					method: "POST",
-					credentials: "include",
-					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({
-						message:
-							"[nudge] The user has been idle for a few minutes. Send a brief, creative nudge related to the current conversation — a follow-up thought, a question, or a playful check-in. Keep it to 1-2 sentences. Do NOT mention that this is a system prompt or that you were asked to nudge.",
-						model: model(),
-						conversation_id: conversationId(),
-						context_note_id: props.currentNoteId ?? undefined,
-						context_note_title: props.currentNoteTitle ?? undefined,
-						context_note_type: props.currentNoteType ?? undefined,
-						editor_state: editorSnapshot(),
-					}),
-					signal: abortCtrl.signal,
-				},
-			);
+			const res = await fetch(chatUrl(""), {
+				method: "POST",
+				credentials: "include",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					message:
+						"[nudge] The user has been idle for a few minutes. Send a brief, creative nudge related to the current conversation — a follow-up thought, a question, or a playful check-in. Keep it to 1-2 sentences. Do NOT mention that this is a system prompt or that you were asked to nudge.",
+					model: model(),
+					conversation_id: conversationId(),
+					context_note_id: props.currentNoteId ?? undefined,
+					context_note_title: props.currentNoteTitle ?? undefined,
+					context_note_type: props.currentNoteType ?? undefined,
+					editor_state: editorSnapshot(),
+				}),
+				signal: abortCtrl.signal,
+			});
 			if (!res.ok || !res.body) {
 				setStreaming(false);
 				isNudge = false;
@@ -1388,22 +1382,19 @@ export function ChatPanel(props: Props) {
 					frontend_result: await executeFrontendTool(t.name, t.input),
 				})),
 			);
-			const res = await fetch(
-				chatUrl("/tool-result"),
-				{
-					method: "POST",
-					credentials: "include",
-					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({
-						conversation_id: pa.conversationId,
-						model: pa.model,
-						context_note_id: pa.contextNoteId,
-						editor_state: editorSnapshot(),
-						tool_results: results,
-					}),
-					signal: abortCtrl.signal,
-				},
-			);
+			const res = await fetch(chatUrl("/tool-result"), {
+				method: "POST",
+				credentials: "include",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					conversation_id: pa.conversationId,
+					model: pa.model,
+					context_note_id: pa.contextNoteId,
+					editor_state: editorSnapshot(),
+					tool_results: results,
+				}),
+				signal: abortCtrl.signal,
+			});
 			if (!res.ok || !res.body) {
 				setStreaming(false);
 				setError(`HTTP ${res.status}`);
@@ -1462,46 +1453,43 @@ export function ChatPanel(props: Props) {
 		abortCtrl = new AbortController();
 
 		try {
-			const res = await fetch(
-				chatUrl("/tool-result"),
-				{
-					method: "POST",
-					credentials: "include",
-					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({
-						conversation_id: pa.conversationId,
-						model: pa.model,
-						context_note_id: pa.contextNoteId,
-						voice_mode: voiceMode(),
-						voice_lang: voiceLang(),
-						tool_results: await Promise.all(
-							pa.tools.map(async (t) => {
-								// Frontend-executed tools are answered here
-								// silently — MCP threads our `frontend_result`
-								// straight into the tool_result the AI sees.
-								// `approved: true` because the user never denied
-								// (and never saw) the card.
-								if (pa.frontendExecutedIds?.has(t.id)) {
-									return {
-										tool_use_id: t.id,
-										tool_name: t.name,
-										tool_input: t.input,
-										approved: true,
-										frontend_result: await executeFrontendTool(t.name, t.input),
-									};
-								}
+			const res = await fetch(chatUrl("/tool-result"), {
+				method: "POST",
+				credentials: "include",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					conversation_id: pa.conversationId,
+					model: pa.model,
+					context_note_id: pa.contextNoteId,
+					voice_mode: voiceMode(),
+					voice_lang: voiceLang(),
+					tool_results: await Promise.all(
+						pa.tools.map(async (t) => {
+							// Frontend-executed tools are answered here
+							// silently — MCP threads our `frontend_result`
+							// straight into the tool_result the AI sees.
+							// `approved: true` because the user never denied
+							// (and never saw) the card.
+							if (pa.frontendExecutedIds?.has(t.id)) {
 								return {
 									tool_use_id: t.id,
 									tool_name: t.name,
 									tool_input: t.input,
-									approved,
+									approved: true,
+									frontend_result: await executeFrontendTool(t.name, t.input),
 								};
-							}),
-						),
-					}),
-					signal: abortCtrl.signal,
-				},
-			);
+							}
+							return {
+								tool_use_id: t.id,
+								tool_name: t.name,
+								tool_input: t.input,
+								approved,
+							};
+						}),
+					),
+				}),
+				signal: abortCtrl.signal,
+			});
 			if (!res.ok || !res.body) {
 				setStreaming(false);
 				setError(`HTTP ${res.status}`);
