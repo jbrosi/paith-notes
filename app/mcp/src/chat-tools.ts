@@ -175,7 +175,7 @@ const CORE_TOOLS: Anthropic.Tool[] = [
   },
   {
     name: 'search_notes',
-    description: 'Search notes by title, content, or attribute values. Returns a LEAN list — each result is {id, nook_id, title, type_id, version, timestamps, mention/link counts, content_chars}. `version` rides along so you can pass it straight to edit_note/update_note without a separate get_note round-trip.\n\nSearch is cheap and lean. When the user\'s ask can be approached from multiple angles (synonyms, related concepts, sibling categories, different attribute_filters), issue SEVERAL search_notes calls in PARALLEL in the same turn — one per angle. Then dedupe results by id and decide which ones are worth a deep read.\n\n**Don\'t give up after one miss.** A query returning zero results rarely means "doesn\'t exist" — it usually means your wording didn\'t match what the user wrote. Before concluding the note isn\'t there, try at least 2-3 alternative phrasings: synonyms ("car" / "vehicle" / "automobile"), parent/child concepts ("Bordeaux" / "wine" / "drink"), partial words, related entities, or just a different keyword from the same idea. The user almost always thinks their note exists when they ask for it.\n\n**Reading decisions:** `content_chars` tells you the note size — small notes (<2000 chars) are cheap to get_note in full; big ones (>10000) burn context, so consider read_note_lines for a peek first. To read a note\'s full content/attributes, follow up with get_note(id) — parallelize across multiple candidates (they\'re independent).\n\nUse type_id to filter by note type. Use attribute_filters for structured queries like "rating >= 4" or "date between X and Y" — those filter server-side without you needing to read the values. When a search query is provided, results also include heading_matches — headings (h1-h6) extracted from notes that match the query, with note_id, note_title, level, text, and position (character offset for jump-to-section).',
+    description: 'Search notes by title, content, or attribute values. Returns a LEAN list — each result is {id, nook_id, title, type_id, version, timestamps, mention/link counts, content_chars}. `version` rides along so you can pass it straight to edit_note/update_note without a separate get_note round-trip.\n\nSearch is cheap and lean. When the user\'s ask can be approached from multiple angles (synonyms, related concepts, sibling categories, different attribute_filters), issue SEVERAL search_notes calls in PARALLEL in the same turn — one per angle. Then dedupe results by id and decide which ones are worth a deep read.\n\n**Don\'t give up after one miss.** A query returning zero results rarely means "doesn\'t exist" — it usually means your wording didn\'t match what the user wrote. Before concluding the note isn\'t there, try at least 2-3 alternative phrasings: synonyms ("car" / "vehicle" / "automobile"), parent/child concepts ("Bordeaux" / "wine" / "drink"), partial words, related entities, or just a different keyword from the same idea. The user almost always thinks their note exists when they ask for it.\n\n**Reading decisions:** `content_chars` tells you the note size — small notes (<2000 chars) are cheap to get_note in full; big ones (>10000) burn context, so consider read_note_lines for a peek first. To read a note\'s full content/attributes, follow up with get_note(id) — parallelize across multiple candidates (they\'re independent).\n\n**File vs. prose notes — check `type_id` before reading.** `type_id` is a UUID pointing at a row in the nook\'s note-type taxonomy. Call `list_note_types` early (auto-approved, cheap) to build a UUID→key map for the rest of the conversation. Two keys are especially worth knowing:\n• `generated_image` — hardcoded key used for AI-generated images (`![Title](note:<uuid>)` embeds them).\n• `file` — the DEFAULT seed key for uploaded files (portraits, PDFs). The user can rename or delete this type, and uploads can also be attached to notes of any other type (e.g. a portrait might live on an NPC-typed note via a file attribute). So `file` is a hint, not a guarantee.\n\nWhen two hits share a title (very common — e.g. "Garrick the Bandit" as both an NPC note AND a portrait), the picture/attachment one is usually the smaller `content_chars` and often typed `file` or `generated_image`. **For questions ABOUT an entity, prefer the higher-content-chars, non-image-typed note.** Only fetch an image-typed note when the user asked for the image itself or when embedding it. Use the `type_id` parameter to constrain results when the user\'s intent is clearly narrow (pass either the UUID or the key string, e.g. `type_id: "npc"`).\n\nAlso: `attribute_filters` for structured queries like "rating >= 4" or "date between X and Y" — those filter server-side without you needing to read the values. When a search query is provided, results also include heading_matches — headings (h1-h6) extracted from notes that match the query, with note_id, note_title, level, text, and position (character offset for jump-to-section).',
     input_schema: {
       type: 'object',
       properties: {
@@ -222,7 +222,7 @@ const CORE_TOOLS: Anthropic.Tool[] = [
   },
   {
     name: 'search_all_nooks',
-    description: 'Search notes across ALL nooks the user has access to. Returns {id, nook_id, title, type_id, version, ...} per result — `version` is inline so you can edit_note without a separate get_note first. Use this when the user explicitly asks to search globally, OR when local search_notes returned nothing useful after 2-3 alternate phrasings — the note might live in a different nook than the current one. Prefer search_notes (local to current nook) first. Also returns heading_matches for headings matching the query and per-result content_chars to budget reads.\n\nLike search_notes, this is cheap and lean — fan out several search_all_nooks calls in parallel with different angles (synonyms, related terms) in the same turn and dedupe by id before deciding which notes to deep-read via get_note. Same tenacity rule: zero results from one query isn\'t proof of absence — try other angles before giving up.',
+    description: 'Search notes across ALL nooks the user has access to. Returns {id, nook_id, title, type_id, version, ...} per result — `version` is inline so you can edit_note without a separate get_note first. Use this when the user explicitly asks to search globally, OR when local search_notes returned nothing useful after 2-3 alternate phrasings — the note might live in a different nook than the current one. Prefer search_notes (local to current nook) first. Also returns heading_matches for headings matching the query and per-result content_chars to budget reads.\n\nLike search_notes, this is cheap and lean — fan out several search_all_nooks calls in parallel with different angles (synonyms, related terms) in the same turn and dedupe by id before deciding which notes to deep-read via get_note. Same tenacity rule: zero results from one query isn\'t proof of absence — try other angles before giving up.\n\n**File vs. prose (same rule as search_notes):** `type_id` is a UUID; use your list_note_types map to identify it. `generated_image` is hardcoded for AI images. `file` is the default upload key but users can rename it or attach files to any type — treat it as a hint. When two hits share a title, prefer the higher-content-chars non-image-typed one for entity questions.',
     input_schema: {
       type: 'object',
       properties: {
@@ -245,7 +245,7 @@ const CORE_TOOLS: Anthropic.Tool[] = [
   },
   {
     name: 'explore_notes',
-    description: 'Explore the note graph via BFS from a starting note. Returns all links found at every hop. Use depth 2–3 to discover indirect connections — intermediate nodes do not need to match any filter. Combine with q/node_type_ids to surface only relevant results while still traversing the full neighbourhood.',
+    description: 'Explore the note graph via BFS from a starting note. Returns all links found at every hop. Use depth 2–3 to discover indirect connections — intermediate nodes do not need to match any filter. Combine with q/node_type_ids to surface only relevant results while still traversing the full neighbourhood.\n\n**File vs. prose:** Each link surfaces `source_type_id` and `target_type_id` as UUIDs — cross-reference against your list_note_types map. `generated_image` reliably marks AI-generated images; `file` is the default upload key but users can rename it or attach files to any type, so treat it as a hint. Pass UUIDs (or key strings) to `node_type_ids` to constrain the surface, or filter them out client-side when portrait/attachment nodes would clutter the neighbourhood.',
     input_schema: {
       type: 'object',
       properties: {
@@ -578,6 +578,30 @@ const CORE_TOOLS: Anthropic.Tool[] = [
 // zero bytes here — they're not in the system prompt at all.
 export const TOOLS: Anthropic.Tool[] = [...CORE_TOOLS, ...optionalToolDefinitions];
 
+// Tools that operate strictly on the CURRENT nook (either writing to it or
+// listing its taxonomy/predicates). When the chat has no nook selected we
+// must fail fast with a clear message — the AI can then either ask the user
+// to select a nook or route the request via a cross-nook tool.
+const CURRENT_NOOK_REQUIRED_TOOLS = new Set([
+  'create_note',
+  'update_note',
+  'delete_note',
+  'edit_note',
+  'list_note_types',
+  'create_note_type',
+  'update_note_type',
+  'list_type_attributes',
+  'get_note_mentions',
+  'list_link_predicates',
+  'search_notes',
+  'explore_notes',
+  'open_note',
+  'create_note_link',
+  'delete_note_link',
+  'edit_note_agent',
+  'search_agent',
+]);
+
 export async function executeTool(
   name: string,
   input: Record<string, unknown>,
@@ -586,6 +610,12 @@ export async function executeTool(
   nookId: string,
   memoryNookId?: string,
 ): Promise<string> {
+  if (!nookId && CURRENT_NOOK_REQUIRED_TOOLS.has(name)) {
+    throw new Error(
+      `Tool "${name}" needs an active nook, but the user hasn't selected one. Ask them to open a nook first, or use a cross-nook alternative (search_all_nooks, get_note with an explicit nook_id, or the memory_* tools).`,
+    );
+  }
+
   // Dispatch to a registered optional-module handler first; falls
   // through to the core switch when not found. We pass the same
   // context bundle every optional handler expects.

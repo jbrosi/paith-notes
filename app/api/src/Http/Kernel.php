@@ -64,6 +64,24 @@ final class Kernel
             return JsonResponse::error($e->getMessage(), $e->statusCode);
         } catch (Throwable $e) {
             return JsonResponse::error($e->getMessage(), 500, ['type' => get_class($e)]);
+        } finally {
+            // Boundary safety net: no handler should leave a transaction open.
+            // If one did, roll it back and log — otherwise the backend stays
+            // "idle in transaction", holding row locks and a connection slot
+            // past the request. hasPdo() avoids instantiating a lazy PDO just
+            // to check.
+            if ($context->hasPdo() && $context->pdo()->inTransaction()) {
+                error_log(sprintf(
+                    'transaction left open by handler for %s %s',
+                    $request->method(),
+                    $request->path()
+                ));
+                try {
+                    $context->pdo()->rollBack();
+                } catch (Throwable) {
+                    // best-effort cleanup
+                }
+            }
         }
     }
 

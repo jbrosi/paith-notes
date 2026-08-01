@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 use Paith\Notes\Api\Http\App;
 
-/**
+/*
  * Edge-case coverage for the link + predicate validation paths.
  * The happy-path is covered by ApiTest; this file exercises the
  * "rejects bad input" branches that aren't otherwise exercised.
@@ -15,7 +15,7 @@ beforeEach(function (): void {
     $pdo = test_pdo();
     ensure_global_schema($pdo);
 
-    $pdo->exec('truncate table global.sessions, global.auth_states, global.nook_members, global.nooks, global.users cascade');
+    test_reset_state($pdo);
     $pdo->exec("insert into global.users (id, first_name, last_name) values ('deadc0ff-ee00-4000-8000-000000000000', 'AI', 'Assistant') on conflict (id) do nothing");
 });
 
@@ -28,19 +28,19 @@ function makeNook(string $idPart): array
     $userId = "eeeeeeee-eeee-4eee-8eee-{$idPart}";
     $headers = ['X-Nook-User' => $userId, 'X-Nook-Groups' => 'paith/notes'];
     App::handle('GET', '/api/me', $headers, '');
-    $res = App::handle('POST', '/api/nooks', $headers, json_encode(['name' => 'Test']));
-    return [$headers, json_decode($res['body'], true)['nook']['id']];
+    $res = App::handle('POST', '/api/nooks', $headers, json_str(['name' => 'Test']));
+    return [$headers, json_body($res)['nook']['id']];
 }
 
 function makeNote(array $headers, string $nookId, string $title): string
 {
-    $res = App::handle('POST', "/api/nooks/{$nookId}/notes", $headers, json_encode(['title' => $title]));
-    return json_decode($res['body'], true)['note']['id'];
+    $res = App::handle('POST', "/api/nooks/{$nookId}/notes", $headers, json_str(['title' => $title]));
+    return json_body($res)['note']['id'];
 }
 
 function makePredicate(array $headers, string $nookId, string $key, bool $supportsStart = false, bool $supportsEnd = false): string
 {
-    $res = App::handle('POST', "/api/nooks/{$nookId}/link-predicates", $headers, json_encode([
+    $res = App::handle('POST', "/api/nooks/{$nookId}/link-predicates", $headers, json_str([
         'key' => $key,
         'forward_label' => "{$key}-fwd",
         'reverse_label' => "{$key}-rev",
@@ -48,26 +48,26 @@ function makePredicate(array $headers, string $nookId, string $key, bool $suppor
         'supports_end_date' => $supportsEnd,
     ]));
     expect($res['status'])->toBe(200);
-    return json_decode($res['body'], true)['predicate']['id'];
+    return json_body($res)['predicate']['id'];
 }
 
 it('rejects creating a predicate with the reserved relates_to key', function (): void {
     [$headers, $nookId] = makeNook('111111111111');
 
-    $res = App::handle('POST', "/api/nooks/{$nookId}/link-predicates", $headers, json_encode([
+    $res = App::handle('POST', "/api/nooks/{$nookId}/link-predicates", $headers, json_str([
         'key' => 'relates_to',
         'forward_label' => 'r',
         'reverse_label' => 'r',
     ]));
     expect($res['status'])->toBe(400);
-    expect(json_decode($res['body'], true)['error'])->toContain('relates_to');
+    expect(json_body($res)['error'])->toContain('relates_to');
 });
 
 it('rejects creating a duplicate predicate key', function (): void {
     [$headers, $nookId] = makeNook('222222222222');
     makePredicate($headers, $nookId, 'duplicate-key');
 
-    $res = App::handle('POST', "/api/nooks/{$nookId}/link-predicates", $headers, json_encode([
+    $res = App::handle('POST', "/api/nooks/{$nookId}/link-predicates", $headers, json_str([
         'key' => 'duplicate-key',
         'forward_label' => 'a',
         'reverse_label' => 'b',
@@ -80,12 +80,12 @@ it('rejects linking a note to itself', function (): void {
     $noteId = makeNote($headers, $nookId, 'Self');
     $predId = makePredicate($headers, $nookId, 'self-link-pred');
 
-    $res = App::handle('POST', "/api/nooks/{$nookId}/notes/{$noteId}/links", $headers, json_encode([
+    $res = App::handle('POST', "/api/nooks/{$nookId}/notes/{$noteId}/links", $headers, json_str([
         'predicate_id' => $predId,
         'target_note_id' => $noteId,
     ]));
     expect($res['status'])->toBe(400);
-    expect(json_decode($res['body'], true)['error'])->toContain('itself');
+    expect(json_body($res)['error'])->toContain('itself');
 });
 
 it('rejects start_date > end_date on a link', function (): void {
@@ -94,14 +94,14 @@ it('rejects start_date > end_date on a link', function (): void {
     $b = makeNote($headers, $nookId, 'B');
     $predId = makePredicate($headers, $nookId, 'dated-pred', true, true);
 
-    $res = App::handle('POST', "/api/nooks/{$nookId}/notes/{$a}/links", $headers, json_encode([
+    $res = App::handle('POST', "/api/nooks/{$nookId}/notes/{$a}/links", $headers, json_str([
         'predicate_id' => $predId,
         'target_note_id' => $b,
         'start_date' => '2026-12-01',
         'end_date' => '2026-01-01',
     ]));
     expect($res['status'])->toBe(400);
-    expect(json_decode($res['body'], true)['error'])->toContain('start_date must be <= end_date');
+    expect(json_body($res)['error'])->toContain('start_date must be <= end_date');
 });
 
 it('rejects providing start_date when the predicate does not support it', function (): void {
@@ -111,13 +111,13 @@ it('rejects providing start_date when the predicate does not support it', functi
     // supportsStart=false, supportsEnd=false
     $predId = makePredicate($headers, $nookId, 'no-dates-pred');
 
-    $res = App::handle('POST', "/api/nooks/{$nookId}/notes/{$a}/links", $headers, json_encode([
+    $res = App::handle('POST', "/api/nooks/{$nookId}/notes/{$a}/links", $headers, json_str([
         'predicate_id' => $predId,
         'target_note_id' => $b,
         'start_date' => '2026-01-01',
     ]));
     expect($res['status'])->toBe(400);
-    expect(json_decode($res['body'], true)['error'])->toContain('start_date');
+    expect(json_body($res)['error'])->toContain('start_date');
 });
 
 it('rejects malformed dates with a clear error', function (): void {
@@ -126,13 +126,13 @@ it('rejects malformed dates with a clear error', function (): void {
     $b = makeNote($headers, $nookId, 'B');
     $predId = makePredicate($headers, $nookId, 'dated-pred-2', true, true);
 
-    $res = App::handle('POST', "/api/nooks/{$nookId}/notes/{$a}/links", $headers, json_encode([
+    $res = App::handle('POST', "/api/nooks/{$nookId}/notes/{$a}/links", $headers, json_str([
         'predicate_id' => $predId,
         'target_note_id' => $b,
         'start_date' => '12/31/2025',
     ]));
     expect($res['status'])->toBe(400);
-    expect(json_decode($res['body'], true)['error'])->toContain('YYYY-MM-DD');
+    expect(json_body($res)['error'])->toContain('YYYY-MM-DD');
 });
 
 it('rejects creating a link with a non-uuid target_note_id', function (): void {
@@ -140,7 +140,7 @@ it('rejects creating a link with a non-uuid target_note_id', function (): void {
     $a = makeNote($headers, $nookId, 'A');
     $predId = makePredicate($headers, $nookId, 'p');
 
-    $res = App::handle('POST', "/api/nooks/{$nookId}/notes/{$a}/links", $headers, json_encode([
+    $res = App::handle('POST', "/api/nooks/{$nookId}/notes/{$a}/links", $headers, json_str([
         'predicate_id' => $predId,
         'target_note_id' => 'not-a-uuid',
     ]));

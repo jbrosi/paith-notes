@@ -9,7 +9,7 @@ beforeEach(function (): void {
     $pdo = test_pdo();
     ensure_global_schema($pdo);
 
-    $pdo->exec('truncate table global.sessions, global.auth_states, global.nook_members, global.nooks, global.users cascade');
+    test_reset_state($pdo);
     // Re-insert the AI system user (truncated above)
     $pdo->exec("insert into global.users (id, first_name, last_name) values ('deadc0ff-ee00-4000-8000-000000000000', 'AI', 'Assistant') on conflict (id) do nothing");
 });
@@ -49,9 +49,9 @@ function setupOwnerAndNook(): string
         'POST',
         '/api/nooks',
         $h,
-        json_encode(['name' => 'Shared Nook'], JSON_UNESCAPED_SLASHES)
+        json_str(['name' => 'Shared Nook'], JSON_UNESCAPED_SLASHES)
     );
-    $data = json_decode($res['body'], true);
+    $data = json_body($res);
     return (string) ($data['nook']['id'] ?? '');
 }
 
@@ -83,10 +83,10 @@ it('owner can invite by email and guest can accept', function (): void {
         'POST',
         '/api/nooks/' . $nookId . '/invitations',
         ownerHeaders(),
-        json_encode(['email' => 'guest@example.com', 'role' => 'readonly'], JSON_UNESCAPED_SLASHES)
+        json_str(['email' => 'guest@example.com', 'role' => 'readonly'], JSON_UNESCAPED_SLASHES)
     );
     expect($invite['status'])->toBe(200);
-    $invData = json_decode($invite['body'], true);
+    $invData = json_body($invite);
     expect($invData)->toBeArray();
     $invId = (string) ($invData['invitation']['id'] ?? '');
     expect($invId)->not->toBe('');
@@ -96,7 +96,7 @@ it('owner can invite by email and guest can accept', function (): void {
     // Guest sees pending invitation
     $myInv = App::handle('GET', '/api/me/invitations', guestHeaders(), '');
     expect($myInv['status'])->toBe(200);
-    $myInvData = json_decode($myInv['body'], true);
+    $myInvData = json_body($myInv);
     expect($myInvData)->toBeArray();
     expect(count($myInvData['invitations']))->toBe(1);
     expect($myInvData['invitations'][0]['nook_name'])->toBe('Shared Nook');
@@ -110,7 +110,7 @@ it('owner can invite by email and guest can accept', function (): void {
         ''
     );
     expect($accept['status'])->toBe(200);
-    $acceptData = json_decode($accept['body'], true);
+    $acceptData = json_body($accept);
     expect($acceptData)->toBeArray();
     expect($acceptData['accepted'])->toBe(true);
     expect($acceptData['nook_id'])->toBe($nookId);
@@ -118,7 +118,7 @@ it('owner can invite by email and guest can accept', function (): void {
     // Guest now sees the nook in their list
     $list = App::handle('GET', '/api/nooks', guestHeaders(), '');
     expect($list['status'])->toBe(200);
-    $listData = json_decode($list['body'], true);
+    $listData = json_body($list);
     expect($listData)->toBeArray();
 
     $shared = array_values(array_filter(
@@ -132,7 +132,7 @@ it('owner can invite by email and guest can accept', function (): void {
 
     // No more pending invitations
     $myInv2 = App::handle('GET', '/api/me/invitations', guestHeaders(), '');
-    $myInv2Data = json_decode($myInv2['body'], true);
+    $myInv2Data = json_body($myInv2);
     expect(count($myInv2Data['invitations']))->toBe(0);
 });
 
@@ -144,9 +144,9 @@ it('guest can decline an invitation', function (): void {
         'POST',
         '/api/nooks/' . $nookId . '/invitations',
         ownerHeaders(),
-        json_encode(['email' => 'guest@example.com', 'role' => 'readwrite'], JSON_UNESCAPED_SLASHES)
+        json_str(['email' => 'guest@example.com', 'role' => 'readwrite'], JSON_UNESCAPED_SLASHES)
     );
-    $invData = json_decode($invite['body'], true);
+    $invData = json_body($invite);
     $invId = (string) ($invData['invitation']['id'] ?? '');
 
     $decline = App::handle(
@@ -159,12 +159,12 @@ it('guest can decline an invitation', function (): void {
 
     // No pending invitations remain
     $myInv = App::handle('GET', '/api/me/invitations', guestHeaders(), '');
-    $myInvData = json_decode($myInv['body'], true);
+    $myInvData = json_body($myInv);
     expect(count($myInvData['invitations']))->toBe(0);
 
     // Guest is NOT a member
     $list = App::handle('GET', '/api/nooks', guestHeaders(), '');
-    $listData = json_decode($list['body'], true);
+    $listData = json_body($list);
     $shared = array_values(array_filter(
         $listData['nooks'],
         static fn(mixed $n): bool => is_array($n) && ($n['id'] ?? '') === $nookId
@@ -180,13 +180,13 @@ it('owner can list invitations and revoke a pending one', function (): void {
         'POST',
         '/api/nooks/' . $nookId . '/invitations',
         ownerHeaders(),
-        json_encode(['email' => 'guest@example.com', 'role' => 'readonly'], JSON_UNESCAPED_SLASHES)
+        json_str(['email' => 'guest@example.com', 'role' => 'readonly'], JSON_UNESCAPED_SLASHES)
     );
 
     // List invitations for the nook
     $list = App::handle('GET', '/api/nooks/' . $nookId . '/invitations', ownerHeaders(), '');
     expect($list['status'])->toBe(200);
-    $listData = json_decode($list['body'], true);
+    $listData = json_body($list);
     expect(count($listData['invitations']))->toBe(1);
     expect($listData['invitations'][0]['status'])->toBe('pending');
     $invId = (string) ($listData['invitations'][0]['id'] ?? '');
@@ -202,7 +202,7 @@ it('owner can list invitations and revoke a pending one', function (): void {
 
     // Guest no longer sees the invitation
     $myInv = App::handle('GET', '/api/me/invitations', guestHeaders(), '');
-    $myInvData = json_decode($myInv['body'], true);
+    $myInvData = json_body($myInv);
     expect(count($myInvData['invitations']))->toBe(0);
 });
 
@@ -213,7 +213,7 @@ it('prevents duplicate pending invitations for the same email', function (): voi
         'POST',
         '/api/nooks/' . $nookId . '/invitations',
         ownerHeaders(),
-        json_encode(['email' => 'guest@example.com', 'role' => 'readonly'], JSON_UNESCAPED_SLASHES)
+        json_str(['email' => 'guest@example.com', 'role' => 'readonly'], JSON_UNESCAPED_SLASHES)
     );
     expect($first['status'])->toBe(200);
 
@@ -221,7 +221,7 @@ it('prevents duplicate pending invitations for the same email', function (): voi
         'POST',
         '/api/nooks/' . $nookId . '/invitations',
         ownerHeaders(),
-        json_encode(['email' => 'guest@example.com', 'role' => 'readwrite'], JSON_UNESCAPED_SLASHES)
+        json_str(['email' => 'guest@example.com', 'role' => 'readwrite'], JSON_UNESCAPED_SLASHES)
     );
     expect($second['status'])->toBe(409);
 });
@@ -239,7 +239,7 @@ it('prevents inviting an existing member', function (): void {
         'POST',
         '/api/nooks/' . $nookId . '/invitations',
         ownerHeaders(),
-        json_encode(['email' => 'guest@example.com', 'role' => 'readonly'], JSON_UNESCAPED_SLASHES)
+        json_str(['email' => 'guest@example.com', 'role' => 'readonly'], JSON_UNESCAPED_SLASHES)
     );
     expect($invite['status'])->toBe(409);
 });
@@ -255,25 +255,25 @@ it('readonly user can read notes but cannot create, update, or delete', function
         'POST',
         '/api/nooks/' . $nookId . '/notes',
         ownerHeaders(),
-        json_encode(['title' => 'Hello', 'content' => 'World'], JSON_UNESCAPED_SLASHES)
+        json_str(['title' => 'Hello', 'content' => 'World'], JSON_UNESCAPED_SLASHES)
     );
     expect($createNote['status'])->toBe(200);
-    $noteId = (string) (json_decode($createNote['body'], true)['note']['id'] ?? '');
+    $noteId = (string) (json_body($createNote)['note']['id'] ?? '');
 
     // Invite and accept as readonly
     $invite = App::handle(
         'POST',
         '/api/nooks/' . $nookId . '/invitations',
         ownerHeaders(),
-        json_encode(['email' => 'guest@example.com', 'role' => 'readonly'], JSON_UNESCAPED_SLASHES)
+        json_str(['email' => 'guest@example.com', 'role' => 'readonly'], JSON_UNESCAPED_SLASHES)
     );
-    $invId = (string) (json_decode($invite['body'], true)['invitation']['id'] ?? '');
+    $invId = (string) (json_body($invite)['invitation']['id'] ?? '');
     App::handle('POST', '/api/me/invitations/' . $invId . '/accept', guestHeaders(), '');
 
     // Can read notes
     $listNotes = App::handle('GET', '/api/nooks/' . $nookId . '/notes', guestHeaders(), '');
     expect($listNotes['status'])->toBe(200);
-    $listNotesData = json_decode($listNotes['body'], true);
+    $listNotesData = json_body($listNotes);
     expect(count($listNotesData['notes']))->toBe(1);
 
     // Can read a single note
@@ -285,7 +285,7 @@ it('readonly user can read notes but cannot create, update, or delete', function
         'POST',
         '/api/nooks/' . $nookId . '/notes',
         guestHeaders(),
-        json_encode(['title' => 'Nope', 'content' => 'Nope'], JSON_UNESCAPED_SLASHES)
+        json_str(['title' => 'Nope', 'content' => 'Nope'], JSON_UNESCAPED_SLASHES)
     );
     expect($create['status'])->toBe(403);
 
@@ -294,7 +294,7 @@ it('readonly user can read notes but cannot create, update, or delete', function
         'PUT',
         '/api/nooks/' . $nookId . '/notes/' . $noteId,
         guestHeaders(),
-        json_encode(['title' => 'Changed', 'content' => 'Changed', 'type' => 'anything', 'properties' => []], JSON_UNESCAPED_SLASHES)
+        json_str(['title' => 'Changed', 'content' => 'Changed', 'type' => 'anything', 'properties' => []], JSON_UNESCAPED_SLASHES)
     );
     expect($update['status'])->toBe(403);
 
@@ -312,9 +312,9 @@ it('readwrite user can create and edit notes', function (): void {
         'POST',
         '/api/nooks/' . $nookId . '/invitations',
         ownerHeaders(),
-        json_encode(['email' => 'guest@example.com', 'role' => 'readwrite'], JSON_UNESCAPED_SLASHES)
+        json_str(['email' => 'guest@example.com', 'role' => 'readwrite'], JSON_UNESCAPED_SLASHES)
     );
-    $invId = (string) (json_decode($invite['body'], true)['invitation']['id'] ?? '');
+    $invId = (string) (json_body($invite)['invitation']['id'] ?? '');
     App::handle('POST', '/api/me/invitations/' . $invId . '/accept', guestHeaders(), '');
 
     // Can create a note
@@ -322,10 +322,10 @@ it('readwrite user can create and edit notes', function (): void {
         'POST',
         '/api/nooks/' . $nookId . '/notes',
         guestHeaders(),
-        json_encode(['title' => 'Guest Note', 'content' => 'From guest'], JSON_UNESCAPED_SLASHES)
+        json_str(['title' => 'Guest Note', 'content' => 'From guest'], JSON_UNESCAPED_SLASHES)
     );
     expect($create['status'])->toBe(200);
-    $noteId = (string) (json_decode($create['body'], true)['note']['id'] ?? '');
+    $noteId = (string) (json_body($create)['note']['id'] ?? '');
     expect($noteId)->not->toBe('');
 
     // Can update the note
@@ -333,7 +333,7 @@ it('readwrite user can create and edit notes', function (): void {
         'PUT',
         '/api/nooks/' . $nookId . '/notes/' . $noteId,
         guestHeaders(),
-        json_encode(['title' => 'Updated', 'content' => 'Changed', 'type' => 'anything', 'properties' => []], JSON_UNESCAPED_SLASHES)
+        json_str(['title' => 'Updated', 'content' => 'Changed', 'type' => 'anything', 'properties' => []], JSON_UNESCAPED_SLASHES)
     );
     expect($update['status'])->toBe(200);
 });
@@ -360,7 +360,7 @@ it('owner can revoke member access and user sees revocation notice', function ()
 
     // Guest is no longer a member
     $list = App::handle('GET', '/api/nooks', guestHeaders(), '');
-    $listData = json_decode($list['body'], true);
+    $listData = json_body($list);
     $shared = array_values(array_filter(
         $listData['nooks'],
         static fn(mixed $n): bool => is_array($n) && ($n['id'] ?? '') === $nookId
@@ -370,7 +370,7 @@ it('owner can revoke member access and user sees revocation notice', function ()
     // Guest sees revocation notice
     $rev = App::handle('GET', '/api/me/revocations', guestHeaders(), '');
     expect($rev['status'])->toBe(200);
-    $revData = json_decode($rev['body'], true);
+    $revData = json_body($rev);
     expect(count($revData['revocations']))->toBe(1);
     expect($revData['revocations'][0]['nook_name'])->toBe('Shared Nook');
     $revId = (string) ($revData['revocations'][0]['id'] ?? '');
@@ -386,7 +386,7 @@ it('owner can revoke member access and user sees revocation notice', function ()
 
     // No more revocation notices
     $rev2 = App::handle('GET', '/api/me/revocations', guestHeaders(), '');
-    $rev2Data = json_decode($rev2['body'], true);
+    $rev2Data = json_body($rev2);
     expect(count($rev2Data['revocations']))->toBe(0);
 });
 
@@ -415,7 +415,7 @@ it('owner can list members of a nook', function (): void {
 
     $members = App::handle('GET', '/api/nooks/' . $nookId . '/members', ownerHeaders(), '');
     expect($members['status'])->toBe(200);
-    $membersData = json_decode($members['body'], true);
+    $membersData = json_body($members);
     expect(count($membersData['members']))->toBe(2); // owner + guest
 });
 
@@ -435,7 +435,7 @@ it('non-owner cannot invite or list invitations', function (): void {
         'POST',
         '/api/nooks/' . $nookId . '/invitations',
         guestHeaders(),
-        json_encode(['email' => 'third@example.com', 'role' => 'readonly'], JSON_UNESCAPED_SLASHES)
+        json_str(['email' => 'third@example.com', 'role' => 'readonly'], JSON_UNESCAPED_SLASHES)
     );
     expect($invite['status'])->toBe(403);
 
@@ -455,7 +455,7 @@ it('rejects invalid email and role in invite', function (): void {
         'POST',
         '/api/nooks/' . $nookId . '/invitations',
         ownerHeaders(),
-        json_encode(['email' => 'not-an-email', 'role' => 'readonly'], JSON_UNESCAPED_SLASHES)
+        json_str(['email' => 'not-an-email', 'role' => 'readonly'], JSON_UNESCAPED_SLASHES)
     );
     expect($badEmail['status'])->toBe(400);
 
@@ -463,7 +463,7 @@ it('rejects invalid email and role in invite', function (): void {
         'POST',
         '/api/nooks/' . $nookId . '/invitations',
         ownerHeaders(),
-        json_encode(['email' => 'valid@example.com', 'role' => 'owner'], JSON_UNESCAPED_SLASHES)
+        json_str(['email' => 'valid@example.com', 'role' => 'owner'], JSON_UNESCAPED_SLASHES)
     );
     expect($badRole['status'])->toBe(400);
 });

@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 use Paith\Notes\Shared\Search\SearchQueryParser;
 
-/**
+/*
  * Pure-function coverage for the query parser. No database, no HTTP.
  * Pins down tokenization (whitespace + quoted phrases) and the
  * shape of the WHERE/rank/bindings tuple buildSearchClause returns.

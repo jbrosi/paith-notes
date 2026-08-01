@@ -42,19 +42,21 @@ final class Runner
         $lastCleanupAt = 0;
 
         while (true) {
+            $sleepAfter = 0;
+            $pdo = null;
             try {
                 $pdo = $connect();
 
                 $pdo->beginTransaction();
 
                 $stmt = $pdo->prepare("
-                    select 
-                        id, 
-                        payload 
-                    from global.jobs 
-                    where 
-                        status = 'queued' 
-                        and available_at <= now() 
+                    select
+                        id,
+                        payload
+                    from global.jobs
+                    where
+                        status = 'queued'
+                        and available_at <= now()
                     order by id
                     for update skip locked limit 1
                 ");
@@ -75,45 +77,64 @@ final class Runner
                         }
                     }
 
-                    sleep(2);
-                    continue;
+                    $sleepAfter = 2;
+                } else {
+                    $jobIdRaw = $job['id'];
+                    if (!is_numeric($jobIdRaw)) {
+                        $pdo->rollBack();
+                        throw new \RuntimeException('job id is not numeric');
+                    }
+                    $jobId = (int)$jobIdRaw;
+
+                    $lock = $pdo->prepare("
+                        update global.jobs
+                            set status = 'processing',
+                            locked_at = now(),
+                            locked_by = :locked_by,
+                            attempts = attempts + 1,
+                            updated_at = now()
+                        where id = :id;
+                    ");
+                    $lock->execute([
+                        ':locked_by' => $workerId,
+                        ':id' => $jobId,
+                    ]);
+
+                    $pdo->commit();
+
+                    fwrite(STDOUT, sprintf("%s picked job %d\n", $workerId, $jobId));
+
+                    // Reuse $pdo — the lock tx already committed, this runs
+                    // as an autocommitted statement on the same connection.
+                    $done = $pdo->prepare("
+                        update global.jobs set
+                            status = 'done',
+                            updated_at = now()
+                        where id = :id;
+                    ");
+                    $done->execute([':id' => $jobId]);
                 }
-
-                $jobIdRaw = $job['id'];
-                if (!is_numeric($jobIdRaw)) {
-                    $pdo->rollBack();
-                    throw new \RuntimeException('job id is not numeric');
-                }
-                $jobId = (int)$jobIdRaw;
-
-                $lock = $pdo->prepare("
-                    update global.jobs
-                        set status = 'processing',
-                        locked_at = now(),
-                        locked_by = :locked_by,
-                        attempts = attempts + 1,
-                        updated_at = now()
-                    where id = :id;
-                ");
-                $lock->execute([
-                    ':locked_by' => $workerId,
-                    ':id' => $jobId,
-                ]);
-
-                $pdo->commit();
-
-                fwrite(STDOUT, sprintf("%s picked job %d\n", $workerId, $jobId));
-
-                $done = $connect()->prepare("
-                    update global.jobs set 
-                        status = 'done',
-                        updated_at = now()
-                    where id = :id;
-                ");
-                $done->execute([':id' => $jobId]);
             } catch (Throwable $e) {
                 fwrite(STDERR, sprintf("worker error: %s (%s)\n", $e->getMessage(), get_class($e)));
-                sleep(2);
+                $sleepAfter = 2;
+            } finally {
+                // Boundary safety net: no path in this loop should exit with
+                // an open transaction. If one is still open (thrown mid-tx or
+                // handler bug), roll it back before sleeping — otherwise we
+                // hold row locks and an "idle in transaction" backend for the
+                // full sleep window, compounding into "too many connections".
+                if ($pdo !== null && $pdo->inTransaction()) {
+                    fwrite(STDERR, "worker: rolling back leaked transaction\n");
+                    try {
+                        $pdo->rollBack();
+                    } catch (Throwable) {
+                        // best-effort cleanup
+                    }
+                }
+            }
+
+            if ($sleepAfter > 0) {
+                sleep($sleepAfter);
             }
         }
     }

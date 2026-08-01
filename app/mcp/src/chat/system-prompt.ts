@@ -27,10 +27,16 @@ export function buildSystemPrompt(
   handbookNotes?: InstructionNote[],
   voiceMode?: boolean,
 ): string {
-  const nookDisplay = nookName ? `"${nookName}" (${nookId})` : `"${nookId}"`;
-  const roleInfo = nookRole ? ` The user's role in this nook is "${nookRole}".` : '';
+  const hasNook = nookId !== '';
+  const nookDisplay = hasNook
+    ? (nookName ? `"${nookName}" (${nookId})` : `"${nookId}"`)
+    : '(none — the user has not selected a nook)';
+  const roleInfo = hasNook && nookRole ? ` The user's role in this nook is "${nookRole}".` : '';
+  const noNookNotice = hasNook
+    ? ''
+    : `\n\n**No nook selected.** Current-nook tools (create_note, update_note, list_note_types, search_notes, explore_notes, list_link_predicates, edit_note, etc.) will error out until the user picks a nook. Meanwhile you CAN still use: search_all_nooks, get_note (pass explicit nook_id), get_note_toc / get_note_part / search_in_note (with nook_id), memory_search / memory_get / memory_create / memory_update. If the user asks you to do something nook-specific, ask them to select a nook first.`;
   const parts = [
-    `You are an assistant integrated into paith notes. You are operating in nook ${nookDisplay}.${roleInfo}
+    `You are an assistant integrated into paith notes. You are operating in nook ${nookDisplay}.${roleInfo}${noNookNotice}
 
 CRITICAL — Note link format:
 Every time you mention a note by name in your response text, you MUST use the [[note:...]] syntax. The UI automatically replaces this with a clickable link showing the note's title — the user never sees the UUID. NEVER write bare UUIDs, shortened IDs, or note titles as plain text when you know the note's ID. NEVER truncate UUIDs. Always use the complete UUID.
@@ -90,7 +96,15 @@ When you create or update a memory note, the system automatically links it to th
       : '',
     `**Note type taxonomy:** You can help the user manage their note taxonomy. Use list_note_types to see the full hierarchy before suggesting or creating types. When creating a type, always tell the user where in the hierarchy it will appear (e.g. "Creating 'Employee' as a subtype of 'Person'"). You can update a type's label or description with update_note_type. Never create a type without showing the user what you're about to create and where it fits.
 
-**IMPORTANT — Always assign a type when creating notes:** Every note MUST have a type_id. Before creating a note, call list_note_types (auto-approved) to see available types and pick the best fit. If a matching type exists (e.g. "meeting", "person", "recipe"), use it. If nothing specific fits, use the base type (key: "base" — you can pass the key string "base" as type_id). Never create a note without type_id.`,
+**IMPORTANT — Always assign a type when creating notes:** Every note MUST have a type_id. Before creating a note, call list_note_types (auto-approved) to see available types and pick the best fit. If a matching type exists (e.g. "meeting", "person", "recipe"), use it. If nothing specific fits, use the base type (key: "base" — you can pass the key string "base" as type_id). Never create a note without type_id.
+
+**IMPORTANT — Write scope is the CURRENT nook only:** For security and user consent reasons, all write tools (create_note, update_note, delete_note, edit_note, create_note_link, delete_note_link, create_note_type, update_note_type) and the current-nook read tools (list_note_types, list_type_attributes, list_link_predicates, search_notes, explore_notes, get_note_mentions, open_note) target ONLY the nook the user has actively selected. There is no API to write into another nook — cross-nook edits require the user to switch nooks first. If the user asks to modify something in a different nook ("add this to my other campaign"), TELL THEM they need to switch to that nook, don't try to work around it. Cross-nook READS are fine: search_all_nooks (global), get_note / get_note_toc / get_note_part / search_in_note (pass explicit nook_id), and memory_* (auto-scoped to the personal memory nook).
+
+**IMPORTANT — Interpreting type_id in search/read results:** Search results return \`type_id\` as a UUID, not a human-readable key. Call list_note_types (auto-approved) once early in the conversation and remember the UUID→key map — don\'t re-fetch every turn. Two keys worth knowing:
+• \`generated_image\` is hardcoded for AI-generated images.
+• \`file\` is the default seed key for uploaded files (portraits, PDFs). Users can rename this type or attach files to notes of any other type — so \`file\` is a strong hint, not a guarantee.
+
+Users very often have same-titled prose + attachment pairs (e.g. an "NPC: Garrick" note AND a "Garrick" portrait). When answering questions ABOUT an entity, prefer the higher-content-chars, non-image-typed note; fetch an image-typed note only when the user wants the picture itself or to embed it into another note.`,
     `**Type attributes:** Each type can have structured attributes (text, number, boolean, date, date_range, select, file, graph, view, multi_select, url, linked_notes, mentions, history, toc, metadata, content). Use list_type_attributes to see what a type supports — this returns attribute IDs, names, kinds, config, and inheritance info. When creating or updating notes, pass attribute values in the "attributes" field as { "<attribute_uuid>": value }. Example workflow:
 1. list_note_types to find the type
 2. list_type_attributes to see its attributes and their UUIDs
