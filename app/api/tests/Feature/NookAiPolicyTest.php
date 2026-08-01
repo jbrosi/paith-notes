@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 use Paith\Notes\Api\Http\App;
 
-/**
+/*
  * Feature tests for the per-nook AI policy: owner-controlled `ai_mode`
  * setting + the `EnforceNookAiPolicy` middleware that blocks AI actor
  * calls on nooks set to 'disabled'.
@@ -21,7 +21,7 @@ beforeEach(function (): void {
     putenv('KEYCLOAK_ENABLED=0');
     $pdo = test_pdo();
     ensure_global_schema($pdo);
-    $pdo->exec('truncate table global.sessions, global.auth_states, global.nook_members, global.nooks, global.users cascade');
+    test_reset_state($pdo);
 });
 
 /** @return array{0: array<string, string>, 1: string} [headers, nookId] */
@@ -30,8 +30,8 @@ function aiPolicySetup(string $idPart): array
     $userId = "dededede-dede-4ded-8ded-{$idPart}";
     $headers = ['X-Nook-User' => $userId, 'X-Nook-Groups' => 'paith/notes'];
     App::handle('GET', '/api/me', $headers, '');
-    $nook = App::handle('POST', '/api/nooks', $headers, json_encode(['name' => 'policy-test']));
-    $nookId = (string)json_decode($nook['body'], true)['nook']['id'];
+    $nook = App::handle('POST', '/api/nooks', $headers, json_str(['name' => 'policy-test']));
+    $nookId = (string)json_body($nook)['nook']['id'];
     return [$headers, $nookId];
 }
 
@@ -42,7 +42,7 @@ it('GET /api/nooks returns ai_mode for each nook (default approve_all)', functio
 
     $res = App::handle('GET', '/api/nooks', $headers, '');
     expect($res['status'])->toBe(200);
-    $body = json_decode($res['body'], true);
+    $body = json_body($res);
     expect($body['nooks'])->toBeArray()->not->toBeEmpty();
     foreach ($body['nooks'] as $n) {
         expect($n)->toHaveKey('ai_mode');
@@ -54,24 +54,24 @@ it('owner can set ai_mode via PUT /api/nooks/{id}', function (): void {
     [$headers, $nookId] = aiPolicySetup('bbbbbbbbbbbb');
 
     foreach (['auto_reads', 'disabled', 'approve_all'] as $mode) {
-        $res = App::handle('PUT', "/api/nooks/{$nookId}", $headers, json_encode([
+        $res = App::handle('PUT', "/api/nooks/{$nookId}", $headers, json_str([
             'name' => 'policy-test',
             'ai_mode' => $mode,
         ]));
         expect($res['status'])->toBe(200, "setting {$mode}: " . $res['body']);
-        expect(json_decode($res['body'], true)['nook']['ai_mode'])->toBe($mode);
+        expect(json_body($res)['nook']['ai_mode'])->toBe($mode);
     }
 });
 
 it('rejects an unknown ai_mode value with 400', function (): void {
     [$headers, $nookId] = aiPolicySetup('cccccccccccc');
 
-    $res = App::handle('PUT', "/api/nooks/{$nookId}", $headers, json_encode([
+    $res = App::handle('PUT', "/api/nooks/{$nookId}", $headers, json_str([
         'name' => 'policy-test',
         'ai_mode' => 'wide_open',
     ]));
     expect($res['status'])->toBe(400);
-    expect(json_decode($res['body'], true)['error'])->toContain('ai_mode');
+    expect(json_body($res)['error'])->toContain('ai_mode');
 });
 
 it('non-owner cannot change ai_mode (403)', function (): void {
@@ -83,7 +83,7 @@ it('non-owner cannot change ai_mode (403)', function (): void {
     $strangerHeaders = ['X-Nook-User' => 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee1', 'X-Nook-Groups' => 'paith/notes'];
     App::handle('GET', '/api/me', $strangerHeaders, '');
 
-    $res = App::handle('PUT', "/api/nooks/{$nookId}", $strangerHeaders, json_encode([
+    $res = App::handle('PUT', "/api/nooks/{$nookId}", $strangerHeaders, json_str([
         'name' => 'policy-test',
         'ai_mode' => 'auto_reads',
     ]));
@@ -96,7 +96,7 @@ it('AI actor is blocked on a disabled nook (any tool, 403)', function (): void {
     [$ownerHeaders, $nookId] = aiPolicySetup('111111111111');
 
     // Owner disables AI on this nook
-    App::handle('PUT', "/api/nooks/{$nookId}", $ownerHeaders, json_encode([
+    App::handle('PUT', "/api/nooks/{$nookId}", $ownerHeaders, json_str([
         'name' => 'policy-test',
         'ai_mode' => 'disabled',
     ]));
@@ -105,24 +105,24 @@ it('AI actor is blocked on a disabled nook (any tool, 403)', function (): void {
     $aiHeaders = $ownerHeaders + ['X-Nook-Actor' => 'ai'];
     $res = App::handle('GET', "/api/nooks/{$nookId}/notes", $aiHeaders, '');
     expect($res['status'])->toBe(403);
-    expect(json_decode($res['body'], true)['error'])->toContain('disabled by its owner');
+    expect(json_body($res)['error'])->toContain('disabled by its owner');
 });
 
 it('AI actor is blocked on writes too (POST/PUT/DELETE/PATCH)', function (): void {
     [$ownerHeaders, $nookId] = aiPolicySetup('222222222222');
-    App::handle('PUT', "/api/nooks/{$nookId}", $ownerHeaders, json_encode([
+    App::handle('PUT', "/api/nooks/{$nookId}", $ownerHeaders, json_str([
         'name' => 'policy-test',
         'ai_mode' => 'disabled',
     ]));
 
     $aiHeaders = $ownerHeaders + ['X-Nook-Actor' => 'ai'];
-    $res = App::handle('POST', "/api/nooks/{$nookId}/notes", $aiHeaders, json_encode(['title' => 'x']));
+    $res = App::handle('POST', "/api/nooks/{$nookId}/notes", $aiHeaders, json_str(['title' => 'x']));
     expect($res['status'])->toBe(403);
 });
 
 it('human user is NOT blocked on a disabled nook', function (): void {
     [$ownerHeaders, $nookId] = aiPolicySetup('333333333333');
-    App::handle('PUT', "/api/nooks/{$nookId}", $ownerHeaders, json_encode([
+    App::handle('PUT', "/api/nooks/{$nookId}", $ownerHeaders, json_str([
         'name' => 'policy-test',
         'ai_mode' => 'disabled',
     ]));
@@ -134,7 +134,7 @@ it('human user is NOT blocked on a disabled nook', function (): void {
 
 it('explicit X-Nook-Actor: user is NOT blocked on a disabled nook', function (): void {
     [$ownerHeaders, $nookId] = aiPolicySetup('444444444444');
-    App::handle('PUT', "/api/nooks/{$nookId}", $ownerHeaders, json_encode([
+    App::handle('PUT', "/api/nooks/{$nookId}", $ownerHeaders, json_str([
         'name' => 'policy-test',
         'ai_mode' => 'disabled',
     ]));
@@ -149,7 +149,7 @@ it('AI actor passes when ai_mode is approve_all or auto_reads', function (): voi
     $aiHeaders = $ownerHeaders + ['X-Nook-Actor' => 'ai'];
 
     foreach (['approve_all', 'auto_reads'] as $mode) {
-        App::handle('PUT', "/api/nooks/{$nookId}", $ownerHeaders, json_encode([
+        App::handle('PUT', "/api/nooks/{$nookId}", $ownerHeaders, json_str([
             'name' => 'policy-test',
             'ai_mode' => $mode,
         ]));
@@ -172,26 +172,25 @@ it('non-nook-scoped routes are not blocked even for disabled nook owner', functi
 it('cross-nook search excludes notes from disabled nooks', function (): void {
     // Owner creates two nooks, drops a note with the same keyword in each.
     [$headers, $nookA] = aiPolicySetup('777777777777');
-    $nookB = (string)json_decode(
-        App::handle('POST', '/api/nooks', $headers, json_encode(['name' => 'nook-b']))['body'],
-        true,
+    $nookB = (string)json_body_of(
+        App::handle('POST', '/api/nooks', $headers, json_str(['name' => 'nook-b']))['body']
     )['nook']['id'];
 
-    App::handle('POST', "/api/nooks/{$nookA}/notes", $headers, json_encode([
+    App::handle('POST', "/api/nooks/{$nookA}/notes", $headers, json_str([
         'title' => 'findme nook a', 'content' => 'apple',
     ]));
-    App::handle('POST', "/api/nooks/{$nookB}/notes", $headers, json_encode([
+    App::handle('POST', "/api/nooks/{$nookB}/notes", $headers, json_str([
         'title' => 'findme nook b', 'content' => 'apple',
     ]));
 
     // Baseline: both notes returned.
     $before = App::handle('GET', '/api/search?q=apple', $headers, '');
-    $beforeNooks = array_unique(array_column(json_decode($before['body'], true)['notes'], 'nook_id'));
+    $beforeNooks = array_unique(array_column(json_body($before)['notes'], 'nook_id'));
     expect($beforeNooks)->toContain($nookA);
     expect($beforeNooks)->toContain($nookB);
 
     // Disable AI on nook B.
-    App::handle('PUT', "/api/nooks/{$nookB}", $headers, json_encode([
+    App::handle('PUT', "/api/nooks/{$nookB}", $headers, json_str([
         'name' => 'nook-b',
         'ai_mode' => 'disabled',
     ]));
@@ -199,7 +198,7 @@ it('cross-nook search excludes notes from disabled nooks', function (): void {
     // Cross-nook search now excludes nook B regardless of actor — the
     // exclusion is intrinsic to the SQL, not actor-gated.
     $after = App::handle('GET', '/api/search?q=apple', $headers, '');
-    $afterNooks = array_unique(array_column(json_decode($after['body'], true)['notes'], 'nook_id'));
+    $afterNooks = array_unique(array_column(json_body($after)['notes'], 'nook_id'));
     expect($afterNooks)->toContain($nookA);
     expect($afterNooks)->not->toContain($nookB);
 });

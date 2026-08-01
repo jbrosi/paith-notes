@@ -7,7 +7,7 @@ use Paith\Notes\Api\Http\Service\ImageGeneration\FakeImageGenerator;
 use Paith\Notes\Api\Http\Service\ImageGeneration\ImageGeneratorFactory;
 use Paith\Notes\Api\Http\Service\ImageGeneration\OpenAiImageGenerator;
 
-/**
+/*
  * Provider selection contract for the factory. Mutates env via
  * putenv() — restored after each test so cases stay isolated.
  */

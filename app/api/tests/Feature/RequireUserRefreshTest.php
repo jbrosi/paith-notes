@@ -75,7 +75,7 @@ beforeEach(function (): void {
 
     $pdo = test_pdo();
     ensure_global_schema($pdo);
-    $pdo->exec('truncate table global.sessions, global.auth_states, global.nook_members, global.nooks, global.users cascade');
+    test_reset_state($pdo);
 });
 
 afterEach(function (): void {

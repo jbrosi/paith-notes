@@ -11,7 +11,7 @@ beforeEach(function (): void {
     $pdo = test_pdo();
     ensure_global_schema($pdo);
 
-    $pdo->exec('truncate table global.sessions, global.auth_states, global.nook_members, global.nooks, global.users cascade');
+    test_reset_state($pdo);
     $pdo->exec("insert into global.users (id, first_name, last_name) values ('deadc0ff-ee00-4000-8000-000000000000', 'AI', 'Assistant') on conflict (id) do nothing");
 });
 
@@ -32,51 +32,51 @@ function buildFixtureNook(string $userIdPart, string $nookName): array
 
     App::handle('GET', '/api/me', $headers, '');
 
-    $res = App::handle('POST', '/api/nooks', $headers, json_encode(['name' => $nookName]));
-    $nookId = json_decode($res['body'], true)['nook']['id'];
+    $res = App::handle('POST', '/api/nooks', $headers, json_str(['name' => $nookName]));
+    $nookId = json_body($res)['nook']['id'];
 
     // Create type
-    $typeRes = App::handle('POST', "/api/nooks/{$nookId}/note-types", $headers, json_encode([
+    $typeRes = App::handle('POST', "/api/nooks/{$nookId}/note-types", $headers, json_str([
         'key' => 'page',
         'label' => 'Page',
     ]));
-    $typeId = json_decode($typeRes['body'], true)['type']['id'];
+    $typeId = json_body($typeRes)['type']['id'];
 
     // Add a text attribute
-    $attrRes = App::handle('POST', "/api/nooks/{$nookId}/note-types/{$typeId}/attributes", $headers, json_encode([
+    $attrRes = App::handle('POST', "/api/nooks/{$nookId}/note-types/{$typeId}/attributes", $headers, json_str([
         'key' => 'body',
         'name' => 'Body',
         'kind' => 'text',
     ]));
-    $attrId = json_decode($attrRes['body'], true)['attribute']['id'];
+    $attrId = json_body($attrRes)['attribute']['id'];
 
     // Create a link predicate
-    $predRes = App::handle('POST', "/api/nooks/{$nookId}/link-predicates", $headers, json_encode([
+    $predRes = App::handle('POST', "/api/nooks/{$nookId}/link-predicates", $headers, json_str([
         'key' => 'relates-to',
         'forward_label' => 'relates to',
         'reverse_label' => 'related from',
     ]));
-    $predId = json_decode($predRes['body'], true)['predicate']['id'];
+    $predId = json_body($predRes)['predicate']['id'];
 
     // Two notes
-    $n1Res = App::handle('POST', "/api/nooks/{$nookId}/notes", $headers, json_encode([
+    $n1Res = App::handle('POST', "/api/nooks/{$nookId}/notes", $headers, json_str([
         'title' => 'First',
         'content' => 'first body',
         'type_id' => $typeId,
         'attributes' => [$attrId => 'value-one'],
     ]));
-    $note1Id = json_decode($n1Res['body'], true)['note']['id'];
+    $note1Id = json_body($n1Res)['note']['id'];
 
-    $n2Res = App::handle('POST', "/api/nooks/{$nookId}/notes", $headers, json_encode([
+    $n2Res = App::handle('POST', "/api/nooks/{$nookId}/notes", $headers, json_str([
         'title' => 'Second',
         'content' => "links to [[note:{$note1Id}]] inline",
         'type_id' => $typeId,
         'attributes' => [$attrId => 'value-two'],
     ]));
-    $note2Id = json_decode($n2Res['body'], true)['note']['id'];
+    $note2Id = json_body($n2Res)['note']['id'];
 
     // Create a link
-    App::handle('POST', "/api/nooks/{$nookId}/notes/{$note1Id}/links", $headers, json_encode([
+    App::handle('POST', "/api/nooks/{$nookId}/notes/{$note1Id}/links", $headers, json_str([
         'predicate_id' => $predId,
         'target_note_id' => $note2Id,
     ]));

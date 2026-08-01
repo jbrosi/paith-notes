@@ -1,4 +1,5 @@
 <?php
+
 declare(strict_types=1);
 
 use Paith\Notes\Api\Http\App;
@@ -8,7 +9,7 @@ beforeEach(function (): void {
     $pdo = test_pdo();
     ensure_global_schema($pdo);
 
-    $pdo->exec('truncate table global.sessions, global.auth_states, global.nook_members, global.nooks, global.users cascade');
+    test_reset_state($pdo);
     $pdo->exec("insert into global.users (id, first_name, last_name) values ('deadc0ff-ee00-4000-8000-000000000000', 'AI', 'Assistant') on conflict (id) do nothing");
 });
 
@@ -20,24 +21,24 @@ it('returns history for a note with version numbers', function (): void {
     ];
 
     // Create a nook
-    $create = App::handle('POST', '/api/nooks', $headers, json_encode(['name' => 'History Test']));
+    $create = App::handle('POST', '/api/nooks', $headers, json_str(['name' => 'History Test']));
     expect($create['status'])->toBe(200);
-    $nookId = json_decode($create['body'], true)['nook']['id'];
+    $nookId = json_body($create)['nook']['id'];
 
     // Create a note
-    $noteRes = App::handle('POST', "/api/nooks/$nookId/notes", $headers, json_encode([
+    $noteRes = App::handle('POST', "/api/nooks/$nookId/notes", $headers, json_str([
         'title' => 'Original Title',
         'content' => 'Original content',
     ]));
     expect($noteRes['status'])->toBe(200);
-    $noteId = json_decode($noteRes['body'], true)['note']['id'];
+    $noteId = json_body($noteRes)['note']['id'];
 
     // Update the note twice
-    App::handle('PUT', "/api/nooks/$nookId/notes/$noteId", $headers, json_encode([
+    App::handle('PUT', "/api/nooks/$nookId/notes/$noteId", $headers, json_str([
         'title' => 'Second Title',
         'content' => 'Updated content',
     ]));
-    App::handle('PUT', "/api/nooks/$nookId/notes/$noteId", $headers, json_encode([
+    App::handle('PUT', "/api/nooks/$nookId/notes/$noteId", $headers, json_str([
         'title' => 'Third Title',
         'content' => 'Final content',
     ]));
@@ -46,7 +47,7 @@ it('returns history for a note with version numbers', function (): void {
     $historyRes = App::handle('GET', "/api/nooks/$nookId/notes/$noteId/history", $headers);
     expect($historyRes['status'])->toBe(200);
 
-    $data = json_decode($historyRes['body'], true);
+    $data = json_body($historyRes);
     expect($data['history'])->toBeArray();
     expect(count($data['history']))->toBe(3);
 
@@ -70,28 +71,28 @@ it('note row itself reflects current version', function (): void {
         'X-Nook-Groups' => 'paith/notes',
     ];
 
-    $create = App::handle('POST', '/api/nooks', $headers, json_encode(['name' => 'Version Test']));
-    $nookId = json_decode($create['body'], true)['nook']['id'];
+    $create = App::handle('POST', '/api/nooks', $headers, json_str(['name' => 'Version Test']));
+    $nookId = json_body($create)['nook']['id'];
 
-    $noteRes = App::handle('POST', "/api/nooks/$nookId/notes", $headers, json_encode([
+    $noteRes = App::handle('POST', "/api/nooks/$nookId/notes", $headers, json_str([
         'title' => 'V1',
         'content' => '',
     ]));
-    $noteId = json_decode($noteRes['body'], true)['note']['id'];
+    $noteId = json_body($noteRes)['note']['id'];
 
     // Get note — should have version 1
     $get = App::handle('GET', "/api/nooks/$nookId/notes/$noteId", $headers);
-    $noteData = json_decode($get['body'], true)['note'];
+    $noteData = json_body($get)['note'];
     expect($noteData['version'])->toBe(1);
 
     // Update
-    App::handle('PUT', "/api/nooks/$nookId/notes/$noteId", $headers, json_encode([
+    App::handle('PUT', "/api/nooks/$nookId/notes/$noteId", $headers, json_str([
         'title' => 'V2',
         'content' => 'changed',
     ]));
 
     $get2 = App::handle('GET', "/api/nooks/$nookId/notes/$noteId", $headers);
-    $noteData2 = json_decode($get2['body'], true)['note'];
+    $noteData2 = json_body($get2)['note'];
     expect($noteData2['version'])->toBe(2);
 });
 
@@ -102,31 +103,31 @@ it('returns 409 conflict when expected_version does not match', function (): voi
         'X-Nook-Groups' => 'paith/notes',
     ];
 
-    $create = App::handle('POST', '/api/nooks', $headers, json_encode(['name' => 'Conflict Test']));
-    $nookId = json_decode($create['body'], true)['nook']['id'];
+    $create = App::handle('POST', '/api/nooks', $headers, json_str(['name' => 'Conflict Test']));
+    $nookId = json_body($create)['nook']['id'];
 
     // Create a note (version 1)
-    $noteRes = App::handle('POST', "/api/nooks/$nookId/notes", $headers, json_encode([
+    $noteRes = App::handle('POST', "/api/nooks/$nookId/notes", $headers, json_str([
         'title' => 'Conflict Note',
         'content' => 'original',
     ]));
-    $noteId = json_decode($noteRes['body'], true)['note']['id'];
+    $noteId = json_body($noteRes)['note']['id'];
 
     // Update it (version 2)
-    App::handle('PUT', "/api/nooks/$nookId/notes/$noteId", $headers, json_encode([
+    App::handle('PUT', "/api/nooks/$nookId/notes/$noteId", $headers, json_str([
         'title' => 'Updated',
         'content' => 'changed',
     ]));
 
     // Try to update with expected_version=1 (stale)
-    $conflictRes = App::handle('PUT', "/api/nooks/$nookId/notes/$noteId", $headers, json_encode([
+    $conflictRes = App::handle('PUT', "/api/nooks/$nookId/notes/$noteId", $headers, json_str([
         'title' => 'Stale edit',
         'content' => 'should fail',
         'expected_version' => 1,
     ]));
     expect($conflictRes['status'])->toBe(409);
 
-    $body = json_decode($conflictRes['body'], true);
+    $body = json_body($conflictRes);
     expect($body['error'])->toBe('note was edited in the meantime');
     expect($body['current_version'])->toBe(2);
     expect($body['expected_version'])->toBe(1);
@@ -139,24 +140,24 @@ it('allows update when expected_version matches', function (): void {
         'X-Nook-Groups' => 'paith/notes',
     ];
 
-    $create = App::handle('POST', '/api/nooks', $headers, json_encode(['name' => 'Version OK Test']));
-    $nookId = json_decode($create['body'], true)['nook']['id'];
+    $create = App::handle('POST', '/api/nooks', $headers, json_str(['name' => 'Version OK Test']));
+    $nookId = json_body($create)['nook']['id'];
 
-    $noteRes = App::handle('POST', "/api/nooks/$nookId/notes", $headers, json_encode([
+    $noteRes = App::handle('POST', "/api/nooks/$nookId/notes", $headers, json_str([
         'title' => 'V1 Note',
         'content' => 'v1',
     ]));
-    $noteId = json_decode($noteRes['body'], true)['note']['id'];
+    $noteId = json_body($noteRes)['note']['id'];
 
     // Update with correct expected_version=1
-    $updateRes = App::handle('PUT', "/api/nooks/$nookId/notes/$noteId", $headers, json_encode([
+    $updateRes = App::handle('PUT', "/api/nooks/$nookId/notes/$noteId", $headers, json_str([
         'title' => 'V2 Note',
         'content' => 'v2',
         'expected_version' => 1,
     ]));
     expect($updateRes['status'])->toBe(200);
 
-    $body = json_decode($updateRes['body'], true);
+    $body = json_body($updateRes);
     expect($body['note']['version'])->toBe(2);
     expect($body['note']['title'])->toBe('V2 Note');
 });
@@ -167,14 +168,14 @@ it('returns 403 for non-members requesting history', function (): void {
     $ownerHeaders = ['X-Nook-User' => $ownerId, 'X-Nook-Groups' => 'paith/notes'];
     $otherHeaders = ['X-Nook-User' => $otherId, 'X-Nook-Groups' => 'paith/notes'];
 
-    $create = App::handle('POST', '/api/nooks', $ownerHeaders, json_encode(['name' => 'Private']));
-    $nookId = json_decode($create['body'], true)['nook']['id'];
+    $create = App::handle('POST', '/api/nooks', $ownerHeaders, json_str(['name' => 'Private']));
+    $nookId = json_body($create)['nook']['id'];
 
-    $noteRes = App::handle('POST', "/api/nooks/$nookId/notes", $ownerHeaders, json_encode([
+    $noteRes = App::handle('POST', "/api/nooks/$nookId/notes", $ownerHeaders, json_str([
         'title' => 'Secret',
         'content' => '',
     ]));
-    $noteId = json_decode($noteRes['body'], true)['note']['id'];
+    $noteId = json_body($noteRes)['note']['id'];
 
     // Other user tries to access history
     $historyRes = App::handle('GET', "/api/nooks/$nookId/notes/$noteId/history", $otherHeaders);

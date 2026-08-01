@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 use Paith\Notes\Api\Http\App;
 
-/**
+/*
  * Feature tests for the per-user note-draft endpoints:
  *   GET    /api/nooks/{nookId}/notes/{noteId}/draft
  *   PUT    /api/nooks/{nookId}/notes/{noteId}/draft
@@ -15,7 +15,7 @@ beforeEach(function (): void {
     putenv('KEYCLOAK_ENABLED=0');
     $pdo = test_pdo();
     ensure_global_schema($pdo);
-    $pdo->exec('truncate table global.sessions, global.auth_states, global.nook_members, global.nooks, global.users cascade');
+    test_reset_state($pdo);
 });
 
 /** @return array{0: array<string, string>, 1: string, 2: string} [headers, nookId, noteId] */
@@ -24,14 +24,14 @@ function draftTestSetup(string $idPart, string $initialContent = "hello\n"): arr
     $userId = "aaaaaaaa-aaaa-4aaa-8aaa-{$idPart}";
     $headers = ['X-Nook-User' => $userId, 'X-Nook-Groups' => 'paith/notes'];
     App::handle('GET', '/api/me', $headers, '');
-    $nook = App::handle('POST', '/api/nooks', $headers, json_encode(['name' => 'draft-test']));
-    $nookId = (string)json_decode($nook['body'], true)['nook']['id'];
+    $nook = App::handle('POST', '/api/nooks', $headers, json_str(['name' => 'draft-test']));
+    $nookId = (string)json_body($nook)['nook']['id'];
 
-    $note = App::handle('POST', "/api/nooks/{$nookId}/notes", $headers, json_encode([
+    $note = App::handle('POST', "/api/nooks/{$nookId}/notes", $headers, json_str([
         'title' => 'Test',
         'content' => $initialContent,
     ]));
-    $noteId = (string)json_decode($note['body'], true)['note']['id'];
+    $noteId = (string)json_body($note)['note']['id'];
 
     return [$headers, $nookId, $noteId];
 }
@@ -41,7 +41,7 @@ it('returns draft=null when no draft exists', function (): void {
 
     $res = App::handle('GET', "/api/nooks/{$nookId}/notes/{$noteId}/draft", $headers, '');
     expect($res['status'])->toBe(200, $res['body']);
-    $body = json_decode($res['body'], true);
+    $body = json_body($res);
     expect($body['draft'])->toBeNull();
     expect($body['note_updated_at'])->toBeString();
 });
@@ -49,32 +49,32 @@ it('returns draft=null when no draft exists', function (): void {
 it('upserts a draft and bumps version on each write', function (): void {
     [$headers, $nookId, $noteId] = draftTestSetup('bbbbbbbbbbbb');
 
-    $res1 = App::handle('PUT', "/api/nooks/{$nookId}/notes/{$noteId}/draft", $headers, json_encode([
+    $res1 = App::handle('PUT', "/api/nooks/{$nookId}/notes/{$noteId}/draft", $headers, json_str([
         'title' => 'Test',
         'content' => "hello\nfirst draft\n",
     ]));
     expect($res1['status'])->toBe(200, $res1['body']);
-    $b1 = json_decode($res1['body'], true);
+    $b1 = json_body($res1);
     expect($b1['version'])->toBe(1);
 
-    $res2 = App::handle('PUT', "/api/nooks/{$nookId}/notes/{$noteId}/draft", $headers, json_encode([
+    $res2 = App::handle('PUT', "/api/nooks/{$nookId}/notes/{$noteId}/draft", $headers, json_str([
         'title' => 'Test',
         'content' => "hello\nsecond draft\n",
     ]));
     expect($res2['status'])->toBe(200, $res2['body']);
-    expect(json_decode($res2['body'], true)['version'])->toBe(2);
+    expect(json_body($res2)['version'])->toBe(2);
 });
 
 it('returns the persisted draft on subsequent GET', function (): void {
     [$headers, $nookId, $noteId] = draftTestSetup('cccccccccccc');
 
-    App::handle('PUT', "/api/nooks/{$nookId}/notes/{$noteId}/draft", $headers, json_encode([
+    App::handle('PUT', "/api/nooks/{$nookId}/notes/{$noteId}/draft", $headers, json_str([
         'title' => 'Different Title',
         'content' => "brand new content\n",
     ]));
 
     $res = App::handle('GET', "/api/nooks/{$nookId}/notes/{$noteId}/draft", $headers, '');
-    $body = json_decode($res['body'], true);
+    $body = json_body($res);
     expect($body['draft'])->not->toBeNull();
     expect($body['draft']['title'])->toBe('Different Title');
     expect($body['draft']['content'])->toBe("brand new content\n");
@@ -84,7 +84,7 @@ it('returns the persisted draft on subsequent GET', function (): void {
 it('deletes the draft on DELETE', function (): void {
     [$headers, $nookId, $noteId] = draftTestSetup('dddddddddddd');
 
-    App::handle('PUT', "/api/nooks/{$nookId}/notes/{$noteId}/draft", $headers, json_encode([
+    App::handle('PUT', "/api/nooks/{$nookId}/notes/{$noteId}/draft", $headers, json_str([
         'title' => 'x',
         'content' => 'y',
     ]));
@@ -93,7 +93,7 @@ it('deletes the draft on DELETE', function (): void {
     expect($del['status'])->toBe(200, $del['body']);
 
     $get = App::handle('GET', "/api/nooks/{$nookId}/notes/{$noteId}/draft", $headers, '');
-    expect(json_decode($get['body'], true)['draft'])->toBeNull();
+    expect(json_body($get)['draft'])->toBeNull();
 });
 
 it('drafts are isolated per user (user B cannot see user A drafts)', function (): void {
@@ -105,8 +105,8 @@ it('drafts are isolated per user (user B cannot see user A drafts)', function ()
     App::handle('GET', '/api/me', $headersA, '');
     App::handle('GET', '/api/me', $headersB, '');
 
-    $nook = App::handle('POST', '/api/nooks', $headersA, json_encode(['name' => 'shared']));
-    $nookId = (string)json_decode($nook['body'], true)['nook']['id'];
+    $nook = App::handle('POST', '/api/nooks', $headersA, json_str(['name' => 'shared']));
+    $nookId = (string)json_body($nook)['nook']['id'];
 
     // A invites B as read-write via direct membership insert (short-cut
     // vs. going through the invitation flow — this test isn't about that).
@@ -114,22 +114,22 @@ it('drafts are isolated per user (user B cannot see user A drafts)', function ()
     $pdo->prepare("insert into global.nook_members (nook_id, user_id, role) values (:n, :u, 'readwrite')")
         ->execute([':n' => $nookId, ':u' => $userB]);
 
-    $note = App::handle('POST', "/api/nooks/{$nookId}/notes", $headersA, json_encode([
+    $note = App::handle('POST', "/api/nooks/{$nookId}/notes", $headersA, json_str([
         'title' => 'shared', 'content' => 'x',
     ]));
-    $noteId = (string)json_decode($note['body'], true)['note']['id'];
+    $noteId = (string)json_body($note)['note']['id'];
 
-    App::handle('PUT', "/api/nooks/{$nookId}/notes/{$noteId}/draft", $headersA, json_encode([
+    App::handle('PUT', "/api/nooks/{$nookId}/notes/{$noteId}/draft", $headersA, json_str([
         'title' => 'A wrote this', 'content' => 'A content',
     ]));
 
     // B does NOT see A's draft; B sees their own null draft.
     $bGet = App::handle('GET', "/api/nooks/{$nookId}/notes/{$noteId}/draft", $headersB, '');
-    expect(json_decode($bGet['body'], true)['draft'])->toBeNull();
+    expect(json_body($bGet)['draft'])->toBeNull();
 
     // A still sees their own draft.
     $aGet = App::handle('GET', "/api/nooks/{$nookId}/notes/{$noteId}/draft", $headersA, '');
-    expect(json_decode($aGet['body'], true)['draft']['content'])->toBe('A content');
+    expect(json_body($aGet)['draft']['content'])->toBe('A content');
 });
 
 it('rejects PUT for read-only members', function (): void {
@@ -140,19 +140,19 @@ it('rejects PUT for read-only members', function (): void {
     App::handle('GET', '/api/me', $ownerH, '');
     App::handle('GET', '/api/me', $roH, '');
 
-    $nook = App::handle('POST', '/api/nooks', $ownerH, json_encode(['name' => 'ro']));
-    $nookId = (string)json_decode($nook['body'], true)['nook']['id'];
+    $nook = App::handle('POST', '/api/nooks', $ownerH, json_str(['name' => 'ro']));
+    $nookId = (string)json_body($nook)['nook']['id'];
 
     $pdo = test_pdo();
     $pdo->prepare("insert into global.nook_members (nook_id, user_id, role) values (:n, :u, 'readonly')")
         ->execute([':n' => $nookId, ':u' => $ro]);
 
-    $note = App::handle('POST', "/api/nooks/{$nookId}/notes", $ownerH, json_encode([
+    $note = App::handle('POST', "/api/nooks/{$nookId}/notes", $ownerH, json_str([
         'title' => 't', 'content' => 'c',
     ]));
-    $noteId = (string)json_decode($note['body'], true)['note']['id'];
+    $noteId = (string)json_body($note)['note']['id'];
 
-    $res = App::handle('PUT', "/api/nooks/{$nookId}/notes/{$noteId}/draft", $roH, json_encode([
+    $res = App::handle('PUT', "/api/nooks/{$nookId}/notes/{$noteId}/draft", $roH, json_str([
         'title' => 'nope', 'content' => 'nope',
     ]));
     expect($res['status'])->toBe(403);

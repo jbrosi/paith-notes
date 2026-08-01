@@ -489,6 +489,13 @@ export function ChatPanel(props: Props) {
 	};
 
 	const KEEP_ALIVE_MS = 4 * 60 * 1000; // 4 minutes
+	// Wall-clock time when the current keep-alive was scheduled. Used to
+	// detect throttled/frozen timers: if the tab was hidden for tens of
+	// minutes and the timer only fires when it regains focus, the
+	// Anthropic prompt cache (5-min ephemeral TTL) is already stale and
+	// the nudge would hit raw token cost. Compare elapsed at fire time
+	// against KEEP_ALIVE_MS + slack; skip the nudge if it drifted too far.
+	let keepAliveScheduledAt = 0;
 
 	const clearKeepAlive = () => {
 		if (keepAliveTimer) {
@@ -496,6 +503,15 @@ export function ChatPanel(props: Props) {
 			keepAliveTimer = null;
 		}
 	};
+
+	// Chat endpoints are dual-registered on the server: nook-scoped when
+	// the user has one open, nook-independent when they don't (see
+	// mcp/src/chat.ts). Route via /chat when contextNookId is empty so
+	// the panel keeps working with cross-nook + memory tools only.
+	const chatUrl = (suffix: "" | "/tool-result") =>
+		props.contextNookId
+			? `/nooks/${encodeURIComponent(props.contextNookId)}/chat${suffix}`
+			: `/chat${suffix}`;
 
 	onCleanup(() => {
 		abortCtrl?.abort();
@@ -939,6 +955,7 @@ export function ChatPanel(props: Props) {
 					if (isNudge) {
 						isNudge = false;
 					} else {
+						keepAliveScheduledAt = Date.now();
 						keepAliveTimer = setTimeout(() => void sendNudge(), KEEP_ALIVE_MS);
 					}
 					return;
@@ -1238,16 +1255,6 @@ export function ChatPanel(props: Props) {
 		clearKeepAlive();
 		isNudge = false;
 		setError(null);
-		// TEMPORARY guard until chat is decoupled from nooks: today the MCP
-		// route is /nooks/:nookId/chat, so an empty contextNookId would POST
-		// to /nooks//chat and 404 silently. The VAD recognizer can fire
-		// from contexts where no nook is selected (e.g. the global chat
-		// panel mounted in App.tsx), so we have to catch that here. Remove
-		// this once the chat route is moved off the nook URL.
-		if (!props.contextNookId) {
-			setError("Open a nook to chat — the chat is still nook-scoped for now.");
-			return;
-		}
 		setModel(selectedModel);
 		setQuickReplyDismissed(false);
 		// AudioContext.resume() only honors a recent user gesture; chunks
@@ -1273,29 +1280,26 @@ export function ChatPanel(props: Props) {
 		abortCtrl = new AbortController();
 
 		try {
-			const res = await fetch(
-				`/nooks/${encodeURIComponent(props.contextNookId)}/chat`,
-				{
-					method: "POST",
-					credentials: "include",
-					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({
-						message: text,
-						model: selectedModel,
-						conversation_id: conversationId() ?? undefined,
-						context_note_id: props.currentNoteId ?? undefined,
-						context_note_title: props.currentNoteTitle ?? undefined,
-						context_note_type: props.currentNoteType ?? undefined,
-						context_path: props.currentPath ?? undefined,
-						editor_state: editorSnapshot(),
-						voice_mode: voiceMode(),
-						voice_lang: voiceLang(),
-						speaker_name: meta?.speaker ?? undefined,
-						speaker_confidence: meta?.speakerConfidence ?? undefined,
-					}),
-					signal: abortCtrl.signal,
-				},
-			);
+			const res = await fetch(chatUrl(""), {
+				method: "POST",
+				credentials: "include",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					message: text,
+					model: selectedModel,
+					conversation_id: conversationId() ?? undefined,
+					context_note_id: props.currentNoteId ?? undefined,
+					context_note_title: props.currentNoteTitle ?? undefined,
+					context_note_type: props.currentNoteType ?? undefined,
+					context_path: props.currentPath ?? undefined,
+					editor_state: editorSnapshot(),
+					voice_mode: voiceMode(),
+					voice_lang: voiceLang(),
+					speaker_name: meta?.speaker ?? undefined,
+					speaker_confidence: meta?.speakerConfidence ?? undefined,
+				}),
+				signal: abortCtrl.signal,
+			});
 			if (!res.ok || !res.body) {
 				setStreaming(false);
 				setError(`HTTP ${res.status}`);
@@ -1312,30 +1316,35 @@ export function ChatPanel(props: Props) {
 	// ── cache keep-alive nudge ───────────────────────────────
 	const sendNudge = async () => {
 		if (streaming() || !conversationId()) return;
+		// Skip if the timer drifted well past its target — most likely the
+		// tab was hidden and the browser throttled/froze the timer, so the
+		// Anthropic prompt cache has already expired and this nudge would
+		// hit raw token cost. 30s slack absorbs normal main-thread jitter.
+		const elapsed = Date.now() - keepAliveScheduledAt;
+		if (keepAliveScheduledAt > 0 && elapsed > KEEP_ALIVE_MS + 30_000) {
+			return;
+		}
 		isNudge = true;
 		setStreaming(true);
 		abortCtrl?.abort();
 		abortCtrl = new AbortController();
 		try {
-			const res = await fetch(
-				`/nooks/${encodeURIComponent(props.contextNookId)}/chat`,
-				{
-					method: "POST",
-					credentials: "include",
-					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({
-						message:
-							"[nudge] The user has been idle for a few minutes. Send a brief, creative nudge related to the current conversation — a follow-up thought, a question, or a playful check-in. Keep it to 1-2 sentences. Do NOT mention that this is a system prompt or that you were asked to nudge.",
-						model: model(),
-						conversation_id: conversationId(),
-						context_note_id: props.currentNoteId ?? undefined,
-						context_note_title: props.currentNoteTitle ?? undefined,
-						context_note_type: props.currentNoteType ?? undefined,
-						editor_state: editorSnapshot(),
-					}),
-					signal: abortCtrl.signal,
-				},
-			);
+			const res = await fetch(chatUrl(""), {
+				method: "POST",
+				credentials: "include",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					message:
+						"[nudge] The user has been idle for a few minutes. Send a brief, creative nudge related to the current conversation — a follow-up thought, a question, or a playful check-in. Keep it to 1-2 sentences. Do NOT mention that this is a system prompt or that you were asked to nudge.",
+					model: model(),
+					conversation_id: conversationId(),
+					context_note_id: props.currentNoteId ?? undefined,
+					context_note_title: props.currentNoteTitle ?? undefined,
+					context_note_type: props.currentNoteType ?? undefined,
+					editor_state: editorSnapshot(),
+				}),
+				signal: abortCtrl.signal,
+			});
 			if (!res.ok || !res.body) {
 				setStreaming(false);
 				isNudge = false;
@@ -1373,22 +1382,19 @@ export function ChatPanel(props: Props) {
 					frontend_result: await executeFrontendTool(t.name, t.input),
 				})),
 			);
-			const res = await fetch(
-				`/nooks/${encodeURIComponent(props.contextNookId)}/chat/tool-result`,
-				{
-					method: "POST",
-					credentials: "include",
-					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({
-						conversation_id: pa.conversationId,
-						model: pa.model,
-						context_note_id: pa.contextNoteId,
-						editor_state: editorSnapshot(),
-						tool_results: results,
-					}),
-					signal: abortCtrl.signal,
-				},
-			);
+			const res = await fetch(chatUrl("/tool-result"), {
+				method: "POST",
+				credentials: "include",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					conversation_id: pa.conversationId,
+					model: pa.model,
+					context_note_id: pa.contextNoteId,
+					editor_state: editorSnapshot(),
+					tool_results: results,
+				}),
+				signal: abortCtrl.signal,
+			});
 			if (!res.ok || !res.body) {
 				setStreaming(false);
 				setError(`HTTP ${res.status}`);
@@ -1447,46 +1453,43 @@ export function ChatPanel(props: Props) {
 		abortCtrl = new AbortController();
 
 		try {
-			const res = await fetch(
-				`/nooks/${encodeURIComponent(props.contextNookId)}/chat/tool-result`,
-				{
-					method: "POST",
-					credentials: "include",
-					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({
-						conversation_id: pa.conversationId,
-						model: pa.model,
-						context_note_id: pa.contextNoteId,
-						voice_mode: voiceMode(),
-						voice_lang: voiceLang(),
-						tool_results: await Promise.all(
-							pa.tools.map(async (t) => {
-								// Frontend-executed tools are answered here
-								// silently — MCP threads our `frontend_result`
-								// straight into the tool_result the AI sees.
-								// `approved: true` because the user never denied
-								// (and never saw) the card.
-								if (pa.frontendExecutedIds?.has(t.id)) {
-									return {
-										tool_use_id: t.id,
-										tool_name: t.name,
-										tool_input: t.input,
-										approved: true,
-										frontend_result: await executeFrontendTool(t.name, t.input),
-									};
-								}
+			const res = await fetch(chatUrl("/tool-result"), {
+				method: "POST",
+				credentials: "include",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					conversation_id: pa.conversationId,
+					model: pa.model,
+					context_note_id: pa.contextNoteId,
+					voice_mode: voiceMode(),
+					voice_lang: voiceLang(),
+					tool_results: await Promise.all(
+						pa.tools.map(async (t) => {
+							// Frontend-executed tools are answered here
+							// silently — MCP threads our `frontend_result`
+							// straight into the tool_result the AI sees.
+							// `approved: true` because the user never denied
+							// (and never saw) the card.
+							if (pa.frontendExecutedIds?.has(t.id)) {
 								return {
 									tool_use_id: t.id,
 									tool_name: t.name,
 									tool_input: t.input,
-									approved,
+									approved: true,
+									frontend_result: await executeFrontendTool(t.name, t.input),
 								};
-							}),
-						),
-					}),
-					signal: abortCtrl.signal,
-				},
-			);
+							}
+							return {
+								tool_use_id: t.id,
+								tool_name: t.name,
+								tool_input: t.input,
+								approved,
+							};
+						}),
+					),
+				}),
+				signal: abortCtrl.signal,
+			});
 			if (!res.ok || !res.body) {
 				setStreaming(false);
 				setError(`HTTP ${res.status}`);
