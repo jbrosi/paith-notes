@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 use Paith\Notes\Api\Http\App;
 
-/**
+/*
  * Edge-case coverage for note type + attribute validation:
  * - parent self-reference
  * - parent across nooks
@@ -17,7 +17,7 @@ beforeEach(function (): void {
     putenv('KEYCLOAK_ENABLED=0');
     $pdo = test_pdo();
     ensure_global_schema($pdo);
-    $pdo->exec('truncate table global.sessions, global.auth_states, global.nook_members, global.nooks, global.users cascade');
+    test_reset_state($pdo);
     $pdo->exec("insert into global.users (id, first_name, last_name) values ('deadc0ff-ee00-4000-8000-000000000000', 'AI', 'Assistant') on conflict (id) do nothing");
 });
 
@@ -27,8 +27,8 @@ function nookTestSetup(string $idPart): array
     $userId = "eeeeeeee-eeee-4eee-8eee-{$idPart}";
     $headers = ['X-Nook-User' => $userId, 'X-Nook-Groups' => 'paith/notes'];
     App::handle('GET', '/api/me', $headers, '');
-    $res = App::handle('POST', '/api/nooks', $headers, json_encode(['name' => 'Test']));
-    return [$headers, json_decode($res['body'], true)['nook']['id']];
+    $res = App::handle('POST', '/api/nooks', $headers, json_str(['name' => 'Test']));
+    return [$headers, json_body($res)['nook']['id']];
 }
 
 function createType(array $headers, string $nookId, string $key, string $label, ?string $parentId = null): string
@@ -37,22 +37,22 @@ function createType(array $headers, string $nookId, string $key, string $label, 
     if ($parentId !== null) {
         $body['parent_id'] = $parentId;
     }
-    $res = App::handle('POST', "/api/nooks/{$nookId}/note-types", $headers, json_encode($body));
+    $res = App::handle('POST', "/api/nooks/{$nookId}/note-types", $headers, json_str($body));
     expect($res['status'])->toBe(200);
-    return json_decode($res['body'], true)['type']['id'];
+    return json_body($res)['type']['id'];
 }
 
 it('rejects setting parent_id to self on update', function (): void {
     [$headers, $nookId] = nookTestSetup('a11111111111');
     $typeId = createType($headers, $nookId, 'self-parent', 'Self');
 
-    $res = App::handle('PUT', "/api/nooks/{$nookId}/note-types/{$typeId}", $headers, json_encode([
+    $res = App::handle('PUT', "/api/nooks/{$nookId}/note-types/{$typeId}", $headers, json_str([
         'key' => 'self-parent',
         'label' => 'Self',
         'parent_id' => $typeId,
     ]));
     expect($res['status'])->toBe(400);
-    expect(json_decode($res['body'], true)['error'])->toContain('parent_id');
+    expect(json_body($res)['error'])->toContain('parent_id');
 });
 
 it('rejects parent_id that lives in a different nook', function (): void {
@@ -60,26 +60,26 @@ it('rejects parent_id that lives in a different nook', function (): void {
     [$headersB, $nookB] = nookTestSetup('b22222222222');
     $foreignTypeId = createType($headersB, $nookB, 'foreign', 'Foreign');
 
-    $res = App::handle('POST', "/api/nooks/{$nookA}/note-types", $headersA, json_encode([
+    $res = App::handle('POST', "/api/nooks/{$nookA}/note-types", $headersA, json_str([
         'key' => 'child',
         'label' => 'Child',
         'parent_id' => $foreignTypeId,
     ]));
     expect($res['status'])->toBe(404);
-    expect(json_decode($res['body'], true)['error'])->toContain('parent');
+    expect(json_body($res)['error'])->toContain('parent');
 });
 
 it('rejects creating a duplicate attribute name on the same type', function (): void {
     [$headers, $nookId] = nookTestSetup('a33333333333');
     $typeId = createType($headers, $nookId, 'page', 'Page');
 
-    $first = App::handle('POST', "/api/nooks/{$nookId}/note-types/{$typeId}/attributes", $headers, json_encode([
+    $first = App::handle('POST', "/api/nooks/{$nookId}/note-types/{$typeId}/attributes", $headers, json_str([
         'name' => 'Body',
         'kind' => 'text',
     ]));
     expect($first['status'])->toBe(200);
 
-    $dup = App::handle('POST', "/api/nooks/{$nookId}/note-types/{$typeId}/attributes", $headers, json_encode([
+    $dup = App::handle('POST', "/api/nooks/{$nookId}/note-types/{$typeId}/attributes", $headers, json_str([
         'name' => 'Body',
         'kind' => 'text',
     ]));
@@ -89,30 +89,30 @@ it('rejects creating a duplicate attribute name on the same type', function (): 
 it('rejects a child attribute name that collides with the parents inherited attribute', function (): void {
     [$headers, $nookId] = nookTestSetup('a44444444444');
     $parent = createType($headers, $nookId, 'parent-t', 'Parent');
-    App::handle('POST', "/api/nooks/{$nookId}/note-types/{$parent}/attributes", $headers, json_encode([
+    App::handle('POST', "/api/nooks/{$nookId}/note-types/{$parent}/attributes", $headers, json_str([
         'name' => 'Shared',
         'kind' => 'text',
     ]));
     $child = createType($headers, $nookId, 'child-t', 'Child', $parent);
 
-    $res = App::handle('POST', "/api/nooks/{$nookId}/note-types/{$child}/attributes", $headers, json_encode([
+    $res = App::handle('POST', "/api/nooks/{$nookId}/note-types/{$child}/attributes", $headers, json_str([
         'name' => 'Shared',
         'kind' => 'text',
     ]));
     expect($res['status'])->toBe(409);
-    expect(json_decode($res['body'], true)['error'])->toContain('inherited');
+    expect(json_body($res)['error'])->toContain('inherited');
 });
 
 it('rejects a parent attribute that would collide with a descendants existing attribute', function (): void {
     [$headers, $nookId] = nookTestSetup('a55555555555');
     $parent = createType($headers, $nookId, 'p-collision', 'Parent');
     $child = createType($headers, $nookId, 'c-collision', 'Child', $parent);
-    App::handle('POST', "/api/nooks/{$nookId}/note-types/{$child}/attributes", $headers, json_encode([
+    App::handle('POST', "/api/nooks/{$nookId}/note-types/{$child}/attributes", $headers, json_str([
         'name' => 'OwnedByChild',
         'kind' => 'text',
     ]));
 
-    $res = App::handle('POST', "/api/nooks/{$nookId}/note-types/{$parent}/attributes", $headers, json_encode([
+    $res = App::handle('POST', "/api/nooks/{$nookId}/note-types/{$parent}/attributes", $headers, json_str([
         'name' => 'OwnedByChild',
         'kind' => 'text',
     ]));
@@ -123,24 +123,24 @@ it('rejects an unknown attribute kind', function (): void {
     [$headers, $nookId] = nookTestSetup('a66666666666');
     $typeId = createType($headers, $nookId, 'page', 'Page');
 
-    $res = App::handle('POST', "/api/nooks/{$nookId}/note-types/{$typeId}/attributes", $headers, json_encode([
+    $res = App::handle('POST', "/api/nooks/{$nookId}/note-types/{$typeId}/attributes", $headers, json_str([
         'name' => 'X',
         'kind' => 'not-a-real-kind',
     ]));
     expect($res['status'])->toBe(400);
-    expect(json_decode($res['body'], true)['error'])->toContain('kind must be one of');
+    expect(json_body($res)['error'])->toContain('kind must be one of');
 });
 
 it('auto-slugifies the attribute key from name when not provided', function (): void {
     [$headers, $nookId] = nookTestSetup('a77777777777');
     $typeId = createType($headers, $nookId, 'page', 'Page');
 
-    $res = App::handle('POST', "/api/nooks/{$nookId}/note-types/{$typeId}/attributes", $headers, json_encode([
+    $res = App::handle('POST', "/api/nooks/{$nookId}/note-types/{$typeId}/attributes", $headers, json_str([
         'name' => 'Some Mixed Case Name',
         'kind' => 'text',
     ]));
     expect($res['status'])->toBe(200);
-    expect(json_decode($res['body'], true)['attribute']['key'])->toBe('some-mixed-case-name');
+    expect(json_body($res)['attribute']['key'])->toBe('some-mixed-case-name');
 });
 
 it('successfully creates an indexed date attribute (regression: CREATE INDEX cast paren wrap)', function (): void {
@@ -150,7 +150,7 @@ it('successfully creates an indexed date attribute (regression: CREATE INDEX cas
     [$headers, $nookId] = nookTestSetup('a99999999999');
     $typeId = createType($headers, $nookId, 'event', 'Event');
 
-    $res = App::handle('POST', "/api/nooks/{$nookId}/note-types/{$typeId}/attributes", $headers, json_encode([
+    $res = App::handle('POST', "/api/nooks/{$nookId}/note-types/{$typeId}/attributes", $headers, json_str([
         'name' => 'Event Date',
         'kind' => 'date',
         'indexed' => true,
@@ -165,5 +165,5 @@ it('rejects deleting a type that still has child types', function (): void {
 
     $res = App::handle('DELETE', "/api/nooks/{$nookId}/note-types/{$parent}", $headers, '');
     expect($res['status'])->toBe(400);
-    expect(json_decode($res['body'], true)['error'])->toContain('child types');
+    expect(json_body($res)['error'])->toContain('child types');
 });

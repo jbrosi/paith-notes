@@ -9,7 +9,7 @@ beforeEach(function (): void {
     $pdo = test_pdo();
     ensure_global_schema($pdo);
 
-    $pdo->exec('truncate table global.sessions, global.auth_states, global.nook_members, global.nooks, global.users cascade');
+    test_reset_state($pdo);
     $pdo->exec("insert into global.users (id, first_name, last_name) values ('deadc0ff-ee00-4000-8000-000000000000', 'AI', 'Assistant') on conflict (id) do nothing");
 });
 
@@ -25,8 +25,8 @@ function createUserAndNook(): array
     App::handle('GET', '/api/me', $headers, '');
 
     // Create a dedicated test nook
-    $res = App::handle('POST', '/api/nooks', $headers, json_encode(['name' => 'Export Test']));
-    $nookId = json_decode($res['body'], true)['nook']['id'];
+    $res = App::handle('POST', '/api/nooks', $headers, json_str(['name' => 'Export Test']));
+    $nookId = json_body($res)['nook']['id'];
 
     return [$userId, $headers, $nookId];
 }
@@ -35,7 +35,7 @@ it('exports a nook as a zip download', function (): void {
     [$userId, $headers, $nookId] = createUserAndNook();
 
     // Create a note
-    $noteRes = App::handle('POST', "/api/nooks/{$nookId}/notes", $headers, json_encode([
+    $noteRes = App::handle('POST', "/api/nooks/{$nookId}/notes", $headers, json_str([
         'title' => 'Test Note',
         'content' => 'Hello world',
     ]));
@@ -71,15 +71,15 @@ it('creates a backup note after export', function (): void {
     [$userId, $headers, $nookId] = createUserAndNook();
 
     // Create some notes
-    App::handle('POST', "/api/nooks/{$nookId}/notes", $headers, json_encode(['title' => 'Note 1', 'content' => 'one']));
-    App::handle('POST', "/api/nooks/{$nookId}/notes", $headers, json_encode(['title' => 'Note 2', 'content' => 'two']));
+    App::handle('POST', "/api/nooks/{$nookId}/notes", $headers, json_str(['title' => 'Note 1', 'content' => 'one']));
+    App::handle('POST', "/api/nooks/{$nookId}/notes", $headers, json_str(['title' => 'Note 2', 'content' => 'two']));
 
     // Export
     App::handle('GET', "/api/nooks/{$nookId}/export", $headers, '');
 
     // List notes — should now include a backup note
     $listRes = App::handle('GET', "/api/nooks/{$nookId}/notes?q=Backup", $headers, '');
-    $listData = json_decode($listRes['body'], true);
+    $listData = json_body($listRes);
     $notes = $listData['notes'] ?? [];
 
     $backupNotes = array_filter($notes, fn($n) => str_starts_with($n['title'] ?? '', 'Backup'));
@@ -90,7 +90,7 @@ it('excludes backup notes from subsequent exports', function (): void {
     [$userId, $headers, $nookId] = createUserAndNook();
 
     // Create a note + export (creates backup note)
-    App::handle('POST', "/api/nooks/{$nookId}/notes", $headers, json_encode(['title' => 'Real Note']));
+    App::handle('POST', "/api/nooks/{$nookId}/notes", $headers, json_str(['title' => 'Real Note']));
     App::handle('GET', "/api/nooks/{$nookId}/export", $headers, '');
 
     // Export again
@@ -108,5 +108,7 @@ it('excludes backup notes from subsequent exports', function (): void {
     expect($stats['notes'])->toBe(1);
 
     // Cleanup
-    if (file_exists($zipPath)) unlink($zipPath);
+    if (file_exists($zipPath)) {
+        unlink($zipPath);
+    }
 });

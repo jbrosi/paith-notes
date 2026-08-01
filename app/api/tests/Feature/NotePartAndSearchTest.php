@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 use Paith\Notes\Api\Http\App;
 
-/**
+/*
  * Feature tests for the navigation primitives that pair with /toc:
  *   • GET /nooks/{n}/notes/{id}/part?from=&to=  — half-open char-range read
  *   • GET /nooks/{n}/notes/{id}/search?q=...    — find-in-note with positions
@@ -14,7 +14,7 @@ beforeEach(function (): void {
     putenv('KEYCLOAK_ENABLED=0');
     $pdo = test_pdo();
     ensure_global_schema($pdo);
-    $pdo->exec('truncate table global.sessions, global.auth_states, global.nook_members, global.nooks, global.users cascade');
+    test_reset_state($pdo);
 });
 
 /** @return array{0: array<string, string>, 1: string, 2: string} [headers, nookId, noteId] */
@@ -23,13 +23,13 @@ function partTestSetup(string $idPart, string $content): array
     $userId = "cdcdcdcd-cdcd-4cdc-8cdc-{$idPart}";
     $headers = ['X-Nook-User' => $userId, 'X-Nook-Groups' => 'paith/notes'];
     App::handle('GET', '/api/me', $headers, '');
-    $nook = App::handle('POST', '/api/nooks', $headers, json_encode(['name' => 'part-test']));
-    $nookId = (string)json_decode($nook['body'], true)['nook']['id'];
-    $note = App::handle('POST', "/api/nooks/{$nookId}/notes", $headers, json_encode([
+    $nook = App::handle('POST', '/api/nooks', $headers, json_str(['name' => 'part-test']));
+    $nookId = (string)json_body($nook)['nook']['id'];
+    $note = App::handle('POST', "/api/nooks/{$nookId}/notes", $headers, json_str([
         'title' => 'Part Test',
         'content' => $content,
     ]));
-    $noteId = (string)json_decode($note['body'], true)['note']['id'];
+    $noteId = (string)json_body($note)['note']['id'];
     return [$headers, $nookId, $noteId];
 }
 
@@ -40,7 +40,7 @@ it('part returns the half-open char-range slice', function (): void {
 
     $res = App::handle('GET', "/api/nooks/{$nookId}/notes/{$noteId}/part?from=2&to=6", $headers, '');
     expect($res['status'])->toBe(200, $res['body']);
-    $body = json_decode($res['body'], true);
+    $body = json_body($res);
     // [2, 6) → chars at indices 2,3,4,5 → "2345"
     expect($body['part']['content'])->toBe('2345');
     expect($body['part']['from'])->toBe(2);
@@ -53,7 +53,7 @@ it('part clamps out-of-range bounds and flags truncated', function (): void {
 
     $res = App::handle('GET', "/api/nooks/{$nookId}/notes/{$noteId}/part?from=5&to=999", $headers, '');
     expect($res['status'])->toBe(200, $res['body']);
-    $body = json_decode($res['body'], true);
+    $body = json_body($res);
     expect($body['part']['content'])->toBe('56789');
     expect($body['part']['to'])->toBe(10);
     expect($body['part']['truncated'])->toBeTrue();
@@ -66,7 +66,7 @@ it('part handles multibyte content correctly (chars, not bytes)', function (): v
 
     $res = App::handle('GET', "/api/nooks/{$nookId}/notes/{$noteId}/part?from=0&to=3", $headers, '');
     expect($res['status'])->toBe(200, $res['body']);
-    expect(json_decode($res['body'], true)['part']['content'])->toBe('hél');
+    expect(json_body($res)['part']['content'])->toBe('hél');
 });
 
 it('part rejects negative or non-numeric from/to', function (): void {
@@ -74,7 +74,7 @@ it('part rejects negative or non-numeric from/to', function (): void {
 
     $bad = App::handle('GET', "/api/nooks/{$nookId}/notes/{$noteId}/part?from=abc&to=2", $headers, '');
     expect($bad['status'])->toBe(400);
-    expect(json_decode($bad['body'], true)['error'])->toContain('from');
+    expect(json_body($bad)['error'])->toContain('from');
 });
 
 it('part rejects to < from', function (): void {
@@ -82,7 +82,7 @@ it('part rejects to < from', function (): void {
 
     $res = App::handle('GET', "/api/nooks/{$nookId}/notes/{$noteId}/part?from=5&to=2", $headers, '');
     expect($res['status'])->toBe(400);
-    expect(json_decode($res['body'], true)['error'])->toContain('>= from');
+    expect(json_body($res)['error'])->toContain('>= from');
 });
 
 // ─── /search ──────────────────────────────────────────────────────────
@@ -92,7 +92,7 @@ it('search returns every match position with surrounding context', function (): 
 
     $res = App::handle('GET', "/api/nooks/{$nookId}/notes/{$noteId}/search?q=foo", $headers, '');
     expect($res['status'])->toBe(200, $res['body']);
-    $body = json_decode($res['body'], true)['search'];
+    $body = json_body($res)['search'];
 
     expect($body['total_matches'])->toBe(3);
     expect($body['returned_matches'])->toBe(3);
@@ -105,10 +105,10 @@ it('search is case-insensitive by default and case-sensitive when asked', functi
     [$headers, $nookId, $noteId] = partTestSetup('777777777777', "Foo FOO foo");
 
     $ci = App::handle('GET', "/api/nooks/{$nookId}/notes/{$noteId}/search?q=foo", $headers, '');
-    expect(json_decode($ci['body'], true)['search']['total_matches'])->toBe(3);
+    expect(json_body($ci)['search']['total_matches'])->toBe(3);
 
     $cs = App::handle('GET', "/api/nooks/{$nookId}/notes/{$noteId}/search?q=foo&case_sensitive=1", $headers, '');
-    expect(json_decode($cs['body'], true)['search']['total_matches'])->toBe(1);
+    expect(json_body($cs)['search']['total_matches'])->toBe(1);
 });
 
 it('search honors context_chars and includes the surrounding text', function (): void {
@@ -117,7 +117,7 @@ it('search honors context_chars and includes the surrounding text', function ():
 
     $res = App::handle('GET', "/api/nooks/{$nookId}/notes/{$noteId}/search?q=NEEDLE&context_chars=10", $headers, '');
     expect($res['status'])->toBe(200, $res['body']);
-    $m = json_decode($res['body'], true)['search']['matches'][0];
+    $m = json_body($res)['search']['matches'][0];
 
     // 10 chars before + NEEDLE + 10 chars after
     expect($m['context'])->toContain('NEEDLE');
@@ -137,7 +137,7 @@ it('search caps returned matches and flags truncated', function (): void {
     [$headers, $nookId, $noteId] = partTestSetup('aaaaaaaaaaa1', $content);
 
     $res = App::handle('GET', "/api/nooks/{$nookId}/notes/{$noteId}/search?q=x", $headers, '');
-    $body = json_decode($res['body'], true)['search'];
+    $body = json_body($res)['search'];
     expect($body['total_matches'])->toBe(60);
     expect($body['returned_matches'])->toBe(50);
     expect($body['truncated'])->toBeTrue();
@@ -148,7 +148,7 @@ it('search returns 0 matches cleanly when the needle is absent', function (): vo
 
     $res = App::handle('GET', "/api/nooks/{$nookId}/notes/{$noteId}/search?q=NOPE", $headers, '');
     expect($res['status'])->toBe(200);
-    $body = json_decode($res['body'], true)['search'];
+    $body = json_body($res)['search'];
     expect($body['total_matches'])->toBe(0);
     expect($body['matches'])->toBe([]);
 });

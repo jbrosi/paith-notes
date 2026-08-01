@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 use Paith\Notes\Api\Http\App;
 
-/**
+/*
  * Feature tests for GET /api/nooks/{nookId}/notes/{noteId}/toc — the
  * cheap heading-only navigation primitive paired with get_note_section.
  *
@@ -17,7 +17,7 @@ beforeEach(function (): void {
     putenv('KEYCLOAK_ENABLED=0');
     $pdo = test_pdo();
     ensure_global_schema($pdo);
-    $pdo->exec('truncate table global.sessions, global.auth_states, global.nook_members, global.nooks, global.users cascade');
+    test_reset_state($pdo);
 });
 
 /** @return array{0: array<string, string>, 1: string, 2: string} [headers, nookId, noteId] */
@@ -26,13 +26,13 @@ function tocTestSetup(string $idPart, string $content): array
     $userId = "abababab-abab-4bab-8bab-{$idPart}";
     $headers = ['X-Nook-User' => $userId, 'X-Nook-Groups' => 'paith/notes'];
     App::handle('GET', '/api/me', $headers, '');
-    $nook = App::handle('POST', '/api/nooks', $headers, json_encode(['name' => 'toc-test']));
-    $nookId = (string)json_decode($nook['body'], true)['nook']['id'];
-    $note = App::handle('POST', "/api/nooks/{$nookId}/notes", $headers, json_encode([
+    $nook = App::handle('POST', '/api/nooks', $headers, json_str(['name' => 'toc-test']));
+    $nookId = (string)json_body($nook)['nook']['id'];
+    $note = App::handle('POST', "/api/nooks/{$nookId}/notes", $headers, json_str([
         'title' => 'TOC Subject',
         'content' => $content,
     ]));
-    $noteId = (string)json_decode($note['body'], true)['note']['id'];
+    $noteId = (string)json_body($note)['note']['id'];
     return [$headers, $nookId, $noteId];
 }
 
@@ -42,7 +42,7 @@ it('returns title, content_chars, version, and an empty headings array for a hea
     $res = App::handle('GET', "/api/nooks/{$nookId}/notes/{$noteId}/toc", $headers, '');
     expect($res['status'])->toBe(200, $res['body']);
 
-    $body = json_decode($res['body'], true);
+    $body = json_body($res);
     expect($body['toc']['note_id'])->toBe($noteId);
     expect($body['toc']['nook_id'])->toBe($nookId);
     expect($body['toc']['title'])->toBe('TOC Subject');
@@ -58,7 +58,7 @@ it('returns headings ordered by position', function (): void {
     $res = App::handle('GET', "/api/nooks/{$nookId}/notes/{$noteId}/toc", $headers, '');
     expect($res['status'])->toBe(200, $res['body']);
 
-    $headings = json_decode($res['body'], true)['toc']['headings'];
+    $headings = json_body($res)['toc']['headings'];
     expect($headings)->toHaveCount(4);
     expect(array_column($headings, 'text'))->toBe(['First', 'Sub one', 'Sub two', 'Second']);
     expect(array_column($headings, 'level'))->toBe([1, 2, 2, 1]);
@@ -79,7 +79,7 @@ it('computes position_end as the next equal-or-higher-level heading start (or co
     [$headers, $nookId, $noteId] = tocTestSetup('100000000003', $content);
 
     $res = App::handle('GET', "/api/nooks/{$nookId}/notes/{$noteId}/toc", $headers, '');
-    $toc = json_decode($res['body'], true)['toc'];
+    $toc = json_body($res)['toc'];
     $headings = $toc['headings'];
     $contentChars = $toc['content_chars'];
 
@@ -123,10 +123,10 @@ it('stays in sync after edit_note (HeadingsService re-runs on partial edits too)
 
     // Read current version to feed edit_note's optimistic lock.
     $read = App::handle('GET', "/api/nooks/{$nookId}/notes/{$noteId}", $headers, '');
-    $version = (int)json_decode($read['body'], true)['note']['version'];
+    $version = (int)json_body($read)['note']['version'];
 
     // Surgical edit: rename the heading.
-    $edit = App::handle('POST', "/api/nooks/{$nookId}/notes/{$noteId}/edit", $headers, json_encode([
+    $edit = App::handle('POST', "/api/nooks/{$nookId}/notes/{$noteId}/edit", $headers, json_str([
         'expected_version' => $version,
         'edits' => [['old_string' => '# Initial', 'new_string' => '# Renamed Heading']],
     ]));
@@ -134,7 +134,7 @@ it('stays in sync after edit_note (HeadingsService re-runs on partial edits too)
 
     // TOC should reflect the new heading text.
     $tocRes = App::handle('GET', "/api/nooks/{$nookId}/notes/{$noteId}/toc", $headers, '');
-    $headings = json_decode($tocRes['body'], true)['toc']['headings'];
+    $headings = json_body($tocRes)['toc']['headings'];
     expect($headings)->toHaveCount(1);
     expect($headings[0]['text'])->toBe('Renamed Heading');
 });

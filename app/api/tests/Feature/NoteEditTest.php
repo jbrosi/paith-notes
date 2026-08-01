@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 use Paith\Notes\Api\Http\App;
 
-/**
+/*
  * Feature tests for POST /api/nooks/{nookId}/notes/{noteId}/edit
  * — surgical string-substitution edits with optimistic version locking
  * and atomic multi-edit batching.
@@ -14,7 +14,7 @@ beforeEach(function (): void {
     putenv('KEYCLOAK_ENABLED=0');
     $pdo = test_pdo();
     ensure_global_schema($pdo);
-    $pdo->exec('truncate table global.sessions, global.auth_states, global.nook_members, global.nooks, global.users cascade');
+    test_reset_state($pdo);
 });
 
 /** @return array{0: array<string, string>, 1: string, 2: string, 3: int} [headers, nookId, noteId, version] */
@@ -23,17 +23,17 @@ function editTestSetup(string $idPart, string $initialContent = "alpha\nbeta\nga
     $userId = "fcfcfcfc-fcfc-4fcf-8fcf-{$idPart}";
     $headers = ['X-Nook-User' => $userId, 'X-Nook-Groups' => 'paith/notes'];
     App::handle('GET', '/api/me', $headers, '');
-    $nook = App::handle('POST', '/api/nooks', $headers, json_encode(['name' => 'edit-test']));
-    $nookId = (string)json_decode($nook['body'], true)['nook']['id'];
+    $nook = App::handle('POST', '/api/nooks', $headers, json_str(['name' => 'edit-test']));
+    $nookId = (string)json_body($nook)['nook']['id'];
 
-    $note = App::handle('POST', "/api/nooks/{$nookId}/notes", $headers, json_encode([
+    $note = App::handle('POST', "/api/nooks/{$nookId}/notes", $headers, json_str([
         'title' => 'Test',
         'content' => $initialContent,
     ]));
-    $noteId = (string)json_decode($note['body'], true)['note']['id'];
+    $noteId = (string)json_body($note)['note']['id'];
     // Read back to get the current version.
     $read = App::handle('GET', "/api/nooks/{$nookId}/notes/{$noteId}", $headers, '');
-    $version = (int)json_decode($read['body'], true)['note']['version'];
+    $version = (int)json_body($read)['note']['version'];
 
     return [$headers, $nookId, $noteId, $version];
 }
@@ -41,14 +41,14 @@ function editTestSetup(string $idPart, string $initialContent = "alpha\nbeta\nga
 it('replaces a unique substring and bumps the version', function (): void {
     [$headers, $nookId, $noteId, $version] = editTestSetup('aaaaaaaaaaaa');
 
-    $res = App::handle('POST', "/api/nooks/{$nookId}/notes/{$noteId}/edit", $headers, json_encode([
+    $res = App::handle('POST', "/api/nooks/{$nookId}/notes/{$noteId}/edit", $headers, json_str([
         'expected_version' => $version,
         'edits' => [
             ['old_string' => 'beta', 'new_string' => 'BETA'],
         ],
     ]));
     expect($res['status'])->toBe(200, $res['body']);
-    $body = json_decode($res['body'], true);
+    $body = json_body($res);
     expect($body['note']['content'])->toBe("alpha\nBETA\ngamma\n");
     expect($body['replacements'])->toBe(1);
     expect($body['note']['version'])->toBeGreaterThan($version);
@@ -57,46 +57,46 @@ it('replaces a unique substring and bumps the version', function (): void {
 it('rejects when old_string matches more than once and replace_all is false', function (): void {
     [$headers, $nookId, $noteId, $version] = editTestSetup('bbbbbbbbbbbb', "x\nx\ny\n");
 
-    $res = App::handle('POST', "/api/nooks/{$nookId}/notes/{$noteId}/edit", $headers, json_encode([
+    $res = App::handle('POST', "/api/nooks/{$nookId}/notes/{$noteId}/edit", $headers, json_str([
         'expected_version' => $version,
         'edits' => [['old_string' => 'x', 'new_string' => 'X']],
     ]));
     expect($res['status'])->toBe(409);
-    expect(json_decode($res['body'], true)['error'])->toContain('matched 2 times');
+    expect(json_body($res)['error'])->toContain('matched 2 times');
 });
 
 it('replace_all=true substitutes every occurrence', function (): void {
     [$headers, $nookId, $noteId, $version] = editTestSetup('cccccccccccc', "x\nx\nx\n");
 
-    $res = App::handle('POST', "/api/nooks/{$nookId}/notes/{$noteId}/edit", $headers, json_encode([
+    $res = App::handle('POST', "/api/nooks/{$nookId}/notes/{$noteId}/edit", $headers, json_str([
         'expected_version' => $version,
         'edits' => [['old_string' => 'x', 'new_string' => 'X', 'replace_all' => true]],
     ]));
     expect($res['status'])->toBe(200, $res['body']);
-    expect(json_decode($res['body'], true)['note']['content'])->toBe("X\nX\nX\n");
-    expect(json_decode($res['body'], true)['replacements'])->toBe(3);
+    expect(json_body($res)['note']['content'])->toBe("X\nX\nX\n");
+    expect(json_body($res)['replacements'])->toBe(3);
 });
 
 it('rejects when old_string is not found', function (): void {
     [$headers, $nookId, $noteId, $version] = editTestSetup('dddddddddddd');
 
-    $res = App::handle('POST', "/api/nooks/{$nookId}/notes/{$noteId}/edit", $headers, json_encode([
+    $res = App::handle('POST', "/api/nooks/{$nookId}/notes/{$noteId}/edit", $headers, json_str([
         'expected_version' => $version,
         'edits' => [['old_string' => 'nowhere', 'new_string' => 'x']],
     ]));
     expect($res['status'])->toBe(404);
-    expect(json_decode($res['body'], true)['error'])->toContain('not found');
+    expect(json_body($res)['error'])->toContain('not found');
 });
 
 it('returns 409 when expected_version is stale', function (): void {
     [$headers, $nookId, $noteId, $version] = editTestSetup('eeeeeeeeeeee');
 
-    $res = App::handle('POST', "/api/nooks/{$nookId}/notes/{$noteId}/edit", $headers, json_encode([
+    $res = App::handle('POST', "/api/nooks/{$nookId}/notes/{$noteId}/edit", $headers, json_str([
         'expected_version' => $version + 999,
         'edits' => [['old_string' => 'beta', 'new_string' => 'BETA']],
     ]));
     expect($res['status'])->toBe(409);
-    $body = json_decode($res['body'], true);
+    $body = json_body($res);
     expect($body['error'])->toContain('edited in the meantime');
     expect($body['current_version'])->toBe($version);
 });
@@ -104,7 +104,7 @@ it('returns 409 when expected_version is stale', function (): void {
 it('applies multiple edits atomically in order', function (): void {
     [$headers, $nookId, $noteId, $version] = editTestSetup('ffffffffffff', "one\ntwo\nthree\n");
 
-    $res = App::handle('POST', "/api/nooks/{$nookId}/notes/{$noteId}/edit", $headers, json_encode([
+    $res = App::handle('POST', "/api/nooks/{$nookId}/notes/{$noteId}/edit", $headers, json_str([
         'expected_version' => $version,
         'edits' => [
             ['old_string' => 'one', 'new_string' => 'ONE'],
@@ -113,14 +113,14 @@ it('applies multiple edits atomically in order', function (): void {
         ],
     ]));
     expect($res['status'])->toBe(200, $res['body']);
-    expect(json_decode($res['body'], true)['note']['content'])->toBe("ONE\nTWO\nTHREE\n");
-    expect(json_decode($res['body'], true)['replacements'])->toBe(3);
+    expect(json_body($res)['note']['content'])->toBe("ONE\nTWO\nTHREE\n");
+    expect(json_body($res)['replacements'])->toBe(3);
 });
 
 it('an edit can match text produced by an earlier edit in the same batch', function (): void {
     [$headers, $nookId, $noteId, $version] = editTestSetup('111111111111', "foo\n");
 
-    $res = App::handle('POST', "/api/nooks/{$nookId}/notes/{$noteId}/edit", $headers, json_encode([
+    $res = App::handle('POST', "/api/nooks/{$nookId}/notes/{$noteId}/edit", $headers, json_str([
         'expected_version' => $version,
         'edits' => [
             ['old_string' => 'foo', 'new_string' => 'bar'],
@@ -128,14 +128,14 @@ it('an edit can match text produced by an earlier edit in the same batch', funct
         ],
     ]));
     expect($res['status'])->toBe(200, $res['body']);
-    expect(json_decode($res['body'], true)['note']['content'])->toBe("baz\n");
+    expect(json_body($res)['note']['content'])->toBe("baz\n");
 });
 
 it('rolls back the entire batch when one edit fails — note content unchanged', function (): void {
     $pdo = test_pdo();
     [$headers, $nookId, $noteId, $version] = editTestSetup('222222222222', "alpha\nbeta\ngamma\n");
 
-    $res = App::handle('POST', "/api/nooks/{$nookId}/notes/{$noteId}/edit", $headers, json_encode([
+    $res = App::handle('POST', "/api/nooks/{$nookId}/notes/{$noteId}/edit", $headers, json_str([
         'expected_version' => $version,
         'edits' => [
             ['old_string' => 'alpha', 'new_string' => 'ALPHA'],
@@ -155,75 +155,75 @@ it('rolls back the entire batch when one edit fails — note content unchanged',
 it('empty new_string deletes the matched text', function (): void {
     [$headers, $nookId, $noteId, $version] = editTestSetup('333333333333', "keep this\ndelete this line\nalso keep\n");
 
-    $res = App::handle('POST', "/api/nooks/{$nookId}/notes/{$noteId}/edit", $headers, json_encode([
+    $res = App::handle('POST', "/api/nooks/{$nookId}/notes/{$noteId}/edit", $headers, json_str([
         'expected_version' => $version,
         'edits' => [['old_string' => "delete this line\n", 'new_string' => '']],
     ]));
     expect($res['status'])->toBe(200, $res['body']);
-    expect(json_decode($res['body'], true)['note']['content'])->toBe("keep this\nalso keep\n");
+    expect(json_body($res)['note']['content'])->toBe("keep this\nalso keep\n");
 });
 
 it('rejects an empty edits array', function (): void {
     [$headers, $nookId, $noteId, $version] = editTestSetup('444444444444');
 
-    $res = App::handle('POST', "/api/nooks/{$nookId}/notes/{$noteId}/edit", $headers, json_encode([
+    $res = App::handle('POST', "/api/nooks/{$nookId}/notes/{$noteId}/edit", $headers, json_str([
         'expected_version' => $version,
         'edits' => [],
     ]));
     expect($res['status'])->toBe(400);
     // Error copy explains both accepted shapes (array + single-edit).
-    expect(json_decode($res['body'], true)['error'])->toContain('edits');
+    expect(json_body($res)['error'])->toContain('edits');
 });
 
 it('accepts a single edit at top level without the `edits` array wrapper', function (): void {
     [$headers, $nookId, $noteId, $version] = editTestSetup('eeeeeeeeeeee');
 
-    $res = App::handle('POST', "/api/nooks/{$nookId}/notes/{$noteId}/edit", $headers, json_encode([
+    $res = App::handle('POST', "/api/nooks/{$nookId}/notes/{$noteId}/edit", $headers, json_str([
         'expected_version' => $version,
         'old_string' => 'beta',
         'new_string' => 'BETA',
     ]));
     expect($res['status'])->toBe(200, $res['body']);
-    expect(json_decode($res['body'], true)['note']['content'])->toBe("alpha\nBETA\ngamma\n");
+    expect(json_body($res)['note']['content'])->toBe("alpha\nBETA\ngamma\n");
 });
 
 it('accepts `find` / `replace` aliases in place of old_string / new_string', function (): void {
     [$headers, $nookId, $noteId, $version] = editTestSetup('ffffffffffff');
 
     // Top-level shortcut with aliases.
-    $res = App::handle('POST', "/api/nooks/{$nookId}/notes/{$noteId}/edit", $headers, json_encode([
+    $res = App::handle('POST', "/api/nooks/{$nookId}/notes/{$noteId}/edit", $headers, json_str([
         'expected_version' => $version,
         'find' => 'beta',
         'replace' => 'BETA',
     ]));
     expect($res['status'])->toBe(200, $res['body']);
-    expect(json_decode($res['body'], true)['note']['content'])->toBe("alpha\nBETA\ngamma\n");
+    expect(json_body($res)['note']['content'])->toBe("alpha\nBETA\ngamma\n");
 
     // Aliases inside the edits array too.
-    $v2 = json_decode($res['body'], true)['note']['version'];
-    $res2 = App::handle('POST', "/api/nooks/{$nookId}/notes/{$noteId}/edit", $headers, json_encode([
+    $v2 = json_body($res)['note']['version'];
+    $res2 = App::handle('POST', "/api/nooks/{$nookId}/notes/{$noteId}/edit", $headers, json_str([
         'expected_version' => $v2,
         'edits' => [['find' => 'alpha', 'replace' => 'ALPHA']],
     ]));
     expect($res2['status'])->toBe(200, $res2['body']);
-    expect(json_decode($res2['body'], true)['note']['content'])->toBe("ALPHA\nBETA\ngamma\n");
+    expect(json_body($res2)['note']['content'])->toBe("ALPHA\nBETA\ngamma\n");
 });
 
 it('requires expected_version', function (): void {
     [$headers, $nookId, $noteId] = editTestSetup('555555555555');
 
-    $res = App::handle('POST', "/api/nooks/{$nookId}/notes/{$noteId}/edit", $headers, json_encode([
+    $res = App::handle('POST', "/api/nooks/{$nookId}/notes/{$noteId}/edit", $headers, json_str([
         'edits' => [['old_string' => 'beta', 'new_string' => 'BETA']],
     ]));
     expect($res['status'])->toBe(400);
-    expect(json_decode($res['body'], true)['error'])->toContain('expected_version');
+    expect(json_body($res)['error'])->toContain('expected_version');
 });
 
 it('returns 404 when the note does not exist', function (): void {
     [$headers, $nookId] = editTestSetup('666666666666');
     $fakeNoteId = '00000000-0000-4000-8000-000000000000';
 
-    $res = App::handle('POST', "/api/nooks/{$nookId}/notes/{$fakeNoteId}/edit", $headers, json_encode([
+    $res = App::handle('POST', "/api/nooks/{$nookId}/notes/{$fakeNoteId}/edit", $headers, json_str([
         'expected_version' => 0,
         'edits' => [['old_string' => 'x', 'new_string' => 'y']],
     ]));

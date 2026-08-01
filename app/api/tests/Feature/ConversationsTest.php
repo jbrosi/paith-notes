@@ -9,7 +9,7 @@ beforeEach(function (): void {
     $pdo = test_pdo();
     ensure_global_schema($pdo);
 
-    $pdo->exec('truncate table global.sessions, global.auth_states, global.nook_members, global.nooks, global.users, global.conversations cascade');
+    test_reset_state($pdo, 'global.conversations');
     $pdo->exec("insert into global.users (id, first_name, last_name) values ('deadc0ff-ee00-4000-8000-000000000000', 'AI', 'Assistant') on conflict (id) do nothing");
 });
 
@@ -24,17 +24,17 @@ function makeUser(string $idPart): array
 
 function createConversation(array $headers, string $title): string
 {
-    $res = App::handle('POST', '/api/conversations', $headers, json_encode(['title' => $title, 'model' => 'claude-sonnet-5']));
+    $res = App::handle('POST', '/api/conversations', $headers, json_str(['title' => $title, 'model' => 'claude-sonnet-5']));
     expect($res['status'])->toBe(200);
-    return (string) (json_decode($res['body'], true)['conversation']['id'] ?? '');
+    return (string) (json_body($res)['conversation']['id'] ?? '');
 }
 
 it('creates conversations scoped to the user without requiring a nook', function (): void {
     [, $headers] = makeUser('aaaaaaaaaaaa');
 
-    $res = App::handle('POST', '/api/conversations', $headers, json_encode(['title' => 'Hello', 'model' => 'claude-sonnet-5']));
+    $res = App::handle('POST', '/api/conversations', $headers, json_str(['title' => 'Hello', 'model' => 'claude-sonnet-5']));
     expect($res['status'])->toBe(200);
-    $body = json_decode($res['body'], true);
+    $body = json_body($res);
     expect($body['conversation']['title'])->toBe('Hello');
     expect($body['conversation'])->not()->toHaveKey('nook_id');
 });
@@ -47,10 +47,10 @@ it('lists only the calling users conversations', function (): void {
     createConversation($aHeaders, 'A2');
     createConversation($bHeaders, 'B1');
 
-    $aList = json_decode(App::handle('GET', '/api/conversations', $aHeaders, '')['body'], true);
+    $aList = json_body_of(App::handle('GET', '/api/conversations', $aHeaders, '')['body']);
     expect(count($aList['conversations']))->toBe(2);
 
-    $bList = json_decode(App::handle('GET', '/api/conversations', $bHeaders, '')['body'], true);
+    $bList = json_body_of(App::handle('GET', '/api/conversations', $bHeaders, '')['body']);
     expect(count($bList['conversations']))->toBe(1);
     expect($bList['conversations'][0]['title'])->toBe('B1');
 });
@@ -62,7 +62,7 @@ it('deletes one conversation when called by its owner', function (): void {
     $res = App::handle('DELETE', "/api/conversations/{$convId}", $headers, '');
     expect($res['status'])->toBe(200);
 
-    $list = json_decode(App::handle('GET', '/api/conversations', $headers, '')['body'], true);
+    $list = json_body_of(App::handle('GET', '/api/conversations', $headers, '')['body']);
     expect($list['conversations'])->toBe([]);
 });
 
@@ -84,10 +84,10 @@ it('deletes all conversations only for the caller', function (): void {
 
     $res = App::handle('DELETE', '/api/conversations', $aHeaders, '');
     expect($res['status'])->toBe(200);
-    expect(json_decode($res['body'], true)['count'])->toBe(2);
+    expect(json_body($res)['count'])->toBe(2);
 
-    expect(json_decode(App::handle('GET', '/api/conversations', $aHeaders, '')['body'], true)['conversations'])->toBe([]);
-    expect(count(json_decode(App::handle('GET', '/api/conversations', $bHeaders, '')['body'], true)['conversations']))->toBe(1);
+    expect(json_body_of(App::handle('GET', '/api/conversations', $aHeaders, '')['body'])['conversations'])->toBe([]);
+    expect(count(json_body_of(App::handle('GET', '/api/conversations', $bHeaders, '')['body'])['conversations']))->toBe(1);
 });
 
 it('rejects linking a note when the caller has no access to the notes nook', function (): void {
@@ -96,14 +96,12 @@ it('rejects linking a note when the caller has no access to the notes nook', fun
     [, $strangerHeaders] = makeUser('aaaaaaaaaaab');
 
     // Owner creates a nook + a note in it.
-    $nook = json_decode(
-        App::handle('POST', '/api/nooks', $ownerHeaders, json_encode(['name' => 'Private']))['body'],
-        true,
+    $nook = json_body_of(
+        App::handle('POST', '/api/nooks', $ownerHeaders, json_str(['name' => 'Private']))['body']
     );
     $nookId = $nook['nook']['id'];
-    $note = json_decode(
-        App::handle('POST', "/api/nooks/{$nookId}/notes", $ownerHeaders, json_encode(['title' => 'Secret']))['body'],
-        true,
+    $note = json_body_of(
+        App::handle('POST', "/api/nooks/{$nookId}/notes", $ownerHeaders, json_str(['title' => 'Secret']))['body']
     );
     $noteId = $note['note']['id'];
 
@@ -114,7 +112,7 @@ it('rejects linking a note when the caller has no access to the notes nook', fun
         'POST',
         "/api/conversations/{$strangerConv}/note-links",
         $strangerHeaders,
-        json_encode(['note_id' => $noteId]),
+        json_str(['note_id' => $noteId]),
     );
     expect($res['status'])->toBe(404);
 
@@ -127,7 +125,7 @@ it('appends a user + assistant turn and returns the saved block ids', function (
     [, $headers] = makeUser('cccccccccccc');
     $convId = createConversation($headers, 'Append test');
 
-    $body = json_encode([
+    $body = json_str([
         'messages' => [
             ['role' => 'user', 'content' => [['type' => 'text', 'text' => 'hi']]],
             [
@@ -143,7 +141,7 @@ it('appends a user + assistant turn and returns the saved block ids', function (
     $res = App::handle('POST', "/api/conversations/{$convId}/messages", $headers, $body);
     expect($res['status'])->toBe(200);
 
-    $data = json_decode($res['body'], true);
+    $data = json_body($res);
     expect($data['turns'])->toHaveCount(2);
     expect($data['turns'][0]['role'])->toBe('user');
     expect($data['turns'][1]['role'])->toBe('assistant');
@@ -160,7 +158,7 @@ it('reads back appended messages as reconstructed turns', function (): void {
         'POST',
         "/api/conversations/{$convId}/messages",
         $headers,
-        json_encode([
+        json_str([
             'messages' => [
                 ['role' => 'user', 'content' => [['type' => 'text', 'text' => 'first']]],
             ],
@@ -169,7 +167,7 @@ it('reads back appended messages as reconstructed turns', function (): void {
 
     $res = App::handle('GET', "/api/conversations/{$convId}/messages", $headers, '');
     expect($res['status'])->toBe(200);
-    $data = json_decode($res['body'], true);
+    $data = json_body($res);
     expect($data['messages'])->toHaveCount(1);
     expect($data['messages'][0]['role'])->toBe('user');
     // Blocks are decoded as stdClass objects so empty {} survives the round-trip
@@ -185,7 +183,7 @@ it('rejects appending messages to someone elses conversation', function (): void
         'POST',
         "/api/conversations/{$aConv}/messages",
         $bHeaders,
-        json_encode([
+        json_str([
             'messages' => [['role' => 'user', 'content' => [['type' => 'text', 'text' => 'hi']]]],
         ]),
     );
@@ -196,10 +194,10 @@ it('links a note when the caller has nook access', function (): void {
     $pdo = test_pdo();
     [, $headers] = makeUser('111111111112');
 
-    $nookRes = App::handle('POST', '/api/nooks', $headers, json_encode(['name' => 'NL test']));
-    $nookId = json_decode($nookRes['body'], true)['nook']['id'];
-    $noteRes = App::handle('POST', "/api/nooks/{$nookId}/notes", $headers, json_encode(['title' => 'A note']));
-    $noteId = json_decode($noteRes['body'], true)['note']['id'];
+    $nookRes = App::handle('POST', '/api/nooks', $headers, json_str(['name' => 'NL test']));
+    $nookId = json_body($nookRes)['nook']['id'];
+    $noteRes = App::handle('POST', "/api/nooks/{$nookId}/notes", $headers, json_str(['title' => 'A note']));
+    $noteId = json_body($noteRes)['note']['id'];
 
     $convId = createConversation($headers, 'Linker');
 
@@ -207,7 +205,7 @@ it('links a note when the caller has nook access', function (): void {
         'POST',
         "/api/conversations/{$convId}/note-links",
         $headers,
-        json_encode(['note_id' => $noteId]),
+        json_str(['note_id' => $noteId]),
     );
     expect($res['status'])->toBe(200);
 

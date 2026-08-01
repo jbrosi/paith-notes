@@ -655,14 +655,19 @@ final class GlobalSchema
                 \$fn\$;
             ");
 
+            // Trigger fires on INSERT/DELETE only (not UPDATE). Position and
+            // link_title UPDATEs preserve the (source, target) tuple, so the
+            // outgoing/incoming counts don't change — firing the trigger for
+            // those would only churn note_stats needlessly. syncMentions
+            // exploits this: it UPDATEs kept mentions in place rather than
+            // delete-then-reinsert, avoiding the trigger cascade entirely for
+            // no-op edits. Drop-and-recreate so existing installs pick up the
+            // narrower trigger definition on next boot.
+            $pdo->exec('drop trigger if exists note_stats_mentions_trg on global.note_mentions');
             $pdo->exec("
-                do \$\$ begin
-                    if not exists (select 1 from pg_trigger where tgname = 'note_stats_mentions_trg' and tgrelid = 'global.note_mentions'::regclass) then
-                        create trigger note_stats_mentions_trg
-                            after insert or update or delete on global.note_mentions
-                            for each row execute function global.note_stats_mentions_fn();
-                    end if;
-                end \$\$;
+                create trigger note_stats_mentions_trg
+                    after insert or delete on global.note_mentions
+                    for each row execute function global.note_stats_mentions_fn();
             ");
 
             // Trigger to maintain note_stats for links

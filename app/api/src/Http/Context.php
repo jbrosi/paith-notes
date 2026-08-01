@@ -26,6 +26,11 @@ final class Context
         $this->user = null;
     }
 
+    public function hasPdo(): bool
+    {
+        return $this->pdo instanceof PDO;
+    }
+
     public function pdo(): PDO
     {
         if ($this->pdo instanceof PDO) {

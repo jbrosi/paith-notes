@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 use Paith\Notes\Api\Http\App;
 
-/**
+/*
  * Pin down: schema mutations (note_types + type_attributes) are
  * owner-only. readwrite collaborators can edit notes and attach
  * files but can't reshape the type schema they depend on.
@@ -18,7 +18,7 @@ beforeEach(function (): void {
     putenv('KEYCLOAK_ENABLED=0');
     $pdo = test_pdo();
     ensure_global_schema($pdo);
-    $pdo->exec('truncate table global.sessions, global.auth_states, global.nook_members, global.nooks, global.users cascade');
+    test_reset_state($pdo);
     $pdo->exec("insert into global.users (id, first_name, last_name) values ('deadc0ff-ee00-4000-8000-000000000000', 'AI', 'Assistant') on conflict (id) do nothing");
 });
 
@@ -40,8 +40,8 @@ function schemaShare(): array
     App::handle('GET', '/api/me', $ownerHeaders, '');
     App::handle('GET', '/api/me', $collabHeaders, '');
 
-    $nookRes = App::handle('POST', '/api/nooks', $ownerHeaders, json_encode(['name' => 'Shared']));
-    $nookId = json_decode($nookRes['body'], true)['nook']['id'];
+    $nookRes = App::handle('POST', '/api/nooks', $ownerHeaders, json_str(['name' => 'Shared']));
+    $nookId = json_body($nookRes)['nook']['id'];
 
     // Add collaborator as readwrite directly via DB (skips the email-invite dance)
     $pdo->prepare(
@@ -51,7 +51,7 @@ function schemaShare(): array
 
     // Hit /note-types as the owner so the default base/file/etc. types get seeded.
     $list = App::handle('GET', "/api/nooks/{$nookId}/note-types", $ownerHeaders, '');
-    $types = json_decode($list['body'], true)['types'];
+    $types = json_body($list)['types'];
     $baseTypeId = '';
     foreach ($types as $t) {
         if ($t['key'] === 'base') {
@@ -75,7 +75,7 @@ it('owner can create a new note type', function (): void {
         'POST',
         "/api/nooks/{$s['nookId']}/note-types",
         $s['ownerHeaders'],
-        json_encode(['key' => 'recipe', 'label' => 'Recipe']),
+        json_str(['key' => 'recipe', 'label' => 'Recipe']),
     );
     expect($res['status'])->toBe(200, $res['body']);
 });
@@ -86,10 +86,10 @@ it('readwrite collaborator cannot create a note type', function (): void {
         'POST',
         "/api/nooks/{$s['nookId']}/note-types",
         $s['collabHeaders'],
-        json_encode(['key' => 'recipe', 'label' => 'Recipe']),
+        json_str(['key' => 'recipe', 'label' => 'Recipe']),
     );
     expect($res['status'])->toBe(403);
-    expect(json_decode($res['body'], true)['error'])->toContain('owner');
+    expect(json_body($res)['error'])->toContain('owner');
 });
 
 it('readwrite collaborator cannot update a note type', function (): void {
@@ -99,16 +99,16 @@ it('readwrite collaborator cannot update a note type', function (): void {
         'POST',
         "/api/nooks/{$s['nookId']}/note-types",
         $s['ownerHeaders'],
-        json_encode(['key' => 'recipe', 'label' => 'Recipe']),
+        json_str(['key' => 'recipe', 'label' => 'Recipe']),
     );
-    $typeId = json_decode($created['body'], true)['type']['id'];
+    $typeId = json_body($created)['type']['id'];
 
     // Collab can't rename it
     $res = App::handle(
         'PUT',
         "/api/nooks/{$s['nookId']}/note-types/{$typeId}",
         $s['collabHeaders'],
-        json_encode(['key' => 'recipe', 'label' => 'Renamed']),
+        json_str(['key' => 'recipe', 'label' => 'Renamed']),
     );
     expect($res['status'])->toBe(403);
 });
@@ -119,9 +119,9 @@ it('readwrite collaborator cannot delete a note type', function (): void {
         'POST',
         "/api/nooks/{$s['nookId']}/note-types",
         $s['ownerHeaders'],
-        json_encode(['key' => 'recipe', 'label' => 'Recipe']),
+        json_str(['key' => 'recipe', 'label' => 'Recipe']),
     );
-    $typeId = json_decode($created['body'], true)['type']['id'];
+    $typeId = json_body($created)['type']['id'];
 
     $res = App::handle(
         'DELETE',
@@ -138,7 +138,7 @@ it('readwrite collaborator cannot add a type attribute', function (): void {
         'POST',
         "/api/nooks/{$s['nookId']}/note-types/{$s['baseTypeId']}/attributes",
         $s['collabHeaders'],
-        json_encode(['name' => 'Body', 'kind' => 'text']),
+        json_str(['name' => 'Body', 'kind' => 'text']),
     );
     expect($res['status'])->toBe(403);
 });
@@ -150,16 +150,16 @@ it('readwrite collaborator cannot update or delete an attribute', function (): v
         'POST',
         "/api/nooks/{$s['nookId']}/note-types/{$s['baseTypeId']}/attributes",
         $s['ownerHeaders'],
-        json_encode(['name' => 'Body', 'kind' => 'text']),
+        json_str(['name' => 'Body', 'kind' => 'text']),
     );
     expect($created['status'])->toBe(200, $created['body']);
-    $attrId = json_decode($created['body'], true)['attribute']['id'];
+    $attrId = json_body($created)['attribute']['id'];
 
     $put = App::handle(
         'PUT',
         "/api/nooks/{$s['nookId']}/note-types/{$s['baseTypeId']}/attributes/{$attrId}",
         $s['collabHeaders'],
-        json_encode(['name' => 'Body Renamed', 'kind' => 'text']),
+        json_str(['name' => 'Body Renamed', 'kind' => 'text']),
     );
     expect($put['status'])->toBe(403);
 
@@ -180,7 +180,7 @@ it('readwrite collaborator can still create and edit notes (schema lockdown is s
         'POST',
         "/api/nooks/{$s['nookId']}/notes",
         $s['collabHeaders'],
-        json_encode(['title' => 'Notes still work for collaborators']),
+        json_str(['title' => 'Notes still work for collaborators']),
     );
     expect($res['status'])->toBe(200, $res['body']);
 });

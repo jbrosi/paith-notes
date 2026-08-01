@@ -76,7 +76,7 @@ it('posts model+prompt+size+background and an auth header', function (): void {
     $bytes = base64_encode('PNGDATA');
     $stub = stubTransport([
         'status' => 200,
-        'body' => json_encode(['data' => [['b64_json' => $bytes, 'revised_prompt' => 'A revised version']]]),
+        'body' => json_str(['data' => [['b64_json' => $bytes, 'revised_prompt' => 'A revised version']]]),
     ]);
     $gen = new OpenAiImageGenerator('sk-test', 'gpt-image-1', $stub['transport']);
 
@@ -88,7 +88,7 @@ it('posts model+prompt+size+background and an auth header', function (): void {
     expect($call['headers']['Authorization'])->toBe('Bearer sk-test');
     expect($call['headers']['Content-Type'])->toBe('application/json');
 
-    $decoded = json_decode($call['body'], true);
+    $decoded = json_body($call);
     expect($decoded)->toMatchArray([
         'model' => 'gpt-image-1',
         'prompt' => 'a cat',
@@ -107,26 +107,26 @@ it('posts model+prompt+size+background and an auth header', function (): void {
 it('omits the quality field when not requested so OpenAI uses its own default', function (): void {
     $stub = stubTransport([
         'status' => 200,
-        'body' => json_encode(['data' => [['b64_json' => base64_encode('X')]]]),
+        'body' => json_str(['data' => [['b64_json' => base64_encode('X')]]]),
     ]);
     $gen = new OpenAiImageGenerator('sk-test', 'gpt-image-1', $stub['transport']);
 
     $gen->generate('a cat', new ImageGenerationOptions(quality: null));
 
-    $body = json_decode($stub['calls'][0]['body'], true);
+    $body = json_body_of($stub['calls'][0]['body']);
     expect($body)->not->toHaveKey('quality');
 });
 
 it('falls back to defaults when no options are supplied', function (): void {
     $stub = stubTransport([
         'status' => 200,
-        'body' => json_encode(['data' => [['b64_json' => base64_encode('X')]]]),
+        'body' => json_str(['data' => [['b64_json' => base64_encode('X')]]]),
     ]);
     $gen = new OpenAiImageGenerator('sk-test', 'gpt-image-1', $stub['transport']);
 
     $gen->generate('a fox', new ImageGenerationOptions());
 
-    $body = json_decode($stub['calls'][0]['body'], true);
+    $body = json_body_of($stub['calls'][0]['body']);
     expect($body['size'])->toBe('1024x1024');
     expect($body['background'])->toBe('opaque');
     expect($body)->not->toHaveKey('quality');
@@ -135,7 +135,7 @@ it('falls back to defaults when no options are supplied', function (): void {
 it('leaves revised_prompt as null when the provider does not return one', function (): void {
     $stub = stubTransport([
         'status' => 200,
-        'body' => json_encode(['data' => [['b64_json' => base64_encode('X')]]]),
+        'body' => json_str(['data' => [['b64_json' => base64_encode('X')]]]),
     ]);
     $gen = new OpenAiImageGenerator('sk-test', 'gpt-image-1', $stub['transport']);
 
@@ -146,7 +146,7 @@ it('leaves revised_prompt as null when the provider does not return one', functi
 it('maps a 400 content-policy error through verbatim as HttpError(400)', function (): void {
     $stub = stubTransport([
         'status' => 400,
-        'body' => json_encode(['error' => ['message' => 'Your request was rejected as a result of our safety system']]),
+        'body' => json_str(['error' => ['message' => 'Your request was rejected as a result of our safety system']]),
     ]);
     $gen = new OpenAiImageGenerator('sk-test', 'gpt-image-1', $stub['transport']);
 
@@ -157,7 +157,7 @@ it('maps a 400 content-policy error through verbatim as HttpError(400)', functio
 it('maps a 401 to a generic 500 without leaking the upstream message', function (): void {
     $stub = stubTransport([
         'status' => 401,
-        'body' => json_encode(['error' => ['message' => 'Invalid API key sk-xxx leaking-secret-here']]),
+        'body' => json_str(['error' => ['message' => 'Invalid API key sk-xxx leaking-secret-here']]),
     ]);
     $gen = new OpenAiImageGenerator('sk-test', 'gpt-image-1', $stub['transport']);
 
@@ -174,7 +174,7 @@ it('maps a 401 to a generic 500 without leaking the upstream message', function 
 it('maps a 429 to a 502 upstream error', function (): void {
     $stub = stubTransport([
         'status' => 429,
-        'body' => json_encode(['error' => ['message' => 'Rate limit exceeded']]),
+        'body' => json_str(['error' => ['message' => 'Rate limit exceeded']]),
     ]);
     $gen = new OpenAiImageGenerator('sk-test', 'gpt-image-1', $stub['transport']);
 
@@ -190,7 +190,7 @@ it('maps a 429 to a 502 upstream error', function (): void {
 it('errors when the success body has no image bytes', function (): void {
     $stub = stubTransport([
         'status' => 200,
-        'body' => json_encode(['data' => [['b64_json' => '']]]),
+        'body' => json_str(['data' => [['b64_json' => '']]]),
     ]);
     $gen = new OpenAiImageGenerator('sk-test', 'gpt-image-1', $stub['transport']);
 
@@ -204,7 +204,7 @@ it('parses usage and computes a USD estimate from gpt-image-1 token rates', func
     // total = $0.0405
     $stub = stubTransport([
         'status' => 200,
-        'body' => json_encode([
+        'body' => json_str([
             'data' => [['b64_json' => base64_encode('X')]],
             'usage' => [
                 'input_tokens' => 100,
@@ -228,7 +228,7 @@ it('parses usage and computes a USD estimate from gpt-image-1 token rates', func
 it('returns null usage when the provider omits the usage block', function (): void {
     $stub = stubTransport([
         'status' => 200,
-        'body' => json_encode(['data' => [['b64_json' => base64_encode('X')]]]),
+        'body' => json_str(['data' => [['b64_json' => base64_encode('X')]]]),
     ]);
     $gen = new OpenAiImageGenerator('sk-test', 'gpt-image-1', $stub['transport']);
     $img = $gen->generate('hello', new ImageGenerationOptions());
@@ -240,7 +240,7 @@ it('edit hits /images/edits multipart with model+prompt+size+image parts', funct
     $bytes = base64_encode('PNGDATA');
     $stub = stubTransport([
         'status' => 200,
-        'body' => json_encode(['data' => [['b64_json' => $bytes, 'revised_prompt' => 'enhanced']]]),
+        'body' => json_str(['data' => [['b64_json' => $bytes, 'revised_prompt' => 'enhanced']]]),
     ]);
     $gen = new OpenAiImageGenerator('sk-test', 'gpt-image-1', $stub['transport']);
 
@@ -282,7 +282,7 @@ it('edit hits /images/edits multipart with model+prompt+size+image parts', funct
 it('edit sends one image[] part per source', function (): void {
     $stub = stubTransport([
         'status' => 200,
-        'body' => json_encode(['data' => [['b64_json' => base64_encode('X')]]]),
+        'body' => json_str(['data' => [['b64_json' => base64_encode('X')]]]),
     ]);
     $gen = new OpenAiImageGenerator('sk-test', 'gpt-image-1', $stub['transport']);
 

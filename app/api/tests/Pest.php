@@ -1,4 +1,5 @@
 <?php
+
 declare(strict_types=1);
 
 use Paith\Notes\Api\Http\Auth\SessionCrypto;
@@ -72,6 +73,70 @@ function test_pdo(): \PDO
 function ensure_global_schema(\PDO $pdo): void
 {
     GlobalSchema::ensure($pdo);
+}
+
+/**
+ * Reset shared global state between tests. Centralises the truncate list so
+ * new shared tables only need updating in one place.
+ *
+ * NOTE: integration tests are only supported serially. pest --parallel on
+ * this suite deadlocks because 16 workers all TRUNCATE ... CASCADE the same
+ * tables — pg's FK-traversal order differs per session and cycles. Unit
+ * tests (Tests\Unit\*) don't touch the DB and can safely run in parallel.
+ *
+ * $extraTables (comma-separated) for suites that also need to reset tables
+ * beyond the shared base set — e.g. 'global.conversations'.
+ */
+/**
+ * Decode an App::handle() response body as an array. Tests treat every
+ * response as JSON — this collapses the `json_decode($res['body'], true)`
+ * pattern (mixed everywhere) into one typed helper.
+ *
+ * @param array{status: int, headers: array<string, string>, body: string} $res
+ * @return array<string, mixed>
+ */
+function json_body(array $res): array
+{
+    return json_body_of($res['body']);
+}
+
+/**
+ * Decode any JSON string as an array. Used by json_body() and by call sites
+ * that decode inline (e.g. `json_decode(App::handle(...)['body'], true)`).
+ *
+ * @return array<string, mixed>
+ */
+function json_body_of(string $body): array
+{
+    $decoded = json_decode($body, true);
+    if (!is_array($decoded)) {
+        throw new \RuntimeException('body is not a JSON object: ' . $body);
+    }
+    return $decoded;
+}
+
+/**
+ * Encode a value to a JSON string. Wraps json_encode so tests don't have
+ * to handle the `string|false` return type at every call site.
+ *
+ * @param array<mixed>|\JsonSerializable $data
+ */
+function json_str(array|\JsonSerializable $data, int $flags = 0): string
+{
+    $encoded = json_encode($data, $flags);
+    if (!is_string($encoded)) {
+        throw new \RuntimeException('failed to encode value as JSON');
+    }
+    return $encoded;
+}
+
+function test_reset_state(\PDO $pdo, string $extraTables = ''): void
+{
+    $tables = 'global.sessions, global.auth_states, global.nook_members, global.nooks, global.users';
+    if ($extraTables !== '') {
+        $tables .= ', ' . $extraTables;
+    }
+    $pdo->exec("truncate table {$tables} cascade");
 }
 
 /**

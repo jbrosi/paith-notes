@@ -851,6 +851,10 @@ export function createNookStore(nookId: () => string) {
 		setSelectedId(note.id);
 		setTypeId(String(note.typeId ?? "").trim());
 		setTitle(note.title);
+		// Clear content immediately so slow networks don't flash the
+		// previous note's body while the new fetch is in flight.
+		// loadNoteDetail() below populates it once the response arrives.
+		setContent("");
 		setNoteAttributes({});
 		setError("");
 		setMentionTargetId("");

@@ -5,7 +5,7 @@ declare(strict_types=1);
 use Paith\Notes\Api\Http\HttpError;
 use Paith\Notes\Api\Http\Service\AttributeValidator;
 
-/**
+/*
  * Pinned behaviour for the kinds and display variants this branch
  * adds — dimension (new kind), and number display=duration/currency
  * (new variants on existing kind). The pre-existing kinds are
