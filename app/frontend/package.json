@@ -23,7 +23,7 @@
   "dependencies": {
     "@milkdown/crepe": "^7.21.2",
     "@ricky0123/vad-web": "^0.0.30",
-    "@solidjs/router": "^0.16.1",
+    "@solidjs/router": "^1.0.0",
     "d3": "^7.9.0",
     "highlight.js": "^11.11.1",
     "marked": "^18.0.5",
