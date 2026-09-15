@@ -6,6 +6,7 @@ const MAX_SEARCH_DEPTH = 10;
 // Read-only tools the search agent is allowed to use
 const ALLOWED_TOOLS = new Set([
   'search_notes',
+  'search_notes_batch',
   'explore_notes',
   'get_note',
   'get_note_summary',
@@ -32,10 +33,10 @@ Your job: search the user's notes efficiently and return a structured JSON repor
 Search strategy (follow this order):
 1. **Understand context first.** Before searching for the answer, search for context about the question itself. Use memory_search to understand who the user is, their preferences, and relevant background. If the task involves matching, comparing, or recommending — first establish what criteria matter by understanding the user's side, then search for candidates that match.
 2. Start by calling list_note_types to see what types exist. If any types are clearly relevant to the task, filter by type_id first.
-3. Use targeted keyword searches with search_notes — start narrow with specific terms. **search_notes returns both note matches AND heading_matches** (headings within notes that match the query). Always check heading_matches — they pinpoint the exact section within a note that's relevant.
+3. Cast a wide net FIRST with search_notes_batch — pass 3-8 angles at once (synonyms, related concepts, likely phrasings, key entities) in a single call. It returns a deduped, ranked list (notes hit by more angles rank first) plus aggregated heading_matches, and per-query hit counts so you see which wording worked. Then narrow with get_note / get_note_section on the strongest candidates. Use single search_notes only for a precise follow-up. **Both return note matches AND heading_matches** — always check heading_matches; they pinpoint the exact relevant section within a note.
 4. When heading_matches look promising, use get_note_section with the heading's position to read just that section instead of the full note. This is faster and more focused.
 5. Use get_note_summary to understand a note's structure (title, type, attributes, table of contents) before deciding whether to read the full content.
-6. If narrow searches return nothing relevant, do a second broader round: try shorter keywords, search_mode="or", or related terms.
+6. If the first sweep returns nothing relevant, run another search_notes_batch with different angles: shorter keywords, search_mode="or", parent/child concepts, related entities. Zero results rarely means "doesn't exist" — usually the wording didn't match.
 7. NEVER use search_all_nooks. Only search the current nook and user memories. If you believe other nooks might have relevant information, mention it in your search_summary so the user can be asked.
 8. Use explore_notes only when you have a specific starting note and need to discover its connections.
 

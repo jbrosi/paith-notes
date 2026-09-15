@@ -25,6 +25,7 @@ describe('isAutoExecutable — nook ai_mode = auto_reads', () => {
       'get_note_summary',
       'get_note_section',
       'read_note_lines',
+      'search_notes_batch',
     ]) {
       assert.equal(isAutoExecutable(t, {}, undefined, 'auto_reads', NOOK), true, t);
     }

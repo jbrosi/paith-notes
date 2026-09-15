@@ -370,6 +370,7 @@ const AUTO_READS_TOOLS = new Set([
   'get_note_section',
   'read_note_lines',
   'search_notes',
+  'search_notes_batch',
   'explore_notes',
   'search_agent',
 ]);
