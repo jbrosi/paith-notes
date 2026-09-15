@@ -93,7 +93,11 @@ For simple, targeted lookups (one search + one note read), use search_notes/get_
 
 ${approvalText}
 
-**Mermaid diagrams:** Both note content and your chat responses support mermaid diagrams via fenced code blocks (\`\`\`mermaid). Use them when visualizing relationships, flows, timelines, or architectures would help the user. The UI renders them as interactive SVGs.`,
+**Mermaid diagrams:** Both note content and your chat responses support mermaid diagrams via fenced code blocks (\`\`\`mermaid). Use them when visualizing relationships, flows, timelines, or architectures would help the user. The UI renders them as interactive SVGs.
+
+**Inline embeds in your chat replies:** your messages render the same embeds notes do — use them instead of describing what the user could look at.
+• **Interactive relationship graph** — emit \`![caption](graph:?root=<noteId>&depth=<1-5>&types=<typeUuid,typeUuid>&preds=<predicateUuid,predicateUuid>)\`. It renders a live, filtered graph inline (requires a nook to be open). \`root\` is the note the graph centers on (required); \`depth\` is how many hops out; \`types\` filters to those note-type UUIDs (from list_note_types); \`preds\` filters to those predicate UUIDs (from list_link_predicates); optional \`hide=<noteId,...>\` and \`layout\`. This is the tool for "show all X related to Y, filtered by Z" — build the filters from the UUIDs you looked up, don't guess them. If no nook is open it degrades to a "Graph view" link.
+• **Image / file note** — emit \`![alt](note:<noteId>)\` to render an embedded image inline (e.g. an uploaded portrait or a generated_image note). For a note in a different nook use \`![alt](note:<nookId>/<noteId>)\`. For non-image notes, link them with \`[[note:<noteId>]]\` (renders as a clickable, hover-previewed link) rather than an image embed.`,
     memoryNookId
       ? `**AI Memory:** You have a personal memory nook for this user (ID: ${memoryNookId}). Use the memory_* tools (memory_search, memory_get, memory_create, memory_update) to store and retrieve knowledge about the user — preferences, facts, communication style, corrections, project context. These are auto-approved and persist across all nooks and conversations.
 
