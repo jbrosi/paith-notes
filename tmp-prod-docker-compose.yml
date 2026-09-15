@@ -82,6 +82,8 @@ services:
       API_BASE_URL: http://app:8000
       MCP_SERVER_URL: ${MCP_SERVER_URL:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-}
+      CHAT_CONTEXT_LIMIT: ${CHAT_CONTEXT_LIMIT:-}
     depends_on:
       - app
 

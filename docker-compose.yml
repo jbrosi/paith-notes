@@ -49,6 +49,15 @@ services:
       KEYCLOAK_REALM: ${KEYCLOAK_REALM:-master}
       API_BASE_URL: http://app:8000
       MCP_SERVER_URL: ${MCP_SERVER_URL:-https://mcp.paith.example.com}
+      # Chat credentials from the root .env. The key uses its own name so
+      # it can't leak into the `claude` service above, which reads plain
+      # ANTHROPIC_API_KEY (a LiteLLM key there would break Claude Code).
+      # Both entries win over any value in mcp.env.
+      ANTHROPIC_API_KEY: ${MCP_ANTHROPIC_API_KEY:-}
+      # Anthropic-compatible proxy (e.g. LiteLLM). Empty/unset => api.anthropic.com.
+      ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-}
+      # Real context window of the proxied model, in tokens. Unset => per-model defaults.
+      CHAT_CONTEXT_LIMIT: ${CHAT_CONTEXT_LIMIT:-}
       # VOICE_PROVIDER=openai routes TTS to OpenAI's /v1/audio/speech
       # (instructable per-sentence delivery; drops the local voice
       # container entirely). Leave unset to keep the local Kokoro path.

@@ -147,6 +147,20 @@ const MODEL_CONTEXT_LIMITS: Record<string, number> = {
 // direction (more, not less, "new chat" pressure) if the model actually
 // has a smaller window than we assume.
 const DEFAULT_CONTEXT_LIMIT = 200_000;
+
+// Operator override (CHAT_CONTEXT_LIMIT) for when ANTHROPIC_BASE_URL points
+// at a proxy — e.g. LiteLLM in front of a local model — whose real window
+// differs from what the Claude model name implies. Applies to every model.
+export function parseContextLimit(raw: string | undefined): number | undefined {
+  const trimmed = raw?.trim();
+  if (!trimmed) return undefined;
+  const n = Number(trimmed);
+  return Number.isInteger(n) && n > 0 ? n : undefined;
+}
+
+export function contextLimitFor(model: string, override = process.env.CHAT_CONTEXT_LIMIT): number {
+  return parseContextLimit(override) ?? MODEL_CONTEXT_LIMITS[model] ?? DEFAULT_CONTEXT_LIMIT;
+}
 // Pressure thresholds for 1M-context models. We pay for the big window
 // but proactively steer toward new chats — users generally prefer fresh
 // context per topic, and the AI's memory tool + save-conversation-to-note
@@ -482,7 +496,7 @@ async function streamConversation(
   }
 
   const baseSystemPrompt = buildSystemPrompt(nookId, nookName, nookRole, memoryNookId, nookInstructions, memoryNotes, handbookNookId, handbookNotes, !!voice);
-  const contextLimit = MODEL_CONTEXT_LIMITS[model] ?? DEFAULT_CONTEXT_LIMIT;
+  const contextLimit = contextLimitFor(model);
 
   // IDs of instruction notes that can be auto-read without user approval
   const instructionNoteIds = new Set([
@@ -656,7 +670,17 @@ async function streamConversation(
         }
 
         if (event.type === 'message_delta') {
-          outputTokens += (event as unknown as { usage?: { output_tokens?: number } }).usage?.output_tokens ?? 0;
+          // message_delta usage is cumulative for the whole message. Anthropic
+          // already sent input/cache counts in message_start, but proxies like
+          // LiteLLM send zeros there and only know the real counts here.
+          const usage = event.usage;
+          outputTokens = usage.output_tokens ?? outputTokens;
+          if (usage.input_tokens != null && usage.input_tokens > 0) {
+            inputTokens = usage.input_tokens;
+            lastInputTokens = inputTokens;
+          }
+          cacheCreationTokens = usage.cache_creation_input_tokens ?? cacheCreationTokens;
+          cacheReadTokens = usage.cache_read_input_tokens ?? cacheReadTokens;
           const stopReason = event.delta.stop_reason;
 
           const savedAssistantTurns = await saveMessages(
@@ -667,7 +691,7 @@ async function streamConversation(
           );
 
           if (stopReason === 'end_turn') {
-            const contextLimit = MODEL_CONTEXT_LIMITS[model] ?? DEFAULT_CONTEXT_LIMIT;
+            const contextLimit = contextLimitFor(model);
             const totalTokens = inputTokens + outputTokens;
             trailing.push({
               event: 'done',
