@@ -375,6 +375,26 @@ const AUTO_READS_TOOLS = new Set([
   'search_agent',
 ]);
 
+// Writes whose effects can depend on each other within one turn — e.g. create a
+// note then link to it, or edit two notes that link to each other. Running them
+// in parallel races: a dependent call can hit the DB before the call it relies
+// on has committed ("note not found"). These execute SEQUENTIALLY in the order
+// the model emitted them; every other tool (reads, search_agent) still fans out.
+const ORDER_SENSITIVE_WRITE_TOOLS = new Set([
+  'create_note',
+  'update_note',
+  'delete_note',
+  'edit_note',
+  'edit_note_agent',
+  'create_note_link',
+  'delete_note_link',
+  'create_note_type',
+  'update_note_type',
+  'generate_image',
+  'memory_create',
+  'memory_update',
+]);
+
 export function isAutoExecutable(
   toolName: string,
   input?: Record<string, unknown>,
@@ -1167,12 +1187,12 @@ export function createChatRouter(apiBase: string): Router {
         return searchAgentCtx;
       };
 
-      // Execute approved tools with bounded concurrency so a 5-way fan-out
-      // doesn't saturate FrankenPHP workers + Postgres connections.
-      const resultBlocks: Anthropic.ToolResultBlockParam[] = await mapWithConcurrency(
-        tool_results,
-        TOOL_CONCURRENCY,
-        async (tr): Promise<Anthropic.ToolResultBlockParam> => {
+      // Execute approved tools. Reads fan out (bounded so a 5-way fan-out
+      // doesn't saturate FrankenPHP workers + Postgres); order-sensitive writes
+      // run sequentially in the order the model emitted them, so a create→link
+      // (or edits + links on related notes) can't race with what it depends on.
+      // Results are placed back by index, so tool_result order is preserved.
+      const execApprovedTool = async (tr: ToolResult): Promise<Anthropic.ToolResultBlockParam> => {
           if (!tr.approved) {
             return { type: 'tool_result', tool_use_id: tr.tool_use_id, content: 'User denied this action.' };
           }
@@ -1235,8 +1255,22 @@ export function createChatRouter(apiBase: string): Router {
               is_error: true,
             };
           }
-        },
-      );
+      };
+
+      const resultBlocks: Anthropic.ToolResultBlockParam[] = new Array(tool_results.length);
+      const readIdx: number[] = [];
+      const writeIdx: number[] = [];
+      tool_results.forEach((tr, i) => {
+        (ORDER_SENSITIVE_WRITE_TOOLS.has(tr.tool_name) ? writeIdx : readIdx).push(i);
+      });
+      // Reads fan out…
+      await mapWithConcurrency(readIdx, TOOL_CONCURRENCY, async (i) => {
+        resultBlocks[i] = await execApprovedTool(tool_results[i]);
+      });
+      // …order-sensitive writes run strictly in the model's emitted order.
+      for (const i of writeIdx) {
+        resultBlocks[i] = await execApprovedTool(tool_results[i]);
+      }
 
       // Save tool results as a user message
       const toolResultMessage: Anthropic.MessageParam = { role: 'user', content: resultBlocks };
