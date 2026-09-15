@@ -59,10 +59,14 @@ describe('isAutoExecutable — nook ai_mode = auto_reads', () => {
     }
   });
 
-  it('always-auto and cross-nook tools stay auto regardless of mode', () => {
+  it('memory + always-auto read primitives stay auto regardless of mode', () => {
     assert.equal(isAutoExecutable('memory_search', {}, undefined, 'approve_all', NOOK), true);
-    assert.equal(isAutoExecutable('search_all_nooks', {}, undefined, 'approve_all', NOOK), true);
     assert.equal(isAutoExecutable('get_note_toc', {}, undefined, 'approve_all', NOOK), true);
+  });
+
+  it('cross-nook search_all_nooks always requires approval, even under auto_reads', () => {
+    assert.equal(isAutoExecutable('search_all_nooks', {}, undefined, 'approve_all', NOOK), false);
+    assert.equal(isAutoExecutable('search_all_nooks', {}, undefined, 'auto_reads', NOOK), false);
   });
 
   it('frontend-executed tools never auto-execute, even under auto_reads', () => {

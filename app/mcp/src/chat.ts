@@ -384,11 +384,13 @@ export function isAutoExecutable(
   // execute it here.
   if (FRONTEND_TOOLS.has(toolName)) return false;
   if (ALWAYS_AUTO_TOOLS.has(toolName)) return true;
-  // get_note is auto-approved for AI instruction notes and search_all_nooks
+  // get_note is auto-approved only for AI instruction / handbook notes.
   if (toolName === 'get_note' && instructionNoteIds && typeof input?.note_id === 'string') {
     if (instructionNoteIds.has(input.note_id)) return true;
   }
-  if (toolName === 'search_all_nooks') return true;
+  // Cross-nook interactions (search_all_nooks) ALWAYS require human approval —
+  // even under auto_reads. The user consented to reads on *this* nook, not to
+  // the AI reaching across nook boundaries into others.
   // Owner set this nook to auto-approve reads: run read-only tools scoped to
   // THIS nook without an approval card. A read targeting a different nook still
   // prompts (that nook may be stricter or disabled).
