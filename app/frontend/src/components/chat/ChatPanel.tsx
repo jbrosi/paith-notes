@@ -78,6 +78,8 @@ const APPROVE_RE =
 	/\b(yes|yeah|yep|yup|sure|ok|okay|confirm|please|do it|go ahead|ja|jo|jep|klar|mach|los|sicher|bestätigt|bestätigen|bestätige)\b/i;
 const DENY_RE =
 	/\b(no|nope|cancel|stop|abort|don'?t|nein|nicht|niemals|abbrechen|stopp|halt|abbruch)\b/i;
+const fmtTokens = (n: number) =>
+	n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
 function matchConsent(transcript: string): "approve" | "deny" | "ambiguous" {
 	const t = transcript.trim();
 	if (!t) return "ambiguous";
@@ -383,6 +385,13 @@ export function ChatPanel(props: Props) {
 		ratio: number;
 		level: "" | "warning" | "critical";
 	}>({ ratio: 0, level: "" });
+	// Running token total for the open conversation. Session-only: accumulated
+	// from turn_usage events, reset when the conversation changes. Not persisted,
+	// so it starts at 0 for a reloaded conversation until the next message.
+	const [sessionUsage, setSessionUsage] = createSignal<{
+		input: number;
+		output: number;
+	}>({ input: 0, output: 0 });
 	const [reconnecting, setReconnecting] = createSignal(false);
 	const [pendingApproval, setPendingApproval] =
 		createSignal<PendingApproval | null>(null);
@@ -597,6 +606,8 @@ export function ChatPanel(props: Props) {
 		setMessages([]);
 		setError(null);
 		setPendingApproval(null);
+		setSessionUsage({ input: 0, output: 0 });
+		setContextUsage({ ratio: 0, level: "" });
 		const loaded = await fetchMessages(conv.id);
 		setMessages(loaded);
 		setView("chat");
@@ -611,6 +622,8 @@ export function ChatPanel(props: Props) {
 		setActiveTitle("New chat");
 		setError(null);
 		setPendingApproval(null);
+		setSessionUsage({ input: 0, output: 0 });
+		setContextUsage({ ratio: 0, level: "" });
 		setView("chat");
 	};
 
@@ -908,48 +921,55 @@ export function ChatPanel(props: Props) {
 						return prev;
 					});
 					scrollToBottom();
+				} else if (event === "turn_usage") {
+					// One per API round-trip. Per-message usage, the context-fill
+					// indicator, and the running conversation total are all driven
+					// from here; `done` only finalizes the stream.
+					const usage = data.usage as MessageUsage | undefined;
+					if (usage) {
+						const totalInput =
+							usage.input_tokens +
+							usage.cache_creation_input_tokens +
+							usage.cache_read_input_tokens;
+						// Running conversation total (session-only).
+						setSessionUsage((prev) => ({
+							input: prev.input + totalInput,
+							output: prev.output + usage.output_tokens,
+						}));
+						// Context-window fill from the latest round-trip.
+						if (usage.context_limit) {
+							const ratio =
+								(totalInput + usage.output_tokens) / usage.context_limit;
+							setContextUsage({
+								ratio,
+								level: ratio > 0.9 ? "critical" : ratio > 0.5 ? "warning" : "",
+							});
+						}
+						// Sum each round-trip into the current assistant bubble so a
+						// tool-using response (several round-trips merged into one
+						// bubble) shows its full cost, not just the last call.
+						setMessages((prev) => {
+							const last = prev[prev.length - 1];
+							if (last?.role !== "assistant") return prev;
+							const cur = (last as { usage?: MessageUsage }).usage;
+							const merged: MessageUsage = {
+								input_tokens: (cur?.input_tokens ?? 0) + usage.input_tokens,
+								output_tokens: (cur?.output_tokens ?? 0) + usage.output_tokens,
+								cache_creation_input_tokens:
+									(cur?.cache_creation_input_tokens ?? 0) +
+									usage.cache_creation_input_tokens,
+								cache_read_input_tokens:
+									(cur?.cache_read_input_tokens ?? 0) +
+									usage.cache_read_input_tokens,
+								context_limit: usage.context_limit,
+							};
+							return [...prev.slice(0, -1), { ...last, usage: merged }];
+						});
+					}
 				} else if (event === "done") {
 					terminalEventSeen = true;
 					finalizeAssistant();
 					setStreaming(false);
-					// Update context usage indicator + attach usage to last assistant message
-					const usage = data.usage as
-						| {
-								input_tokens?: number;
-								output_tokens?: number;
-								cache_creation_input_tokens?: number;
-								cache_read_input_tokens?: number;
-								context_limit?: number;
-						  }
-						| undefined;
-					if (usage?.context_limit) {
-						const totalInput =
-							(usage.input_tokens ?? 0) +
-							(usage.cache_creation_input_tokens ?? 0) +
-							(usage.cache_read_input_tokens ?? 0);
-						const ratio =
-							(totalInput + (usage.output_tokens ?? 0)) / usage.context_limit;
-						setContextUsage({
-							ratio,
-							level: ratio > 0.9 ? "critical" : ratio > 0.5 ? "warning" : "",
-						});
-						// Attach usage to last assistant message for debug display
-						const msgUsage: MessageUsage = {
-							input_tokens: usage.input_tokens ?? 0,
-							output_tokens: usage.output_tokens ?? 0,
-							cache_creation_input_tokens:
-								usage.cache_creation_input_tokens ?? 0,
-							cache_read_input_tokens: usage.cache_read_input_tokens ?? 0,
-							context_limit: usage.context_limit ?? 0,
-						};
-						setMessages((prev) => {
-							const last = prev[prev.length - 1];
-							if (last?.role === "assistant") {
-								return [...prev.slice(0, -1), { ...last, usage: msgUsage }];
-							}
-							return prev;
-						});
-					}
 					// Start keep-alive timer (one nudge only, then let cache expire)
 					clearKeepAlive();
 					if (isNudge) {
@@ -1570,6 +1590,27 @@ export function ChatPanel(props: Props) {
 						{activeTitle() || "Chat"}
 					</Show>
 				</h2>
+				<Show
+					when={
+						view() === "chat" &&
+						(sessionUsage().input > 0 || sessionUsage().output > 0)
+					}
+				>
+					<span
+						title="Total tokens this conversation (in ▸ out). Session-only — resets on reload."
+						style={{
+							"font-size": "0.65rem",
+							"font-family": "monospace",
+							color: "var(--color-text-faint, #999)",
+							"margin-left": "auto",
+							"margin-right": "8px",
+							"white-space": "nowrap",
+						}}
+					>
+						Σ {fmtTokens(sessionUsage().input)}▸
+						{fmtTokens(sessionUsage().output)}
+					</span>
+				</Show>
 				<button class={styles.closeBtn} onClick={props.onClose} type="button">
 					✕
 				</button>

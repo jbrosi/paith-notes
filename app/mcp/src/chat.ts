@@ -681,6 +681,21 @@ async function streamConversation(
           }
           cacheCreationTokens = usage.cache_creation_input_tokens ?? cacheCreationTokens;
           cacheReadTokens = usage.cache_read_input_tokens ?? cacheReadTokens;
+
+          // Per-round-trip usage so the UI can show tokens per assistant
+          // message and keep a running conversation total. Fires for every
+          // turn (tool_use round-trips included), not only the final one —
+          // the `done` event alone would drop every intermediate call.
+          sse(res, 'turn_usage', {
+            usage: {
+              input_tokens: inputTokens,
+              output_tokens: outputTokens,
+              cache_creation_input_tokens: cacheCreationTokens,
+              cache_read_input_tokens: cacheReadTokens,
+              context_limit: contextLimitFor(model),
+            },
+          });
+
           const stopReason = event.delta.stop_reason;
 
           const savedAssistantTurns = await saveMessages(
