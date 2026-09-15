@@ -80,6 +80,45 @@ const DENY_RE =
 	/\b(no|nope|cancel|stop|abort|don'?t|nein|nicht|niemals|abbrechen|stopp|halt|abbruch)\b/i;
 const fmtTokens = (n: number) =>
 	n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
+
+// Rough client-side estimate of a reopened conversation's context size, used
+// only to warn *before* the first message (the exact count comes back from the
+// model on the next round-trip). Fixed overhead ≈ tool definitions + system
+// prompt (~16k), plus ~1 token per 3.5 chars of message/tool text — deliberately
+// a bit conservative so it warns early rather than late.
+const ESTIMATED_BASE_TOKENS = 16000;
+const CHARS_PER_TOKEN = 3.5;
+const levelFor = (ratio: number): "" | "warning" | "critical" =>
+	ratio > 0.9 ? "critical" : ratio > 0.5 ? "warning" : "";
+const estimateConversationTokens = (msgs: ChatMessageData[]): number => {
+	let chars = 0;
+	for (const m of msgs) {
+		chars += (m as { text?: string }).text?.length ?? 0;
+		const tools = (m as { toolUses?: ToolUse[] }).toolUses;
+		if (tools?.length) chars += JSON.stringify(tools).length;
+	}
+	return ESTIMATED_BASE_TOKENS + Math.ceil(chars / CHARS_PER_TOKEN);
+};
+// The effective context limit depends on the model and the server's
+// CHAT_CONTEXT_LIMIT override, which the frontend only learns from turn_usage.
+// Cache the last-seen value per model so we can estimate on a fresh page load.
+const ctxLimitKey = (model: string) => `chatCtxLimit:${model}`;
+const readCachedLimit = (model: string): number | null => {
+	try {
+		const v = localStorage.getItem(ctxLimitKey(model));
+		const n = v ? Number(v) : Number.NaN;
+		return Number.isFinite(n) && n > 0 ? n : null;
+	} catch {
+		return null;
+	}
+};
+const writeCachedLimit = (model: string, limit: number) => {
+	try {
+		localStorage.setItem(ctxLimitKey(model), String(limit));
+	} catch {
+		// localStorage unavailable (private mode etc.) — estimates just stay off.
+	}
+};
 function matchConsent(transcript: string): "approve" | "deny" | "ambiguous" {
 	const t = transcript.trim();
 	if (!t) return "ambiguous";
@@ -384,6 +423,10 @@ export function ChatPanel(props: Props) {
 	const [contextUsage, setContextUsage] = createSignal<{
 		ratio: number;
 		level: "" | "warning" | "critical";
+		tokens?: number;
+		limit?: number;
+		/** true when tokens is a client-side estimate (reopened chat, pre-send). */
+		approx?: boolean;
 	}>({ ratio: 0, level: "" });
 	// Running token total for the open conversation. Session-only: accumulated
 	// from turn_usage events, reset when the conversation changes. Not persisted,
@@ -610,6 +653,22 @@ export function ChatPanel(props: Props) {
 		setContextUsage({ ratio: 0, level: "" });
 		const loaded = await fetchMessages(conv.id);
 		setMessages(loaded);
+		// Approximate the reopened conversation's fill so the user gets a warning
+		// before sending into an already-large chat. Only possible if we've seen
+		// this model's context limit before (cached from a prior send); otherwise
+		// the indicator stays hidden until the first message returns the exact count.
+		const limit = readCachedLimit(conv.model || model());
+		if (limit) {
+			const tokens = estimateConversationTokens(loaded);
+			const ratio = tokens / limit;
+			setContextUsage({
+				ratio,
+				level: levelFor(ratio),
+				tokens,
+				limit,
+				approx: true,
+			});
+		}
 		setView("chat");
 		setTimeout(() => scrollToBottom(true), 0);
 	};
@@ -936,14 +995,22 @@ export function ChatPanel(props: Props) {
 							input: prev.input + totalInput,
 							output: prev.output + usage.output_tokens,
 						}));
-						// Context-window fill from the latest round-trip.
+						// Context-window fill from the latest round-trip (exact). tokens =
+						// the prompt the model just saw (system + full history + turn) plus
+						// its output — i.e. the current context length, what matters for
+						// "about to exceed the window".
 						if (usage.context_limit) {
-							const ratio =
-								(totalInput + usage.output_tokens) / usage.context_limit;
+							const tokens = totalInput + usage.output_tokens;
+							const ratio = tokens / usage.context_limit;
 							setContextUsage({
 								ratio,
-								level: ratio > 0.9 ? "critical" : ratio > 0.5 ? "warning" : "",
+								level: levelFor(ratio),
+								tokens,
+								limit: usage.context_limit,
+								approx: false,
 							});
+							// Remember the effective limit so reopened chats can estimate.
+							writeCachedLimit(model(), usage.context_limit);
 						}
 						// Sum each round-trip into the current assistant bubble so a
 						// tool-using response (several round-trips merged into one
