@@ -353,12 +353,14 @@ async function resolveDisplayNames(
 
 // ─── Auto-execution helpers ───────────────────────────────────────────────────
 
-// Read-only note tools that still prompt by default, but auto-execute when the
-// nook owner set ai_mode = 'auto_reads'. Scoped to the current nook only (a read
-// aimed at another nook still prompts — it may be stricter/disabled). Compound
-// or expensive reads (search_agent) and UI side effects (open_note) are
-// deliberately excluded; the always-auto read primitives are already covered by
-// ALWAYS_AUTO_TOOLS.
+// Tools that still prompt by default, but auto-execute when the nook owner set
+// ai_mode = 'auto_reads'. Scoped to the current nook only (a read aimed at
+// another nook still prompts — it may be stricter/disabled). UI side effects
+// (open_note) and every write stay gated. search_agent is included: it is
+// read-only and current-nook-scoped (it strips nook_id and can't search other
+// nooks), so "trust reads on this nook" covers it — it just runs a sub-agent
+// (extra inference, negligible on self-hosted models). Always-auto read
+// primitives are already covered by ALWAYS_AUTO_TOOLS.
 const AUTO_READS_TOOLS = new Set([
   'get_note',
   'get_note_history',
@@ -369,6 +371,7 @@ const AUTO_READS_TOOLS = new Set([
   'read_note_lines',
   'search_notes',
   'explore_notes',
+  'search_agent',
 ]);
 
 export function isAutoExecutable(

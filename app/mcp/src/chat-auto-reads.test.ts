@@ -44,19 +44,25 @@ describe('isAutoExecutable — nook ai_mode = auto_reads', () => {
     );
   });
 
-  it('auto_reads: writes and compound/UI tools still require approval', () => {
+  it('auto_reads: writes and UI tools still require approval', () => {
     for (const t of [
       'create_note',
       'update_note',
       'delete_note',
       'create_note_link',
       'edit_note',
+      'edit_note_agent',
       'open_note',
-      'search_agent',
       'create_note_type',
     ]) {
       assert.equal(isAutoExecutable(t, {}, undefined, 'auto_reads', NOOK), false, t);
     }
+  });
+
+  it('auto_reads: the read-only current-nook search_agent auto-executes', () => {
+    assert.equal(isAutoExecutable('search_agent', { task: 'x' }, undefined, 'auto_reads', NOOK), true);
+    // ...but still needs approval when the nook is not in auto_reads.
+    assert.equal(isAutoExecutable('search_agent', { task: 'x' }, undefined, 'approve_all', NOOK), false);
   });
 
   it('memory + always-auto read primitives stay auto regardless of mode', () => {
