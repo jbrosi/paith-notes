@@ -26,8 +26,17 @@ export function buildSystemPrompt(
   handbookNookId?: string | null,
   handbookNotes?: InstructionNote[],
   voiceMode?: boolean,
+  aiMode?: string,
 ): string {
   const hasNook = nookId !== '';
+  // The nook owner's AI trust mode. In 'auto_reads' the MCP auto-executes
+  // read-only tools on this nook, so the prompt must not tell the model those
+  // reads need confirmation (it would otherwise announce approvals that never
+  // happen). Writes still require confirmation.
+  const approvalText =
+    aiMode === 'auto_reads'
+      ? `**Tool approval:** This nook's owner set AI trust to "auto-approve reads" — so read-only tools on THIS nook (get_note, search_notes, explore_notes, get_note_history, get_note_version, compare_note_versions, get_note_summary, get_note_section, read_note_lines, plus get_note_mentions, list_note_types, list_type_attributes, list_link_predicates, and all memory_* tools) run without asking. Don't say you'll "ask permission" to read — just read what you need. Writes and structural changes (create_note, update_note, delete_note, create_note_link, open_note, create_note_type, update_note_type, edit_note, search_agent) STILL require user confirmation. Reads targeting a DIFFERENT nook also still prompt.`
+      : `**Tool approval:** The following tools auto-execute without user approval: get_note_mentions, list_note_types, list_type_attributes, list_link_predicates, and all memory_* tools (memory_search, memory_get, memory_create, memory_update). All other tools (get_note, create_note, update_note, delete_note, create_note_link, open_note, create_note_type, update_note_type, search_agent) require user confirmation.`;
   const nookDisplay = hasNook
     ? (nookName ? `"${nookName}" (${nookId})` : `"${nookId}"`)
     : '(none — the user has not selected a nook)';
@@ -82,7 +91,7 @@ Speaker attribution: user messages may include a \`[spoken by <name> (confidence
 - When context usage is high and you need to search
 For simple, targeted lookups (one search + one note read), use search_notes/get_note directly — the search agent adds overhead for trivial queries.
 
-**Tool approval:** The following tools auto-execute without user approval: get_note_mentions, list_note_types, list_type_attributes, list_link_predicates, and all memory_* tools (memory_search, memory_get, memory_create, memory_update). All other tools (get_note, create_note, update_note, delete_note, create_note_link, open_note, create_note_type, update_note_type, search_agent) require user confirmation.
+${approvalText}
 
 **Mermaid diagrams:** Both note content and your chat responses support mermaid diagrams via fenced code blocks (\`\`\`mermaid). Use them when visualizing relationships, flows, timelines, or architectures would help the user. The UI renders them as interactive SVGs.`,
     memoryNookId

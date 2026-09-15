@@ -353,7 +353,31 @@ async function resolveDisplayNames(
 
 // ─── Auto-execution helpers ───────────────────────────────────────────────────
 
-function isAutoExecutable(toolName: string, input?: Record<string, unknown>, instructionNoteIds?: Set<string>): boolean {
+// Read-only note tools that still prompt by default, but auto-execute when the
+// nook owner set ai_mode = 'auto_reads'. Scoped to the current nook only (a read
+// aimed at another nook still prompts — it may be stricter/disabled). Compound
+// or expensive reads (search_agent) and UI side effects (open_note) are
+// deliberately excluded; the always-auto read primitives are already covered by
+// ALWAYS_AUTO_TOOLS.
+const AUTO_READS_TOOLS = new Set([
+  'get_note',
+  'get_note_history',
+  'get_note_version',
+  'compare_note_versions',
+  'get_note_summary',
+  'get_note_section',
+  'read_note_lines',
+  'search_notes',
+  'explore_notes',
+]);
+
+export function isAutoExecutable(
+  toolName: string,
+  input?: Record<string, unknown>,
+  instructionNoteIds?: Set<string>,
+  aiMode?: string,
+  currentNookId?: string,
+): boolean {
   // Frontend-executed tools are never auto-executed on MCP — they need
   // to be dispatched back to the browser. Explicit false so we don't
   // accidentally add one to ALWAYS_AUTO_TOOLS and end up trying to
@@ -365,6 +389,15 @@ function isAutoExecutable(toolName: string, input?: Record<string, unknown>, ins
     if (instructionNoteIds.has(input.note_id)) return true;
   }
   if (toolName === 'search_all_nooks') return true;
+  // Owner set this nook to auto-approve reads: run read-only tools scoped to
+  // THIS nook without an approval card. A read targeting a different nook still
+  // prompts (that nook may be stricter or disabled).
+  if (aiMode === 'auto_reads' && AUTO_READS_TOOLS.has(toolName)) {
+    const target = typeof input?.nook_id === 'string' && input.nook_id.trim() !== ''
+      ? input.nook_id.trim()
+      : currentNookId;
+    if (target !== undefined && target === currentNookId) return true;
+  }
   return false;
 }
 
@@ -474,13 +507,14 @@ async function streamConversation(
   // Resolve nook name, role, instruction notes, and handbook in parallel
   let nookName = '';
   let nookRole = '';
+  let nookAiMode = '';
   let nookInstructions: InstructionNote[] = [];
   let memoryNotes: InstructionNote[] = [];
   let handbookNookId: string | null = null;
   let handbookNotes: InstructionNote[] = [];
 
   const [nooksData] = await Promise.all([
-    phpApi('GET', '/api/nooks', cookie, apiBase).catch(() => null) as Promise<{ nooks?: Array<{ id: string; name: string; role: string }> } | null>,
+    phpApi('GET', '/api/nooks', cookie, apiBase).catch(() => null) as Promise<{ nooks?: Array<{ id: string; name: string; role: string; ai_mode?: string }> } | null>,
     fetchInstructionNotes(nookId, cookie, apiBase).then(r => { nookInstructions = r; }),
     memoryNookId ? fetchMemoryInstructionNotes(memoryNookId, cookie, apiBase).then(r => { memoryNotes = r; }) : Promise.resolve(),
     resolveHandbookNookId(cookie, apiBase).then(async (id) => {
@@ -493,9 +527,10 @@ async function streamConversation(
     const found = nooksData.nooks.find(n => n.id === nookId);
     nookName = found?.name ?? '';
     nookRole = found?.role ?? '';
+    nookAiMode = found?.ai_mode ?? '';
   }
 
-  const baseSystemPrompt = buildSystemPrompt(nookId, nookName, nookRole, memoryNookId, nookInstructions, memoryNotes, handbookNookId, handbookNotes, !!voice);
+  const baseSystemPrompt = buildSystemPrompt(nookId, nookName, nookRole, memoryNookId, nookInstructions, memoryNotes, handbookNookId, handbookNotes, !!voice, nookAiMode);
   const contextLimit = contextLimitFor(model);
 
   // IDs of instruction notes that can be auto-read without user approval
@@ -737,7 +772,7 @@ async function streamConversation(
               input: t.input as Record<string, unknown>,
             }));
 
-            if (toolsPayload.every(t => isAutoExecutable(t.name, t.input, instructionNoteIds))) {
+            if (toolsPayload.every(t => isAutoExecutable(t.name, t.input, instructionNoteIds, nookAiMode, nookId))) {
               // Auto-execute all tools, loop for next AI turn. Capped at
               // TOOL_CONCURRENCY in-flight to avoid saturating PHP workers.
               const assistantBlocks = savedAssistantTurns[0]?.blocks ?? [];
