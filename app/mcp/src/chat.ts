@@ -474,6 +474,25 @@ function addCacheBreakpoint(msgs: Anthropic.MessageParam[]): Anthropic.MessagePa
   return [...msgs.slice(0, lastIdx), { ...lastMsg, content }];
 }
 
+// Append per-turn context (window-pressure nudge, editor state) to the LAST
+// message as a trailing text block. Call AFTER addCacheBreakpoint so the hint
+// lands past the cache breakpoint: the cached [system + history] prefix stays
+// byte-identical between turns, and only this small tail (plus the reply) falls
+// outside the cache — instead of every per-turn change invalidating the whole
+// conversation from the system prompt onward. Not persisted (operates on the
+// outgoing copy). No-op if there's no hint or the tail isn't a user turn.
+export function appendTurnHint(msgs: Anthropic.MessageParam[], hint: string): Anthropic.MessageParam[] {
+  if (!hint || msgs.length === 0) return msgs;
+  const lastIdx = msgs.length - 1;
+  const lastMsg = msgs[lastIdx];
+  if (lastMsg.role !== 'user') return msgs;
+  const content = Array.isArray(lastMsg.content)
+    ? [...lastMsg.content]
+    : [{ type: 'text' as const, text: String(lastMsg.content) }];
+  content.push({ type: 'text', text: hint });
+  return [...msgs.slice(0, lastIdx), { ...lastMsg, content }];
+}
+
 // ─── Core streaming function ─────────────────────────────────────────────────
 
 async function streamConversation(
@@ -556,10 +575,17 @@ async function streamConversation(
 
   try {
     for (let depth = 0; depth <= MAX_AUTO_DEPTH; depth++) {
-      // Build system blocks — base prompt is cached, pressure hint is a separate uncached block
+      // The system prompt is a STABLE cached prefix — nothing per-turn goes
+      // here. System precedes every message, so a per-turn edit here would
+      // invalidate the KV/prompt cache for the ENTIRE conversation each turn.
       const systemBlocks: Anthropic.TextBlockParam[] = [
         { type: 'text', text: baseSystemPrompt, cache_control: { type: 'ephemeral' } },
       ];
+
+      // Per-turn context (window-pressure nudge + editor state) rides on the
+      // TAIL of the current user turn instead (see appendTurnHint below) so the
+      // cached [system + history] prefix stays byte-identical between turns.
+      const turnHintParts: string[] = [];
       if (lastInputTokens > 0) {
         const ratio = lastInputTokens / contextLimit;
         // Shared cadence rule for the WARNING/CRITICAL tiers: the AI
@@ -588,16 +614,16 @@ async function streamConversation(
           // conditional, so it doesn't need the cadence rule.
           pressureHint = '**Context note:** Window is ' + Math.round(ratio * 100) + '% full. If the user switches topics or you sense a natural break, gently suggest starting a new chat. No need to force it.';
         }
-        if (pressureHint) systemBlocks.push({ type: 'text', text: pressureHint });
+        if (pressureHint) turnHintParts.push(pressureHint);
       }
 
-      // Editor state — tell the AI what the user is currently editing.
-      // Uncached (fresh per turn) because it changes with every message.
+      // Editor state — tell the AI what the user is currently editing. Changes
+      // with every message, hence the tail (not the cached system prompt).
       // Content is NOT included — the AI reads/writes via the
       // get_current_editor / edit_current_editor tools, which round-
       // trip to the frontend for a live answer.
       if (editorState?.is_open) {
-        const editorHint =
+        turnHintParts.push(
           `**Editor state:** The user currently has a note open in edit mode:\n` +
           `- note_id: ${editorState.note_id}\n` +
           `- nook_id: ${editorState.nook_id}\n` +
@@ -606,12 +632,17 @@ async function streamConversation(
           `- chars: ${editorState.chars}\n\n` +
           `Use get_current_editor / get_current_editor_toc / get_current_editor_part to read the LIVE (in-browser, possibly-unsaved) content. ` +
           `Prefer edit_current_editor over edit_note when editing THIS note — direct disk edits would race with the user's typing. ` +
-          `For any other note, use the disk tools (get_note / edit_note) as usual.`;
-        systemBlocks.push({ type: 'text', text: editorHint });
+          `For any other note, use the disk tools (get_note / edit_note) as usual.`,
+        );
       }
 
-      // Add cache breakpoint to last message for conversation history caching
-      const cachedMsgs = addCacheBreakpoint(msgs);
+      const turnHint = turnHintParts.length
+        ? `[SYSTEM CONTEXT for this turn — guidance only, not written by the user; don't quote it back]\n\n${turnHintParts.join('\n\n')}`
+        : '';
+
+      // Cache breakpoint on the persisted history tail, THEN append the
+      // volatile per-turn hint after it (uncached, unpersisted).
+      const cachedMsgs = appendTurnHint(addCacheBreakpoint(msgs), turnHint);
 
       type StoredBlock = Anthropic.TextBlockParam | Anthropic.ToolUseBlockParam;
       const contentBlocks: StoredBlock[] = [];
