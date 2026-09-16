@@ -190,6 +190,23 @@ const CORE_TOOLS: Anthropic.Tool[] = [
     },
   },
   {
+    name: 'search_notes_batch',
+    description: 'Run SEVERAL keyword searches in the current nook AT ONCE and get back one deduped, ranked list. This is your FIRST move for any broad, fuzzy, or "not sure of the exact wording" lookup — cast a wide net, then narrow. Pass 3-8 angles on the same information need (synonyms, related concepts, parent/child terms, likely phrasings, key entities). Each returned note carries `matched_queries` + `match_count`, so notes hit by multiple angles rank first (strong candidates) while single-angle hits are still surfaced. The response also lists per-query hit counts so you can see which wording worked. Then get_note the winners (parallelize).\n\nThis replaces the slow narrow→miss→widen→miss→widen loop with one broad sweep. Same lean result shape as search_notes (id, nook_id, title, type_id, version, content_chars) plus aggregated heading_matches. For a single precise query, or when you already know the exact title/id, use search_notes/get_note instead.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        queries: {
+          type: 'array',
+          items: { type: 'string' },
+          description: '3-8 search phrases / angles on the same need (synonyms, related terms, alternate phrasings, key entities). Run in parallel server-side — far fewer round-trips than issuing them one at a time.',
+        },
+        type_id: { type: 'string', description: 'Optional note type id or key (or "all") to constrain every query.' },
+        search_mode: { type: 'string', enum: ['and', 'or'], description: 'How to combine words within each query. Default: "and".' },
+      },
+      required: ['queries'],
+    },
+  },
+  {
     name: 'start_new_chat',
     description: 'Propose starting a new chat with a pre-filled first message. The user will be asked to confirm. Use this when the conversation should move to a fresh context — e.g. topic switch, context window pressure, or wrapping up. The message should contain relevant context/summary for the new chat to pick up where this one leaves off.',
     input_schema: {
@@ -438,7 +455,7 @@ const CORE_TOOLS: Anthropic.Tool[] = [
   // ── Search agent (sub-agent with own context window) ──
   {
     name: 'search_agent',
-    description: 'Delegate a research task to a search agent that runs in its own context window. The agent searches and reads notes in the current nook and user memories — the user will be asked to approve before it runs. It returns ranked results with relevant excerpts, keeping this conversation\'s context clean.\n\n**When to reach for this (don\'t under-use it):**\n• The question spans more than 2-3 notes (e.g. "summarise everything I know about X", "find patterns across my meeting notes").\n• Initial search_notes attempts with 2-3 different phrasings returned nothing useful and you\'re tempted to give up — let the agent try harder in its own context.\n• The topic is fuzzy or exploratory ("what have I been working on lately", "find any references to Y") rather than a specific lookup.\n• You\'d otherwise need to get_note on 4+ candidates to triage them — the agent does that triage without polluting this conversation.\n\nFor simple single-note lookups or when you already know the exact title/id, prefer search_notes/get_note directly. Always tell the user what you\'re about to search for and that the agent will search their notes.',
+    description: 'Delegate a research task to a search agent that runs in its own context window. The agent searches and reads notes in the current nook and user memories — the user will be asked to approve before it runs, unless this nook is set to auto-approve reads (then it runs immediately). It returns ranked results with relevant excerpts, keeping this conversation\'s context clean.\n\n**When to reach for this (don\'t under-use it):**\n• The question spans more than 2-3 notes (e.g. "summarise everything I know about X", "find patterns across my meeting notes").\n• Initial search_notes attempts with 2-3 different phrasings returned nothing useful and you\'re tempted to give up — let the agent try harder in its own context.\n• The topic is fuzzy or exploratory ("what have I been working on lately", "find any references to Y") rather than a specific lookup.\n• You\'d otherwise need to get_note on 4+ candidates to triage them — the agent does that triage without polluting this conversation.\n\nFor simple single-note lookups or when you already know the exact title/id, prefer search_notes/get_note directly. Always tell the user what you\'re about to search for and that the agent will search their notes.',
     input_schema: {
       type: 'object',
       properties: {
@@ -822,6 +839,69 @@ export async function executeTool(
       if (input.sort) params.set('sort', String(input.sort));
       if (input.cursor) params.set('cursor', String(input.cursor));
       return JSON.stringify(await api('GET', `/api/nooks/${nookId}/notes?${params.toString()}`));
+    }
+
+    case 'search_notes_batch': {
+      const rawQueries = Array.isArray(input.queries) ? input.queries : [];
+      // Dedupe + cap: a handful of angles is the point; guard against a runaway
+      // fan-out. Order preserved so per-query hit counts line up with the input.
+      const queries = Array.from(
+        new Set(rawQueries.map((q) => String(q).trim()).filter((q) => q !== '')),
+      ).slice(0, 8);
+      if (queries.length === 0) {
+        return JSON.stringify({ error: 'queries must be a non-empty array of search strings' });
+      }
+      const typeId = String(input.type_id ?? '');
+      const searchMode = input.search_mode ? String(input.search_mode) : '';
+      const runOne = async (q: string) => {
+        const params = new URLSearchParams();
+        params.set('q', q);
+        if (typeId !== '' && typeId !== 'all') {
+          params.set('type_id', typeId);
+          params.set('include_subtypes', '1');
+        }
+        if (searchMode) params.set('search_mode', searchMode);
+        const res = (await api('GET', `/api/nooks/${nookId}/notes?${params.toString()}`)) as {
+          notes?: Array<Record<string, unknown>>;
+          heading_matches?: Array<Record<string, unknown>>;
+        };
+        return { q, notes: res.notes ?? [], headingMatches: res.heading_matches ?? [] };
+      };
+      const perQuery = await Promise.all(queries.map(runOne));
+
+      // Dedupe notes by id and record which query angles hit each, so notes
+      // matched by several angles (stronger candidates) rank first.
+      const byId = new Map<string, { note: Record<string, unknown>; matched: string[] }>();
+      for (const { q, notes } of perQuery) {
+        for (const n of notes) {
+          const id = String((n as { id?: unknown }).id ?? '');
+          if (!id) continue;
+          const entry = byId.get(id);
+          if (entry) entry.matched.push(q);
+          else byId.set(id, { note: n, matched: [q] });
+        }
+      }
+      const notes = Array.from(byId.values())
+        .map(({ note, matched }) => ({ ...note, matched_queries: matched, match_count: matched.length }))
+        .sort((a, b) => b.match_count - a.match_count);
+
+      // Aggregate heading matches, deduped by note + position.
+      const seen = new Set<string>();
+      const headingMatches: Array<Record<string, unknown>> = [];
+      for (const { headingMatches: hms } of perQuery) {
+        for (const h of hms) {
+          const key = `${(h as { note_id?: unknown }).note_id}:${(h as { position?: unknown }).position}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          headingMatches.push(h);
+        }
+      }
+      return JSON.stringify({
+        queries: perQuery.map((p) => ({ query: p.q, hits: p.notes.length })),
+        total_unique: notes.length,
+        notes,
+        heading_matches: headingMatches,
+      });
     }
 
     case 'start_new_chat': {

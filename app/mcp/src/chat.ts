@@ -147,6 +147,20 @@ const MODEL_CONTEXT_LIMITS: Record<string, number> = {
 // direction (more, not less, "new chat" pressure) if the model actually
 // has a smaller window than we assume.
 const DEFAULT_CONTEXT_LIMIT = 200_000;
+
+// Operator override (CHAT_CONTEXT_LIMIT) for when ANTHROPIC_BASE_URL points
+// at a proxy — e.g. LiteLLM in front of a local model — whose real window
+// differs from what the Claude model name implies. Applies to every model.
+export function parseContextLimit(raw: string | undefined): number | undefined {
+  const trimmed = raw?.trim();
+  if (!trimmed) return undefined;
+  const n = Number(trimmed);
+  return Number.isInteger(n) && n > 0 ? n : undefined;
+}
+
+export function contextLimitFor(model: string, override = process.env.CHAT_CONTEXT_LIMIT): number {
+  return parseContextLimit(override) ?? MODEL_CONTEXT_LIMITS[model] ?? DEFAULT_CONTEXT_LIMIT;
+}
 // Pressure thresholds for 1M-context models. We pay for the big window
 // but proactively steer toward new chats — users generally prefer fresh
 // context per topic, and the AI's memory tool + save-conversation-to-note
@@ -339,18 +353,77 @@ async function resolveDisplayNames(
 
 // ─── Auto-execution helpers ───────────────────────────────────────────────────
 
-function isAutoExecutable(toolName: string, input?: Record<string, unknown>, instructionNoteIds?: Set<string>): boolean {
+// Tools that still prompt by default, but auto-execute when the nook owner set
+// ai_mode = 'auto_reads'. Scoped to the current nook only (a read aimed at
+// another nook still prompts — it may be stricter/disabled). UI side effects
+// (open_note) and every write stay gated. search_agent is included: it is
+// read-only and current-nook-scoped (it strips nook_id and can't search other
+// nooks), so "trust reads on this nook" covers it — it just runs a sub-agent
+// (extra inference, negligible on self-hosted models). Always-auto read
+// primitives are already covered by ALWAYS_AUTO_TOOLS.
+const AUTO_READS_TOOLS = new Set([
+  'get_note',
+  'get_note_history',
+  'get_note_version',
+  'compare_note_versions',
+  'get_note_summary',
+  'get_note_section',
+  'read_note_lines',
+  'search_notes',
+  'search_notes_batch',
+  'explore_notes',
+  'search_agent',
+]);
+
+// Writes whose effects can depend on each other within one turn — e.g. create a
+// note then link to it, or edit two notes that link to each other. Running them
+// in parallel races: a dependent call can hit the DB before the call it relies
+// on has committed ("note not found"). These execute SEQUENTIALLY in the order
+// the model emitted them; every other tool (reads, search_agent) still fans out.
+const ORDER_SENSITIVE_WRITE_TOOLS = new Set([
+  'create_note',
+  'update_note',
+  'delete_note',
+  'edit_note',
+  'edit_note_agent',
+  'create_note_link',
+  'delete_note_link',
+  'create_note_type',
+  'update_note_type',
+  'generate_image',
+  'memory_create',
+  'memory_update',
+]);
+
+export function isAutoExecutable(
+  toolName: string,
+  input?: Record<string, unknown>,
+  instructionNoteIds?: Set<string>,
+  aiMode?: string,
+  currentNookId?: string,
+): boolean {
   // Frontend-executed tools are never auto-executed on MCP — they need
   // to be dispatched back to the browser. Explicit false so we don't
   // accidentally add one to ALWAYS_AUTO_TOOLS and end up trying to
   // execute it here.
   if (FRONTEND_TOOLS.has(toolName)) return false;
   if (ALWAYS_AUTO_TOOLS.has(toolName)) return true;
-  // get_note is auto-approved for AI instruction notes and search_all_nooks
+  // get_note is auto-approved only for AI instruction / handbook notes.
   if (toolName === 'get_note' && instructionNoteIds && typeof input?.note_id === 'string') {
     if (instructionNoteIds.has(input.note_id)) return true;
   }
-  if (toolName === 'search_all_nooks') return true;
+  // Cross-nook interactions (search_all_nooks) ALWAYS require human approval —
+  // even under auto_reads. The user consented to reads on *this* nook, not to
+  // the AI reaching across nook boundaries into others.
+  // Owner set this nook to auto-approve reads: run read-only tools scoped to
+  // THIS nook without an approval card. A read targeting a different nook still
+  // prompts (that nook may be stricter or disabled).
+  if (aiMode === 'auto_reads' && AUTO_READS_TOOLS.has(toolName)) {
+    const target = typeof input?.nook_id === 'string' && input.nook_id.trim() !== ''
+      ? input.nook_id.trim()
+      : currentNookId;
+    if (target !== undefined && target === currentNookId) return true;
+  }
   return false;
 }
 
@@ -421,6 +494,25 @@ function addCacheBreakpoint(msgs: Anthropic.MessageParam[]): Anthropic.MessagePa
   return [...msgs.slice(0, lastIdx), { ...lastMsg, content }];
 }
 
+// Append per-turn context (window-pressure nudge, editor state) to the LAST
+// message as a trailing text block. Call AFTER addCacheBreakpoint so the hint
+// lands past the cache breakpoint: the cached [system + history] prefix stays
+// byte-identical between turns, and only this small tail (plus the reply) falls
+// outside the cache — instead of every per-turn change invalidating the whole
+// conversation from the system prompt onward. Not persisted (operates on the
+// outgoing copy). No-op if there's no hint or the tail isn't a user turn.
+export function appendTurnHint(msgs: Anthropic.MessageParam[], hint: string): Anthropic.MessageParam[] {
+  if (!hint || msgs.length === 0) return msgs;
+  const lastIdx = msgs.length - 1;
+  const lastMsg = msgs[lastIdx];
+  if (lastMsg.role !== 'user') return msgs;
+  const content = Array.isArray(lastMsg.content)
+    ? [...lastMsg.content]
+    : [{ type: 'text' as const, text: String(lastMsg.content) }];
+  content.push({ type: 'text', text: hint });
+  return [...msgs.slice(0, lastIdx), { ...lastMsg, content }];
+}
+
 // ─── Core streaming function ─────────────────────────────────────────────────
 
 async function streamConversation(
@@ -460,13 +552,14 @@ async function streamConversation(
   // Resolve nook name, role, instruction notes, and handbook in parallel
   let nookName = '';
   let nookRole = '';
+  let nookAiMode = '';
   let nookInstructions: InstructionNote[] = [];
   let memoryNotes: InstructionNote[] = [];
   let handbookNookId: string | null = null;
   let handbookNotes: InstructionNote[] = [];
 
   const [nooksData] = await Promise.all([
-    phpApi('GET', '/api/nooks', cookie, apiBase).catch(() => null) as Promise<{ nooks?: Array<{ id: string; name: string; role: string }> } | null>,
+    phpApi('GET', '/api/nooks', cookie, apiBase).catch(() => null) as Promise<{ nooks?: Array<{ id: string; name: string; role: string; ai_mode?: string }> } | null>,
     fetchInstructionNotes(nookId, cookie, apiBase).then(r => { nookInstructions = r; }),
     memoryNookId ? fetchMemoryInstructionNotes(memoryNookId, cookie, apiBase).then(r => { memoryNotes = r; }) : Promise.resolve(),
     resolveHandbookNookId(cookie, apiBase).then(async (id) => {
@@ -479,10 +572,11 @@ async function streamConversation(
     const found = nooksData.nooks.find(n => n.id === nookId);
     nookName = found?.name ?? '';
     nookRole = found?.role ?? '';
+    nookAiMode = found?.ai_mode ?? '';
   }
 
-  const baseSystemPrompt = buildSystemPrompt(nookId, nookName, nookRole, memoryNookId, nookInstructions, memoryNotes, handbookNookId, handbookNotes, !!voice);
-  const contextLimit = MODEL_CONTEXT_LIMITS[model] ?? DEFAULT_CONTEXT_LIMIT;
+  const baseSystemPrompt = buildSystemPrompt(nookId, nookName, nookRole, memoryNookId, nookInstructions, memoryNotes, handbookNookId, handbookNotes, !!voice, nookAiMode);
+  const contextLimit = contextLimitFor(model);
 
   // IDs of instruction notes that can be auto-read without user approval
   const instructionNoteIds = new Set([
@@ -501,10 +595,17 @@ async function streamConversation(
 
   try {
     for (let depth = 0; depth <= MAX_AUTO_DEPTH; depth++) {
-      // Build system blocks — base prompt is cached, pressure hint is a separate uncached block
+      // The system prompt is a STABLE cached prefix — nothing per-turn goes
+      // here. System precedes every message, so a per-turn edit here would
+      // invalidate the KV/prompt cache for the ENTIRE conversation each turn.
       const systemBlocks: Anthropic.TextBlockParam[] = [
         { type: 'text', text: baseSystemPrompt, cache_control: { type: 'ephemeral' } },
       ];
+
+      // Per-turn context (window-pressure nudge + editor state) rides on the
+      // TAIL of the current user turn instead (see appendTurnHint below) so the
+      // cached [system + history] prefix stays byte-identical between turns.
+      const turnHintParts: string[] = [];
       if (lastInputTokens > 0) {
         const ratio = lastInputTokens / contextLimit;
         // Shared cadence rule for the WARNING/CRITICAL tiers: the AI
@@ -533,16 +634,16 @@ async function streamConversation(
           // conditional, so it doesn't need the cadence rule.
           pressureHint = '**Context note:** Window is ' + Math.round(ratio * 100) + '% full. If the user switches topics or you sense a natural break, gently suggest starting a new chat. No need to force it.';
         }
-        if (pressureHint) systemBlocks.push({ type: 'text', text: pressureHint });
+        if (pressureHint) turnHintParts.push(pressureHint);
       }
 
-      // Editor state — tell the AI what the user is currently editing.
-      // Uncached (fresh per turn) because it changes with every message.
+      // Editor state — tell the AI what the user is currently editing. Changes
+      // with every message, hence the tail (not the cached system prompt).
       // Content is NOT included — the AI reads/writes via the
       // get_current_editor / edit_current_editor tools, which round-
       // trip to the frontend for a live answer.
       if (editorState?.is_open) {
-        const editorHint =
+        turnHintParts.push(
           `**Editor state:** The user currently has a note open in edit mode:\n` +
           `- note_id: ${editorState.note_id}\n` +
           `- nook_id: ${editorState.nook_id}\n` +
@@ -551,12 +652,17 @@ async function streamConversation(
           `- chars: ${editorState.chars}\n\n` +
           `Use get_current_editor / get_current_editor_toc / get_current_editor_part to read the LIVE (in-browser, possibly-unsaved) content. ` +
           `Prefer edit_current_editor over edit_note when editing THIS note — direct disk edits would race with the user's typing. ` +
-          `For any other note, use the disk tools (get_note / edit_note) as usual.`;
-        systemBlocks.push({ type: 'text', text: editorHint });
+          `For any other note, use the disk tools (get_note / edit_note) as usual.`,
+        );
       }
 
-      // Add cache breakpoint to last message for conversation history caching
-      const cachedMsgs = addCacheBreakpoint(msgs);
+      const turnHint = turnHintParts.length
+        ? `[SYSTEM CONTEXT for this turn — guidance only, not written by the user; don't quote it back]\n\n${turnHintParts.join('\n\n')}`
+        : '';
+
+      // Cache breakpoint on the persisted history tail, THEN append the
+      // volatile per-turn hint after it (uncached, unpersisted).
+      const cachedMsgs = appendTurnHint(addCacheBreakpoint(msgs), turnHint);
 
       type StoredBlock = Anthropic.TextBlockParam | Anthropic.ToolUseBlockParam;
       const contentBlocks: StoredBlock[] = [];
@@ -656,7 +762,32 @@ async function streamConversation(
         }
 
         if (event.type === 'message_delta') {
-          outputTokens += (event as unknown as { usage?: { output_tokens?: number } }).usage?.output_tokens ?? 0;
+          // message_delta usage is cumulative for the whole message. Anthropic
+          // already sent input/cache counts in message_start, but proxies like
+          // LiteLLM send zeros there and only know the real counts here.
+          const usage = event.usage;
+          outputTokens = usage.output_tokens ?? outputTokens;
+          if (usage.input_tokens != null && usage.input_tokens > 0) {
+            inputTokens = usage.input_tokens;
+            lastInputTokens = inputTokens;
+          }
+          cacheCreationTokens = usage.cache_creation_input_tokens ?? cacheCreationTokens;
+          cacheReadTokens = usage.cache_read_input_tokens ?? cacheReadTokens;
+
+          // Per-round-trip usage so the UI can show tokens per assistant
+          // message and keep a running conversation total. Fires for every
+          // turn (tool_use round-trips included), not only the final one —
+          // the `done` event alone would drop every intermediate call.
+          sse(res, 'turn_usage', {
+            usage: {
+              input_tokens: inputTokens,
+              output_tokens: outputTokens,
+              cache_creation_input_tokens: cacheCreationTokens,
+              cache_read_input_tokens: cacheReadTokens,
+              context_limit: contextLimitFor(model),
+            },
+          });
+
           const stopReason = event.delta.stop_reason;
 
           const savedAssistantTurns = await saveMessages(
@@ -667,7 +798,7 @@ async function streamConversation(
           );
 
           if (stopReason === 'end_turn') {
-            const contextLimit = MODEL_CONTEXT_LIMITS[model] ?? DEFAULT_CONTEXT_LIMIT;
+            const contextLimit = contextLimitFor(model);
             const totalTokens = inputTokens + outputTokens;
             trailing.push({
               event: 'done',
@@ -698,7 +829,7 @@ async function streamConversation(
               input: t.input as Record<string, unknown>,
             }));
 
-            if (toolsPayload.every(t => isAutoExecutable(t.name, t.input, instructionNoteIds))) {
+            if (toolsPayload.every(t => isAutoExecutable(t.name, t.input, instructionNoteIds, nookAiMode, nookId))) {
               // Auto-execute all tools, loop for next AI turn. Capped at
               // TOOL_CONCURRENCY in-flight to avoid saturating PHP workers.
               const assistantBlocks = savedAssistantTurns[0]?.blocks ?? [];
@@ -1056,12 +1187,12 @@ export function createChatRouter(apiBase: string): Router {
         return searchAgentCtx;
       };
 
-      // Execute approved tools with bounded concurrency so a 5-way fan-out
-      // doesn't saturate FrankenPHP workers + Postgres connections.
-      const resultBlocks: Anthropic.ToolResultBlockParam[] = await mapWithConcurrency(
-        tool_results,
-        TOOL_CONCURRENCY,
-        async (tr): Promise<Anthropic.ToolResultBlockParam> => {
+      // Execute approved tools. Reads fan out (bounded so a 5-way fan-out
+      // doesn't saturate FrankenPHP workers + Postgres); order-sensitive writes
+      // run sequentially in the order the model emitted them, so a create→link
+      // (or edits + links on related notes) can't race with what it depends on.
+      // Results are placed back by index, so tool_result order is preserved.
+      const execApprovedTool = async (tr: ToolResult): Promise<Anthropic.ToolResultBlockParam> => {
           if (!tr.approved) {
             return { type: 'tool_result', tool_use_id: tr.tool_use_id, content: 'User denied this action.' };
           }
@@ -1124,8 +1255,22 @@ export function createChatRouter(apiBase: string): Router {
               is_error: true,
             };
           }
-        },
-      );
+      };
+
+      const resultBlocks: Anthropic.ToolResultBlockParam[] = new Array(tool_results.length);
+      const readIdx: number[] = [];
+      const writeIdx: number[] = [];
+      tool_results.forEach((tr, i) => {
+        (ORDER_SENSITIVE_WRITE_TOOLS.has(tr.tool_name) ? writeIdx : readIdx).push(i);
+      });
+      // Reads fan out…
+      await mapWithConcurrency(readIdx, TOOL_CONCURRENCY, async (i) => {
+        resultBlocks[i] = await execApprovedTool(tool_results[i]);
+      });
+      // …order-sensitive writes run strictly in the model's emitted order.
+      for (const i of writeIdx) {
+        resultBlocks[i] = await execApprovedTool(tool_results[i]);
+      }
 
       // Save tool results as a user message
       const toolResultMessage: Anthropic.MessageParam = { role: 'user', content: resultBlocks };

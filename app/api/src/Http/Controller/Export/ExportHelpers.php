@@ -133,9 +133,6 @@ final class ExportHelpers
         }
 
         if (is_array($data)) {
-            if (empty($data)) {
-                return "{}\n";
-            }
             $out = '';
             $pad = str_repeat('  ', $indent);
             foreach ($data as $key => $value) {

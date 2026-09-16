@@ -145,6 +145,10 @@ services:
   #     API_BASE_URL: http://app:8000
   #     MCP_SERVER_URL: ${MCP_SERVER_URL:-}
   #     ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+  #     # Optional Anthropic-compatible proxy (e.g. LiteLLM). Empty => api.anthropic.com.
+  #     ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-}
+  #     # Real context window of the proxied model (tokens). Unset => per-model defaults.
+  #     CHAT_CONTEXT_LIMIT: ${CHAT_CONTEXT_LIMIT:-}
   #     # Set VOICE_PROVIDER=openai to use OpenAI TTS instead of the local
   #     # voice container. Skips the voice service entirely from this stack.
   #     VOICE_PROVIDER: ${VOICE_PROVIDER:-local}

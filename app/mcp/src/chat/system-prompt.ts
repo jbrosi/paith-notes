@@ -26,8 +26,17 @@ export function buildSystemPrompt(
   handbookNookId?: string | null,
   handbookNotes?: InstructionNote[],
   voiceMode?: boolean,
+  aiMode?: string,
 ): string {
   const hasNook = nookId !== '';
+  // The nook owner's AI trust mode. In 'auto_reads' the MCP auto-executes
+  // read-only tools on this nook, so the prompt must not tell the model those
+  // reads need confirmation (it would otherwise announce approvals that never
+  // happen). Writes still require confirmation.
+  const approvalText =
+    aiMode === 'auto_reads'
+      ? `**Tool approval:** This nook's owner set AI trust to "auto-approve reads" — so read-only tools on THIS nook (get_note, search_notes, search_notes_batch, explore_notes, get_note_history, get_note_version, compare_note_versions, get_note_summary, get_note_section, read_note_lines, the **search_agent** research sub-agent, plus get_note_mentions, list_note_types, list_type_attributes, list_link_predicates, and all memory_* tools) run without asking. Don't say you'll "ask permission" to read — just read what you need. Because research is free here, prefer the search_agent for anything spanning several notes or that's fuzzy/exploratory, instead of grinding through many manual searches. Writes and structural changes (create_note, update_note, delete_note, create_note_link, open_note, create_note_type, update_note_type, edit_note) STILL require user confirmation. Reads targeting a DIFFERENT nook, and any cross-nook tool (search_all_nooks), also still prompt.`
+      : `**Tool approval:** The following tools auto-execute without user approval: get_note_mentions, list_note_types, list_type_attributes, list_link_predicates, and all memory_* tools (memory_search, memory_get, memory_create, memory_update). All other tools (get_note, create_note, update_note, delete_note, create_note_link, open_note, create_note_type, update_note_type, search_agent, and the cross-nook search_all_nooks) require user confirmation.`;
   const nookDisplay = hasNook
     ? (nookName ? `"${nookName}" (${nookId})` : `"${nookId}"`)
     : '(none — the user has not selected a nook)';
@@ -75,16 +84,20 @@ Speaker attribution: user messages may include a \`[spoken by <name> (confidence
 
 **Reading budget:** search results include \`content_chars\` per note. Small notes (≤2000 chars) are cheap to get_note in full. Big notes (>10000 chars) burn context — pick the cheapest tool that answers the question: \`get_note_toc\` (auto-approved, zero-cost) shows the heading skeleton so you can see what's in there at a glance; \`read_note_lines\` peeks a specific line range; \`get_note_section(note_id, position)\` reads one chunk between adjacent headings (positions come from get_note_toc). Only get_note the whole body when you actually need every part.
 
-**search_agent:** When the topic is broad or your initial search_notes attempts came back empty, reach for the search agent. It runs in its own context window, can search and read notes across all accessible nooks, and returns ranked results with relevant excerpts — keeping this conversation's context clean. The user must approve before it runs. Always tell the user what you're about to search for before calling it. Use it for:
+**search_agent:** When the topic is broad or your initial search_notes attempts came back empty, reach for the search agent. It runs in its own context window, searches and reads notes in the current nook (plus your memory), and returns ranked results with relevant excerpts — keeping this conversation's context clean. (It does NOT reach into other nooks; if it suspects another nook is relevant it says so in its summary.) The user must approve before it runs. Always tell the user what you're about to search for before calling it. Use it for:
 - Broad research questions ("find everything about X")
 - Questions that may require reading multiple notes to synthesize an answer
 - When 2-3 search_notes attempts with alternate phrasings haven't found what the user asked for — let the agent try harder in its own context instead of giving up
 - When context usage is high and you need to search
 For simple, targeted lookups (one search + one note read), use search_notes/get_note directly — the search agent adds overhead for trivial queries.
 
-**Tool approval:** The following tools auto-execute without user approval: get_note_mentions, list_note_types, list_type_attributes, list_link_predicates, and all memory_* tools (memory_search, memory_get, memory_create, memory_update). All other tools (get_note, create_note, update_note, delete_note, create_note_link, open_note, create_note_type, update_note_type, search_agent) require user confirmation.
+${approvalText}
 
-**Mermaid diagrams:** Both note content and your chat responses support mermaid diagrams via fenced code blocks (\`\`\`mermaid). Use them when visualizing relationships, flows, timelines, or architectures would help the user. The UI renders them as interactive SVGs.`,
+**Mermaid diagrams:** Both note content and your chat responses support mermaid diagrams via fenced code blocks (\`\`\`mermaid). Use them when visualizing relationships, flows, timelines, or architectures would help the user. The UI renders them as interactive SVGs.
+
+**Inline embeds in your chat replies:** your messages render the same embeds notes do — use them instead of describing what the user could look at.
+• **Interactive relationship graph** — emit \`![caption](graph:?root=<noteId>&depth=<1-5>&types=<typeUuid,typeUuid>&preds=<predicateUuid,predicateUuid>)\`. It renders a live, filtered graph inline (requires a nook to be open). \`root\` is the note the graph centers on (required); \`depth\` is how many hops out; \`types\` filters to those note-type UUIDs (from list_note_types); \`preds\` filters to those predicate UUIDs (from list_link_predicates); optional \`hide=<noteId,...>\` and \`layout\`. This is the tool for "show all X related to Y, filtered by Z" — build the filters from the UUIDs you looked up, don't guess them. If no nook is open it degrades to a "Graph view" link.
+• **Image / file note** — emit \`![alt](note:<noteId>)\` to render an embedded image inline (e.g. an uploaded portrait or a generated_image note). For a note in a different nook use \`![alt](note:<nookId>/<noteId>)\`. For non-image notes, link them with \`[[note:<noteId>]]\` (renders as a clickable, hover-previewed link) rather than an image embed.`,
     memoryNookId
       ? `**AI Memory:** You have a personal memory nook for this user (ID: ${memoryNookId}). Use the memory_* tools (memory_search, memory_get, memory_create, memory_update) to store and retrieve knowledge about the user — preferences, facts, communication style, corrections, project context. These are auto-approved and persist across all nooks and conversations.
 

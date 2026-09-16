@@ -33,7 +33,15 @@ const MODELS = [
 	{ value: "claude-haiku-4-5-20251001", label: "Haiku 4.5" },
 ];
 
-type ContextUsage = { ratio: number; level: "" | "warning" | "critical" };
+type ContextUsage = {
+	ratio: number;
+	level: "" | "warning" | "critical";
+	tokens?: number;
+	limit?: number;
+	approx?: boolean;
+};
+const fmtCtxTokens = (n: number) =>
+	n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
 
 // Voice is multilingual end-to-end: Whisper auto-detects the input
 // language, Claude replies in the same language, and the TTS engine
@@ -340,11 +348,27 @@ export function ChatInput(props: Props) {
 									: "var(--color-text-faint, #ccc)";
 						const circumference = 50.27;
 						const offset = () => circumference * (1 - usage().ratio);
+						// Absolute "<used>/<limit>" label + tooltip. `~` marks a pre-send
+						// estimate for a reopened conversation; it snaps to the exact
+						// count after the first message.
+						const approxMark = () => (usage().approx ? "~" : "");
+						const tokenLabel = () => {
+							const u = usage();
+							if (u.tokens == null || u.limit == null) return null;
+							return `${approxMark()}${fmtCtxTokens(u.tokens)}/${fmtCtxTokens(u.limit)}`;
+						};
+						const title = () => {
+							const u = usage();
+							const base =
+								u.tokens != null && u.limit != null
+									? `Context window: ${approxMark()}${fmtCtxTokens(u.tokens)} / ${fmtCtxTokens(u.limit)} tokens (${pct()}%)`
+									: `Context window: ${pct()}% used`;
+							return u.approx
+								? `${base} — estimated until your next message`
+								: base;
+						};
 						return (
-							<div
-								class={styles.contextIndicator}
-								title={`Context window: ${pct()}% used`}
-							>
+							<div class={styles.contextIndicator} title={title()}>
 								<svg
 									width="14"
 									height="14"
@@ -376,7 +400,9 @@ export function ChatInput(props: Props) {
 										}}
 									/>
 								</svg>
-								<span style={{ color: color() }}>{pct()}%</span>
+								<span style={{ color: color() }}>
+									{tokenLabel() ?? `${pct()}%`}
+								</span>
 							</div>
 						);
 					})()}
