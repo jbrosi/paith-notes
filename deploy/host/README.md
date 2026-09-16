@@ -132,6 +132,8 @@ Uncomment the `mcp` service in `docker-compose.yml`, then set in `.env`:
 MCP_IMAGE=ghcr.io/jbrosi/paith-notes/mcp:latest
 MCP_SERVER_URL=https://notes.example.com
 ANTHROPIC_API_KEY=sk-ant-...
+# Optional: Anthropic-compatible proxy such as LiteLLM (unset => api.anthropic.com)
+# ANTHROPIC_BASE_URL=http://litellm:4000
 ```
 
 `API_BASE_URL` is already set to `http://app:8000` in the compose file and does not need to change.

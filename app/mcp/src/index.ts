@@ -4,7 +4,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { initAuth, extractToken, unauthorized, getIssuer } from './auth.js';
 import { registerTools } from './tools.js';
-import { createChatRouter } from './chat.js';
+import { createChatRouter, parseContextLimit } from './chat.js';
 
 // Force IPv4-first DNS resolution. node:22's native fetch (undici)
 // prefers IPv6 and hangs when the Docker bridge network has no working
@@ -19,6 +19,8 @@ const {
   API_BASE_URL,
   MCP_SERVER_URL,
   ANTHROPIC_API_KEY,
+  ANTHROPIC_BASE_URL,
+  CHAT_CONTEXT_LIMIT,
   PORT = '3000',
 } = process.env;
 
@@ -28,6 +30,26 @@ if (!KEYCLOAK_BASE_URL || !KEYCLOAK_REALM || !API_BASE_URL || !MCP_SERVER_URL) {
 }
 if (!ANTHROPIC_API_KEY) {
   console.warn('Warning: ANTHROPIC_API_KEY not set — /chat endpoints will not work');
+}
+// The Anthropic SDK reads ANTHROPIC_BASE_URL itself; log it so a proxy
+// override (e.g. LiteLLM) is obvious in the container logs, and flag a
+// value without an http(s):// scheme — the SDK can't build request URLs
+// from it, so every chat request would fail.
+const anthropicBaseUrl = ANTHROPIC_BASE_URL?.trim();
+if (anthropicBaseUrl) {
+  if (/^https?:\/\//i.test(anthropicBaseUrl) && URL.canParse(anthropicBaseUrl)) {
+    console.log(`Anthropic API base URL overridden: ${anthropicBaseUrl}`);
+  } else {
+    console.warn(`Warning: ANTHROPIC_BASE_URL "${anthropicBaseUrl}" is not an http(s):// URL — /chat endpoints will not work`);
+  }
+}
+if (CHAT_CONTEXT_LIMIT?.trim()) {
+  const limit = parseContextLimit(CHAT_CONTEXT_LIMIT);
+  if (limit) {
+    console.log(`Chat context limit overridden: ${limit} tokens`);
+  } else {
+    console.warn(`Warning: CHAT_CONTEXT_LIMIT "${CHAT_CONTEXT_LIMIT.trim()}" is not a positive integer — using per-model limits`);
+  }
 }
 
 initAuth(KEYCLOAK_BASE_URL, KEYCLOAK_REALM);

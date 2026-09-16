@@ -6,6 +6,8 @@ services:
     # Secrets (ANTHROPIC_API_KEY) live outside the repo — never in /app.
     # Create ~/.config/paith/mcp.env with:
     #   ANTHROPIC_API_KEY=sk-ant-...
+    #   ANTHROPIC_BASE_URL=http://host.containers.internal:4000   # optional, e.g. LiteLLM
+    #   CHAT_CONTEXT_LIMIT=262144                                  # optional, proxied model's window
     # Alternatively, just export ANTHROPIC_API_KEY in your shell; the
     # ${VAR:-} substitutions below will pick it up without any file.
     env_file:
