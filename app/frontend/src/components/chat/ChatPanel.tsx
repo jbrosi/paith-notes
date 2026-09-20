@@ -1,5 +1,6 @@
 import {
 	type Accessor,
+	batch,
 	createEffect,
 	createResource,
 	createSignal,
@@ -7,6 +8,7 @@ import {
 	onCleanup,
 	Show,
 } from "solid-js";
+import { createStore } from "solid-js/store";
 import { useUi } from "../../ui/UiContext";
 import { ChatInput, type ThinkingLevel } from "./ChatInput";
 import {
@@ -416,7 +418,26 @@ export function ChatPanel(props: Props) {
 	// ── chat view state ──────────────────────────────────────
 	const [view, setView] = createSignal<"list" | "chat">("list");
 	const [activeTitle, setActiveTitle] = createSignal("");
-	const [messages, setMessages] = createSignal<ChatMessageData[]>([]);
+	// Messages live in a store (not a plain signal) so per-message fields
+	// (toolUses, usage, and the finalize patch) update by PATH — Solid mutates
+	// that element's proxy in place, keeping its reference stable. With a
+	// reference-keyed <For>, stable references mean the row's DOM is never
+	// re-created on a sub-update, which is what removes the "Thought" flicker.
+	// Wrapped in { list } so the `messages()` read API stays identical to the
+	// old signal; granular writes go through the setMessages* helpers below.
+	const [msgStore, setMsgStore] = createStore<{ list: ChatMessageData[] }>({
+		list: [],
+	});
+	const messages = () => msgStore.list;
+	// Replace the whole list (append user turn, clear, adopt server history).
+	const setMessages = (
+		next: ChatMessageData[] | ((prev: ChatMessageData[]) => ChatMessageData[]),
+	) => {
+		setMsgStore(
+			"list",
+			typeof next === "function" ? next(msgStore.list) : next,
+		);
+	};
 	const [conversationId, setConversationId] = createSignal<string | null>(null);
 	const [model, setModel] = createSignal("qwen3.8:27b-mtp-q4_K_M");
 	const [thinking, setThinking] = createSignal<ThinkingLevel>("off");
@@ -523,6 +544,86 @@ export function ChatPanel(props: Props) {
 			toolInputStreams.set(toolId, entry);
 		}
 		return entry.get;
+	};
+
+	// ── streaming text/thinking buffers ──────────────────────
+	// The in-flight assistant message's text + reasoning live in these
+	// signals, NOT in the messages array. Per-token deltas only touch the
+	// signal (so the last ChatMessage re-renders its text node in place);
+	// the messages array is rebuilt exactly once, at finalize. Rebuilding
+	// the array on every delta re-ran the whole <For> list + re-parsed
+	// Markdown per token — the source of the visible flicker.
+	const [streamText, setStreamText] = createSignal("");
+	const [streamThinking, setStreamThinking] = createSignal("");
+	// True while an in-flight assistant message occupies the LAST slot of the
+	// messages array. Text + reasoning stream into the signals above (per
+	// token, never touching the array); toolUses + usage update the store
+	// element by PATH via updateStreamingMsg. The last element is the SINGLE
+	// source of truth for the message object, and store-path writes mutate it
+	// in place — its reference stays stable, so the row never re-mounts.
+	const [streamingActive, setStreamingActive] = createSignal(false);
+
+	// Index of the in-flight assistant message (always the last element) if
+	// one is active and still marked streaming, else -1. All granular writes
+	// go through this so we match on position + flag, never a captured ref.
+	const streamingIdx = (): number => {
+		const list = msgStore.list;
+		const idx = list.length - 1;
+		const last = list[idx];
+		return last?.role === "assistant" &&
+			(last as { streaming?: boolean }).streaming
+			? idx
+			: -1;
+	};
+
+	// Append the in-flight assistant message once. Idempotent. Uses a path
+	// write (set index N) rather than replacing the whole array, so existing
+	// rows keep their proxy identity and only one new row is added.
+	const ensureStreamingAssistant = () => {
+		if (streamingActive()) return;
+		setStreamingActive(true);
+		setMsgStore("list", msgStore.list.length, {
+			role: "assistant",
+			text: "",
+			streaming: true,
+		} as unknown as ChatMessageData);
+	};
+
+	// Merge a partial patch into the in-flight assistant message by path. The
+	// store mutates that element's proxy in place (stable reference → no row
+	// re-mount). No-op if there's no active stream.
+	const updateStreamingMsg = (
+		patch: (msg: ChatMessageData) => Partial<ChatMessageData>,
+	) => {
+		const idx = streamingIdx();
+		if (idx === -1) return;
+		setMsgStore("list", idx, patch(msgStore.list[idx]) as Partial<ChatMessageData>);
+	};
+
+	// Bake the final text/thinking into the last message, mark it done, and
+	// clear the streaming buffers. Capture the buffer values BEFORE clearing
+	// them. Path-merge (not array replace) keeps the element reference stable,
+	// so finalize doesn't re-mount the row either — the streaming→done
+	// transition is flicker-free.
+	const finalizeAssistant = () => {
+		const finalText = streamText();
+		const finalThinking = streamThinking();
+		const idx = streamingIdx();
+		// Atomic: without batch, resetting streamText to "" before flipping the
+		// store's `streaming` flag leaves a frame where text() reads the empty
+		// live signal (streaming still true) → the bubble blinks empty. batch
+		// defers observers until the whole transition is applied.
+		batch(() => {
+			setStreamingActive(false);
+			setStreamText("");
+			setStreamThinking("");
+			if (idx === -1) return;
+			setMsgStore("list", idx, {
+				text: finalText,
+				thinking: finalThinking || undefined,
+				streaming: false,
+			} as Partial<ChatMessageData>);
+		});
 	};
 
 	let abortCtrl: AbortController | null = null;
@@ -700,62 +801,17 @@ export function ChatPanel(props: Props) {
 
 	// ── streaming helpers ────────────────────────────────────
 	const appendDelta = (delta: string) => {
-		setMessages((prev) => {
-			const last = prev[prev.length - 1];
-			if (
-				last?.role === "assistant" &&
-				(last as { streaming?: boolean }).streaming
-			) {
-				return [
-					...prev.slice(0, -1),
-					{
-						role: "assistant",
-						text: (last as { text: string }).text + delta,
-						toolUses: (last as { toolUses?: ToolUse[] }).toolUses,
-						// Preserve the streamed reasoning — without this the
-						// first text delta wipes the thinking bubble (it was
-						// set on this same message by the thinking_delta
-						// handler before any text arrived).
-						thinking: (last as { thinking?: string }).thinking,
-						streaming: true,
-					} as ChatMessageData,
-				];
-			}
-			return [
-				...prev,
-				{ role: "assistant", text: delta, streaming: true } as ChatMessageData,
-			];
-		});
+		ensureStreamingAssistant();
+		setStreamText((t) => t + delta);
 		scrollToBottom();
 	};
 
 	const addToolUseStart = (id: string, name: string) => {
-		setMessages((prev) => {
-			const last = prev[prev.length - 1];
-			const partial: ToolUse = { id, name, input: {}, progress: "running" };
-			if (last?.role === "assistant") {
-				return [
-					...prev.slice(0, -1),
-					{
-						role: "assistant",
-						text: (last as { text: string }).text,
-						toolUses: [
-							...((last as { toolUses?: ToolUse[] }).toolUses ?? []),
-							partial,
-						],
-						streaming: (last as { streaming?: boolean }).streaming,
-					} as ChatMessageData,
-				];
-			}
-			return [
-				...prev,
-				{
-					role: "assistant",
-					text: "",
-					toolUses: [partial],
-					streaming: true,
-				} as ChatMessageData,
-			];
+		const partial: ToolUse = { id, name, input: {}, progress: "running" };
+		ensureStreamingAssistant();
+		updateStreamingMsg((msg) => {
+			const existing = (msg as { toolUses?: ToolUse[] }).toolUses ?? [];
+			return { toolUses: [...existing, partial] };
 		});
 		scrollToBottom();
 	};
@@ -773,53 +829,18 @@ export function ChatPanel(props: Props) {
 
 	const addToolUse = (tool: ToolUse) => {
 		toolInputStreams.delete(tool.id);
-		setMessages((prev) => {
-			const last = prev[prev.length - 1];
-			if (last?.role === "assistant") {
-				const existing = (last as { toolUses?: ToolUse[] }).toolUses ?? [];
-				// Replace the partial placeholder if it exists, otherwise append
-				const idx = existing.findIndex((t) => t.id === tool.id);
-				const updated =
-					idx >= 0
-						? [...existing.slice(0, idx), tool, ...existing.slice(idx + 1)]
-						: [...existing, tool];
-				return [
-					...prev.slice(0, -1),
-					{
-						role: "assistant",
-						text: (last as { text: string }).text,
-						toolUses: updated,
-						streaming: (last as { streaming?: boolean }).streaming,
-					} as ChatMessageData,
-				];
-			}
-			return [
-				...prev,
-				{ role: "assistant", text: "", toolUses: [tool] } as ChatMessageData,
-			];
+		ensureStreamingAssistant();
+		updateStreamingMsg((msg) => {
+			const existing = (msg as { toolUses?: ToolUse[] }).toolUses ?? [];
+			// Replace the partial placeholder if it exists, otherwise append.
+			const idx = existing.findIndex((t) => t.id === tool.id);
+			const updatedToolUses =
+				idx >= 0
+					? [...existing.slice(0, idx), tool, ...existing.slice(idx + 1)]
+					: [...existing, tool];
+			return { toolUses: updatedToolUses };
 		});
 		scrollToBottom();
-	};
-
-	const finalizeAssistant = () => {
-		setMessages((prev) => {
-			const last = prev[prev.length - 1];
-			if (last?.role === "assistant") {
-				return [
-					...prev.slice(0, -1),
-					{
-						role: "assistant",
-						text: (last as { text: string }).text,
-						toolUses: (last as { toolUses?: ToolUse[] }).toolUses,
-						// Keep the reasoning so the collapsed "Thought" toggle
-						// still renders after streaming ends (see appendDelta).
-						thinking: (last as { thinking?: string }).thinking,
-						streaming: false,
-					} as ChatMessageData,
-				];
-			}
-			return prev;
-		});
 	};
 
 	// ── reconnect / recovery ─────────────────────────────────
@@ -831,7 +852,15 @@ export function ChatPanel(props: Props) {
 			const loaded = await fetchMessages(convId);
 			const lastLoaded = loaded[loaded.length - 1];
 			if (lastLoaded?.role === "assistant") {
-				// Server completed the response — replace partial state with saved version
+				// Server completed the response — replace partial state with the
+				// saved version. Clear the streaming buffers too: the loaded
+				// messages are authoritative and carry no streaming flag, so an
+				// un-reset streamingActive would make the NEXT turn's
+				// ensureStreamingAssistant no-op (no in-flight message to render
+				// into). finalize isn't called on this path, so reset here.
+				setStreamingActive(false);
+				setStreamText("");
+				setStreamThinking("");
 				setMessages(loaded);
 				setError(null);
 			} else {
@@ -926,31 +955,13 @@ export function ChatPanel(props: Props) {
 				} else if (event === "thinking_delta") {
 					// Extended-thinking reasoning — stream it into the live
 					// "Thinking…" bubble. NOT persisted (see MCP comment);
-					// it's pure UX feedback for the in-flight turn.
+					// it's pure UX feedback for the in-flight turn. Lives in
+					// the streamThinking signal (not the messages array) so
+					// per-token updates don't re-render the whole list.
 					const delta = data.delta as string;
 					if (delta) {
-						setMessages((prev) => {
-							const last = prev[prev.length - 1];
-							if (
-								last?.role === "assistant" &&
-								(last as { streaming?: boolean }).streaming
-							) {
-								const existing = (last as { thinking?: string }).thinking ?? "";
-								return [
-									...prev.slice(0, -1),
-									{ ...last, thinking: existing + delta },
-								];
-							}
-							return [
-								...prev,
-								{
-									role: "assistant",
-									text: "",
-									thinking: delta,
-									streaming: true,
-								} as unknown as ChatMessageData,
-							];
-						});
+						ensureStreamingAssistant();
+						setStreamThinking((t) => t + delta);
 						scrollToBottom();
 					}
 				} else if (event === "tool_use") {
@@ -1000,23 +1011,16 @@ export function ChatPanel(props: Props) {
 					// styling; the state shape is identical.
 					const toolId = data.tool_use_id as string;
 					const status = data.status as string;
-					setMessages((prev) => {
-						const last = prev[prev.length - 1];
-						if (
-							last?.role === "assistant" &&
-							(last as { toolUses?: ToolUse[] }).toolUses
-						) {
-							const toolUses =
-								(last as { toolUses?: ToolUse[] }).toolUses ?? [];
-							const updated = toolUses.map((t) =>
+					// The tool lives on the in-flight assistant message (the last
+					// array element); patch it by path via updateStreamingMsg.
+					updateStreamingMsg((msg) => {
+						const toolUses = (msg as { toolUses?: ToolUse[] }).toolUses;
+						if (!toolUses) return {};
+						return {
+							toolUses: toolUses.map((t) =>
 								t.id === toolId ? { ...t, progress: status } : t,
-							);
-							return [
-								...prev.slice(0, -1),
-								{ ...last, toolUses: updated } as ChatMessageData,
-							];
-						}
-						return prev;
+							),
+						};
 					});
 					scrollToBottom();
 				} else if (event === "turn_usage") {
@@ -1053,11 +1057,10 @@ export function ChatPanel(props: Props) {
 						}
 						// Sum each round-trip into the current assistant bubble so a
 						// tool-using response (several round-trips merged into one
-						// bubble) shows its full cost, not just the last call.
-						setMessages((prev) => {
-							const last = prev[prev.length - 1];
-							if (last?.role !== "assistant") return prev;
-							const cur = (last as { usage?: MessageUsage }).usage;
+						// bubble) shows its full cost, not just the last call. The
+						// bubble is the in-flight message (the last array element).
+						updateStreamingMsg((msg) => {
+							const cur = (msg as { usage?: MessageUsage }).usage;
 							const merged: MessageUsage = {
 								input_tokens: (cur?.input_tokens ?? 0) + usage.input_tokens,
 								output_tokens: (cur?.output_tokens ?? 0) + usage.output_tokens,
@@ -1069,7 +1072,7 @@ export function ChatPanel(props: Props) {
 									usage.cache_read_input_tokens,
 								context_limit: usage.context_limit,
 							};
-							return [...prev.slice(0, -1), { ...last, usage: merged }];
+							return { usage: merged };
 						});
 					}
 				} else if (event === "done") {
@@ -1827,7 +1830,7 @@ export function ChatPanel(props: Props) {
 						}
 					>
 						<For each={messages()}>
-							{(m, i) => (
+							{(m, index) => (
 								<ChatMessage
 									message={m}
 									notePreview={props.notePreview}
@@ -1835,13 +1838,34 @@ export function ChatPanel(props: Props) {
 									memoryNookId={props.chatNookId}
 									debugMode={ui.debugMode()}
 									getToolInputStream={getToolInputStream}
+									// The in-flight assistant message's text +
+									// reasoning live in signals (see
+									// streamText/streamThinking) so per-token
+									// deltas update this message in place
+									// instead of rebuilding the whole list.
+									// Gate on POSITION: the streaming message is
+									// always the last array element (that's also
+									// how updateStreamingMsg/finalizeAssistant
+									// find it). ChatMessage falls back to the
+									// message's own (final) values once the live
+									// signals are reset at finalize.
+									liveText={
+										index() === messages().length - 1
+											? streamText
+											: undefined
+									}
+									liveThinking={
+										index() === messages().length - 1
+											? streamThinking
+											: undefined
+									}
 									onQuickReply={
-										i() === messages().length - 1 && !quickReplyDismissed()
+										index() === messages().length - 1 && !quickReplyDismissed()
 											? (text) => void send(text, model())
 											: undefined
 									}
 									onQuickReplyOther={
-										i() === messages().length - 1
+										index() === messages().length - 1
 											? () => {
 													setQuickReplyDismissed(true);
 													chatInputEl?.focus();
@@ -1927,19 +1951,7 @@ export function ChatPanel(props: Props) {
 								abortCtrl?.abort();
 								tts.cancel();
 								setStreaming(false);
-								setMessages((prev) => {
-									const last = prev[prev.length - 1];
-									if (
-										last?.role === "assistant" &&
-										(last as { streaming?: boolean }).streaming
-									) {
-										return [
-											...prev.slice(0, -1),
-											{ ...last, streaming: false } as ChatMessageData,
-										];
-									}
-									return prev;
-								});
+								finalizeAssistant();
 							}}
 							style={{
 								display: "block",
