@@ -8,7 +8,7 @@ import {
 	Show,
 } from "solid-js";
 import { useUi } from "../../ui/UiContext";
-import { ChatInput } from "./ChatInput";
+import { ChatInput, type ThinkingLevel } from "./ChatInput";
 import {
 	ChatMessage,
 	type ChatMessageData,
@@ -418,7 +418,8 @@ export function ChatPanel(props: Props) {
 	const [activeTitle, setActiveTitle] = createSignal("");
 	const [messages, setMessages] = createSignal<ChatMessageData[]>([]);
 	const [conversationId, setConversationId] = createSignal<string | null>(null);
-	const [model, setModel] = createSignal("claude-sonnet-5");
+	const [model, setModel] = createSignal("qwen3.8:27b-mtp-q4_K_M");
+	const [thinking, setThinking] = createSignal<ThinkingLevel>("off");
 	const [streaming, setStreaming] = createSignal(false);
 	const [contextUsage, setContextUsage] = createSignal<{
 		ratio: number;
@@ -644,7 +645,7 @@ export function ChatPanel(props: Props) {
 	// ── resume a past conversation ───────────────────────────
 	const openConversation = async (conv: ConversationSummary) => {
 		setActiveTitle(conv.title || "Chat");
-		setModel(conv.model || "claude-sonnet-5");
+		setModel(conv.model || "qwen3.8:27b-mtp-q4_K_M");
 		setConversationId(conv.id);
 		setMessages([]);
 		setError(null);
@@ -711,6 +712,11 @@ export function ChatPanel(props: Props) {
 						role: "assistant",
 						text: (last as { text: string }).text + delta,
 						toolUses: (last as { toolUses?: ToolUse[] }).toolUses,
+						// Preserve the streamed reasoning — without this the
+						// first text delta wipes the thinking bubble (it was
+						// set on this same message by the thinking_delta
+						// handler before any text arrived).
+						thinking: (last as { thinking?: string }).thinking,
 						streaming: true,
 					} as ChatMessageData,
 				];
@@ -805,6 +811,9 @@ export function ChatPanel(props: Props) {
 						role: "assistant",
 						text: (last as { text: string }).text,
 						toolUses: (last as { toolUses?: ToolUse[] }).toolUses,
+						// Keep the reasoning so the collapsed "Thought" toggle
+						// still renders after streaming ends (see appendDelta).
+						thinking: (last as { thinking?: string }).thinking,
 						streaming: false,
 					} as ChatMessageData,
 				];
@@ -879,6 +888,9 @@ export function ChatPanel(props: Props) {
 				if (event === "conversation") {
 					const cid = data.conversation_id as string;
 					setConversationId(cid);
+				} else if (event === "tool_use_start") {
+					clearImageGenIndicator();
+					addToolUseStart(data.id as string, data.name as string);
 				} else if (event === "text_delta") {
 					// First post-approval token from the AI's reply — the
 					// image must already be persisted, so the "generating
@@ -909,11 +921,38 @@ export function ChatPanel(props: Props) {
 					) {
 						console.log("[voice/server]", data);
 					}
-				} else if (event === "tool_use_start") {
-					clearImageGenIndicator();
-					addToolUseStart(data.id as string, data.name as string);
 				} else if (event === "tool_input_delta") {
 					appendToolInputDelta(data.id as string, data.delta as string);
+				} else if (event === "thinking_delta") {
+					// Extended-thinking reasoning — stream it into the live
+					// "Thinking…" bubble. NOT persisted (see MCP comment);
+					// it's pure UX feedback for the in-flight turn.
+					const delta = data.delta as string;
+					if (delta) {
+						setMessages((prev) => {
+							const last = prev[prev.length - 1];
+							if (
+								last?.role === "assistant" &&
+								(last as { streaming?: boolean }).streaming
+							) {
+								const existing = (last as { thinking?: string }).thinking ?? "";
+								return [
+									...prev.slice(0, -1),
+									{ ...last, thinking: existing + delta },
+								];
+							}
+							return [
+								...prev,
+								{
+									role: "assistant",
+									text: "",
+									thinking: delta,
+									streaming: true,
+								} as unknown as ChatMessageData,
+							];
+						});
+						scrollToBottom();
+					}
 				} else if (event === "tool_use") {
 					addToolUse({
 						id: data.id as string,
@@ -1382,6 +1421,7 @@ export function ChatPanel(props: Props) {
 					editor_state: editorSnapshot(),
 					voice_mode: voiceMode(),
 					voice_lang: voiceLang(),
+					thinking: thinking(),
 					speaker_name: meta?.speaker ?? undefined,
 					speaker_confidence: meta?.speakerConfidence ?? undefined,
 				}),
@@ -1429,6 +1469,7 @@ export function ChatPanel(props: Props) {
 					context_note_title: props.currentNoteTitle ?? undefined,
 					context_note_type: props.currentNoteType ?? undefined,
 					editor_state: editorSnapshot(),
+					thinking: thinking(),
 				}),
 				signal: abortCtrl.signal,
 			});
@@ -1476,6 +1517,7 @@ export function ChatPanel(props: Props) {
 				body: JSON.stringify({
 					conversation_id: pa.conversationId,
 					model: pa.model,
+					thinking: thinking(),
 					context_note_id: pa.contextNoteId,
 					editor_state: editorSnapshot(),
 					tool_results: results,
@@ -1757,6 +1799,8 @@ export function ChatPanel(props: Props) {
 						disabled={false}
 						model={model()}
 						onModelChange={setModel}
+						thinking={thinking()}
+						onThinkingChange={setThinking}
 						voiceMode={voiceMode()}
 						onVoiceModeChange={setVoiceMode}
 						voiceLang={voiceLang()}
@@ -1923,6 +1967,8 @@ export function ChatPanel(props: Props) {
 						busy={streaming() || reconnecting() || pendingApproval() !== null}
 						model={model()}
 						onModelChange={setModel}
+						thinking={thinking()}
+						onThinkingChange={setThinking}
 						inputRef={(el) => {
 							chatInputEl = el;
 						}}

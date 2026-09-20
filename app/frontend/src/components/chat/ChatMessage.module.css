@@ -150,6 +150,70 @@
 	overscroll-behavior: contain;
 }
 
+/* ── Live extended-thinking bubble ───────────────────────── */
+
+.thinkingBubble {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	max-width: 85%;
+	padding: 6px 10px;
+	border-radius: 8px;
+	background: var(--color-bg-hover);
+	border: 1px solid var(--color-border-light, #e8e8e8);
+	font-size: 0.75rem;
+	color: var(--color-text-muted);
+	margin-bottom: 4px;
+	animation: tool-stream-fade-in 0.25s ease-out;
+}
+
+.thinkingHeader {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	font-weight: 500;
+	color: var(--color-text);
+}
+
+.thinkingToggle {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	padding: 0;
+	background: none;
+	border: none;
+	color: var(--color-text);
+	font-family: inherit;
+	font-size: 0.75rem;
+	cursor: pointer;
+	width: 100%;
+}
+
+.thinkingToggle:hover {
+	color: var(--color-primary, #6366f1);
+}
+
+.thinkingToggle .chev {
+	color: var(--color-text-faint, #999);
+	font-weight: 600;
+}
+
+.thinkingBody {
+	font-size: 0.7rem;
+	font-family: monospace;
+	line-height: 1.45;
+	color: var(--color-text-faint, #888);
+	white-space: pre-wrap;
+	word-break: break-word;
+	max-height: 160px;
+	overflow-y: auto;
+	scroll-behavior: smooth;
+	padding: 6px 8px;
+	background: var(--color-bg-tertiary, var(--color-bg-secondary, #f8f8f8));
+	border-radius: 6px;
+}
+
 /* ── Quick-reply buttons ────────────────────────────────── */
 
 .quickReplyRow {

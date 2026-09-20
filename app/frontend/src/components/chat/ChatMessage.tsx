@@ -48,6 +48,11 @@ export type ChatMessageData =
 			toolUses?: ToolUse[];
 			streaming?: boolean;
 			usage?: MessageUsage;
+			/** Extended-thinking reasoning content, streamed live for the
+			 *  in-flight turn. Session-only — NOT persisted to the
+			 *  conversation (see MCP comment). Cleared/replaced across
+			 *  turns; never loaded back from history. */
+			thinking?: string;
 	  };
 
 /** Keys in tool input that typically hold note IDs */
@@ -102,7 +107,7 @@ export function extractSpeaker(text: string): string | null {
  *  the tag includes it. Older saved messages won't have it. */
 export function extractSpeakerConfidence(text: string): number | null {
 	const m = SPEAKER_RE.exec(text);
-	if (!m || !m[2]) return null;
+	if (!m?.[2]) return null;
 	const n = Number.parseFloat(m[2]);
 	return Number.isFinite(n) ? n : null;
 }
@@ -244,6 +249,56 @@ function ToolStreamPreview(props: {
 	);
 }
 
+/** Live extended-thinking display. Streams in while the model reasons,
+ *  then collapses into a compact "Thought…" line once the answer starts.
+ *  Session-only — never loaded from history (not persisted). */
+function ThinkingBubble(props: {
+	thinking: string;
+	streaming: boolean;
+	hasText: boolean;
+}) {
+	const [expanded, setExpanded] = createSignal(false);
+	const text = () => props.thinking;
+
+	// Nothing to show.
+	if (!text()) return null;
+
+	// While streaming (no answer yet) — open and growing.
+	if (props.streaming && !props.hasText) {
+		return (
+			<div class={styles.thinkingBubble}>
+				<div class={styles.thinkingHeader}>
+					<span class={styles.toolSpinner} aria-hidden="true" />
+					<span>Thinking…</span>
+				</div>
+				<div class={styles.thinkingBody}>{text()}</div>
+			</div>
+		);
+	}
+
+	// Answer has started — collapse to a toggle.
+	return (
+		<div
+			class={`${styles.thinkingBubble} ${expanded() ? styles.thinkingExpanded : ""}`}
+		>
+			<button
+				type="button"
+				class={styles.thinkingToggle}
+				onClick={() => setExpanded((v) => !v)}
+				aria-expanded={expanded()}
+			>
+				<span>💭 Thought</span>
+				<span class={styles.chev} aria-hidden="true">
+					{expanded() ? "−" : "+"}
+				</span>
+			</button>
+			<Show when={expanded()}>
+				<div class={styles.thinkingBody}>{text()}</div>
+			</Show>
+		</div>
+	);
+}
+
 export function ChatMessage(props: Props) {
 	const m = () => props.message;
 
@@ -332,6 +387,14 @@ export function ChatMessage(props: Props) {
 				</Show>
 			</Show>
 			<Show when={m().role === "assistant"}>
+				{/* Live extended-thinking bubble — shown while streaming;
+				 *  collapses into a small line once the answer arrives.
+				 *  Not persisted (session-only). */}
+				<ThinkingBubble
+					thinking={(m() as { thinking?: string }).thinking ?? ""}
+					streaming={!!(m() as { streaming?: boolean }).streaming}
+					hasText={(m() as { text: string }).text.trim() !== ""}
+				/>
 				<Show when={(m() as { text: string }).text.trim() !== ""}>
 					<MarkdownView
 						content={(m() as { text: string }).text}

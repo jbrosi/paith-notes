@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { TOOLS, executeTool } from './chat-tools.js';
+import type { ThinkingLevel } from './chat.js';
 
 const MAX_SEARCH_DEPTH = 10;
 
@@ -123,10 +124,15 @@ export async function runSearchAgent(
   memoryNookId?: string,
   onProgress?: SearchAgentProgress,
   context?: SearchAgentContext,
+  thinking?: ThinkingLevel,
 ): Promise<string> {
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
   const systemPrompt = buildSearchAgentPrompt(nookId, nookName, context);
   const messages: Anthropic.MessageParam[] = [{ role: 'user', content: task }];
+  const thinkingParam =
+    thinking && thinking !== 'off' && !model.startsWith('claude-')
+      ? { type: 'enabled' as const, budget_tokens: thinking === 'high' ? 4096 : 1024 }
+      : undefined;
 
   onProgress?.('Starting search...');
 
@@ -139,6 +145,7 @@ export async function runSearchAgent(
         tools: SEARCH_AGENT_TOOLS,
         messages,
         system: systemPrompt,
+        ...(thinkingParam ? { thinking: thinkingParam, tool_choice: { type: 'auto' } } : {}),
       });
     } catch (err) {
       return JSON.stringify({
