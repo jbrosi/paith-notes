@@ -568,7 +568,7 @@ async function streamConversation(
   let thinkingDeltaSeen = false;
   console.log(
     `[chat] request: model=${model} thinking=${thinking ?? 'off'} base=${process.env.ANTHROPIC_BASE_URL || '(default api.anthropic.com)'} ` +
-    `key=${process.env.ANTHROPIC_API_KEY ? process.env.ANTHROPIC_API_KEY.slice(0, 6) + '…' : '(unset)'} ` +
+    `keySet=${process.env.ANTHROPIC_API_KEY ? 'yes' : 'no'} ` +
     `msgs=${messages.length} contextLimit=${contextLimitFor(model)}`,
   );
 
