@@ -205,7 +205,7 @@
 	line-height: 1.45;
 	color: var(--color-text-faint, #888);
 	white-space: pre-wrap;
-	word-break: break-word;
+	word-break: break-all;
 	max-height: 160px;
 	overflow-y: auto;
 	scroll-behavior: smooth;
