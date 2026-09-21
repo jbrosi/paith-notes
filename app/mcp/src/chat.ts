@@ -127,15 +127,31 @@ function buildConversationSummary(messages: Anthropic.MessageParam[], maxLength 
   return parts.join('\n');
 }
 
-const DEFAULT_MODEL = 'claude-sonnet-5';
+const DEFAULT_MODEL = 'qwen3.8:27b-mtp-q4_K_M';
 const MAX_TOKENS    = 8096;
 const MAX_AUTO_DEPTH = 8;
 
+export type ThinkingLevel = 'off' | 'low' | 'high';
+const THINKING_LEVELS: readonly ThinkingLevel[] = ['off', 'low', 'high'];
+export function isThinkingLevel(v: unknown): v is ThinkingLevel {
+  return typeof v === 'string' && (THINKING_LEVELS as readonly string[]).includes(v);
+}
 
-// Context window limits per model (input tokens), matching Anthropic's
-// documented hard limits. Haiku 4.5 caps at 200K; the 4.6+ generation and
-// Sonnet 5 all have 1M-token windows.
+// Models that are real Anthropic Claude endpoints (vs. local/proxied
+// stand-ins). Extended-thinking parameter handling differs per backend;
+// the qwen3.8 route is the only one we actively enable thinking on.
+function isLegacyClaudeModel(model: string): boolean {
+  return model.startsWith('claude-');
+}
+
+// Models supported by the chat UI + their context windows (input tokens).
+// Local-model deployments: ANTHROPIC_BASE_URL points at a LiteLLM proxy that
+// aliases these names (see .env.example). Context limits below are the
+// backend's real windows — CHAT_CONTEXT_LIMIT still overrides them.
 const MODEL_CONTEXT_LIMITS: Record<string, number> = {
+  'qwen3.8:27b-mtp-q4_K_M': 262_144,
+  // Legacy Claude aliases stay resolvable so existing saved conversations
+  // and tests keep their documented windows.
   'claude-sonnet-5': 1_000_000,
   'claude-sonnet-4-6': 1_000_000,
   'claude-opus-4-6': 1_000_000,
@@ -527,6 +543,7 @@ async function streamConversation(
   memoryNookId?: string | null,
   voice?: { lang: string } | null,
   editorState?: EditorStateMeta,
+  thinking?: ThinkingLevel,
 ): Promise<void> {
   const voiceStreamer = voice ? new VoiceStreamer(res, voice.lang) : null;
   // Terminal events (done/awaiting_approval/error) must be emitted AFTER
@@ -548,6 +565,12 @@ async function streamConversation(
     }
   };
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  let thinkingDeltaSeen = false;
+  console.log(
+    `[chat] request: model=${model} thinking=${thinking ?? 'off'} base=${process.env.ANTHROPIC_BASE_URL || '(default api.anthropic.com)'} ` +
+    `keySet=${process.env.ANTHROPIC_API_KEY ? 'yes' : 'no'} ` +
+    `msgs=${messages.length} contextLimit=${contextLimitFor(model)}`,
+  );
 
   // Resolve nook name, role, instruction notes, and handbook in parallel
   let nookName = '';
@@ -664,6 +687,19 @@ async function streamConversation(
       // volatile per-turn hint after it (uncached, unpersisted).
       const cachedMsgs = appendTurnHint(addCacheBreakpoint(msgs), turnHint);
 
+      // Extended thinking (off/low/high) — sent only for levels the
+      // backend model supports. Qwen3.8 (via the LiteLLM/Ollama proxy)
+      // exposes a "thinking" capability; "low" and "high" map to a
+      // small vs. generous reasoning budget. "off" (default) and any
+      // backend that rejects the parameter fall through to no thinking.
+      const thinkingParam =
+        thinking && thinking !== 'off' && !isLegacyClaudeModel(model)
+          ? {
+              type: 'enabled' as const,
+              budget_tokens: thinking === 'high' ? 4096 : 1024,
+            }
+          : undefined;
+
       type StoredBlock = Anthropic.TextBlockParam | Anthropic.ToolUseBlockParam;
       const contentBlocks: StoredBlock[] = [];
       let currentText = '';
@@ -677,7 +713,9 @@ async function streamConversation(
         messages: cachedMsgs,
         system: systemBlocks,
         stream: true,
+        ...(thinkingParam ? { thinking: thinkingParam, tool_choice: { type: 'auto' } } : {}),
       });
+      console.log('[chat] stream established — first events incoming');
 
       let inputTokens = 0;
       let outputTokens = 0;
@@ -725,6 +763,16 @@ async function streamConversation(
           } else if (event.delta.type === 'input_json_delta' && currentTool) {
             currentTool.partialInput += event.delta.partial_json;
             sse(res, 'tool_input_delta', { id: currentTool.id, delta: event.delta.partial_json });
+          } else if (event.delta.type === 'thinking_delta') {
+            // Extended-thinking reasoning stream. For stateless local
+            // backends (qwen3.8 via LiteLLM/Ollama) this is a fresh
+            // computation each call — show it live in the UI but do NOT
+            // persist it (it would mislead on re-reads and add noise).
+            if (!thinkingDeltaSeen) {
+              thinkingDeltaSeen = true;
+              console.log(`[chat] thinking_delta events received (thinking=${thinking ?? 'off'}) — forwarding to UI`);
+            }
+            sse(res, 'thinking_delta', { delta: event.delta.thinking });
           }
         }
 
@@ -858,6 +906,7 @@ async function streamConversation(
                         memoryNookId ?? undefined,
                         (status) => sse(res, 'search_agent_progress', { tool_use_id: t.id, status }),
                         agentCtx,
+                        thinking,
                       );
                     } else if (t.name === 'edit_note_agent') {
                       const targetNookId = typeof t.input.nook_id === 'string' && t.input.nook_id.trim() !== ''
@@ -878,6 +927,7 @@ async function streamConversation(
                         // cached prefix. For fresh mode these are ignored.
                         mainSystemPrompt: baseSystemPrompt,
                         mainMessages: msgs,
+                        thinking,
                       });
                     } else {
                       resultContent = await executeTool(t.name, t.input, apiBase, cookie, nookId, memoryNookId ?? undefined);
@@ -968,6 +1018,18 @@ async function streamConversation(
     // Fell through MAX_AUTO_DEPTH — shouldn't normally happen
     trailing.push({ event: 'error', data: { message: 'Auto-execution depth limit reached' } });
   } catch (err) {
+    // Log server-side too — the error only reaches the user as an SSE
+    // event, and API failures (bad key, unreachable proxy, unknown model)
+    // otherwise leave zero trace in container logs.
+    const cause =
+      err instanceof Error && 'cause' in err
+        ? (err as Error & { cause?: unknown }).cause
+        : undefined;
+    const causeStr = cause instanceof Error ? `${cause.name}: ${cause.message}` : typeof cause === 'string' ? cause : '';
+    console.error(
+      `[chat] stream failed:`, err instanceof Error ? `${err.name}: ${err.message}` : String(err),
+      causeStr ? `(cause: ${causeStr})` : '',
+    );
     trailing.push({ event: 'error', data: { message: err instanceof Error ? err.message : 'unknown error' } });
   } finally {
     // Order matters: drain audio_chunks first so the frontend has them all
@@ -1010,7 +1072,7 @@ export function createChatRouter(apiBase: string): Router {
     }
 
     const nook_id = validateNookId(String(req.params.nookId ?? ''));
-    const { message, model, conversation_id, context_note_id, context_note_title, context_note_type, voice_mode, voice_lang, speaker_name, speaker_confidence, editor_state } = req.body as Record<string, unknown>;
+    const { message, model, conversation_id, context_note_id, context_note_title, context_note_type, voice_mode, voice_lang, speaker_name, speaker_confidence, editor_state, thinking } = req.body as Record<string, unknown>;
     const speakerName =
       typeof speaker_name === 'string' && speaker_name.trim() !== ''
         ? speaker_name.trim()
@@ -1033,6 +1095,7 @@ export function createChatRouter(apiBase: string): Router {
       : null;
 
     const resolvedModel = typeof model === 'string' && model ? model : DEFAULT_MODEL;
+    const resolvedThinking: ThinkingLevel = isThinkingLevel(thinking) ? thinking : 'off';
 
     try {
       // Resolve AI memory nook for storing conversations
@@ -1087,7 +1150,7 @@ export function createChatRouter(apiBase: string): Router {
       sse(res, 'conversation', { conversation_id: convId });
 
       const editorState = normalizeEditorState(editor_state);
-      await streamConversation(res, history, resolvedModel, convId, cookieHeader, apiBase, nook_id, contextNote, memoryNookId, voice, editorState);
+      await streamConversation(res, history, resolvedModel, convId, cookieHeader, apiBase, nook_id, contextNote, memoryNookId, voice, editorState, resolvedThinking);
     } catch (err) {
       if (!res.headersSent) {
         res.status(500).json({ error: err instanceof Error ? err.message : 'unknown error' });
@@ -1126,7 +1189,7 @@ export function createChatRouter(apiBase: string): Router {
       approved: boolean;
       frontend_result?: { content: string; is_error?: boolean };
     };
-    const { conversation_id, model, tool_results, context_note_id, context_note_title, context_note_type, voice_mode, voice_lang, editor_state } = req.body as {
+    const { conversation_id, model, tool_results, context_note_id, context_note_title, context_note_type, voice_mode, voice_lang, editor_state, thinking } = req.body as {
       conversation_id: string;
       model?: string;
       tool_results: ToolResult[];
@@ -1136,6 +1199,7 @@ export function createChatRouter(apiBase: string): Router {
       voice_mode?: boolean;
       voice_lang?: string;
       editor_state?: unknown;
+      thinking?: string;
     };
     const voice = voice_mode === true
       ? { lang: typeof voice_lang === 'string' && voice_lang ? voice_lang : 'en' }
@@ -1147,6 +1211,7 @@ export function createChatRouter(apiBase: string): Router {
     }
 
     const resolvedModel = typeof model === 'string' && model ? model : DEFAULT_MODEL;
+    const resolvedThinking: ThinkingLevel = isThinkingLevel(thinking) ? thinking : 'off';
 
     try {
       // Load full history (includes the assistant message with tool_use blocks)
@@ -1217,6 +1282,7 @@ export function createChatRouter(apiBase: string): Router {
                 memNookId ?? undefined,
                 (status) => sse(res, 'search_agent_progress', { tool_use_id: tr.tool_use_id, status }),
                 await getSearchAgentCtx(),
+                resolvedThinking,
               );
             } else if (tr.tool_name === 'edit_note_agent') {
               // Approval flow doesn't have main-loop sys-prompt + msgs in
@@ -1242,6 +1308,7 @@ export function createChatRouter(apiBase: string): Router {
                 cookie: cookieHeader,
                 memoryNookId: memNookId ?? undefined,
                 onProgress: (status) => sse(res, 'edit_agent_progress', { tool_use_id: tr.tool_use_id, status }),
+                thinking: resolvedThinking,
               });
             } else {
               result = await executeTool(tr.tool_name, tr.tool_input, apiBase, cookieHeader, nook_id, memNookId ?? undefined);
@@ -1291,7 +1358,7 @@ export function createChatRouter(apiBase: string): Router {
         : undefined;
 
       if (!res.headersSent) sseHeaders(res);
-      await streamConversation(res, history, resolvedModel, conversation_id, cookieHeader, apiBase, nook_id, contextNote, memNookId, voice);
+      await streamConversation(res, history, resolvedModel, conversation_id, cookieHeader, apiBase, nook_id, contextNote, memNookId, voice, undefined, resolvedThinking);
     } catch (err) {
       if (!res.headersSent) {
         res.status(500).json({ error: err instanceof Error ? err.message : 'unknown error' });

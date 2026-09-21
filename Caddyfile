@@ -47,7 +47,12 @@
     }
 
     handle @mcp {
-        reverse_proxy mcp:3000
+        # mcp runs with network_mode: host, so it's NOT on the compose
+        # network (no `mcp` DNS name). Reach the host via
+        # host.containers.internal (podman's host alias, = the host's
+        # 192.168.68.72), where mcp binds 3000. (127.0.0.1 from inside the
+        # app container is the app's OWN loopback — connection refused.)
+        reverse_proxy host.containers.internal:3000
     }
 
     @voice {

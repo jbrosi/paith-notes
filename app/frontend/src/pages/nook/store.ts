@@ -35,8 +35,6 @@ import {
 	NoteHistoryResponseSchema,
 	NoteResponseSchema,
 	NoteTypeNotesResponseSchema,
-	NoteTypeResponseSchema,
-	NoteTypesListResponseSchema,
 } from "./types";
 
 export function createNookStore(nookId: () => string) {

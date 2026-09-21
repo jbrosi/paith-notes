@@ -1,4 +1,29 @@
 services:
+  opencode-dev:
+    build:
+      context: .
+      dockerfile: docker/opencode/Dockerfile
+    profiles: ["opencode-dev"]
+    stdin_open: true
+    tty: true
+    network_mode: host
+    environment:
+      OPENCODE_MODEL: ollama/qwen3.8:27b-mtp-q4_K_M
+      HOME: /home/haamu
+    volumes:
+      - .:/workspace
+      # opencode stores sessions/history under ~/.local/share/opencode. Bind-mount
+      # into the repo (./.state/opendev, gitignored) so `docker system prune`
+      # (which deletes unused *named* volumes) can't wipe real state.
+      - ./.state/opendev:/home/haamu/.local
+      - ./opencode-config:/home/haamu/.config/opencode
+    working_dir: /workspace
+    entrypoint: ["/usr/local/bin/oc-entry.sh"]
+    command: ["opencode"]
+    # NO privileged, NO gpus, NO docker.sock
+
+
+
   claude:
     build:
       context: .
@@ -37,17 +62,30 @@ services:
     dns:
       - 1.1.1.1
       - 8.8.8.8
+    # Host network: mcp must reach the LiteLLM proxy, which the host's ssh
+    # tunnel binds to the HOST's loopback (127.0.0.1:4000). From a bridge
+    # network, 127.0.0.1 is the container's own loopback and
+    # host.containers.internal routes via a different host interface where
+    # the tunnel isn't bound — both fail. On the host network, 127.0.0.1
+    # inside the container IS the host's loopback, so the tunnel works.
+    # Side effects handled: `mcp:3000` DNS still resolves (podman adds the
+    # service name for host-network services too), so Caddy's
+    # `reverse_proxy mcp:3000` and the frontend's MCP_URL keep working.
+    # `ports: 3001:3000` is dropped (meaningless on host network; 3000 is
+    # now bound directly on the host — nothing else uses it).
+    network_mode: host
     volumes:
       - ./app/mcp/src:/app/src
-    ports:
-      - "3001:3000"
     env_file:
       - path: ~/.config/paith/mcp.env
         required: false
     environment:
       KEYCLOAK_BASE_URL: ${KEYCLOAK_BASE_URL:-http://keycloak:8080}
       KEYCLOAK_REALM: ${KEYCLOAK_REALM:-master}
-      API_BASE_URL: http://app:8000
+      # mcp is on the host network, so the `app` compose DNS name doesn't
+      # resolve from it. Reach the PHP API (app container, which publishes
+      # 8000 to the host) via the podman host alias instead.
+      API_BASE_URL: http://host.containers.internal:8000
       MCP_SERVER_URL: ${MCP_SERVER_URL:-https://mcp.paith.example.com}
       # Chat credentials from the root .env. The key uses its own name so
       # it can't leak into the `claude` service above, which reads plain
@@ -130,7 +168,10 @@ services:
       VITE_WAKE_WORD_URL: ${WAKE_WORD_URL:-}
       # Display string for the kiosk's "Say <X> to start" prompt.
       VITE_WAKE_WORD_LABEL: ${WAKE_WORD_LABEL:-Alexa}
-      MCP_URL: http://mcp:3000
+      # mcp is on the host network (see mcp service) — reach it via the
+      # podman host alias, not a compose DNS name or 127.0.0.1 (which is
+      # the frontend container's own loopback).
+      MCP_URL: http://host.containers.internal:3000
     volumes:
       - ./app/frontend:/app/frontend
       - frontend_node_modules:/app/frontend/node_modules

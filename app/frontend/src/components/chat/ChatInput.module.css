@@ -68,6 +68,17 @@
 	cursor: pointer;
 }
 
+.thinkingSelect {
+	font-size: 0.75rem;
+	border: 1px solid var(--color-border-medium);
+	border-radius: 6px;
+	padding: 2px 6px;
+	color: var(--color-text-muted);
+	background: var(--color-bg-secondary);
+	font-family: inherit;
+	cursor: pointer;
+}
+
 .controls {
 	display: flex;
 	align-items: center;

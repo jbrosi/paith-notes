@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { TOOLS, executeTool } from './chat-tools.js';
 import { mapWithConcurrency } from './concurrency.js';
+import type { ThinkingLevel } from './chat.js';
 
 /**
  * Edit-focused sub-agent — same shape as search_agent but scoped to
@@ -100,6 +101,9 @@ export type EditAgentRunOptions = {
    *  execute), trim that off and pass the user's text in via `task`
    *  instead. */
   mainMessages?: Anthropic.MessageParam[];
+  /** Extended thinking level inherited from the main conversation.
+   *  "off"/undefined means no thinking parameter is sent. */
+  thinking?: ThinkingLevel;
 };
 
 /**
@@ -176,6 +180,11 @@ export async function runEditNoteAgent(opts: EditAgentRunOptions): Promise<strin
     ? buildInheritMessages(opts.mainMessages, taskWithTarget)
     : [{ role: 'user', content: taskWithTarget }];
 
+  const thinkingParam =
+    opts.thinking && opts.thinking !== 'off' && !opts.model.startsWith('claude-')
+      ? { type: 'enabled' as const, budget_tokens: opts.thinking === 'high' ? 4096 : 1024 }
+      : undefined;
+
   opts.onProgress?.('Starting edit...');
 
   for (let depth = 0; depth < MAX_EDIT_DEPTH; depth++) {
@@ -187,6 +196,7 @@ export async function runEditNoteAgent(opts: EditAgentRunOptions): Promise<strin
         tools: EDIT_AGENT_TOOLS,
         messages,
         system: systemPrompt,
+        ...(thinkingParam ? { thinking: thinkingParam, tool_choice: { type: 'auto' } } : {}),
       });
     } catch (err) {
       return `Edit agent error: ${err instanceof Error ? err.message : 'unknown error'}`;
