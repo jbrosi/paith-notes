@@ -18,7 +18,7 @@
 	border-radius: 12px;
 	font-size: 0.875rem;
 	line-height: 1.5;
-	overflow-wrap: break-word;
+	overflow-wrap: anywhere;
 	max-width: 85%;
 }
 

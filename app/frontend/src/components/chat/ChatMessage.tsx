@@ -323,7 +323,9 @@ export function ChatMessage(props: Props) {
 	// those. Gating on `streaming` (not signal emptiness) is what makes the
 	// live bubble commit during the turn AND the final content stick after.
 	const text = () =>
-		streaming() && props.liveText ? props.liveText() : (m() as { text: string }).text;
+		streaming() && props.liveText
+			? props.liveText()
+			: (m() as { text: string }).text;
 	const thinking = () =>
 		streaming() && props.liveThinking
 			? props.liveThinking()

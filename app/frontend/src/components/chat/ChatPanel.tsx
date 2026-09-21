@@ -597,7 +597,11 @@ export function ChatPanel(props: Props) {
 	) => {
 		const idx = streamingIdx();
 		if (idx === -1) return;
-		setMsgStore("list", idx, patch(msgStore.list[idx]) as Partial<ChatMessageData>);
+		setMsgStore(
+			"list",
+			idx,
+			patch(msgStore.list[idx]) as Partial<ChatMessageData>,
+		);
 	};
 
 	// Bake the final text/thinking into the last message, mark it done, and
@@ -1850,9 +1854,7 @@ export function ChatPanel(props: Props) {
 									// message's own (final) values once the live
 									// signals are reset at finalize.
 									liveText={
-										index() === messages().length - 1
-											? streamText
-											: undefined
+										index() === messages().length - 1 ? streamText : undefined
 									}
 									liveThinking={
 										index() === messages().length - 1
