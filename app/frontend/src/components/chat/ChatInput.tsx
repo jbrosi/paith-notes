@@ -27,11 +27,22 @@ const WAKE_LABEL = (
 ).trim();
 const WAKE_AVAILABLE = WAKE_URL !== "" && isWakeSupported();
 
-const MODELS = [
-	{ value: "claude-sonnet-5", label: "Sonnet 5" },
-	{ value: "claude-opus-4-7", label: "Opus 4.7" },
-	{ value: "claude-haiku-4-5-20251001", label: "Haiku 4.5" },
-];
+// Model names are the real backend names (proxied through LiteLLM to local
+// models when ANTHROPIC_BASE_URL is set). The UI shows the human label;
+// the value is what gets sent to MCP and stored on the conversation.
+const MODELS = [{ value: "qwen3.8:27b-mtp-q4_K_M", label: "Qwen 3.8 27B" }];
+
+// Extended-thinking levels the chat backend supports. "off" is the
+// default (no thinking). Local qwen backends advertise a "thinking"
+// capability; low/high map to a small vs. generous reasoning budget on
+// the MCP side.
+const THINKING_LEVELS = [
+	{ value: "off", label: "Off" },
+	{ value: "low", label: "Low" },
+	{ value: "high", label: "High" },
+] as const;
+
+export type ThinkingLevel = (typeof THINKING_LEVELS)[number]["value"];
 
 type ContextUsage = {
 	ratio: number;
@@ -79,6 +90,8 @@ type Props = {
 	busy?: boolean;
 	model: string;
 	onModelChange: (model: string) => void;
+	thinking?: ThinkingLevel;
+	onThinkingChange?: (v: ThinkingLevel) => void;
 	inputRef?: (el: HTMLTextAreaElement) => void;
 	voiceMode?: boolean;
 	onVoiceModeChange?: (v: boolean) => void;
@@ -308,6 +321,23 @@ export function ChatInput(props: Props) {
 						<option value={m.value}>{m.label}</option>
 					))}
 				</select>
+				<Show when={props.onThinkingChange}>
+					{(onThinkingChange) => (
+						<select
+							class={styles.thinkingSelect}
+							value={props.thinking ?? "off"}
+							onChange={(e) =>
+								onThinkingChange()(e.currentTarget.value as ThinkingLevel)
+							}
+							disabled={props.disabled || props.busy}
+							title="Extended thinking — how much reasoning the model spends before answering"
+						>
+							{THINKING_LEVELS.map((t) => (
+								<option value={t.value}>Thinking: {t.label}</option>
+							))}
+						</select>
+					)}
+				</Show>
 				<Show when={voiceCapable() && props.onVoiceModeChange}>
 					<label
 						class={styles.voiceToggle}

@@ -16,3 +16,5 @@ scripts/claude.sh
 docker/claude/
 
 app/api/coverage/
+
+.state/

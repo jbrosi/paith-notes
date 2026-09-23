@@ -48,6 +48,11 @@ export type ChatMessageData =
 			toolUses?: ToolUse[];
 			streaming?: boolean;
 			usage?: MessageUsage;
+			/** Extended-thinking reasoning content, streamed live for the
+			 *  in-flight turn. Session-only — NOT persisted to the
+			 *  conversation (see MCP comment). Cleared/replaced across
+			 *  turns; never loaded back from history. */
+			thinking?: string;
 	  };
 
 /** Keys in tool input that typically hold note IDs */
@@ -67,6 +72,14 @@ type Props = {
 	debugMode?: boolean;
 	/** Returns a reactive signal for the streaming partial input of a tool */
 	getToolInputStream?: (toolId: string) => Accessor<string>;
+	/** Live text of the in-flight assistant message (set only on the last
+	 *  message while streaming). Reading it inside the component tracks the
+	 *  signal, so per-token deltas re-render just this message's text node
+	 *  instead of rebuilding the whole messages list. */
+	liveText?: Accessor<string>;
+	/** Live extended-thinking reasoning of the in-flight message (same
+	 *  last-message-only contract as liveText). */
+	liveThinking?: Accessor<string>;
 	/** Send a message on behalf of the user (for quick-reply buttons) */
 	onQuickReply?: (text: string) => void;
 	/** Focus the chat input for free-form reply (dismisses quick-reply buttons) */
@@ -102,7 +115,7 @@ export function extractSpeaker(text: string): string | null {
  *  the tag includes it. Older saved messages won't have it. */
 export function extractSpeakerConfidence(text: string): number | null {
 	const m = SPEAKER_RE.exec(text);
-	if (!m || !m[2]) return null;
+	if (!m?.[2]) return null;
 	const n = Number.parseFloat(m[2]);
 	return Number.isFinite(n) ? n : null;
 }
@@ -244,8 +257,79 @@ function ToolStreamPreview(props: {
 	);
 }
 
+/** Live extended-thinking display. Streams in while the model reasons,
+ *  then collapses into a compact "Thought…" line once the answer starts.
+ *  Session-only — never loaded from history (not persisted). */
+function ThinkingBubble(props: {
+	thinking: string;
+	streaming: boolean;
+	hasText: boolean;
+}) {
+	const [expanded, setExpanded] = createSignal(false);
+	const text = () => props.thinking;
+	// Reactive gate: the component body runs once, so branch selection has to
+	// live in JSX (<Show>/<Switch>) — an early `return` would freeze whichever
+	// branch was true at mount, and the streaming message mounts BEFORE the
+	// first thinking delta lands (thinking === "" at that instant).
+	const live = () => props.streaming && !props.hasText;
+
+	return (
+		<Show when={text()}>
+			<Switch>
+				{/* While streaming (no answer yet) — open and growing. */}
+				<Match when={live()}>
+					<div class={styles.thinkingBubble}>
+						<div class={styles.thinkingHeader}>
+							<span class={styles.toolSpinner} aria-hidden="true" />
+							<span>Thinking…</span>
+						</div>
+						<div class={styles.thinkingBody}>{text()}</div>
+					</div>
+				</Match>
+				{/* Answer has started — collapse to a toggle. */}
+				<Match when={!live()}>
+					<div
+						class={`${styles.thinkingBubble} ${expanded() ? styles.thinkingExpanded : ""}`}
+					>
+						<button
+							type="button"
+							class={styles.thinkingToggle}
+							onClick={() => setExpanded((v) => !v)}
+							aria-expanded={expanded()}
+						>
+							<span>💭 Thought</span>
+							<span class={styles.chev} aria-hidden="true">
+								{expanded() ? "−" : "+"}
+							</span>
+						</button>
+						<Show when={expanded()}>
+							<div class={styles.thinkingBody}>{text()}</div>
+						</Show>
+					</div>
+				</Match>
+			</Switch>
+		</Show>
+	);
+}
+
 export function ChatMessage(props: Props) {
 	const m = () => props.message;
+	const streaming = () => !!(m() as { streaming?: boolean }).streaming;
+	// While this message is the in-flight one (streaming === true), its text
+	// + reasoning arrive via the live signals (liveText/liveThinking) — that's
+	// what keeps per-token deltas from rebuilding the whole messages list.
+	// Once finalized (streaming === false), the live signals have been reset
+	// to "" and the message carries its own final text/thinking, so we read
+	// those. Gating on `streaming` (not signal emptiness) is what makes the
+	// live bubble commit during the turn AND the final content stick after.
+	const text = () =>
+		streaming() && props.liveText
+			? props.liveText()
+			: (m() as { text: string }).text;
+	const thinking = () =>
+		streaming() && props.liveThinking
+			? props.liveThinking()
+			: ((m() as { thinking?: string }).thinking ?? "");
 
 	return (
 		<div class={`${styles.message} ${styles[m().role]}`}>
@@ -332,9 +416,17 @@ export function ChatMessage(props: Props) {
 				</Show>
 			</Show>
 			<Show when={m().role === "assistant"}>
-				<Show when={(m() as { text: string }).text.trim() !== ""}>
+				{/* Live extended-thinking bubble — shown while streaming;
+				 *  collapses into a small line once the answer arrives.
+				 *  Not persisted (session-only). */}
+				<ThinkingBubble
+					thinking={thinking()}
+					streaming={!!(m() as { streaming?: boolean }).streaming}
+					hasText={text().trim() !== ""}
+				/>
+				<Show when={text().trim() !== ""}>
 					<MarkdownView
-						content={(m() as { text: string }).text}
+						content={text()}
 						notePreview={props.notePreview}
 						class={`${styles.bubble} ${(m() as { streaming?: boolean }).streaming ? styles.streaming : ""}`}
 					/>
