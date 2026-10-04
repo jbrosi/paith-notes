@@ -23,7 +23,18 @@ import {
   verifySession,
 } from './chat/api.js';
 import { buildSystemPrompt } from './chat/system-prompt.js';
+import { stripStaleImageBlocks } from './chat/image-budget.js';
+import {
+  computeContextBreakdown,
+  formatBreakdown,
+  isDebugContextEnabled,
+} from './chat/context-debug.js';
 import { mapWithConcurrency } from './concurrency.js';
+import { decodeImage, resizeForVision } from './image-resize.js';
+import { clearTurnImages, parkedToolsNeedImages, setTurnImages } from './turn-images.js';
+import { storeAttachments, type StoredAttachment } from './chat-attachments.js';
+import { modelSupportsVision } from './vision-model.js';
+import type { ToolResultContent } from './tools/types.js';
 
 // Cap on parallel tool executions per turn. The Anthropic API encourages
 // fan-out (multiple tool_use blocks in one assistant turn), but unbounded
@@ -131,6 +142,60 @@ const DEFAULT_MODEL = 'paith-low';
 const MAX_TOKENS    = 8096;
 const MAX_AUTO_DEPTH = 8;
 
+// Vision capability lives in vision-model.ts (see the note there about import
+// cycles); re-exported here because callers historically imported it from
+// this module.
+export { modelSupportsVision };
+
+// One attached image, as sent by the frontend. `data` is a full data: URI
+// (data:image/jpeg;base64,…) or a raw base64 string — the ORIGINAL, full-res
+// bytes. `media_type` is the source mime (image/png | image/jpeg | …). Node
+// resizes on demand for vision (see image-resize.ts) and passes the original
+// straight to PHP for saving. The model never carries the bytes itself.
+type ChatImage = {
+  data: string;
+  media_type?: string;
+};
+
+const MAX_CHAT_IMAGES = 4;
+// Last-resort cap so a hand-crafted POST can't ship an unbounded base64 blob.
+const MAX_IMAGE_BASE64_CHARS = 20_000_000;
+
+export function normalizeChatImage(raw: unknown): ChatImage | null {
+  if (typeof raw !== 'object' || raw === null) return null;
+  const r = raw as Record<string, unknown>;
+  const data = typeof r.data === 'string' ? r.data.trim() : '';
+  const mediaType = typeof r.media_type === 'string' ? r.media_type.trim() : '';
+  if (!data) return null;
+  if (data.length > MAX_IMAGE_BASE64_CHARS) return null;
+  return { data, media_type: mediaType || undefined };
+}
+
+/**
+ * Build the Anthropic `image` content block for the VISION call by resizing
+ * the original bytes with sharp. Returns null if the resize fails (the image
+ * is then just unavailable for vision — saving still works off the original).
+ */
+export async function imageToBlock(img: ChatImage): Promise<Anthropic.ImageBlockParam | null> {
+  try {
+    const resized = await resizeForVision(img.data);
+    return {
+      type: 'image',
+      source: { type: 'base64', media_type: resized.mediaType, data: resized.base64 },
+    };
+  } catch (err) {
+    // Never fail silently. A swallowed resize leaves the model with an
+    // [IMAGE n] reference and no pixels, which is exactly how you get a
+    // confident hallucination — the caller can't warn it either, since the
+    // only signal it gets is the null.
+    console.warn(
+      '[chat] vision resize FAILED (model will not see this image, saving still works):',
+      err instanceof Error ? `${err.name}: ${err.message}` : String(err),
+    );
+    return null;
+  }
+}
+
 export type ThinkingLevel = 'off' | 'low' | 'high';
 const THINKING_LEVELS: readonly ThinkingLevel[] = ['off', 'low', 'high'];
 export function isThinkingLevel(v: unknown): v is ThinkingLevel {
@@ -149,7 +214,9 @@ function isLegacyClaudeModel(model: string): boolean {
 // aliases these names (see .env.example). Context limits below are the
 // backend's real windows — CHAT_CONTEXT_LIMIT still overrides them.
 const MODEL_CONTEXT_LIMITS: Record<string, number> = {
-  'paith-low': 32_768,
+  // Both local models are Qwen-family with 256K (262,144) native context:
+  // paith-low is the 9B (Qwen3.5-9B fine-tune), paith-high the 27B.
+  'paith-low': 262_144,
   'paith-high': 262_144,
   // Legacy Claude aliases stay resolvable so existing saved conversations
   // and tests keep their documented windows.
@@ -165,9 +232,12 @@ const MODEL_CONTEXT_LIMITS: Record<string, number> = {
 // has a smaller window than we assume.
 const DEFAULT_CONTEXT_LIMIT = 200_000;
 
-// Operator override (CHAT_CONTEXT_LIMIT) for when ANTHROPIC_BASE_URL points
-// at a proxy — e.g. LiteLLM in front of a local model — whose real window
-// differs from what the Claude model name implies. Applies to every model.
+// Operator override for when ANTHROPIC_BASE_URL points at a proxy — e.g.
+// LiteLLM in front of a local model — whose real window differs from the
+// model's default. PER-MODEL: a single global number can't be right for two
+// local models with different real windows (paith-low=32K vs paith-high=262K),
+// so each model has its own override (CHAT_CTX_<UPPER_SNAKE_NAME>) plus a
+// global CHAT_CONTEXT_LIMIT as a last-resort fallback for unknown models.
 export function parseContextLimit(raw: string | undefined): number | undefined {
   const trimmed = raw?.trim();
   if (!trimmed) return undefined;
@@ -175,8 +245,27 @@ export function parseContextLimit(raw: string | undefined): number | undefined {
   return Number.isInteger(n) && n > 0 ? n : undefined;
 }
 
-export function contextLimitFor(model: string, override = process.env.CHAT_CONTEXT_LIMIT): number {
-  return parseContextLimit(override) ?? MODEL_CONTEXT_LIMITS[model] ?? DEFAULT_CONTEXT_LIMIT;
+function contextOverrideKey(model: string): string {
+  // CHAT_CTX_<name> with the model name upper-cased and non-alphanumerics
+  // turned into underscores — e.g. paith-low -> CHAT_CTX_PAITH_LOW,
+  // qwen3.8:27b-mtp-q4_K_M -> CHAT_CTX_QWEN3_8_27B_MTP_Q4_K_M.
+  return 'CHAT_CTX_' + model.toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+}
+
+export function contextLimitFor(
+  model: string,
+  env: NodeJS.ProcessEnv = process.env,
+): number {
+  // 1. Per-model override (CHAT_CTX_<name>) — most specific.
+  // 2. The model's table value (its real/default window).
+  // 3. Global CHAT_CONTEXT_LIMIT — last resort, only for unknown models.
+  // 4. 200K default.
+  return (
+    parseContextLimit(env[contextOverrideKey(model)])
+    ?? MODEL_CONTEXT_LIMITS[model]
+    ?? parseContextLimit(env.CHAT_CONTEXT_LIMIT)
+    ?? DEFAULT_CONTEXT_LIMIT
+  );
 }
 // Pressure thresholds for 1M-context models. We pay for the big window
 // but proactively steer toward new chats — users generally prefer fresh
@@ -408,6 +497,7 @@ const ORDER_SENSITIVE_WRITE_TOOLS = new Set([
   'create_note_type',
   'update_note_type',
   'generate_image',
+  'save_image_to_note',
   'memory_create',
   'memory_update',
 ]);
@@ -545,13 +635,25 @@ async function streamConversation(
   voice?: { lang: string } | null,
   editorState?: EditorStateMeta,
   thinking?: ThinkingLevel,
-): Promise<void> {
+  visionHint?: string,
+): Promise<{ needsImages: boolean }> {
   const voiceStreamer = voice ? new VoiceStreamer(res, voice.lang) : null;
   // Terminal events (done/awaiting_approval/error) must be emitted AFTER
   // voiceStreamer.flush() — otherwise the frontend stops reading on the
   // terminal event and the trailing audio_chunk SSE writes (which the
   // flush is still pushing) get stranded in the receive buffer.
   const trailing: Array<{ event: string; data: unknown }> = [];
+  // True when this turn parked on an approval card instead of finishing. The
+  // approved tools run in a SEPARATE request (POST /chat/tool-result), so the
+  // per-turn image stash must outlive this stream — otherwise a tool that
+  // needs approval (save_image_to_note is a write, so it always does) would
+  // find its [IMAGE n] bytes already deleted and could never succeed. The
+  // tool-result route clears the stash instead; the 10-min TTL in
+  // turn-images.ts backstops an approval the user never answers.
+  let parkedOnApproval = false;
+  // Which tools the turn parked on. Only tools that resolve bytes out of the
+  // turn stash matter for its lifetime (today: save_image_to_note).
+  let parkedNeedsImages = false;
   // Voice tag stripper + sentence buffer. Together they: (a) strip
   // `<voice instr="...">…</voice>` from the text the user sees in the
   // transcript, (b) pair each spoken sentence with the active instruction
@@ -614,7 +716,12 @@ async function streamConversation(
   // drop before the tool_result POST landed) gets a synthetic "timeout"
   // result attached — otherwise the API hard-fails with 400 and the
   // user is stuck unable to continue the conversation.
-  const msgs: Anthropic.MessageParam[] = sanitizeOrphanedToolUses([...messages]);
+  const msgs: Anthropic.MessageParam[] = sanitizeOrphanedToolUses(
+    // Bound re-sent pixels too: look_at_image results are persisted, so an
+    // old image block would otherwise ride along on every later turn forever.
+    // Request-time only — the DB keeps the full transcript.
+    stripStaleImageBlocks([...messages]),
+  );
   let lastInputTokens = 0;
 
   try {
@@ -680,6 +787,14 @@ async function streamConversation(
         );
       }
 
+      // Vision gating — the user attached image(s) but the current model can't
+      // see them (they were dropped, not sent to the API). Instruct the model to
+      // ask the user to switch to the vision-capable model and re-send. Only
+      // present on the single turn where the drop happened.
+      if (visionHint) {
+        turnHintParts.push(visionHint);
+      }
+
       const turnHint = turnHintParts.length
         ? `[SYSTEM CONTEXT for this turn — guidance only, not written by the user; don't quote it back]\n\n${turnHintParts.join('\n\n')}`
         : '';
@@ -706,6 +821,28 @@ async function streamConversation(
       let currentText = '';
       let currentTool: { id: string; name: string; partialInput: string } | null = null;
       const pendingToolUses: Anthropic.ToolUseBlockParam[] = [];
+
+      // Optional context-window breakdown (gated on CHAT_DEBUG_CONTEXT).
+      // Uses the backend's own tokenizer via LiteLLM's count_tokens endpoint
+      // so the numbers match what the window actually holds — important on
+      // Ollama where the count differs from Anthropic's. Adds one count call
+      // per message prefix; only runs when the debug flag is on.
+      let contextBreakdown: Awaited<ReturnType<typeof computeContextBreakdown>> | null = null;
+      if (isDebugContextEnabled()) {
+        try {
+          contextBreakdown = await computeContextBreakdown(
+            process.env.ANTHROPIC_BASE_URL ?? '',
+            process.env.ANTHROPIC_API_KEY ?? '',
+            model,
+            baseSystemPrompt,
+            TOOLS,
+            cachedMsgs,
+          );
+          console.log(formatBreakdown(contextBreakdown));
+        } catch (err) {
+          console.warn('[ctx] breakdown failed:', err instanceof Error ? err.message : err);
+        }
+      }
 
       const stream = await client.messages.create({
         model,
@@ -835,6 +972,21 @@ async function streamConversation(
               cache_read_input_tokens: cacheReadTokens,
               context_limit: contextLimitFor(model),
             },
+            // Per-component context breakdown — only populated when
+            // CHAT_DEBUG_CONTEXT is on. Lets the UI show exactly where the
+            // window is going (system / tools / each message / tool_results)
+            // instead of one opaque total.
+            ...(contextBreakdown
+              ? {
+                  context_breakdown: {
+                    system_tokens: contextBreakdown.systemTokens,
+                    tools_tokens: contextBreakdown.toolsTokens,
+                    total_tokens: contextBreakdown.totalTokens,
+                    messages: contextBreakdown.messages,
+                    biggest: contextBreakdown.biggest,
+                  },
+                }
+              : {}),
           });
 
           const stopReason = event.delta.stop_reason;
@@ -867,7 +1019,7 @@ async function streamConversation(
             } else if (totalTokens > contextLimit * CONTEXT_WARNING_THRESHOLD) {
               trailing.push({ event: 'context_warning', data: { level: 'warning', usage_ratio: totalTokens / contextLimit } });
             }
-            return;
+            return { needsImages: false };
           }
 
           if (stopReason === 'tool_use') {
@@ -887,7 +1039,7 @@ async function streamConversation(
                 toolsPayload,
                 TOOL_CONCURRENCY,
                 async (t, i): Promise<Anthropic.ToolResultBlockParam> => {
-                  let resultContent: string;
+                  let resultContent: ToolResultContent;
                   let isError = false;
                   try {
                     if (t.name === 'search_agent') {
@@ -931,7 +1083,7 @@ async function streamConversation(
                         thinking,
                       });
                     } else {
-                      resultContent = await executeTool(t.name, t.input, apiBase, cookie, nookId, memoryNookId ?? undefined);
+                      resultContent = await executeTool(t.name, t.input, apiBase, cookie, nookId, memoryNookId ?? undefined, conversationId, model);
                     }
                   } catch (err) {
                     const msg = err instanceof Error ? err.message : String(err);
@@ -961,11 +1113,13 @@ async function streamConversation(
                   // Record note-conversation link for auto-executed writes (including memory tools)
                   if (!isError && (t.name === 'create_note' || t.name === 'update_note' || t.name === 'memory_create' || t.name === 'memory_update')) {
                     try {
-                      const resultData = JSON.parse(resultContent) as { note?: { id?: string } };
-                      const noteId = resultData.note?.id;
-                      if (noteId) {
-                        const savedBlock = assistantBlocks.find(b => b.toolUseId === t.id);
-                        await recordNoteConvLink(noteId, conversationId, savedBlock?.id, apiBase, cookie);
+                      if (typeof resultContent === 'string') {
+                        const resultData = JSON.parse(resultContent) as { note?: { id?: string } };
+                        const noteId = resultData.note?.id;
+                        if (noteId) {
+                          const savedBlock = assistantBlocks.find((b) => b.toolUseId === t.id);
+                          await recordNoteConvLink(noteId, conversationId, savedBlock?.id, apiBase, cookie);
+                        }
                       }
                     } catch { /* best-effort */ }
                   }
@@ -1009,7 +1163,9 @@ async function streamConversation(
                   frontend_executed_tool_ids: frontendExecutedIds,
                 },
               });
-              return;
+              parkedOnApproval = true;
+              parkedNeedsImages = parkedToolsNeedImages(toolsPayload.map((t) => t.name));
+              return { needsImages: parkedNeedsImages };
             }
           }
         }
@@ -1033,6 +1189,13 @@ async function streamConversation(
     );
     trailing.push({ event: 'error', data: { message: err instanceof Error ? err.message : 'unknown error' } });
   } finally {
+    // Release this turn's attached-image bytes now that the stream is over —
+    // save_image_to_note has already had its chance to read them. When we
+    // parked on an approval card the turn isn't over: those tools execute in
+    // the /chat/tool-result request, so keep the stash until it lands.
+    if (!parkedOnApproval) {
+      clearTurnImages(conversationId);
+    }
     // Order matters: drain audio_chunks first so the frontend has them all
     // before it sees a terminal event and stops reading. Then emit the
     // captured terminal event(s). Then close the stream.
@@ -1046,6 +1209,7 @@ async function streamConversation(
     for (const ev of trailing) sse(res, ev.event, ev.data);
     res.end();
   }
+  return { needsImages: parkedOnApproval && parkedNeedsImages };
 }
 
 // ─── Routes ──────────────────────────────────────────────────────────────────
@@ -1073,7 +1237,7 @@ export function createChatRouter(apiBase: string): Router {
     }
 
     const nook_id = validateNookId(String(req.params.nookId ?? ''));
-    const { message, model, conversation_id, context_note_id, context_note_title, context_note_type, voice_mode, voice_lang, speaker_name, speaker_confidence, editor_state, thinking } = req.body as Record<string, unknown>;
+    const { message, model, images, conversation_id, context_note_id, context_note_title, context_note_type, voice_mode, voice_lang, speaker_name, speaker_confidence, editor_state, thinking } = req.body as Record<string, unknown>;
     const speakerName =
       typeof speaker_name === 'string' && speaker_name.trim() !== ''
         ? speaker_name.trim()
@@ -1087,8 +1251,9 @@ export function createChatRouter(apiBase: string): Router {
         ? Math.max(0, Math.min(1, Math.round(speaker_confidence * 100) / 100))
         : null;
 
-    if (typeof message !== 'string' || message.trim() === '') {
-      res.status(400).json({ error: 'message is required' });
+    const imagesRaw = Array.isArray(images) ? images : [];
+    if ((typeof message !== 'string' || message.trim() === '') && imagesRaw.length === 0) {
+      res.status(400).json({ error: 'message or images is required' });
       return;
     }
     const voice = voice_mode === true
@@ -1113,7 +1278,7 @@ export function createChatRouter(apiBase: string): Router {
       if (typeof conversation_id === 'string' && conversation_id) {
         convId = conversation_id;
       } else {
-        const title = message.slice(0, 100);
+        const title = (typeof message === 'string' ? message : '').slice(0, 100);
         const data = await phpApi('POST', '/api/conversations', cookieHeader, apiBase, {
           nook_id: convNookId,
           model: resolvedModel,
@@ -1140,18 +1305,134 @@ export function createChatRouter(apiBase: string): Router {
       // Logging only the first 200 chars to keep the line readable —
       // the metadata prefix is short and lives at the start.
       console.log(`[chat] user message prefix: ${messageText.slice(0, 200).replace(/\n/g, ' \\n ')}`);
+
+      // Attached images — the ORIGINAL full-res bytes arrive once. Node routes
+      // them three ways:
+      //   VISION → resized on the fly (sharp) into an `image` block the model
+      //            sees. Only for vision-capable models (otherwise the backend
+      //            500s). The resized copy is what's persisted + sent to the LLM.
+      //   SAVING → the ORIGINAL stays in MCP scope; the model only ever holds a
+      //            small [IMAGE n] id, never bytes.
+      //   DURABILITY → the ORIGINAL is uploaded to the attachment store, so it
+      //            survives the turn, the process and a reload. That's what makes
+      //            "analyse it now, save it later" and "look at it again" work.
+      const normalized = imagesRaw
+        .slice(0, MAX_CHAT_IMAGES)
+        .map(normalizeChatImage)
+        .filter((b): b is ChatImage => b !== null);
+      const vision = modelSupportsVision(resolvedModel);
+
+      // Persist the originals BEFORE anything else so the ids exist even if the
+      // resize later fails — saving and re-looking must not depend on vision.
+      // A failed upload is non-fatal: we fall back to the per-turn in-memory
+      // stash so the user can still save the image in THIS turn.
+      let attachments: StoredAttachment[] = [];
+      if (normalized.length > 0) {
+        try {
+          attachments = await storeAttachments(convId, normalized, {
+            apiBase: apiBase,
+            cookie: cookieHeader,
+            ...(nook_id ? { nookId: nook_id } : {}),
+          });
+          console.log(
+            `[chat] stored ${attachments.length}/${normalized.length} attachment(s) for conversation ${convId}`
+            + ` (${attachments.map((a) => `[IMAGE ${a.attachment_index}]=${a.id}`).join(' ')})`,
+          );
+        } catch (err) {
+          console.warn(
+            '[chat] attachment store FAILED — images stay usable this turn only (saving later / re-looking '
+            + 'will not work):',
+            err instanceof Error ? `${err.name}: ${err.message}` : String(err),
+          );
+        }
+      }
+
+      const imageBlocks = vision
+        ? (await Promise.all(normalized.map(imageToBlock)))
+            .filter((b): b is Anthropic.ImageBlockParam => b !== null)
+        : [];
+      const hasImages = normalized.length > 0;
+      // What the model can actually SEE is what survived the resize — not what
+      // was attached. A vision model whose resizes all failed (e.g. sharp has no
+      // native binary on this platform) is just as blind as a text-only model,
+      // and must be told so or it will invent a description.
+      const visibleCount = imageBlocks.length;
+      const blindCount = normalized.length - visibleCount;
+      if (hasImages) {
+        console.log(
+          `[chat] ${normalized.length} image(s) attached — vision=${vision} visible=${visibleCount} blind=${blindCount} (save always available)`,
+        );
+      }
+
+      // [IMAGE n] marker (NO bytes) so the model can reference an attached image
+      // for save_image_to_note / look_at_image. The bytes never travel through
+      // the LLM. When the attachment store took the upload we hand out durable
+      // ids; otherwise we fall back to the [IMAGE n] index of this turn.
+      const imageReferences = hasImages
+        ? (attachments.length === normalized.length
+            ? attachments.map((a) => `[IMAGE ${a.attachment_index}] id=${a.id}`)
+            : normalized.map((_, i) => `[IMAGE ${i + 1}] (this turn only — the attachment store is unavailable, so it cannot be saved later or re-viewed)`)
+          ).join('\n')
+        : '';
+      const userText =
+        (messageText.trim() ? messageText : '') +
+        (hasImages
+          ? '\n\nAttached image(s):\n' +
+            imageReferences +
+            '\n\nThe ids stay valid for the whole conversation, so you can keep referring to them in later '
+            + 'messages. To SAVE one, call save_image_to_note with attachment_id = that id (plus a title, or '
+            + 'note_id to attach). Saving works on every model — it does not require vision. To actually SEE '
+            + 'one (including an image from an earlier message, or an image saved in a note), call look_at_image.'
+          : '');
+
+      const userContent: Anthropic.ContentBlockParam[] = [
+        { type: 'text', text: userText },
+        ...imageBlocks,
+      ];
       const userMessage: Anthropic.MessageParam = {
         role: 'user',
-        content: [{ type: 'text', text: messageText }],
+        content: userContent,
       };
       await saveMessages(convId, [{ role: 'user', content: userMessage.content }], cookieHeader, apiBase);
       history.push(userMessage);
+
+      // Stash the ORIGINAL bytes for this turn so save_image_to_note can pull
+      // them by index. Scope = the single /chat call (cleared when it returns).
+      setTurnImages(convId, normalized);
 
       sseHeaders(res);
       sse(res, 'conversation', { conversation_id: convId });
 
       const editorState = normalizeEditorState(editor_state);
-      await streamConversation(res, history, resolvedModel, convId, cookieHeader, apiBase, nook_id, contextNote, memoryNookId, voice, editorState, resolvedThinking);
+      // Warn the model about every attachment it cannot SEE. Two distinct
+      // causes, and the model must be told in both — otherwise it answers from
+      // imagination rather than saying "I can't see that":
+      //   a) the active model has no vision at all (paith-low)
+      //   b) the model is vision-capable but the image failed to decode/resize
+      // Every attachment remains saveable either way.
+      const visionHintParts: string[] = [];
+      if (hasImages && !vision) {
+        visionHintParts.push(
+          'The user attached image(s) to this message, but the current model (' + resolvedModel + ') has NO vision — you cannot see or describe the image contents. Two things are still possible:\n' +
+            '1. SAVE it: call save_image_to_note with attachment_id = the id from the [IMAGE n] id=<uuid> marker (plus a title, or note_id to attach to an existing note). This does NOT require vision.\n' +
+            '2. DESCRIBE it: not possible here. look_at_image will refuse on this model, so if the user asks what\'s in the image, tell them this model can\'t see images and suggest switching to "Paith High" (vision-capable) — the attachment stays stored, so they do NOT need to re-send it. Do NOT guess or describe the image content.',
+        );
+      } else if (blindCount > 0) {
+        visionHintParts.push(
+          visibleCount === 0
+            ? 'IMPORTANT: image(s) were attached to this message, but NONE of them could be decoded for viewing (a server-side image-processing failure — not a vision limitation of the model). You are therefore completely BLIND to them this turn. If the user asks what an image shows, tell them plainly that the image could not be processed and you cannot see it, and offer to save it instead. Do NOT guess, describe, or infer the contents — an honest "I can\'t see this one" is correct here.'
+            : `IMPORTANT: ${visibleCount} of the ${hasImages} attached image(s) could not be decoded for viewing (a server-side image-processing failure). You can see the others, but you are BLIND to the remaining ${blindCount}. Never describe or guess at those. Say the image couldn't be processed, and offer to save it instead.`,
+        );
+      }
+      const visionHint = visionHintParts.join('\n\n');
+      const outcome = await streamConversation(res, history, resolvedModel, convId, cookieHeader, apiBase, nook_id, contextNote, memoryNookId, voice, editorState, resolvedThinking, visionHint);
+      // If the turn parked on tools that don't read image bytes, nothing will
+      // ever come back for them — drop the stash now rather than let it sit
+      // until the TTL. (streamConversation already cleared it when the turn
+      // didn't park at all; this is the parked case.)
+      if (!outcome.needsImages) {
+        clearTurnImages(convId);
+      }
     } catch (err) {
       if (!res.headersSent) {
         res.status(500).json({ error: err instanceof Error ? err.message : 'unknown error' });
@@ -1271,7 +1552,7 @@ export function createChatRouter(apiBase: string): Router {
               : { type: 'tool_result', tool_use_id: tr.tool_use_id, content: tr.frontend_result.content };
           }
           try {
-            let result: string;
+            let result: ToolResultContent;
             if (tr.tool_name === 'search_agent') {
               result = await runSearchAgent(
                 String(tr.tool_input.task ?? ''),
@@ -1312,7 +1593,18 @@ export function createChatRouter(apiBase: string): Router {
                 thinking: resolvedThinking,
               });
             } else {
-              result = await executeTool(tr.tool_name, tr.tool_input, apiBase, cookieHeader, nook_id, memNookId ?? undefined);
+              result = await executeTool(
+                tr.tool_name,
+                tr.tool_input,
+                apiBase,
+                cookieHeader,
+                nook_id,
+                memNookId ?? undefined,
+                conversation_id,
+                // The approved tool runs in THIS request, so the vision gate in
+                // look_at_image has to see the model the turn was resolved to.
+                resolvedModel,
+              );
             }
             return { type: 'tool_result', tool_use_id: tr.tool_use_id, content: result };
           } catch (err) {
@@ -1359,7 +1651,13 @@ export function createChatRouter(apiBase: string): Router {
         : undefined;
 
       if (!res.headersSent) sseHeaders(res);
-      await streamConversation(res, history, resolvedModel, conversation_id, cookieHeader, apiBase, nook_id, contextNote, memNookId, voice, undefined, resolvedThinking);
+      const outcome = await streamConversation(res, history, resolvedModel, conversation_id, cookieHeader, apiBase, nook_id, contextNote, memNookId, voice, undefined, resolvedThinking);
+      // Same rule as the /chat route: this round's approved tools have already
+      // run above, so the stash is only worth keeping if the continuation
+      // parked on ANOTHER tool that still needs the bytes.
+      if (!outcome.needsImages) {
+        clearTurnImages(conversation_id);
+      }
     } catch (err) {
       if (!res.headersSent) {
         res.status(500).json({ error: err instanceof Error ? err.message : 'unknown error' });

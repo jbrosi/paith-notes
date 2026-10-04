@@ -10,7 +10,7 @@ import {
 } from "solid-js";
 import { createStore } from "solid-js/store";
 import { useUi } from "../../ui/UiContext";
-import { ChatInput, type ThinkingLevel } from "./ChatInput";
+import { ChatInput, type SendMeta, type ThinkingLevel } from "./ChatInput";
 import {
 	ChatMessage,
 	type ChatMessageData,
@@ -80,9 +80,6 @@ const APPROVE_RE =
 	/\b(yes|yeah|yep|yup|sure|ok|okay|confirm|please|do it|go ahead|ja|jo|jep|klar|mach|los|sicher|bestätigt|bestätigen|bestätige)\b/i;
 const DENY_RE =
 	/\b(no|nope|cancel|stop|abort|don'?t|nein|nicht|niemals|abbrechen|stopp|halt|abbruch)\b/i;
-const fmtTokens = (n: number) =>
-	n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
-
 // Rough client-side estimate of a reopened conversation's context size, used
 // only to warn *before* the first message (the exact count comes back from the
 // model on the next round-trip). Fixed overhead ≈ tool definitions + system
@@ -97,7 +94,16 @@ const estimateConversationTokens = (msgs: ChatMessageData[]): number => {
 	for (const m of msgs) {
 		chars += (m as { text?: string }).text?.length ?? 0;
 		const tools = (m as { toolUses?: ToolUse[] }).toolUses;
-		if (tools?.length) chars += JSON.stringify(tools).length;
+		if (tools?.length) {
+			for (const t of tools) {
+				chars += JSON.stringify(t.input ?? {}).length;
+				// tool_result content is the biggest chunk of conversation
+				// history (full note bodies, search lists, ...). The old
+				// estimate was blind to it, which is why the context bar
+				// looked much lower than the real window.
+				chars += t.resultChars ?? 0;
+			}
+		}
 	}
 	return ESTIMATED_BASE_TOKENS + Math.ceil(chars / CHARS_PER_TOKEN);
 };
@@ -318,6 +324,27 @@ async function fetchMessages(
 	const SPEAKER_RE =
 		/^\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}Z\] \[spoken by ([^\]]+)\]/;
 	const out: ChatMessageData[] = [];
+	// Pre-compute a map of tool_use_id → result char count from every
+	// tool_result block in the conversation. tool_results live on the
+	// user message that follows the assistant turn which emitted the
+	// tool_use, but building one flat map is O(n) and avoids look-ahead
+	// indexing inside the loop.
+	const resultCharsById = new Map<string, number>();
+	for (const m of data.messages ?? []) {
+		if (m.role !== "user" || !Array.isArray(m.content)) continue;
+		for (const b of m.content as Array<Record<string, unknown>>) {
+			if (b?.type !== "tool_result" || typeof b.tool_use_id !== "string")
+				continue;
+			const c = b.content;
+			const len =
+				typeof c === "string"
+					? c.length
+					: Array.isArray(c)
+						? JSON.stringify(c).length
+						: JSON.stringify(c ?? "").length;
+			resultCharsById.set(b.tool_use_id, len);
+		}
+	}
 	for (const m of data.messages ?? []) {
 		if (m.role === "user") {
 			// Extract text from content blocks
@@ -332,12 +359,38 @@ async function fetchMessages(
 				)
 				.map((b) => b.text)
 				.join("");
+			// Image blocks (vision attachments) → data: URI thumbnails.
+			const images = blocks
+				.filter(
+					(
+						b,
+					): b is {
+						type: string;
+						source: { media_type: string; data: string };
+					} =>
+						typeof b === "object" &&
+						b !== null &&
+						"type" in b &&
+						(b as Record<string, unknown>).type === "image" &&
+						typeof (b as Record<string, unknown>).source === "object",
+				)
+				.map((b) => ({
+					src: `data:${b.source.media_type};base64,${b.source.data}`,
+					mediaType: b.source.media_type,
+				}))
+				.filter((im) => im.src.length > "data:;base64,".length);
 			const tsMatch = TS_RE.exec(text);
 			const sentAt = tsMatch ? new Date(`${tsMatch[1]}Z`).getTime() : undefined;
 			const speakerMatch = SPEAKER_RE.exec(text);
 			const speaker = speakerMatch ? speakerMatch[1] : null;
-			if (text.trim() && !text.includes("[nudge]"))
-				out.push({ role: "user", text, sentAt, speaker });
+			if ((text.trim() && !text.includes("[nudge]")) || images.length > 0)
+				out.push({
+					role: "user",
+					text: text.trim() ? text : "",
+					sentAt,
+					speaker,
+					images: images.length ? images : undefined,
+				});
 		} else if (m.role === "assistant") {
 			const blocks = Array.isArray(m.content) ? m.content : [];
 			const text = blocks
@@ -365,6 +418,13 @@ async function fetchMessages(
 						(b as Record<string, unknown>).type === "tool_use",
 				)
 				.map((b) => ({ id: b.id, name: b.name, input: b.input }));
+			// Attach each tool_result's char count so the context estimate
+			// includes it — tool results (note bodies, search lists) are
+			// the biggest chunk of conversation history.
+			for (const tu of toolUses) {
+				const len = resultCharsById.get(tu.id);
+				if (len !== undefined) tu.resultChars = len;
+			}
 			if (text.trim() || toolUses.length > 0) {
 				out.push({ role: "assistant", text, toolUses, streaming: false });
 			}
@@ -451,14 +511,10 @@ export function ChatPanel(props: Props) {
 		limit?: number;
 		/** true when tokens is a client-side estimate (reopened chat, pre-send). */
 		approx?: boolean;
+		/** Per-component breakdown — present only when the MCP server has
+		 *  CHAT_DEBUG_CONTEXT enabled. Drives the tooltip in the context bar. */
+		breakdown?: import("./ChatMessage").ContextBreakdown;
 	}>({ ratio: 0, level: "" });
-	// Running token total for the open conversation. Session-only: accumulated
-	// from turn_usage events, reset when the conversation changes. Not persisted,
-	// so it starts at 0 for a reloaded conversation until the next message.
-	const [sessionUsage, setSessionUsage] = createSignal<{
-		input: number;
-		output: number;
-	}>({ input: 0, output: 0 });
 	const [reconnecting, setReconnecting] = createSignal(false);
 	const [pendingApproval, setPendingApproval] =
 		createSignal<PendingApproval | null>(null);
@@ -757,7 +813,6 @@ export function ChatPanel(props: Props) {
 		setMessages([]);
 		setError(null);
 		setPendingApproval(null);
-		setSessionUsage({ input: 0, output: 0 });
 		setContextUsage({ ratio: 0, level: "" });
 		const loaded = await fetchMessages(conv.id);
 		setMessages(loaded);
@@ -789,7 +844,6 @@ export function ChatPanel(props: Props) {
 		setActiveTitle("New chat");
 		setError(null);
 		setPendingApproval(null);
-		setSessionUsage({ input: 0, output: 0 });
 		setContextUsage({ ratio: 0, level: "" });
 		setView("chat");
 	};
@@ -1039,11 +1093,6 @@ export function ChatPanel(props: Props) {
 							usage.input_tokens +
 							usage.cache_creation_input_tokens +
 							usage.cache_read_input_tokens;
-						// Running conversation total (session-only).
-						setSessionUsage((prev) => ({
-							input: prev.input + totalInput,
-							output: prev.output + usage.output_tokens,
-						}));
 						// Context-window fill from the latest round-trip (exact). tokens =
 						// the prompt the model just saw (system + full history + turn) plus
 						// its output — i.e. the current context length, what matters for
@@ -1057,6 +1106,7 @@ export function ChatPanel(props: Props) {
 								tokens,
 								limit: usage.context_limit,
 								approx: false,
+								breakdown: usage.context_breakdown,
 							});
 							// Remember the effective limit so reopened chats can estimate.
 							writeCachedLimit(model(), usage.context_limit);
@@ -1077,6 +1127,11 @@ export function ChatPanel(props: Props) {
 									(cur?.cache_read_input_tokens ?? 0) +
 									usage.cache_read_input_tokens,
 								context_limit: usage.context_limit,
+								// Keep the breakdown on the last round-trip only —
+								// it's a snapshot of the whole window at that
+								// point, not something to sum across round-trips.
+								context_breakdown:
+									usage.context_breakdown ?? cur?.context_breakdown,
 							};
 							return { usage: merged };
 						});
@@ -1377,16 +1432,7 @@ export function ChatPanel(props: Props) {
 
 	// onFinal) when the voice container identified an enrolled speaker;
 	// it's omitted on manual text submissions.
-	const send = async (
-		text: string,
-		selectedModel: string,
-		meta?: {
-			speaker?: string | null;
-			speakerConfidence?: number;
-			language?: string;
-			durationSec?: number;
-		},
-	) => {
+	const send = async (text: string, selectedModel: string, meta?: SendMeta) => {
 		clearKeepAlive();
 		isNudge = false;
 		setError(null);
@@ -1406,6 +1452,11 @@ export function ChatPanel(props: Props) {
 				speakerConfidence: meta?.speakerConfidence,
 				language: meta?.language,
 				durationSec: meta?.durationSec,
+				images: meta?.images?.map((im) => ({
+					src: im.preview,
+					mediaType: im.mediaType,
+					filename: im.filename,
+				})),
 			} as ChatMessageData,
 		]);
 		scrollToBottom(true);
@@ -1433,6 +1484,19 @@ export function ChatPanel(props: Props) {
 					thinking: thinking(),
 					speaker_name: meta?.speaker ?? undefined,
 					speaker_confidence: meta?.speakerConfidence ?? undefined,
+					// Images: ship ONLY the original (full-resolution) bytes, once.
+					// MCP resizes with sharp only when the active model actually
+					// supports vision (image-resize.ts), and hands the untouched
+					// original to save_image_to_note so notes keep full
+					// resolution. The `preview` is a local-only thumbnail for
+					// rendering the attachment list/chat bubble — never uploaded.
+					images: meta?.images?.length
+						? meta.images.map((im) => ({
+								data: im.original,
+								media_type: im.mediaType,
+								filename: im.filename,
+							}))
+						: undefined,
 				}),
 				signal: abortCtrl.signal,
 			});
@@ -1708,27 +1772,6 @@ export function ChatPanel(props: Props) {
 						{activeTitle() || "Chat"}
 					</Show>
 				</h2>
-				<Show
-					when={
-						view() === "chat" &&
-						(sessionUsage().input > 0 || sessionUsage().output > 0)
-					}
-				>
-					<span
-						title="Total tokens this conversation (in ▸ out). Session-only — resets on reload."
-						style={{
-							"font-size": "0.65rem",
-							"font-family": "monospace",
-							color: "var(--color-text-faint, #999)",
-							"margin-left": "auto",
-							"margin-right": "8px",
-							"white-space": "nowrap",
-						}}
-					>
-						Σ {fmtTokens(sessionUsage().input)}▸
-						{fmtTokens(sessionUsage().output)}
-					</span>
-				</Show>
 				<button class={styles.closeBtn} onClick={props.onClose} type="button">
 					✕
 				</button>

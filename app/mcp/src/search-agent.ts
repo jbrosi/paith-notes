@@ -183,7 +183,7 @@ export async function runSearchAgent(
             // Strip nook_id overrides — search agent is scoped to current nook only
             const sanitizedInput = { ...(t.input as Record<string, unknown>) };
             delete sanitizedInput.nook_id;
-            const result = await executeTool(t.name, sanitizedInput, apiBase, cookie, nookId, memoryNookId);
+            const result = await executeTool(t.name, sanitizedInput, apiBase, cookie, nookId, memoryNookId, undefined, model);
             return { type: 'tool_result', tool_use_id: t.id, content: result };
           } catch (err) {
             return { type: 'tool_result', tool_use_id: t.id, content: `Error: ${err instanceof Error ? err.message : 'unknown'}`, is_error: true };

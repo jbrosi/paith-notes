@@ -519,6 +519,47 @@ final class GlobalSchema
             $pdo->exec('create index if not exists note_conv_links_note_idx on global.note_conversation_links (note_id)');
             $pdo->exec('create index if not exists note_conv_links_conv_idx on global.note_conversation_links (conversation_id)');
 
+            // Original bytes of images pasted/attached into a chat message.
+            //
+            // The conversation_blocks row only ever holds the DOWNSCALED copy
+            // (the vision payload, ≤1024px) because that is all the model was
+            // shown. These rows keep the untouched ORIGINAL on disk so that:
+            //   - save_image_to_note can save at full resolution in a LATER turn
+            //     (previously the bytes lived in an in-memory per-turn Map and
+            //     were gone the moment the turn ended),
+            //   - look_at_image can re-inject the pixels into a later turn,
+            //   - saving to a note is a server-side copy, not a base64 round-trip.
+            //
+            // attachment_index is the conversation-scoped, append-only [IMAGE n]
+            // the model sees; it never resets, so an index always means the same
+            // picture for the life of the conversation.
+            //
+            // Rows cascade away with the conversation (delete one / delete all).
+            // The bytes on disk are unlinked explicitly by ConversationsController,
+            // since a DB cascade can't reach the filesystem.
+            $pdo->exec("
+                create table if not exists global.conversation_images (
+                    id               uuid        primary key default gen_random_uuid(),
+                    conversation_id  uuid        not null references global.conversations(id) on delete cascade,
+                    turn_id          uuid        null,
+                    nook_id          uuid        null,
+                    attachment_index int         not null,
+                    filename         text        not null default '',
+                    media_type       text        not null default '',
+                    filesize         bigint      not null default 0,
+                    checksum         text        not null default '',
+                    object_key       text        not null,
+                    created_at       timestamptz not null default now(),
+                    unique (conversation_id, attachment_index)
+                );
+            ");
+
+            $pdo->exec('create index if not exists conv_images_conv_idx on global.conversation_images (conversation_id, created_at)');
+            // The orphan reaper (worker) asks "does any row point at this file?"
+            // once per file on disk, so without this it is a sequential scan per
+            // file.
+            $pdo->exec('create index if not exists conv_images_object_key_idx on global.conversation_images (object_key)');
+
             // Extend nook_role enum with sharing roles
             $pdo->exec("do $$ begin
                 if not exists (select 1 from pg_enum where enumtypid = 'global.nook_role'::regtype and enumlabel = 'readonly') then

@@ -3,6 +3,7 @@ import {
   getOptionalToolHandler,
   optionalToolDefinitions,
 } from './tools/registry.js';
+import type { ToolResultContent } from './tools/types.js';
 
 // Always-on core tools (notes, memory, etc.) live in this array. Tools
 // that should be conditionally registered based on env (weather,
@@ -626,7 +627,9 @@ export async function executeTool(
   cookie: string,
   nookId: string,
   memoryNookId?: string,
-): Promise<string> {
+  conversationId?: string,
+  model?: string,
+): Promise<ToolResultContent> {
   if (!nookId && CURRENT_NOOK_REQUIRED_TOOLS.has(name)) {
     throw new Error(
       `Tool "${name}" needs an active nook, but the user hasn't selected one. Ask them to open a nook first, or use a cross-nook alternative (search_all_nooks, get_note with an explicit nook_id, or the memory_* tools).`,
@@ -638,7 +641,12 @@ export async function executeTool(
   // context bundle every optional handler expects.
   const optional = getOptionalToolHandler(name);
   if (optional) {
-    return optional(input, { apiBaseUrl, cookie, nookId, memoryNookId });
+    // NOTE: the result is passed through AS-IS. A handler may return a content
+    // block array (look_at_image returns a real Anthropic `image` block) and
+    // stringifying that would hand the model the base64 as JSON text instead of
+    // pixels — which is exactly the "I can't see the image" failure this feature
+    // exists to remove. The chat router accepts ToolResultContent directly.
+    return await optional(input, { apiBaseUrl, cookie, nookId, memoryNookId, conversationId, model });
   }
 
   const headers = {

@@ -12,6 +12,7 @@ use Paith\Notes\Api\Http\HttpError;
 use Paith\Notes\Api\Http\JsonResponse;
 use Paith\Notes\Api\Http\Request;
 use Paith\Notes\Api\Http\Response;
+use Paith\Notes\Api\Http\Service\Files\LocalObjectStore;
 use Paith\Notes\Shared\Db\Row;
 use Paith\Notes\Shared\Db\Rows\ConversationBlockRow;
 use Paith\Notes\Shared\Db\Rows\ConversationRow;
@@ -308,7 +309,12 @@ final class ConversationsController
 
     /**
      * Delete a single conversation owned by the caller.
-     * Cascades to conversation_blocks via FK on delete cascade.
+     * Cascades to conversation_blocks and conversation_images via FK on delete
+     * cascade.
+     *
+     * A DB cascade can't reach the filesystem, so the attachment BYTES are
+     * swept explicitly afterwards — otherwise every deleted conversation would
+     * leak its images on disk forever.
      */
     public function delete(Request $request, Context $context): Response
     {
@@ -327,7 +333,35 @@ final class ConversationsController
             throw new HttpError('conversation not found', 404);
         }
 
+        $this->purgeAttachmentFiles([$conversationId]);
+
         return JsonResponse::ok(['deleted' => true, 'conversation_id' => $conversationId]);
+    }
+
+    /**
+     * Delete the attachment bytes belonging to the given conversations.
+     *
+     * Sweeps the `chat/{conversationId}/` tree rather than unlinking row by row:
+     * it also collects files whose rows are already gone (e.g. a write that failed
+     * after the bytes landed), which a key-by-key unlink would miss, and it leaves
+     * no empty directory shells behind. Best-effort by design — a locked or
+     * already-removed file must not fail the delete the user asked for.
+     *
+     * @param list<string> $conversationIds
+     */
+    private function purgeAttachmentFiles(array $conversationIds): void
+    {
+        foreach ($conversationIds as $conversationId) {
+            if ($conversationId === '') {
+                continue;
+            }
+            try {
+                LocalObjectStore::deleteTree('chat/' . $conversationId);
+            } catch (\Throwable) {
+                // Nothing actionable here: the rows are already gone, and the
+                // prefix sweep is retried by the next conversation delete.
+            }
+        }
     }
 
     /**
@@ -339,10 +373,24 @@ final class ConversationsController
         $pdo = $context->pdo();
         $userId = $context->userId();
 
+        // Collect the ids BEFORE the delete — afterwards there's nothing left to ask.
+        $idsStmt = $pdo->prepare('select id from global.conversations where user_id = :user_id');
+        $idsStmt->execute([':user_id' => $userId]);
+        $ids = [];
+        foreach ($idsStmt->fetchAll(PDO::FETCH_COLUMN) as $id) {
+            if (is_string($id) && $id !== '') {
+                $ids[] = $id;
+            }
+        }
+
         $stmt = $pdo->prepare('delete from global.conversations where user_id = :user_id');
         $stmt->execute([':user_id' => $userId]);
+        $deleted = $stmt->rowCount();
 
-        return JsonResponse::ok(['deleted' => true, 'count' => $stmt->rowCount()]);
+        // Attachment bytes go with them (see delete()).
+        $this->purgeAttachmentFiles($ids);
+
+        return JsonResponse::ok(['deleted' => true, 'count' => $deleted]);
     }
 
     /**

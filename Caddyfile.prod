@@ -58,6 +58,11 @@
     }
 
     handle @mcp {
+        # Chat POSTs can carry base64 image attachments — raise Caddy's default
+        # 10 MB request_body cap to match the MCP express.json limit (30 MB).
+        request_body {
+            max_size 40MB
+        }
         reverse_proxy mcp:3000
     }
 

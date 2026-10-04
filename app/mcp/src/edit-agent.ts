@@ -277,6 +277,10 @@ export async function runEditNoteAgent(opts: EditAgentRunOptions): Promise<strin
             opts.cookie,
             opts.nookId,
             opts.memoryNookId,
+            undefined,
+            // Sub-agent tool calls still need the model for vision gating
+            // (look_at_image) — same turn, same model.
+            opts.model,
           );
           return { type: 'tool_result', tool_use_id: t.id, content: result };
         } catch (err) {

@@ -57,6 +57,96 @@
 	background: var(--color-primary-light);
 }
 
+.attachBtn {
+	flex-shrink: 0;
+	align-self: flex-end;
+	padding: 6px 8px;
+	background: transparent;
+	color: var(--color-text-secondary);
+	border: 1px solid var(--color-border, #ccc);
+	border-radius: 8px;
+	cursor: pointer;
+	font-size: 1rem;
+	line-height: 1;
+	margin-bottom: 4px;
+}
+
+.attachBtn:disabled {
+	opacity: 0.5;
+	cursor: not-allowed;
+}
+
+.attachBtn:hover:not(:disabled) {
+	background: var(--color-bg-hover, rgb(0 0 0 / 5%));
+}
+
+.attachRow {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+	margin-bottom: 8px;
+}
+
+.attachThumb {
+	position: relative;
+	width: 56px;
+	height: 56px;
+	border-radius: 8px;
+	overflow: hidden;
+	border: 1px solid var(--color-border, #ccc);
+	background: var(--color-bg-hover, rgb(0 0 0 / 5%));
+}
+
+.attachThumb img {
+	width: 100%;
+	height: 100%;
+	object-fit: cover;
+	display: block;
+}
+
+.attachRemove {
+	position: absolute;
+	top: 2px;
+	right: 2px;
+	width: 18px;
+	height: 18px;
+	padding: 0;
+	background: rgb(0 0 0 / 60%);
+	color: #fff;
+	border: none;
+	border-radius: 50%;
+	cursor: pointer;
+	font-size: 0.6rem;
+	line-height: 1;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+
+.attachLoading {
+	display: block;
+	width: 100%;
+	height: 100%;
+	background: linear-gradient(
+		90deg,
+		var(--color-bg-hover, rgb(0 0 0 / 5%)) 25%,
+		rgb(255 255 255 / 40%) 50%,
+		var(--color-bg-hover, rgb(0 0 0 / 5%)) 75%
+	);
+	background-size: 200% 100%;
+	animation: attach-shimmer 1.2s infinite;
+}
+
+@keyframes attach-shimmer {
+	0% {
+		background-position: 200% 0;
+	}
+
+	100% {
+		background-position: -200% 0;
+	}
+}
+
 .modelSelect {
 	font-size: 0.75rem;
 	border: 1px solid var(--color-border-medium);

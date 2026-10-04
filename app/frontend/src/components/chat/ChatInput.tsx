@@ -1,6 +1,19 @@
-import { createEffect, createSignal, lazy, onCleanup, Show } from "solid-js";
+import {
+	createEffect,
+	createSignal,
+	For,
+	lazy,
+	onCleanup,
+	Show,
+} from "solid-js";
 import { useFeatures } from "../../features";
 import styles from "./ChatInput.module.css";
+import type { ContextBreakdown } from "./ChatMessage";
+import {
+	type AttachedImage,
+	extractImageBlobs,
+	processImageAttachment,
+} from "./imageAttach";
 import { createRecognizer, isSttSupported, isTtsSupported } from "./voice";
 import { createWakeListener, isWakeSupported } from "./wake";
 
@@ -30,10 +43,17 @@ const WAKE_AVAILABLE = WAKE_URL !== "" && isWakeSupported();
 // Model names are the real backend names (proxied through LiteLLM to local
 // models when ANTHROPIC_BASE_URL is set). The UI shows the human label;
 // the value is what gets sent to MCP and stored on the conversation.
-const MODELS = [
-	{ value: "paith-low", label: "Paith Low" },
-	{ value: "paith-high", label: "Paith High" },
+// `vision` marks models that can accept image input (paith-low is text-only,
+// its Ollama build has no mmproj). Shown as a badge so the user knows which
+// model will actually look at attached images.
+export const MODELS = [
+	{ value: "paith-low", label: "Paith Low", vision: false },
+	{ value: "paith-high", label: "Paith High", vision: true },
 ];
+
+export const MODEL_SUPPORTS_VISION = new Set(
+	MODELS.filter((m) => m.vision).map((m) => m.value),
+);
 
 // Extended-thinking levels the chat backend supports. "off" is the
 // default (no thinking). Local qwen backends advertise a "thinking"
@@ -53,6 +73,7 @@ type ContextUsage = {
 	tokens?: number;
 	limit?: number;
 	approx?: boolean;
+	breakdown?: ContextBreakdown;
 };
 const fmtCtxTokens = (n: number) =>
 	n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
@@ -73,6 +94,9 @@ export type SendMeta = {
 	speakerConfidence?: number;
 	language?: string;
 	durationSec?: number;
+	/** Attached images. Only `original` is uploaded (MCP resizes for vision and
+	 *  saves full-res); `preview` renders the local thumbnail. */
+	images?: AttachedImage[];
 };
 
 type Props = {
@@ -118,6 +142,30 @@ export function ChatInput(props: Props) {
 	const [text, setText] = createSignal("");
 	const [voiceError, setVoiceError] = createSignal<string | null>(null);
 	const [enrollmentOpen, setEnrollmentOpen] = createSignal(false);
+	const [attachments, setAttachments] = createSignal<AttachedImage[]>([]);
+	const [processing, setProcessing] = createSignal(false);
+	const fileInputRef = () => document.getElementById("chat-image-file");
+
+	async function addImageBlobs(blobs: Blob[]) {
+		if (blobs.length === 0 || props.disabled) return;
+		setProcessing(true);
+		try {
+			const fresh = await Promise.all(
+				blobs.slice(0, 4).map((b) => processImageAttachment(b)),
+			);
+			setAttachments((prev) => [...prev, ...fresh].slice(0, 4));
+		} catch (err) {
+			setVoiceError(
+				err instanceof Error ? err.message : "Could not read image",
+			);
+		} finally {
+			setProcessing(false);
+		}
+	}
+
+	function removeAttachment(index: number) {
+		setAttachments((prev) => prev.filter((_, i) => i !== index));
+	}
 	const features = useFeatures();
 	const sttSupported = () => features().voice && isSttSupported();
 	const ttsSupported = () => features().voice && isTtsSupported();
@@ -151,10 +199,12 @@ export function ChatInput(props: Props) {
 
 	const submit = () => {
 		const t = text().trim();
-		if (!t || props.disabled || props.busy) return;
+		const imgs = attachments();
+		if ((!t && imgs.length === 0) || props.disabled || props.busy) return;
 		recognizer?.stop();
-		props.onSend(t, props.model);
+		props.onSend(t, props.model, { images: imgs.length ? imgs : undefined });
 		setText("");
+		setAttachments([]);
 	};
 
 	const onKeyDown = (e: KeyboardEvent) => {
@@ -256,6 +306,30 @@ export function ChatInput(props: Props) {
 
 	return (
 		<div class={styles.form}>
+			<Show when={attachments().length > 0 || processing()}>
+				<div class={styles.attachRow}>
+					<For each={attachments()}>
+						{(a, i) => (
+							<div class={styles.attachThumb}>
+								<img src={a.preview} alt={a.filename} />
+								<button
+									type="button"
+									class={styles.attachRemove}
+									onClick={() => removeAttachment(i())}
+									aria-label={`Remove ${a.filename}`}
+								>
+									✕
+								</button>
+							</div>
+						)}
+					</For>
+					<Show when={processing()}>
+						<div class={styles.attachThumb}>
+							<span class={styles.attachLoading} />
+						</div>
+					</Show>
+				</div>
+			</Show>
 			<Show when={statusVisible()}>
 				<div class={styles.interim} aria-live="polite">
 					<Show when={recognizer?.isListening()}>
@@ -269,12 +343,55 @@ export function ChatInput(props: Props) {
 					{voiceError()}
 				</div>
 			</Show>
-			<div class={styles.row}>
+			{/* biome-ignore lint/a11y/noStaticElementInteractions: drag-and-drop is a pointer interaction; the attach button is the accessible path */}
+			<div
+				class={styles.row}
+				onDragOver={(e) => {
+					if (e.dataTransfer?.types.includes("Files")) e.preventDefault();
+				}}
+				onDrop={(e) => {
+					if (!e.dataTransfer) return;
+					e.preventDefault();
+					void addImageBlobs(extractImageBlobs(e.dataTransfer.items));
+				}}
+			>
+				<input
+					id="chat-image-file"
+					type="file"
+					accept="image/png,image/jpeg,image/gif,image/webp"
+					multiple
+					class={styles.hiddenFileInput}
+					style={{ display: "none" }}
+					onChange={(e) => {
+						const files = Array.from(e.currentTarget.files ?? []);
+						e.currentTarget.value = "";
+						void addImageBlobs(
+							files.filter((f) => f.type.startsWith("image/")),
+						);
+					}}
+				/>
+				<button
+					type="button"
+					class={styles.attachBtn}
+					onClick={() => fileInputRef()?.click()}
+					disabled={props.disabled}
+					title="Attach an image (PNG keeps transparency). It's sent to the model for vision and can be saved as a note."
+					aria-label="Attach image"
+				>
+					📎
+				</button>
 				<textarea
 					class={styles.textarea}
 					value={text()}
 					onInput={(e) => setText(e.currentTarget.value)}
 					onKeyDown={onKeyDown}
+					onPaste={(e) => {
+						const blobs = extractImageBlobs(e.clipboardData?.items);
+						if (blobs.length > 0) {
+							e.preventDefault();
+							void addImageBlobs(blobs);
+						}
+					}}
 					disabled={props.disabled}
 					placeholder={
 						props.busy
@@ -308,7 +425,11 @@ export function ChatInput(props: Props) {
 					class={styles.sendBtn}
 					type="button"
 					onClick={submit}
-					disabled={props.disabled || props.busy || text().trim() === ""}
+					disabled={
+						props.disabled ||
+						props.busy ||
+						(text().trim() === "" && attachments().length === 0)
+					}
 				>
 					Send
 				</button>
@@ -325,7 +446,10 @@ export function ChatInput(props: Props) {
 					disabled={props.disabled || props.busy}
 				>
 					{MODELS.map((m) => (
-						<option value={m.value}>{m.label}</option>
+						<option value={m.value}>
+							{m.label}
+							{m.vision ? " · 👁" : ""}
+						</option>
 					))}
 				</select>
 				<Show when={props.onThinkingChange}>
@@ -400,9 +524,27 @@ export function ChatInput(props: Props) {
 								u.tokens != null && u.limit != null
 									? `Context window: ${approxMark()}${fmtCtxTokens(u.tokens)} / ${fmtCtxTokens(u.limit)} tokens (${pct()}%)`
 									: `Context window: ${pct()}% used`;
-							return u.approx
+							let out = u.approx
 								? `${base} — estimated until your next message`
 								: base;
+							// Per-component breakdown (only present when the MCP
+							// server has CHAT_DEBUG_CONTEXT on). Shows exactly
+							// where the window is going: system prompt, tool
+							// schemas, and the top conversation contributors.
+							const b = u.breakdown;
+							if (b) {
+								out += `\n\nBreakdown (server-side, backend tokenizer):`;
+								out += `\n  system:  ${fmtCtxTokens(b.system_tokens)}`;
+								out += `\n  tools:   ${fmtCtxTokens(b.tools_tokens)}  (${(b.messages?.length ?? 0) + 2} components)`;
+								out += `\n  total:   ${fmtCtxTokens(b.total_tokens)}`;
+								if (b.biggest?.length) {
+									out += `\n\nTop contributors:`;
+									for (const c of b.biggest) {
+										out += `\n  ${fmtCtxTokens(c.tokens).padStart(6)}  ${c.label}`;
+									}
+								}
+							}
+							return out;
 						};
 						return (
 							<div class={styles.contextIndicator} title={title()}>

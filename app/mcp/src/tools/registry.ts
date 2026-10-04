@@ -1,5 +1,7 @@
 import type Anthropic from '@anthropic-ai/sdk';
 import { imageGenTools } from './image-gen.js';
+import { imageSaveTools } from './image-save.js';
+import { imageViewTools } from './image-view.js';
 import type { ToolHandler, ToolHandlerContext, ToolModule } from './types.js';
 import { weatherTools } from './weather.js';
 import { wikipediaTools } from './wikipedia.js';
@@ -9,7 +11,13 @@ import { wikipediaTools } from './wikipedia.js';
 // at module load time). Modules that report disabled contribute zero
 // tool definitions and zero handlers — the LLM never sees them in the
 // system prompt and the handlers map can't dispatch to them.
-const ALL_MODULES: ToolModule[] = [weatherTools, wikipediaTools, imageGenTools];
+const ALL_MODULES: ToolModule[] = [
+	weatherTools,
+	wikipediaTools,
+	imageGenTools,
+	imageViewTools,
+	imageSaveTools,
+];
 
 const ENABLED_MODULES = ALL_MODULES.filter((m) => m.enabled());
 

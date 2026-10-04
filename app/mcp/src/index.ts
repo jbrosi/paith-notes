@@ -56,7 +56,11 @@ initAuth(KEYCLOAK_BASE_URL, KEYCLOAK_REALM);
 
 const app = express();
 app.set('trust proxy', 1); // behind Caddy reverse proxy
-app.use(express.json());
+// 30 MB — chat POSTs can carry base64 image attachments (up to 4 originals +
+// previews). The PHP /chat-images endpoint has its own ~40 MB decoded cap;
+// this just keeps the JSON body under that. express.json() defaults to 100kb,
+// which is far too small for any real image.
+app.use(express.json({ limit: '30mb' }));
 
 // OAuth Protected Resource Metadata
 app.get('/.well-known/oauth-protected-resource', (_req, res) => {
