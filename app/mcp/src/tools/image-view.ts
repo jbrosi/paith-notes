@@ -34,7 +34,6 @@ const definitions: ToolModule['definitions'] = [
       '- `nook_id`: only with `note_id`, and only when the note is in a different nook. Omit for the current nook.\n\n' +
       '## Notes\n' +
       '- Only works on a vision-capable model. On a text-only model it tells you so; say that plainly and suggest "Paith High" rather than describing anything.\n' +
-      '- Pass `version` only if the user is explicitly asking about a specific older version of a note\'s picture; by default you get the current one.\n' +
       '- One image per call. If the user attached several and asked about all of them, call it once per `[IMAGE n]`.',
     input_schema: {
       type: 'object',
@@ -50,10 +49,6 @@ const definitions: ToolModule['definitions'] = [
         nook_id: {
           type: 'string',
           description: 'Nook containing note_id, when it is not the current nook.',
-        },
-        version: {
-          type: 'integer',
-          description: 'Specific file version of a note image. Omit for the current version.',
         },
       },
     },

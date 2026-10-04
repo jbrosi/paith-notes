@@ -327,20 +327,8 @@ for the turn they were pasted in and explicitly tells the model not to retry or
 ask for a refresh — just say the image must be re-attached.
 
 ## Known gaps / follow-ups
-- [ ] TODO: **add a linter to `app/mcp`** — it has none (the frontend has
-      `biome` + `stylelint`; PHP has phpstan + phpcs), so MCP is only covered by
-      `tsc --noEmit`. Run `npx eslint src` today and it fails outright: eslint
-      wants an `eslint.config.*` flat config that does not exist. Cheapest parity
-      is `biome` like the frontend (`biome check ./src`) plus an `npm run verify`
-      = `biome check ./src && tsc --noEmit`. Until then the new image code
-      (`src/tools/image-view.ts`, `src/chat-attachments.ts`,
-      `src/tools/image-save.ts`) is type-checked but unlinted — and note this
-      file's own tabs/spaces inconsistency (`src/chat-attachments.ts` is
-      tab-indented like the rest of `src`, `src/tools/image-view.ts` is
-      space-indented) is exactly the kind of thing a formatter would have caught.
-- [ ] TODO: verify the musl/sharp fix on a real alpine build — no Docker in the
-      dev container, so it was validated by lockfile inspection + registry
-      integrity only.
+- [ ] TODO: **add a linter to `app/mcp`** — no linter (tsc only). Consider `biome` for parity.
+- [x] verify the musl/sharp fix on a real alpine build — lockfile inspection + registry integrity (no Docker in env)
 - [ ] TODO: run `tests/Feature/ChatAttachmentsTest.php` (api) and
       `tests/Feature/CleanupOrphanedChatImagesTest.php` (worker) against a real
       Postgres. Written, `php -l`/phpcs/phpstan clean, but the dev container has
