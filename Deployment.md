@@ -69,7 +69,8 @@ Only required if you run the `mcp` service.
 | `MCP_IMAGE`         | Full image ref, e.g. `ghcr.io/jbrosi/paith-notes/mcp:latest` |
 | `ANTHROPIC_API_KEY` | Your Anthropic API key (required for chat to work)           |
 | `ANTHROPIC_BASE_URL`| Optional Anthropic-compatible proxy (e.g. LiteLLM); unset => `api.anthropic.com` |
-| `CHAT_CONTEXT_LIMIT`| Optional: proxied model's context window in tokens; unset => per-model defaults |
+| `CHAT_CTX_<MODEL>`  | Optional per-model context window in tokens (e.g. `CHAT_CTX_PAITH_LOW=32768`); unset => built-in default for that model |
+| `CHAT_CONTEXT_LIMIT`| Optional global last-resort context window for models with no per-model override; unset => per-model defaults |
 | `MCP_SERVER_URL`    | Public URL of the app, e.g. `https://notes.example.com`      |
 
 `API_BASE_URL` defaults to `http://app:8000` and typically does not need to be changed.

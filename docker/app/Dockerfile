@@ -1,8 +1,10 @@
 FROM dunglas/frankenphp:latest AS dev
 
 RUN apt-get update \
-	&& apt-get install -y --no-install-recommends git unzip ca-certificates libzip-dev \
+	&& apt-get install -y --no-install-recommends git unzip ca-certificates libzip-dev libpng-dev libjpeg-dev libwebp-dev libfreetype6-dev \
 	&& rm -rf /var/lib/apt/lists/* \
+	&& docker-php-ext-configure gd --with-freetype --with-jpeg --with-webp \
+	&& docker-php-ext-install gd \
 	&& install-php-extensions pdo_pgsql zip
 
 COPY --from=composer:latest /usr/bin/composer /usr/local/bin/composer

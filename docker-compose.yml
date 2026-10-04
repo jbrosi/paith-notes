@@ -94,8 +94,14 @@ services:
       ANTHROPIC_API_KEY: ${MCP_ANTHROPIC_API_KEY:-}
       # Anthropic-compatible proxy (e.g. LiteLLM). Empty/unset => api.anthropic.com.
       ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-}
-      # Real context window of the proxied model, in tokens. Unset => per-model defaults.
+      # Real context window of the proxied model(s), in tokens. Per-model
+      # overrides win (CHAT_CTX_PAITH_LOW / CHAT_CTX_PAITH_HIGH / ...); the
+      # global CHAT_CONTEXT_LIMIT is a last resort for unknown models.
+      CHAT_CTX_PAITH_LOW: ${CHAT_CTX_PAITH_LOW:-}
+      CHAT_CTX_PAITH_HIGH: ${CHAT_CTX_PAITH_HIGH:-}
       CHAT_CONTEXT_LIMIT: ${CHAT_CONTEXT_LIMIT:-}
+      # Debug: per-component context-window breakdown (adds count_tokens calls).
+      CHAT_DEBUG_CONTEXT: ${CHAT_DEBUG_CONTEXT:-}
       # VOICE_PROVIDER=openai routes TTS to OpenAI's /v1/audio/speech
       # (instructable per-sentence delivery; drops the local voice
       # container entirely). Leave unset to keep the local Kokoro path.

@@ -16,7 +16,32 @@ export type ToolUse = {
 	name: string;
 	input: Record<string, unknown>;
 	progress?: string;
+	/** Length in chars of the tool_result content, set when the result
+	 *  comes back. Used by the context estimate — tool results are the
+	 *  biggest chunk of conversation history and the old estimate was
+	 *  blind to them. */
+	resultChars?: number;
 };
+
+export interface ContextBreakdownMessage {
+	role: "user" | "assistant";
+	blocks: string[];
+	marginalTokens: number;
+}
+
+export interface ContextBreakdownBiggest {
+	kind: string;
+	label: string;
+	tokens: number;
+}
+
+export interface ContextBreakdown {
+	system_tokens: number;
+	tools_tokens: number;
+	total_tokens: number;
+	messages: ContextBreakdownMessage[];
+	biggest: ContextBreakdownBiggest[];
+}
 
 export type MessageUsage = {
 	input_tokens: number;
@@ -24,6 +49,9 @@ export type MessageUsage = {
 	cache_creation_input_tokens: number;
 	cache_read_input_tokens: number;
 	context_limit: number;
+	/** Per-component context-window breakdown. Only present when the MCP
+	 *  server has CHAT_DEBUG_CONTEXT enabled. */
+	context_breakdown?: ContextBreakdown;
 };
 
 export type ChatMessageData =
@@ -41,6 +69,8 @@ export type ChatMessageData =
 			language?: string;
 			/** Audio clip length in seconds. */
 			durationSec?: number;
+			/** Attached images (resized previews) shown as thumbnails. */
+			images?: { src: string; mediaType?: string; filename?: string }[];
 	  }
 	| {
 			role: "assistant";
@@ -344,6 +374,7 @@ export function ChatMessage(props: Props) {
 						speakerConfidence?: number;
 						language?: string;
 						durationSec?: number;
+						images?: { src: string; mediaType?: string; filename?: string }[];
 					};
 					const speaker = u.speaker ?? extractSpeaker(u.text);
 					const confidence =
@@ -354,6 +385,32 @@ export function ChatMessage(props: Props) {
 							: "Identified by voiceprint";
 					return (
 						<>
+							<Show when={(u.images ?? []).length > 0}>
+								<div
+									class={styles.userImages}
+									style={{
+										display: "flex",
+										"flex-wrap": "wrap",
+										gap: "6px",
+										"justify-content": "flex-end",
+										"margin-bottom": "4px",
+									}}
+								>
+									{(u.images ?? []).map((im) => (
+										<img
+											src={im.src}
+											alt={im.filename ?? "attached image"}
+											style={{
+												"max-width": "120px",
+												"max-height": "120px",
+												"border-radius": "8px",
+												"object-fit": "cover",
+												border: "1px solid var(--color-border, #ccc)",
+											}}
+										/>
+									))}
+								</div>
+							</Show>
 							<Show when={speaker}>
 								<div
 									style={{

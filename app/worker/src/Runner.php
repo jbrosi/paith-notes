@@ -13,6 +13,13 @@ use Throwable;
 
 final class Runner
 {
+    /**
+     * How old a chat-attachment file must be before it can be considered an
+     * orphan. Long enough that a request which has written its bytes but not
+     * yet committed its row is never a candidate.
+     */
+    private const ORPHAN_GRACE_SECONDS = 3600;
+
     public static function run(): void
     {
         $databaseUrl = Env::get('DATABASE_URL');
@@ -71,7 +78,9 @@ final class Runner
                     if ($now - $lastCleanupAt >= 30) {
                         $lastCleanupAt = $now;
                         try {
-                            self::cleanupExpiredUploads($connect());
+                            // One entry point for every periodic sweep, so the
+                            // worker and the tests can never drift apart.
+                            self::runCleanupOnce($connect());
                         } catch (Throwable $e) {
                             fwrite(STDERR, sprintf("cleanup error: %s (%s)\n", $e->getMessage(), get_class($e)));
                         }
@@ -145,6 +154,97 @@ final class Runner
     public static function runCleanupOnce(PDO $pdo): void
     {
         self::cleanupExpiredUploads($pdo);
+        self::cleanupOrphanedChatImages($pdo);
+    }
+
+    /**
+     * Delete chat-attachment files that no row points at any more.
+     *
+     * Deleting a conversation already unlinks its attachments explicitly
+     * (ConversationsController), but that sweep and the DB cascade are two
+     * separate acts — and there are paths where bytes survive their row:
+     * the API process dying between writing the file and committing the insert,
+     * or a rollback that could not unlink what it had already written. Nothing
+     * else in the system would ever collect those, so they would sit on disk
+     * forever. This is that collector.
+     *
+     * Safety rules, because deleting the WRONG file is unrecoverable:
+     *   - only paths under a chat/<conversation-id>/images/ dir are considered,
+     *   - a file younger than ORPHAN_GRACE_SECONDS is left alone, so a request
+     *     that is mid-write (or whose insert lands a second later) is never a
+     *     candidate,
+     *   - a file is removed only when a query proves no row references its key.
+     */
+    private static function cleanupOrphanedChatImages(PDO $pdo): void
+    {
+        $root = self::dataRoot();
+        $chatRoot = $root . '/chat';
+        if (!is_dir($chatRoot)) {
+            return;
+        }
+
+        $convDirs = @scandir($chatRoot);
+        if ($convDirs === false) {
+            return;
+        }
+
+        $cutoff = time() - self::ORPHAN_GRACE_SECONDS;
+        $stmt = $pdo->prepare('select 1 from global.conversation_images where object_key = :key limit 1');
+
+        foreach ($convDirs as $convDir) {
+            if ($convDir === '.' || $convDir === '..') {
+                continue;
+            }
+            $imagesDir = $chatRoot . '/' . $convDir . '/images';
+            if (!is_dir($imagesDir)) {
+                continue;
+            }
+            $files = @scandir($imagesDir);
+            if ($files === false) {
+                continue;
+            }
+
+            foreach ($files as $file) {
+                if ($file === '.' || $file === '..') {
+                    continue;
+                }
+                $path = $imagesDir . '/' . $file;
+                if (!is_file($path)) {
+                    continue;
+                }
+                $mtime = @filemtime($path);
+                if ($mtime === false || $mtime > $cutoff) {
+                    continue; // too young to be an orphan
+                }
+
+                $objectKey = 'chat/' . $convDir . '/images/' . $file;
+                $stmt->execute([':key' => $objectKey]);
+                if ($stmt->fetchColumn() !== false) {
+                    continue; // a live row still points at it
+                }
+
+                if (@unlink($path)) {
+                    fwrite(STDOUT, sprintf("reaped orphaned chat attachment %s\n", $objectKey));
+                }
+            }
+
+            // Prune the conversation directory once it holds nothing.
+            $remaining = @scandir($imagesDir);
+            if ($remaining !== false && count($remaining) === 2) {
+                @rmdir($imagesDir);
+                @rmdir($chatRoot . '/' . $convDir);
+            }
+        }
+    }
+
+    /**
+     * Same root the API writes to (LocalObjectStore::dataPath). Kept in sync by
+     * convention — the worker has no autoload access to the API namespace.
+     */
+    private static function dataRoot(): string
+    {
+        $path = trim(Env::get('FILES_DATA_PATH'));
+        return $path !== '' ? rtrim($path, '/') : '/data';
     }
 
     private static function cleanupExpiredUploads(PDO $pdo): void

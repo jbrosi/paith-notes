@@ -8,7 +8,9 @@ use Paith\Notes\Api\Http\Controller\ActivityController;
 use Paith\Notes\Api\Http\Controller\AiImagesController;
 use Paith\Notes\Api\Http\Controller\AuthController;
 use Paith\Notes\Api\Http\Controller\SearchController;
+use Paith\Notes\Api\Http\Controller\ChatAttachmentsController;
 use Paith\Notes\Api\Http\Controller\ChatController;
+use Paith\Notes\Api\Http\Controller\ChatImagesController;
 use Paith\Notes\Api\Http\Controller\ConversationsController;
 use Paith\Notes\Api\Http\Controller\FilesController;
 use Paith\Notes\Api\Http\Controller\HealthController;
@@ -161,6 +163,14 @@ final class ApiRoutes
         // the literal sentinel "ai-memory" (resolved server-side).
         $r->post('/nooks/{nookId}/ai-images', [AiImagesController::class, 'generate']);
 
+        // Persist a chat-attached image (base64) as a note — new note or
+        // a new version on an existing note. Fed by the MCP save_image_to_note
+        // tool so the model can turn a pasted image into a note.
+        $r->post('/nooks/{nookId}/chat-images', [ChatImagesController::class, 'save']);
+        // Same thing, but the bytes are already on disk as a chat attachment —
+        // a server-side copy at full resolution, no base64 round-trip.
+        $r->post('/nooks/{nookId}/chat-images/from-attachment', [ChatImagesController::class, 'saveFromAttachment']);
+
         $r->get('/nooks/{nookId}/notes/{noteId}/links', [NoteLinksController::class, 'list']);
         $r->post('/nooks/{nookId}/notes/{noteId}/links', [NoteLinksController::class, 'create']);
         $r->add('DELETE', '/nooks/{nookId}/notes/{noteId}/links/{linkId}', [NoteLinksController::class, 'delete']);
@@ -187,6 +197,17 @@ final class ApiRoutes
         // markdown shape as export, tool_use/tool_result blocks stripped
         // (they're noise once you're capturing the outcome, not the mechanics).
         $r->post('/conversations/{conversationId}/save-as-note', [ConversationsController::class, 'saveAsNote']);
+
+        // Chat attachments: the ORIGINAL bytes of images pasted into a chat.
+        // Kept for the life of the conversation (rows cascade on delete) so the
+        // model can look at a picture again in a later turn and saving it to a
+        // note is a copy rather than a re-upload.
+        $r->post('/conversations/{conversationId}/images', [ChatAttachmentsController::class, 'create']);
+        $r->get('/conversations/{conversationId}/images', [ChatAttachmentsController::class, 'list']);
+        $r->get('/conversations/{conversationId}/images/{imageId}', [ChatAttachmentsController::class, 'read']);
+        // Note-file counterpart, so the model can view an image that already
+        // lives in a note (upload, generated_image, or a chat-saved attachment).
+        $r->get('/nooks/{nookId}/notes/{noteId}/image', [ChatAttachmentsController::class, 'readNoteImage']);
 
         $r->group('/module_1', [Module1Routes::class, 'register']);
     }

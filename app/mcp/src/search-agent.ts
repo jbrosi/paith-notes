@@ -1,33 +1,37 @@
-import Anthropic from '@anthropic-ai/sdk';
-import { TOOLS, executeTool } from './chat-tools.js';
-import type { ThinkingLevel } from './chat.js';
+import Anthropic from "@anthropic-ai/sdk";
+import type { ThinkingLevel } from "./chat.js";
+import { executeTool, TOOLS } from "./chat-tools.js";
 
 const MAX_SEARCH_DEPTH = 10;
 
 // Read-only tools the search agent is allowed to use
 const ALLOWED_TOOLS = new Set([
-  'search_notes',
-  'search_notes_batch',
-  'explore_notes',
-  'get_note',
-  'get_note_summary',
-  'get_note_section',
-  'get_note_history',
-  'get_note_version',
-  'compare_note_versions',
-  'get_note_mentions',
-  'list_note_types',
-  'list_link_predicates',
-  'memory_search',
-  'memory_get',
+	"search_notes",
+	"search_notes_batch",
+	"explore_notes",
+	"get_note",
+	"get_note_summary",
+	"get_note_section",
+	"get_note_history",
+	"get_note_version",
+	"compare_note_versions",
+	"get_note_mentions",
+	"list_note_types",
+	"list_link_predicates",
+	"memory_search",
+	"memory_get",
 ]);
 
-const SEARCH_AGENT_TOOLS = TOOLS.filter(t => ALLOWED_TOOLS.has(t.name));
+const SEARCH_AGENT_TOOLS = TOOLS.filter((t) => ALLOWED_TOOLS.has(t.name));
 
-function buildSearchAgentPrompt(nookId: string, nookName: string, context?: SearchAgentContext): string {
-  const parts: string[] = [];
+function buildSearchAgentPrompt(
+	nookId: string,
+	nookName: string,
+	context?: SearchAgentContext,
+): string {
+	const parts: string[] = [];
 
-  parts.push(`You are a research assistant for a note-taking app called paith notes. You are searching notes in nook "${nookName}" (${nookId}).
+	parts.push(`You are a research assistant for a note-taking app called paith notes. You are searching notes in nook "${nookName}" (${nookId}).
 
 Your job: search the user's notes efficiently and return a structured JSON report of what you found.
 
@@ -80,145 +84,182 @@ Rules for findings:
 - If nothing relevant is found, return an empty findings array with an explanation in search_summary.
 - Only include notes that are actually relevant to the task.`);
 
-  if (context?.contextNote) {
-    parts.push(`**Current note open in editor:**
+	if (context?.contextNote) {
+		parts.push(`**Current note open in editor:**
 Title: ${context.contextNote.title}
 ID: ${context.contextNote.id}
-Type: ${context.contextNote.type ?? 'note'}
+Type: ${context.contextNote.type ?? "note"}
 When the task references "this note", "the current note", "my note", etc., it means this note.`);
-  }
+	}
 
-  if (context?.nookInstructions?.length) {
-    const list = context.nookInstructions.map(n => `- "${n.title}" (ID: ${n.id})`).join('\n');
-    parts.push(`**Nook-specific instructions** (read with get_note if relevant to the search task):\n${list}`);
-  }
+	if (context?.nookInstructions?.length) {
+		const list = context.nookInstructions
+			.map((n) => `- "${n.title}" (ID: ${n.id})`)
+			.join("\n");
+		parts.push(
+			`**Nook-specific instructions** (read with get_note if relevant to the search task):\n${list}`,
+		);
+	}
 
-  if (context?.memoryNotes?.length) {
-    const list = context.memoryNotes.map(n => `- "${n.title}" (ID: ${n.id})`).join('\n');
-    parts.push(`**User memory notes** (read with memory_get if relevant):\n${list}`);
-  }
+	if (context?.memoryNotes?.length) {
+		const list = context.memoryNotes
+			.map((n) => `- "${n.title}" (ID: ${n.id})`)
+			.join("\n");
+		parts.push(
+			`**User memory notes** (read with memory_get if relevant):\n${list}`,
+		);
+	}
 
-  if (context?.conversationSummary) {
-    parts.push(`**Conversation context:** ${context.conversationSummary}`);
-  }
+	if (context?.conversationSummary) {
+		parts.push(`**Conversation context:** ${context.conversationSummary}`);
+	}
 
-  return parts.join('\n\n');
+	return parts.join("\n\n");
 }
 
 export type SearchAgentProgress = (status: string) => void;
 
 export type SearchAgentContext = {
-  contextNote?: { id: string; title: string; type?: string };
-  nookInstructions?: Array<{ id: string; title: string }>;
-  memoryNotes?: Array<{ id: string; title: string }>;
-  conversationSummary?: string;
+	contextNote?: { id: string; title: string; type?: string };
+	nookInstructions?: Array<{ id: string; title: string }>;
+	memoryNotes?: Array<{ id: string; title: string }>;
+	conversationSummary?: string;
 };
 
 export async function runSearchAgent(
-  task: string,
-  model: string,
-  apiBase: string,
-  cookie: string,
-  nookId: string,
-  nookName: string,
-  memoryNookId?: string,
-  onProgress?: SearchAgentProgress,
-  context?: SearchAgentContext,
-  thinking?: ThinkingLevel,
+	task: string,
+	model: string,
+	apiBase: string,
+	cookie: string,
+	nookId: string,
+	nookName: string,
+	memoryNookId?: string,
+	onProgress?: SearchAgentProgress,
+	context?: SearchAgentContext,
+	thinking?: ThinkingLevel,
 ): Promise<string> {
-  const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-  const systemPrompt = buildSearchAgentPrompt(nookId, nookName, context);
-  const messages: Anthropic.MessageParam[] = [{ role: 'user', content: task }];
-  const thinkingParam =
-    thinking && thinking !== 'off' && !model.startsWith('claude-')
-      ? { type: 'enabled' as const, budget_tokens: thinking === 'high' ? 4096 : 1024 }
-      : undefined;
+	const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+	const systemPrompt = buildSearchAgentPrompt(nookId, nookName, context);
+	const messages: Anthropic.MessageParam[] = [{ role: "user", content: task }];
+	const thinkingParam =
+		thinking && thinking !== "off" && !model.startsWith("claude-")
+			? {
+					type: "enabled" as const,
+					budget_tokens: thinking === "high" ? 4096 : 1024,
+				}
+			: undefined;
 
-  onProgress?.('Starting search...');
+	onProgress?.("Starting search...");
 
-  for (let depth = 0; depth < MAX_SEARCH_DEPTH; depth++) {
-    let response: Anthropic.Message;
-    try {
-      response = await client.messages.create({
-        model,
-        max_tokens: 4096,
-        tools: SEARCH_AGENT_TOOLS,
-        messages,
-        system: systemPrompt,
-        ...(thinkingParam ? { thinking: thinkingParam, tool_choice: { type: 'auto' } } : {}),
-      });
-    } catch (err) {
-      return JSON.stringify({
-        findings: [],
-        search_summary: `Search agent error: ${err instanceof Error ? err.message : 'unknown'}`,
-        notes_searched: 0,
-        notes_read: 0,
-      });
-    }
+	for (let depth = 0; depth < MAX_SEARCH_DEPTH; depth++) {
+		let response: Anthropic.Message;
+		try {
+			response = await client.messages.create({
+				model,
+				max_tokens: 4096,
+				tools: SEARCH_AGENT_TOOLS,
+				messages,
+				system: systemPrompt,
+				...(thinkingParam
+					? { thinking: thinkingParam, tool_choice: { type: "auto" } }
+					: {}),
+			});
+		} catch (err) {
+			return JSON.stringify({
+				findings: [],
+				search_summary: `Search agent error: ${err instanceof Error ? err.message : "unknown"}`,
+				notes_searched: 0,
+				notes_read: 0,
+			});
+		}
 
-    if (response.stop_reason === 'end_turn') {
-      // Extract the final text
-      const text = response.content
-        .filter((b): b is Anthropic.TextBlock => b.type === 'text')
-        .map(b => b.text)
-        .join('');
-      return text;
-    }
+		if (response.stop_reason === "end_turn") {
+			// Extract the final text
+			const text = response.content
+				.filter((b): b is Anthropic.TextBlock => b.type === "text")
+				.map((b) => b.text)
+				.join("");
+			return text;
+		}
 
-    if (response.stop_reason === 'tool_use') {
-      const toolBlocks = response.content.filter(
-        (b): b is Anthropic.ToolUseBlock => b.type === 'tool_use',
-      );
+		if (response.stop_reason === "tool_use") {
+			const toolBlocks = response.content.filter(
+				(b): b is Anthropic.ToolUseBlock => b.type === "tool_use",
+			);
 
-      const toolNames = toolBlocks.map(t => t.name);
-      onProgress?.(`Using ${toolNames.join(', ')}... (step ${depth + 1})`);
+			const toolNames = toolBlocks.map((t) => t.name);
+			onProgress?.(`Using ${toolNames.join(", ")}... (step ${depth + 1})`);
 
-      // Execute all tools in parallel
-      const resultBlocks: Anthropic.ToolResultBlockParam[] = await Promise.all(
-        toolBlocks.map(async (t): Promise<Anthropic.ToolResultBlockParam> => {
-          if (!ALLOWED_TOOLS.has(t.name)) {
-            return { type: 'tool_result', tool_use_id: t.id, content: 'Tool not allowed in search agent.', is_error: true };
-          }
-          try {
-            // Strip nook_id overrides — search agent is scoped to current nook only
-            const sanitizedInput = { ...(t.input as Record<string, unknown>) };
-            delete sanitizedInput.nook_id;
-            const result = await executeTool(t.name, sanitizedInput, apiBase, cookie, nookId, memoryNookId);
-            return { type: 'tool_result', tool_use_id: t.id, content: result };
-          } catch (err) {
-            return { type: 'tool_result', tool_use_id: t.id, content: `Error: ${err instanceof Error ? err.message : 'unknown'}`, is_error: true };
-          }
-        }),
-      );
+			// Execute all tools in parallel
+			const resultBlocks: Anthropic.ToolResultBlockParam[] = await Promise.all(
+				toolBlocks.map(async (t): Promise<Anthropic.ToolResultBlockParam> => {
+					if (!ALLOWED_TOOLS.has(t.name)) {
+						return {
+							type: "tool_result",
+							tool_use_id: t.id,
+							content: "Tool not allowed in search agent.",
+							is_error: true,
+						};
+					}
+					try {
+						// Strip nook_id overrides — search agent is scoped to current nook only
+						const sanitizedInput = { ...(t.input as Record<string, unknown>) };
+						delete sanitizedInput.nook_id;
+						const result = await executeTool(
+							t.name,
+							sanitizedInput,
+							apiBase,
+							cookie,
+							nookId,
+							memoryNookId,
+							undefined,
+							model,
+						);
+						return { type: "tool_result", tool_use_id: t.id, content: result };
+					} catch (err) {
+						return {
+							type: "tool_result",
+							tool_use_id: t.id,
+							content: `Error: ${err instanceof Error ? err.message : "unknown"}`,
+							is_error: true,
+						};
+					}
+				}),
+			);
 
-      messages.push({ role: 'assistant', content: response.content });
-      messages.push({ role: 'user', content: resultBlocks });
-    }
-  }
+			messages.push({ role: "assistant", content: response.content });
+			messages.push({ role: "user", content: resultBlocks });
+		}
+	}
 
-  // Depth limit reached — ask for final summary
-  onProgress?.('Compiling results...');
-  try {
-    const finalResponse = await client.messages.create({
-      model,
-      max_tokens: 4096,
-      messages: [
-        ...messages,
-        { role: 'user', content: 'You have reached the search depth limit. Please compile and return your findings now in the required JSON format, based on everything you have found so far.' },
-      ],
-      system: systemPrompt,
-    });
-    const text = finalResponse.content
-      .filter((b): b is Anthropic.TextBlock => b.type === 'text')
-      .map(b => b.text)
-      .join('');
-    return text;
-  } catch {
-    return JSON.stringify({
-      findings: [],
-      search_summary: 'Search agent reached depth limit and failed to compile results.',
-      notes_searched: 0,
-      notes_read: 0,
-    });
-  }
+	// Depth limit reached — ask for final summary
+	onProgress?.("Compiling results...");
+	try {
+		const finalResponse = await client.messages.create({
+			model,
+			max_tokens: 4096,
+			messages: [
+				...messages,
+				{
+					role: "user",
+					content:
+						"You have reached the search depth limit. Please compile and return your findings now in the required JSON format, based on everything you have found so far.",
+				},
+			],
+			system: systemPrompt,
+		});
+		const text = finalResponse.content
+			.filter((b): b is Anthropic.TextBlock => b.type === "text")
+			.map((b) => b.text)
+			.join("");
+		return text;
+	} catch {
+		return JSON.stringify({
+			findings: [],
+			search_summary:
+				"Search agent reached depth limit and failed to compile results.",
+			notes_searched: 0,
+			notes_read: 0,
+		});
+	}
 }
