@@ -12,15 +12,15 @@ const RETRY_DELAY_MS = 400;
  * them. Use for outbound calls to third-party APIs from MCP tools.
  */
 export async function fetchWithRetry(
-  input: string | URL,
-  init?: RequestInit,
+	input: string | URL,
+	init?: RequestInit,
 ): Promise<Response> {
-  try {
-    return await fetch(input, init);
-  } catch (err) {
-    // Pure network error (TypeError from undici); not an HTTP error.
-    // Wait briefly so a flaking resolver has time to recover.
-    await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
-    return fetch(input, init);
-  }
+	try {
+		return await fetch(input, init);
+	} catch (_err) {
+		// Pure network error (TypeError from undici); not an HTTP error.
+		// Wait briefly so a flaking resolver has time to recover.
+		await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+		return fetch(input, init);
+	}
 }

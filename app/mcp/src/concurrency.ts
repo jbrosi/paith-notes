@@ -15,32 +15,32 @@
  * the rejection surfaces.
  */
 export async function mapWithConcurrency<T, R>(
-  items: readonly T[],
-  limit: number,
-  fn: (item: T, index: number) => Promise<R>,
+	items: readonly T[],
+	limit: number,
+	fn: (item: T, index: number) => Promise<R>,
 ): Promise<R[]> {
-  if (limit < 1) throw new Error('limit must be >= 1');
-  if (items.length === 0) return [];
+	if (limit < 1) throw new Error("limit must be >= 1");
+	if (items.length === 0) return [];
 
-  const out = new Array<R>(items.length);
-  let nextIndex = 0;
-  let rejected: unknown = undefined;
+	const out = new Array<R>(items.length);
+	let nextIndex = 0;
+	let rejected: unknown;
 
-  const worker = async (): Promise<void> => {
-    while (rejected === undefined) {
-      const i = nextIndex++;
-      if (i >= items.length) return;
-      try {
-        out[i] = await fn(items[i], i);
-      } catch (err) {
-        rejected = err;
-        throw err;
-      }
-    }
-  };
+	const worker = async (): Promise<void> => {
+		while (rejected === undefined) {
+			const i = nextIndex++;
+			if (i >= items.length) return;
+			try {
+				out[i] = await fn(items[i], i);
+			} catch (err) {
+				rejected = err;
+				throw err;
+			}
+		}
+	};
 
-  const poolSize = Math.min(limit, items.length);
-  const workers = Array.from({ length: poolSize }, worker);
-  await Promise.all(workers);
-  return out;
+	const poolSize = Math.min(limit, items.length);
+	const workers = Array.from({ length: poolSize }, worker);
+	await Promise.all(workers);
+	return out;
 }

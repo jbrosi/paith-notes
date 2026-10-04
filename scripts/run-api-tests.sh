@@ -15,4 +15,10 @@ cleanup() {
 trap 'status=$?; cleanup || true; exit $status' EXIT INT TERM
 
 docker compose -f "$COMPOSE_FILE" --project-name "$PROJECT" up -d db files
-docker compose -f "$COMPOSE_FILE" --project-name "$PROJECT" run --rm worker composer test --working-dir=/app/api
+
+# Install dev dependencies if not present (dev targets don't install them in prod stage)
+docker compose -f "$COMPOSE_FILE" --project-name "$PROJECT" run --rm --workdir=/app/api api sh -c "test -d vendor || composer install --no-interaction --no-progress"
+docker compose -f "$COMPOSE_FILE" --project-name "$PROJECT" run --rm --workdir=/app/worker worker sh -c "test -d vendor || composer install --no-interaction --no-progress"
+
+docker compose -f "$COMPOSE_FILE" --project-name "$PROJECT" run --rm api sh -c "DATABASE_URL=\"\$DATABASE_URL\" FILES_DATA_PATH=\"\$FILES_DATA_PATH\" composer test"
+docker compose -f "$COMPOSE_FILE" --project-name "$PROJECT" run --rm worker sh -c "DATABASE_URL=\"\$DATABASE_URL\" FILES_DATA_PATH=\"\$FILES_DATA_PATH\" composer test"

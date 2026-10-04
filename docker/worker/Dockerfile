@@ -3,8 +3,9 @@ FROM php:8.4-cli AS dev
 COPY --from=composer:latest /usr/bin/composer /usr/local/bin/composer
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends libpq-dev libcurl4-openssl-dev libzip-dev git unzip ca-certificates autoconf g++ make pkg-config \
-    && docker-php-ext-install pdo_pgsql curl zip \
+    && apt-get install -y --no-install-recommends libpq-dev libcurl4-openssl-dev libzip-dev git unzip ca-certificates autoconf g++ make pkg-config libpng-dev libjpeg-dev libwebp-dev libfreetype6-dev \
+    && docker-php-ext-configure gd --with-freetype --with-jpeg --with-webp \
+    && docker-php-ext-install pdo_pgsql curl zip gd \
     && pecl install pcov \
     && docker-php-ext-enable pcov \
     && rm -rf /var/lib/apt/lists/*

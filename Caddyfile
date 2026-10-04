@@ -47,6 +47,13 @@
     }
 
     handle @mcp {
+        # Chat POSTs can carry base64 image attachments (up to 4 originals +
+        # previews). Caddy's default request_body.max_size is 10 MB — too
+        # small for a few full-res images — so raise it to match the MCP
+        # express.json limit (30 MB) and the PHP /chat-images decoded cap.
+        request_body {
+            max_size 40MB
+        }
         # mcp runs with network_mode: host, so it's NOT on the compose
         # network (no `mcp` DNS name). Reach the host via
         # host.containers.internal (podman's host alias, = the host's
