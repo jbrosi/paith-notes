@@ -439,7 +439,9 @@ export function ChatPanel(props: Props) {
 		);
 	};
 	const [conversationId, setConversationId] = createSignal<string | null>(null);
-	const [model, setModel] = createSignal("qwen3.8:27b-mtp-q4_K_M");
+	const [model, setModel] = createSignal(
+		sessionStorage.getItem("paith-model") ?? "paith-low",
+	);
 	const [thinking, setThinking] = createSignal<ThinkingLevel>("off");
 	const [streaming, setStreaming] = createSignal(false);
 	const [contextUsage, setContextUsage] = createSignal<{
@@ -750,7 +752,7 @@ export function ChatPanel(props: Props) {
 	// ── resume a past conversation ───────────────────────────
 	const openConversation = async (conv: ConversationSummary) => {
 		setActiveTitle(conv.title || "Chat");
-		setModel(conv.model || "qwen3.8:27b-mtp-q4_K_M");
+		setModel(conv.model || "paith-low");
 		setConversationId(conv.id);
 		setMessages([]);
 		setError(null);

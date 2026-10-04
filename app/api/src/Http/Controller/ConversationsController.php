@@ -22,7 +22,7 @@ use Paith\Notes\Api\Http\Auth\User;
 
 final class ConversationsController
 {
-    private const DEFAULT_MODEL = 'claude-sonnet-5';
+    private const DEFAULT_MODEL = 'paith-low';
 
     public function create(Request $request, Context $context): Response
     {
