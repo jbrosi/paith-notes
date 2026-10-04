@@ -18,7 +18,10 @@ const TURN_IMAGES = new Map<string, Entry>();
 const TTL_MS = 10 * 60 * 1000; // 10 min safety net
 let cleanupScheduled = false;
 
-export function setTurnImages(conversationId: string, images: StoredChatImage[]): void {
+export function setTurnImages(
+	conversationId: string,
+	images: StoredChatImage[],
+): void {
 	if (images.length === 0) return;
 	TURN_IMAGES.set(conversationId, { images, ts: Date.now() });
 	if (!cleanupScheduled) {
@@ -33,9 +36,12 @@ export function setTurnImages(conversationId: string, images: StoredChatImage[])
 	}
 }
 
-export function getTurnImage(conversationId: string, index: number): StoredChatImage | null {
+export function getTurnImage(
+	conversationId: string,
+	index: number,
+): StoredChatImage | null {
 	const entry = TURN_IMAGES.get(conversationId);
-	return entry && entry.images[index - 1] ? entry.images[index - 1] : null;
+	return entry?.images[index - 1] ? entry.images[index - 1] : null;
 }
 
 export function clearTurnImages(conversationId: string): void {
@@ -46,7 +52,7 @@ export function clearTurnImages(conversationId: string): void {
  * Tools that resolve image bytes out of this stash instead of receiving them in
  * their arguments.
  */
-const TURN_IMAGE_TOOLS = new Set(['save_image_to_note']);
+const TURN_IMAGE_TOOLS = new Set(["save_image_to_note"]);
 
 /**
  * Whether a turn that parked on an approval card must keep its stash.

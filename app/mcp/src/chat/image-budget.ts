@@ -1,4 +1,4 @@
-import type Anthropic from '@anthropic-ai/sdk';
+import type Anthropic from "@anthropic-ai/sdk";
 
 /**
  * Bound the pixels a conversation carries in its history.
@@ -24,16 +24,16 @@ import type Anthropic from '@anthropic-ai/sdk';
 
 /** Text substituted for a dropped image block. */
 export const DROPPED_IMAGE_NOTICE =
-  '[the pixels of this image were dropped from earlier history to bound context cost — '
-  + 'call look_at_image again with the same image_id / note_id to see it again]';
+	"[the pixels of this image were dropped from earlier history to bound context cost — " +
+	"call look_at_image again with the same image_id / note_id to see it again]";
 
 export type ImageBudgetOptions = {
-  /**
-   * How many distinct image blocks to keep in the request. Four covers "the
-   * images in this turn plus the couple I was just asked about", which is what
-   * the model actually needs visible at once.
-   */
-  keep?: number;
+	/**
+	 * How many distinct image blocks to keep in the request. Four covers "the
+	 * images in this turn plus the couple I was just asked about", which is what
+	 * the model actually needs visible at once.
+	 */
+	keep?: number;
 };
 
 /**
@@ -46,71 +46,77 @@ export type ImageBudgetOptions = {
  * plainly see in the transcript.
  */
 export function stripStaleImageBlocks(
-  messages: Anthropic.MessageParam[],
-  opts: ImageBudgetOptions = {},
+	messages: Anthropic.MessageParam[],
+	opts: ImageBudgetOptions = {},
 ): Anthropic.MessageParam[] {
-  const keep = opts.keep ?? 4;
-  if (keep < 0) return messages;
+	const keep = opts.keep ?? 4;
+	if (keep < 0) return messages;
 
-  // Pass 1: collect every tool_result image block, newest occurrence of each
-  // distinct payload last, so a re-look at the SAME image counts once.
-  const seen = new Set<string>();
-  const survivors = new Set<Anthropic.ToolResultBlockParam>();
-  let found = 0;
+	// Pass 1: collect every tool_result image block, newest occurrence of each
+	// distinct payload last, so a re-look at the SAME image counts once.
+	const seen = new Set<string>();
+	const survivors = new Set<Anthropic.ToolResultBlockParam>();
+	let found = 0;
 
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const content = messages[i].content;
-    if (messages[i].role !== 'user' || !Array.isArray(content)) continue;
-    for (const block of content) {
-      if (!isToolResultWithImages(block)) continue;
-      for (const inner of block.content) {
-        if (inner.type !== 'image') continue;
-        found++;
-        const key = imageKey(inner);
-        if (seen.has(key)) continue; // an older duplicate of the same picture
-        seen.add(key);
-        if (survivors.size < keep) survivors.add(block);
-      }
-    }
-  }
+	for (let i = messages.length - 1; i >= 0; i--) {
+		const content = messages[i].content;
+		if (messages[i].role !== "user" || !Array.isArray(content)) continue;
+		for (const block of content) {
+			if (!isToolResultWithImages(block)) continue;
+			for (const inner of block.content) {
+				if (inner.type !== "image") continue;
+				found++;
+				const key = imageKey(inner);
+				if (seen.has(key)) continue; // an older duplicate of the same picture
+				seen.add(key);
+				if (survivors.size < keep) survivors.add(block);
+			}
+		}
+	}
 
-  // No tool_result pixels anywhere (the common case) → hand back the very same
-  // array, so the common path allocates nothing. `found` rather than
-  // `survivors.size`, because `keep: 0` legitimately means "drop them all".
-  if (found === 0) return messages;
+	// No tool_result pixels anywhere (the common case) → hand back the very same
+	// array, so the common path allocates nothing. `found` rather than
+	// `survivors.size`, because `keep: 0` legitimately means "drop them all".
+	if (found === 0) return messages;
 
-  // Pass 2: rebuild, swapping image blocks out of everything that didn't make
-  // the cut.
-  return messages.map(msg => {
-    const content = msg.content;
-    if (msg.role !== 'user' || !Array.isArray(content)) return msg;
-    if (!content.some(b => isToolResultWithImages(b) && !survivors.has(b))) return msg;
+	// Pass 2: rebuild, swapping image blocks out of everything that didn't make
+	// the cut.
+	return messages.map((msg) => {
+		const content = msg.content;
+		if (msg.role !== "user" || !Array.isArray(content)) return msg;
+		if (!content.some((b) => isToolResultWithImages(b) && !survivors.has(b)))
+			return msg;
 
-    return {
-      ...msg,
-      content: content.map(block => {
-        if (!isToolResultWithImages(block) || survivors.has(block)) return block;
-        return {
-          ...block,
-          content: block.content.map(inner =>
-            inner.type === 'image' ? { type: 'text' as const, text: DROPPED_IMAGE_NOTICE } : inner,
-          ),
-        };
-      }),
-    };
-  });
+		return {
+			...msg,
+			content: content.map((block) => {
+				if (!isToolResultWithImages(block) || survivors.has(block))
+					return block;
+				return {
+					...block,
+					content: block.content.map((inner) =>
+						inner.type === "image"
+							? { type: "text" as const, text: DROPPED_IMAGE_NOTICE }
+							: inner,
+					),
+				};
+			}),
+		};
+	});
 }
 
 function isToolResultWithImages(
-  block: unknown,
-): block is Anthropic.ToolResultBlockParam & { content: Array<Anthropic.TextBlockParam | Anthropic.ImageBlockParam> } {
-  if (typeof block !== 'object' || block === null) return false;
-  const b = block as { type?: unknown; content?: unknown };
-  return b.type === 'tool_result' && Array.isArray(b.content);
+	block: unknown,
+): block is Anthropic.ToolResultBlockParam & {
+	content: Array<Anthropic.TextBlockParam | Anthropic.ImageBlockParam>;
+} {
+	if (typeof block !== "object" || block === null) return false;
+	const b = block as { type?: unknown; content?: unknown };
+	return b.type === "tool_result" && Array.isArray(b.content);
 }
 
 /** Identity of a picture: the payload itself, so equal bytes == equal image. */
 function imageKey(block: Anthropic.ImageBlockParam): string {
-  const src = block.source as { type?: string; data?: string } | undefined;
-  return `${src?.type ?? '?'}:${src?.data?.length ?? 0}:${src?.data?.slice(0, 64) ?? ''}`;
+	const src = block.source as { type?: string; data?: string } | undefined;
+	return `${src?.type ?? "?"}:${src?.data?.length ?? 0}:${src?.data?.slice(0, 64) ?? ""}`;
 }

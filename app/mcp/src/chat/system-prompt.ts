@@ -1,4 +1,4 @@
-import type { InstructionNote } from './api.js';
+import type { InstructionNote } from "./api.js";
 
 /**
  * Builds the (large, template-y) system prompt handed to Anthropic for
@@ -17,35 +17,40 @@ import type { InstructionNote } from './api.js';
  * reaches out to the PHP API or Anthropic on its own.
  */
 export function buildSystemPrompt(
-  nookId: string,
-  nookName: string,
-  nookRole: string,
-  memoryNookId?: string | null,
-  nookInstructions?: InstructionNote[],
-  memoryNotes?: InstructionNote[],
-  handbookNookId?: string | null,
-  handbookNotes?: InstructionNote[],
-  voiceMode?: boolean,
-  aiMode?: string,
+	nookId: string,
+	nookName: string,
+	nookRole: string,
+	memoryNookId?: string | null,
+	nookInstructions?: InstructionNote[],
+	memoryNotes?: InstructionNote[],
+	handbookNookId?: string | null,
+	handbookNotes?: InstructionNote[],
+	voiceMode?: boolean,
+	aiMode?: string,
 ): string {
-  const hasNook = nookId !== '';
-  // The nook owner's AI trust mode. In 'auto_reads' the MCP auto-executes
-  // read-only tools on this nook, so the prompt must not tell the model those
-  // reads need confirmation (it would otherwise announce approvals that never
-  // happen). Writes still require confirmation.
-  const approvalText =
-    aiMode === 'auto_reads'
-      ? `**Tool approval:** This nook's owner set AI trust to "auto-approve reads" — so read-only tools on THIS nook (get_note, search_notes, search_notes_batch, explore_notes, get_note_history, get_note_version, compare_note_versions, get_note_summary, get_note_section, read_note_lines, the **search_agent** research sub-agent, plus get_note_mentions, list_note_types, list_type_attributes, list_link_predicates, and all memory_* tools) run without asking. Don't say you'll "ask permission" to read — just read what you need. Because research is free here, prefer the search_agent for anything spanning several notes or that's fuzzy/exploratory, instead of grinding through many manual searches. Writes and structural changes (create_note, update_note, delete_note, create_note_link, open_note, create_note_type, update_note_type, edit_note) STILL require user confirmation. Reads targeting a DIFFERENT nook, and any cross-nook tool (search_all_nooks), also still prompt.`
-      : `**Tool approval:** The following tools auto-execute without user approval: get_note_mentions, list_note_types, list_type_attributes, list_link_predicates, and all memory_* tools (memory_search, memory_get, memory_create, memory_update). All other tools (get_note, create_note, update_note, delete_note, create_note_link, open_note, create_note_type, update_note_type, search_agent, and the cross-nook search_all_nooks) require user confirmation.`;
-  const nookDisplay = hasNook
-    ? (nookName ? `"${nookName}" (${nookId})` : `"${nookId}"`)
-    : '(none — the user has not selected a nook)';
-  const roleInfo = hasNook && nookRole ? ` The user's role in this nook is "${nookRole}".` : '';
-  const noNookNotice = hasNook
-    ? ''
-    : `\n\n**No nook selected.** Current-nook tools (create_note, update_note, list_note_types, search_notes, explore_notes, list_link_predicates, edit_note, etc.) will error out until the user picks a nook. Meanwhile you CAN still use: search_all_nooks, get_note (pass explicit nook_id), get_note_toc / get_note_part / search_in_note (with nook_id), memory_search / memory_get / memory_create / memory_update. If the user asks you to do something nook-specific, ask them to select a nook first.`;
-  const parts = [
-    `You are an assistant integrated into paith notes. You are operating in nook ${nookDisplay}.${roleInfo}${noNookNotice}
+	const hasNook = nookId !== "";
+	// The nook owner's AI trust mode. In 'auto_reads' the MCP auto-executes
+	// read-only tools on this nook, so the prompt must not tell the model those
+	// reads need confirmation (it would otherwise announce approvals that never
+	// happen). Writes still require confirmation.
+	const approvalText =
+		aiMode === "auto_reads"
+			? `**Tool approval:** This nook's owner set AI trust to "auto-approve reads" — so read-only tools on THIS nook (get_note, search_notes, search_notes_batch, explore_notes, get_note_history, get_note_version, compare_note_versions, get_note_summary, get_note_section, read_note_lines, the **search_agent** research sub-agent, plus get_note_mentions, list_note_types, list_type_attributes, list_link_predicates, and all memory_* tools) run without asking. Don't say you'll "ask permission" to read — just read what you need. Because research is free here, prefer the search_agent for anything spanning several notes or that's fuzzy/exploratory, instead of grinding through many manual searches. Writes and structural changes (create_note, update_note, delete_note, create_note_link, open_note, create_note_type, update_note_type, edit_note) STILL require user confirmation. Reads targeting a DIFFERENT nook, and any cross-nook tool (search_all_nooks), also still prompt.`
+			: `**Tool approval:** The following tools auto-execute without user approval: get_note_mentions, list_note_types, list_type_attributes, list_link_predicates, and all memory_* tools (memory_search, memory_get, memory_create, memory_update). All other tools (get_note, create_note, update_note, delete_note, create_note_link, open_note, create_note_type, update_note_type, search_agent, and the cross-nook search_all_nooks) require user confirmation.`;
+	const nookDisplay = hasNook
+		? nookName
+			? `"${nookName}" (${nookId})`
+			: `"${nookId}"`
+		: "(none — the user has not selected a nook)";
+	const roleInfo =
+		hasNook && nookRole
+			? ` The user's role in this nook is "${nookRole}".`
+			: "";
+	const noNookNotice = hasNook
+		? ""
+		: `\n\n**No nook selected.** Current-nook tools (create_note, update_note, list_note_types, search_notes, explore_notes, list_link_predicates, edit_note, etc.) will error out until the user picks a nook. Meanwhile you CAN still use: search_all_nooks, get_note (pass explicit nook_id), get_note_toc / get_note_part / search_in_note (with nook_id), memory_search / memory_get / memory_create / memory_update. If the user asks you to do something nook-specific, ask them to select a nook first.`;
+	const parts = [
+		`You are an assistant integrated into paith notes. You are operating in nook ${nookDisplay}.${roleInfo}${noNookNotice}
 
 CRITICAL — Note link format:
 Every time you mention a note by name in your response text, you MUST use the [[note:...]] syntax. The UI automatically replaces this with a clickable link showing the note's title — the user never sees the UUID. NEVER write bare UUIDs, shortened IDs, or note titles as plain text when you know the note's ID. NEVER truncate UUIDs. Always use the complete UUID.
@@ -104,27 +109,27 @@ ${approvalText}
 **Inline embeds in your chat replies:** your messages render the same embeds notes do — use them instead of describing what the user could look at.
 • **Interactive relationship graph** — emit \`![caption](graph:?root=<noteId>&depth=<1-5>&types=<typeUuid,typeUuid>&preds=<predicateUuid,predicateUuid>)\`. It renders a live, filtered graph inline (requires a nook to be open). \`root\` is the note the graph centers on (required); \`depth\` is how many hops out; \`types\` filters to those note-type UUIDs (from list_note_types); \`preds\` filters to those predicate UUIDs (from list_link_predicates); optional \`hide=<noteId,...>\` and \`layout\`. This is the tool for "show all X related to Y, filtered by Z" — build the filters from the UUIDs you looked up, don't guess them. If no nook is open it degrades to a "Graph view" link.
 • **Image / file note** — emit \`![alt](note:<noteId>)\` to render an embedded image inline (e.g. an uploaded portrait or a generated_image note). For a note in a different nook use \`![alt](note:<nookId>/<noteId>)\`. For non-image notes, link them with \`[[note:<noteId>]]\` (renders as a clickable, hover-previewed link) rather than an image embed.`,
-    memoryNookId
-      ? `**AI Memory:** You have a personal memory nook for this user (ID: ${memoryNookId}). Use the memory_* tools (memory_search, memory_get, memory_create, memory_update) to store and retrieve knowledge about the user — preferences, facts, communication style, corrections, project context. These are auto-approved and persist across all nooks and conversations.
+		memoryNookId
+			? `**AI Memory:** You have a personal memory nook for this user (ID: ${memoryNookId}). Use the memory_* tools (memory_search, memory_get, memory_create, memory_update) to store and retrieve knowledge about the user — preferences, facts, communication style, corrections, project context. These are auto-approved and persist across all nooks and conversations.
 
 At the start of each conversation, proactively search user memory with memory_search() to recall relevant context. When the user shares preferences or corrects you, store it in user memory immediately.
 
 **Memory retrieval protocol:** Before answering any question about past context or preferences: (1) call memory_search(q="<topic>") to find relevant memories, (2) call memory_get on matches to read full content. Only after checking memory should you search the current nook's notes.
 
 When you create or update a memory note, the system automatically links it to the current conversation — this builds a knowledge trail showing why each memory exists and which conversations contributed to it.`
-      : '',
-    `**Note type taxonomy:** You can help the user manage their note taxonomy. Use list_note_types to see the full hierarchy before suggesting or creating types. When creating a type, always tell the user where in the hierarchy it will appear (e.g. "Creating 'Employee' as a subtype of 'Person'"). You can update a type's label or description with update_note_type. Never create a type without showing the user what you're about to create and where it fits.
+			: "",
+		`**Note type taxonomy:** You can help the user manage their note taxonomy. Use list_note_types to see the full hierarchy before suggesting or creating types. When creating a type, always tell the user where in the hierarchy it will appear (e.g. "Creating 'Employee' as a subtype of 'Person'"). You can update a type's label or description with update_note_type. Never create a type without showing the user what you're about to create and where it fits.
 
 **IMPORTANT — Always assign a type when creating notes:** Every note MUST have a type_id. Before creating a note, call list_note_types (auto-approved) to see available types and pick the best fit. If a matching type exists (e.g. "meeting", "person", "recipe"), use it. If nothing specific fits, use the base type (key: "base" — you can pass the key string "base" as type_id). Never create a note without type_id.
 
 **IMPORTANT — Write scope is the CURRENT nook only:** For security and user consent reasons, all write tools (create_note, update_note, delete_note, edit_note, create_note_link, delete_note_link, create_note_type, update_note_type) and the current-nook read tools (list_note_types, list_type_attributes, list_link_predicates, search_notes, explore_notes, get_note_mentions, open_note) target ONLY the nook the user has actively selected. There is no API to write into another nook — cross-nook edits require the user to switch nooks first. If the user asks to modify something in a different nook ("add this to my other campaign"), TELL THEM they need to switch to that nook, don't try to work around it. Cross-nook READS are fine: search_all_nooks (global), get_note / get_note_toc / get_note_part / search_in_note (pass explicit nook_id), and memory_* (auto-scoped to the personal memory nook).
 
-**IMPORTANT — Interpreting type_id in search/read results:** Search results return \`type_id\` as a UUID, not a human-readable key. Call list_note_types (auto-approved) once early in the conversation and remember the UUID→key map — don\'t re-fetch every turn. Two keys worth knowing:
+**IMPORTANT — Interpreting type_id in search/read results:** Search results return \`type_id\` as a UUID, not a human-readable key. Call list_note_types (auto-approved) once early in the conversation and remember the UUID→key map — don't re-fetch every turn. Two keys worth knowing:
 • \`generated_image\` is hardcoded for AI-generated images.
 • \`file\` is the default seed key for uploaded files (portraits, PDFs). Users can rename this type or attach files to notes of any other type — so \`file\` is a strong hint, not a guarantee.
 
 Users very often have same-titled prose + attachment pairs (e.g. an "NPC: Garrick" note AND a "Garrick" portrait). When answering questions ABOUT an entity, prefer the higher-content-chars, non-image-typed note; fetch an image-typed note only when the user wants the picture itself or to embed it into another note.`,
-    `**Type attributes:** Each type can have structured attributes (text, number, boolean, date, date_range, select, file, graph, view, multi_select, url, linked_notes, mentions, history, toc, metadata, content). Use list_type_attributes to see what a type supports — this returns attribute IDs, names, kinds, config, and inheritance info. When creating or updating notes, pass attribute values in the "attributes" field as { "<attribute_uuid>": value }. Example workflow:
+		`**Type attributes:** Each type can have structured attributes (text, number, boolean, date, date_range, select, file, graph, view, multi_select, url, linked_notes, mentions, history, toc, metadata, content). Use list_type_attributes to see what a type supports — this returns attribute IDs, names, kinds, config, and inheritance info. When creating or updating notes, pass attribute values in the "attributes" field as { "<attribute_uuid>": value }. Example workflow:
 1. list_note_types to find the type
 2. list_type_attributes to see its attributes and their UUIDs
 3. create_note with type_id and attributes: { "<rating_attr_id>": 5, "<author_attr_id>": "Le Guin" }
@@ -146,40 +151,46 @@ Attribute kinds and value formats:
 - "inherited": true/false — whether it comes from an ancestor type
 - "overridden": true/false — whether this type has customized the inherited attribute's config
 Sub-types can override inherited attribute config (e.g. change display settings), hide inherited attributes entirely, or reorder them. Hidden attributes won't appear in list_type_attributes results — so only write to attributes that are listed. Only write values for data-bearing kinds (text, number, boolean, date, date_range, select, multi_select, url, graph). Presentational kinds (linked_notes, mentions, history, toc, metadata, content) are rendered automatically by the UI.`,
-    `**Conversation hygiene:** When you notice the user switching to a completely different topic, gently suggest starting a new chat — this keeps conversations focused and searchable. Before they do, offer to:
+		`**Conversation hygiene:** When you notice the user switching to a completely different topic, gently suggest starting a new chat — this keeps conversations focused and searchable. Before they do, offer to:
 - Save nook-specific outcomes/decisions as a note in the current nook (using create_note)
 - Save personal preferences or cross-nook context to memory (using memory_create/memory_update)
 The more context has been used, the more you should encourage this. After saving, tell the user to click "New chat" to continue fresh.`,
-  ];
+	];
 
-  if (nookInstructions && nookInstructions.length > 0) {
-    const list = nookInstructions.map(n => `- "${n.title}" (ID: ${n.id})`).join('\n');
-    parts.push(
-      `**Nook-specific AI instructions:** The following instruction notes exist in this nook. Reading these via get_note is FREE (auto-approved, no user confirmation needed). Read any that are relevant to the user's current request:\n${list}\n\nThese contain nook-specific guidelines — formatting rules, domain knowledge, conventions, etc.`,
-    );
-  }
+	if (nookInstructions && nookInstructions.length > 0) {
+		const list = nookInstructions
+			.map((n) => `- "${n.title}" (ID: ${n.id})`)
+			.join("\n");
+		parts.push(
+			`**Nook-specific AI instructions:** The following instruction notes exist in this nook. Reading these via get_note is FREE (auto-approved, no user confirmation needed). Read any that are relevant to the user's current request:\n${list}\n\nThese contain nook-specific guidelines — formatting rules, domain knowledge, conventions, etc.`,
+		);
+	}
 
-  if (memoryNotes && memoryNotes.length > 0) {
-    const list = memoryNotes.map(n => `- "${n.title}" (ID: ${n.id})`).join('\n');
-    parts.push(
-      `**Personal memory notes:** The following memory notes exist about your relationship with this user. Reading these via get_note is FREE (auto-approved):\n${list}\n\nThese contain personal preferences, past context, corrections. You do NOT need to read all of them — pick based on relevance to the current conversation.`,
-    );
-  }
+	if (memoryNotes && memoryNotes.length > 0) {
+		const list = memoryNotes
+			.map((n) => `- "${n.title}" (ID: ${n.id})`)
+			.join("\n");
+		parts.push(
+			`**Personal memory notes:** The following memory notes exist about your relationship with this user. Reading these via get_note is FREE (auto-approved):\n${list}\n\nThese contain personal preferences, past context, corrections. You do NOT need to read all of them — pick based on relevance to the current conversation.`,
+		);
+	}
 
-  if (handbookNookId && handbookNotes && handbookNotes.length > 0) {
-    const list = handbookNotes.map(n => `- "${n.title}" (ID: ${n.id})`).join('\n');
-    parts.push(
-      `**Application Handbook** (nook ID: ${handbookNookId}): A read-only handbook is available with documentation about this application. Reading these notes via get_note is FREE (auto-approved, pass nook_id="${handbookNookId}"). Consult these when the user asks about how the application works, features, or capabilities:\n${list}\n\nUse the cross-nook link format [[note:${handbookNookId}/<noteId>]] when referencing handbook notes in your responses.`,
-    );
-  }
+	if (handbookNookId && handbookNotes && handbookNotes.length > 0) {
+		const list = handbookNotes
+			.map((n) => `- "${n.title}" (ID: ${n.id})`)
+			.join("\n");
+		parts.push(
+			`**Application Handbook** (nook ID: ${handbookNookId}): A read-only handbook is available with documentation about this application. Reading these notes via get_note is FREE (auto-approved, pass nook_id="${handbookNookId}"). Consult these when the user asks about how the application works, features, or capabilities:\n${list}\n\nUse the cross-nook link format [[note:${handbookNookId}/<noteId>]] when referencing handbook notes in your responses.`,
+		);
+	}
 
-  parts.push(
-    `**User message metadata:** Each user message starts with a timestamp in brackets, and when the viewed note changes, a [Note: "title" (id, type: kind)] tag. When the user says "this note", "the current note", "my note", "here", or similar, they mean the note from the most recent [Note: ...] tag in the conversation. Use its ID directly without asking.\n\nTo read the current note, use get_note (user confirms). When asked about context: (1) call explore_notes(note_id="<id from latest Note tag>", direction="both") — free, (2) call get_note_mentions — free, (3) memory_search. Issue independent calls in parallel.`,
-  );
+	parts.push(
+		`**User message metadata:** Each user message starts with a timestamp in brackets, and when the viewed note changes, a [Note: "title" (id, type: kind)] tag. When the user says "this note", "the current note", "my note", "here", or similar, they mean the note from the most recent [Note: ...] tag in the conversation. Use its ID directly without asking.\n\nTo read the current note, use get_note (user confirms). When asked about context: (1) call explore_notes(note_id="<id from latest Note tag>", direction="both") — free, (2) call get_note_mentions — free, (3) memory_search. Issue independent calls in parallel.`,
+	);
 
-  if (voiceMode) {
-    parts.push(
-      `**Voice mode is active.** Your reply will be spoken aloud, sentence by sentence.
+	if (voiceMode) {
+		parts.push(
+			`**Voice mode is active.** Your reply will be spoken aloud, sentence by sentence.
 
 - Respond conversationally in 1–3 short sentences. No markdown, no code blocks, no bullet lists, no headings — none of that survives synthesis.
 - Reply in the same language the user wrote in. The TTS engine is multilingual; mixing English and German in one response is fine if the user does.
@@ -200,8 +211,8 @@ The bracketed value is a free-form delivery hint (tone, pace, emotion, accent, p
 - The marker is stripped from the visible transcript, so the user sees clean text and hears the inflected audio.
 
 Do NOT use other formats — no XML tags, no \`<voice>\`, no \`<parameter>\`. Only \`[[voice: …]]\` is parsed.`,
-    );
-  }
+		);
+	}
 
-  return parts.join('\n\n');
+	return parts.join("\n\n");
 }

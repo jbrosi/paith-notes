@@ -23,28 +23,39 @@ export type ResizedImage = {
 	/** base64 of the resized image (no data: prefix). */
 	base64: string;
 	/** mime type of the resized output. */
-	mediaType: 'image/jpeg' | 'image/png' | 'image/webp';
+	mediaType: "image/jpeg" | "image/png" | "image/webp";
 };
 
 /** Decode an image `data` (data: URI or bare base64) into a Buffer. */
 export function decodeImage(input: Buffer | string): Buffer {
 	if (Buffer.isBuffer(input)) return input;
 	const s = input.trim();
-	if (s.startsWith('data:')) {
-		const b64 = s.split('base64,').pop() ?? '';
-		return Buffer.from(b64.replace(/\s/g, ''), 'base64');
+	if (s.startsWith("data:")) {
+		const b64 = s.split("base64,").pop() ?? "";
+		return Buffer.from(b64.replace(/\s/g, ""), "base64");
 	}
-	return Buffer.from(s.replace(/\s/g, ''), 'base64');
+	return Buffer.from(s.replace(/\s/g, ""), "base64");
 }
 
 /** Minimal structural type for the sharp bits we use, so the lazy import
  *  doesn't leak the module's types into this file's signatures. */
 type SharpInstance = {
 	rotate: () => SharpInstance;
-	metadata: () => Promise<{ width?: number; height?: number; hasAlpha?: boolean; format?: string }>;
-	resize: (w: number, h: number, opts: { withoutEnlargement: boolean }) => SharpInstance;
+	metadata: () => Promise<{
+		width?: number;
+		height?: number;
+		hasAlpha?: boolean;
+		format?: string;
+	}>;
+	resize: (
+		w: number,
+		h: number,
+		opts: { withoutEnlargement: boolean },
+	) => SharpInstance;
 	png: () => { toBuffer: () => Promise<Buffer> };
-	flatten: (opts: { background: { r: number; g: number; b: number } }) => SharpInstance;
+	flatten: (opts: {
+		background: { r: number; g: number; b: number };
+	}) => SharpInstance;
 	jpeg: (opts: { quality: number }) => { toBuffer: () => Promise<Buffer> };
 };
 
@@ -58,7 +69,7 @@ type SharpFactory = (input: Buffer) => SharpInstance;
 export async function resizeForVision(
 	input: Buffer | string,
 ): Promise<ResizedImage> {
-	const { default: sharp } = (await import('sharp')) as unknown as {
+	const { default: sharp } = (await import("sharp")) as unknown as {
 		default: SharpFactory;
 	};
 	const buf = decodeImage(input);
@@ -67,7 +78,7 @@ export async function resizeForVision(
 	const width = metadata.width ?? 0;
 	const height = metadata.height ?? 0;
 	if (!width || !height) {
-		throw new Error('image has no dimensions');
+		throw new Error("image has no dimensions");
 	}
 
 	const scale = Math.min(1, MAX_DIMENSION / Math.max(width, height));
@@ -79,27 +90,27 @@ export async function resizeForVision(
 	// Keep PNG only when it has alpha (transparency) — JPEG can't. Otherwise
 	// JPEG is smaller and fine for the model to look at. If the preferred
 	// encode ever fails on an odd input, fall back to the other format.
-	const encode = async (fmt: 'png' | 'jpeg'): Promise<Buffer> => {
+	const encode = async (fmt: "png" | "jpeg"): Promise<Buffer> => {
 		const base = resizeTo(sharp(buf).rotate());
-		if (fmt === 'png') return base.png().toBuffer();
+		if (fmt === "png") return base.png().toBuffer();
 		return base
 			.flatten({ background: { r: 255, g: 255, b: 255 } })
 			.jpeg({ quality: JPEG_QUALITY })
 			.toBuffer();
 	};
 
-	const wantPng = metadata.hasAlpha === true && metadata.format === 'png';
+	const wantPng = metadata.hasAlpha === true && metadata.format === "png";
 	try {
-		const out = await encode(wantPng ? 'png' : 'jpeg');
+		const out = await encode(wantPng ? "png" : "jpeg");
 		return {
-			base64: out.toString('base64'),
-			mediaType: wantPng ? 'image/png' : 'image/jpeg',
+			base64: out.toString("base64"),
+			mediaType: wantPng ? "image/png" : "image/jpeg",
 		};
 	} catch {
-		const out = await encode(wantPng ? 'jpeg' : 'png');
+		const out = await encode(wantPng ? "jpeg" : "png");
 		return {
-			base64: out.toString('base64'),
-			mediaType: wantPng ? 'image/jpeg' : 'image/png',
+			base64: out.toString("base64"),
+			mediaType: wantPng ? "image/jpeg" : "image/png",
 		};
 	}
 }

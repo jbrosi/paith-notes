@@ -10,8 +10,8 @@
  * 27B VL build and sees images. Everything else degrades to "the model can't
  * see images, tell the user to switch to Paith High".
  */
-const VISION_MODELS = new Set(['paith-high']);
+const VISION_MODELS = new Set(["paith-high"]);
 
 export function modelSupportsVision(model: string): boolean {
-  return VISION_MODELS.has(model);
+	return VISION_MODELS.has(model);
 }
