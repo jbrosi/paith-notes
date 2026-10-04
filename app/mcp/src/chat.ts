@@ -127,7 +127,7 @@ function buildConversationSummary(messages: Anthropic.MessageParam[], maxLength 
   return parts.join('\n');
 }
 
-const DEFAULT_MODEL = 'qwen3.8:27b-mtp-q4_K_M';
+const DEFAULT_MODEL = 'paith-low';
 const MAX_TOKENS    = 8096;
 const MAX_AUTO_DEPTH = 8;
 
@@ -149,7 +149,8 @@ function isLegacyClaudeModel(model: string): boolean {
 // aliases these names (see .env.example). Context limits below are the
 // backend's real windows — CHAT_CONTEXT_LIMIT still overrides them.
 const MODEL_CONTEXT_LIMITS: Record<string, number> = {
-  'qwen3.8:27b-mtp-q4_K_M': 262_144,
+  'paith-low': 32_768,
+  'paith-high': 262_144,
   // Legacy Claude aliases stay resolvable so existing saved conversations
   // and tests keep their documented windows.
   'claude-sonnet-5': 1_000_000,

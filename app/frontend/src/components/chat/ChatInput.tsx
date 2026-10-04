@@ -30,7 +30,10 @@ const WAKE_AVAILABLE = WAKE_URL !== "" && isWakeSupported();
 // Model names are the real backend names (proxied through LiteLLM to local
 // models when ANTHROPIC_BASE_URL is set). The UI shows the human label;
 // the value is what gets sent to MCP and stored on the conversation.
-const MODELS = [{ value: "qwen3.8:27b-mtp-q4_K_M", label: "Qwen 3.8 27B" }];
+const MODELS = [
+	{ value: "paith-low", label: "Paith Low" },
+	{ value: "paith-high", label: "Paith High" },
+];
 
 // Extended-thinking levels the chat backend supports. "off" is the
 // default (no thinking). Local qwen backends advertise a "thinking"
@@ -314,7 +317,11 @@ export function ChatInput(props: Props) {
 				<select
 					class={styles.modelSelect}
 					value={props.model}
-					onChange={(e) => props.onModelChange(e.currentTarget.value)}
+					onChange={(e) => {
+						const v = e.currentTarget.value;
+						sessionStorage.setItem("paith-model", v);
+						props.onModelChange(v);
+					}}
 					disabled={props.disabled || props.busy}
 				>
 					{MODELS.map((m) => (
